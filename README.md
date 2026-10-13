@@ -1106,6 +1106,11 @@ Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
     put its address on the paper card. The Write tab clones it, puts the
     template's files in (in place of the blank `main.tex`), makes the
     template's paper the main document, and pushes it all to Overleaf.
+  - **From the PDF to the source**, as in Overleaf: double-click a word or a
+    figure in the compiled PDF and its file opens at the line that made it.
+    Every compiler (the Companion, Cloud Run, GitHub Actions) runs with
+    SyncTeX and hands its `.synctex.gz` back beside the PDF; the page reads
+    it. A Companion before this change compiles without handing it back.
   - **Autocomplete**, as in Overleaf:
     - A backslash and a letter or two bring the commands, the paper's own
       `\newcommand`s among them, with the caret put in the first argument.

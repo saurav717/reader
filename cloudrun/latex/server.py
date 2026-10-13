@@ -2,7 +2,9 @@
 
 POST /compile, with the Worker's secret as a bearer token and JSON
 {main, flag, files: [{path, base64}]}, compiles the files with latexmk and all
-of TeX Live and answers {pdf: base64 or '', log, exit, seconds}.
+of TeX Live and answers {pdf: base64 or '', synctex: base64 of the gzipped
+SyncTeX or '', log, exit, seconds}: SyncTeX takes a double-click on the PDF
+to its source line, as Overleaf's does.
 
 As Overleaf's compile servers do, a project's folder is kept between compiles
 when the job names one (project, from the Worker: a hash of who and which
@@ -43,6 +45,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOKEN = os.environ.get('LATEX_TOKEN', '').strip()
 MAX_BODY = 30 * 1024 * 1024
+# A double-click's map from the PDF to its source: handed back up to this size (gzipped).
+MAX_SYNCTEX = 8 * 1024 * 1024
 TIMEOUT_S = int(os.environ.get('LATEX_TIMEOUT_S', '240'))
 FLAGS = {'-pdf', '-xelatex', '-lualatex', '-pdfdvi'}
 USER = os.environ.get('LATEX_USER', 'tex')
@@ -171,7 +175,7 @@ def compile_in(work, job, keep):
     out = (src / main).parent
     # latexmk decides what to rerun from what changed; -g makes it do all, when the engine changed or nothing is kept.
     again = ['-g'] if not keep or state.get('flag') != flag else []
-    command = [LATEXMK, flag, '-cd', *again, '-f', '-interaction=nonstopmode', '-file-line-error', '-jobname=output', main]
+    command = [LATEXMK, flag, '-cd', *again, '-f', '-interaction=nonstopmode', '-file-line-error', '-synctex=1', '-jobname=output', main]
     started = time.monotonic()
     with open(work / 'stdout.txt', 'wb') as stdout:
         process = subprocess.Popen(command, cwd=src, env=CLEAN_ENV, stdout=stdout, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, **user)
@@ -188,8 +192,11 @@ def compile_in(work, job, keep):
         (work / 'state.json').write_text(json.dumps(state))
         os.utime(work)
     pdf = out / 'output.pdf'
+    synctex = out / 'output.synctex.gz'
     log = ''.join(p.read_text(errors='replace') for p in (out / 'output.log', work / 'stdout.txt') if p.exists())
-    return {'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'log': log[-400_000:], 'exit': code, 'seconds': seconds, 'cached': bool(cached)}
+    return {'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '',
+            'synctex': base64.b64encode(synctex.read_bytes()).decode() if pdf.exists() and synctex.exists() and synctex.stat().st_size <= MAX_SYNCTEX else '',
+            'log': log[-400_000:], 'exit': code, 'seconds': seconds, 'cached': bool(cached)}
 
 
 # ------------------------------------------------------------ Overleaf --

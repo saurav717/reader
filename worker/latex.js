@@ -65,7 +65,7 @@ export function latexCompilerReady(env, on) {
   return false;
 }
 
-const keys = (id) => ({ meta: `latex:meta:${id}`, source: `latex:src:${id}`, pdf: `latex:pdf:${id}`, log: `latex:log:${id}` });
+const keys = (id) => ({ meta: `latex:meta:${id}`, source: `latex:src:${id}`, pdf: `latex:pdf:${id}`, log: `latex:log:${id}`, synctex: `latex:synctex:${id}` });
 /**
  * One compile's state, read and written in one place, so what the runner says
  * the page sees at once. It forgets the job an hour on.
@@ -159,9 +159,12 @@ async function keepResult(env, id, meta, body, tally) {
   const k = keys(id);
   const pdf = typeof body.pdf === 'string' && body.pdf ? Uint8Array.from(atob(body.pdf), (char) => char.charCodeAt(0)) : null;
   if (pdf) await kv.put(k.pdf, pdf, { expirationTtl: TTL_S });
+  // SyncTeX, gzipped: a double-click on the PDF opens its source line.
+  const synctex = pdf && typeof body.synctex === 'string' && body.synctex ? Uint8Array.from(atob(body.synctex), (char) => char.charCodeAt(0)) : null;
+  if (synctex) await kv.put(k.synctex, synctex, { expirationTtl: TTL_S });
   await kv.put(k.log, String(body.log || '').slice(-400_000), { expirationTtl: TTL_S });
   await kv.delete(k.source);
-  await jobStates(env).put(id, { ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, texSeconds: Number.isFinite(body.seconds) ? body.seconds : null, doneAt: Date.now() });
+  await jobStates(env).put(id, { ...meta, state: 'done', pdf: Boolean(pdf), synctex: Boolean(synctex), exit: Number.isFinite(body.exit) ? body.exit : null, texSeconds: Number.isFinite(body.seconds) ? body.seconds : null, doneAt: Date.now() });
   if (meta.email) await kv.delete(`latex:active:${meta.email}`);
   // On the Usage page: a compile, and the compiler's seconds on it, for its owner.
   const seconds = Math.max(1, Math.round((Date.now() - (meta.compilingAt || meta.createdAt || Date.now())) / 1000));
@@ -534,18 +537,23 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     return json({ id, on: 'github', state: 'queued' }, 202, noStore);
   }
 
-  const asked = /^\/latex\/jobs\/([a-f0-9]{32})(?:\/(pdf|log))?$/.exec(path);
+  const asked = /^\/latex\/jobs\/([a-f0-9]{32})(?:\/(pdf|log|synctex))?$/.exec(path);
   if (!asked || !isId(asked[1])) return json({ error: 'not found' }, 404, noStore);
   const [, id, what] = asked;
   const k = keys(id);
   const meta = await jobs.get(id);
   // Another person's job answers as if there were none.
   if (!meta || (meta.email !== owner && !who.owner)) return json({ error: 'no such job, or it has expired' }, 404, noStore);
-  if (!what) return json({ state: meta.state, on: meta.on ?? 'github', pdf: Boolean(meta.pdf), exit: meta.exit ?? null, texSeconds: meta.texSeconds ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
+  if (!what) return json({ state: meta.state, on: meta.on ?? 'github', pdf: Boolean(meta.pdf), synctex: Boolean(meta.synctex), exit: meta.exit ?? null, texSeconds: meta.texSeconds ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
   if (what === 'pdf') {
     const pdf = await kv.get(k.pdf, 'arrayBuffer');
     if (!pdf) return json({ error: 'no PDF' }, 404, noStore);
     return new Response(pdf, { status: 200, headers: { ...noStore, 'Content-Type': 'application/pdf' } });
+  }
+  if (what === 'synctex') {
+    const synctex = await kv.get(k.synctex, 'arrayBuffer');
+    if (!synctex) return json({ error: 'no SyncTeX' }, 404, noStore);
+    return new Response(synctex, { status: 200, headers: { ...noStore, 'Content-Type': 'application/gzip' } });
   }
   const log = (await kv.get(k.log)) ?? '';
   return new Response(log, { status: 200, headers: { ...noStore, 'Content-Type': 'text/plain; charset=utf-8' } });

@@ -258,7 +258,7 @@ def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, av
     argv = compile_command(engine, main, available, compiler, str(out), halt)
     tectonic = Path(argv[0]).stem.lower() == "tectonic"
     stem = Path(main).stem if tectonic else JOB
-    pdf_path, log_path = out / f"{stem}.pdf", out / f"{stem}.log"
+    pdf_path, log_path, synctex_path = out / f"{stem}.pdf", out / f"{stem}.log", out / f"{stem}.synctex.gz"
     started = time.time()
     try:
         # latexmk finds pdflatex, biber and the rest on the PATH: its own folder first, so a TeX Live comes whole.
@@ -279,12 +279,17 @@ def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, av
     pdf = ""
     if pdf_path.is_file() and pdf_path.stat().st_mtime >= started - 1 and pdf_path.stat().st_size <= MAX_PDF_BYTES:
         pdf = base64.b64encode(pdf_path.read_bytes()).decode("ascii")
+    # SyncTeX, gzipped: what takes a double-click on the PDF to its source line, as in Overleaf.
+    synctex = ""
+    if pdf and synctex_path.is_file() and synctex_path.stat().st_mtime >= started - 1 and synctex_path.stat().st_size <= MAX_PDF_BYTES:
+        synctex = base64.b64encode(synctex_path.read_bytes()).decode("ascii")
     return {
         "ok": code == 0 and not read["errors"],
         "main": main,
         "engine": Path(argv[0]).stem,
         "compiler": "xelatex" if tectonic else compiler,
         "pdf": pdf,
+        "synctex": synctex,
         "errors": read["errors"],
         "warnings": read["warnings"],
         "log": (log or output)[-60_000:],

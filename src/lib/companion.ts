@@ -637,6 +637,8 @@ export interface Compiled {
   compiler?: TexCompiler;
   /** The PDF, base64; '' when none was made. */
   pdf: string;
+  /** Its SyncTeX, gzipped, base64: a double-click on the PDF opens its source line. */
+  synctex?: string;
   errors: TexProblem[];
   warnings: TexProblem[];
   log: string;

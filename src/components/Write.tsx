@@ -14,6 +14,7 @@ import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, REVEAL_VERSI
 import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, latexLinkAt, latexOwner, latexSeparate, openInOverleaf, overleafGitUrl, withLatexLink, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
+import { parseSyncTex, sourceAt, unzipSyncTex, type SyncTex } from '../lib/synctex';
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import { thisComputer, type ThisComputer } from '../lib/thisComputer';
 import type { LatexLink, OverleafLink, PaperFolder, WriteOptions } from '../types';
@@ -2237,6 +2238,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const editor = useRef<CodeEditorHandle>(null);
   const [compiled, setCompiled] = useState<Compiled | null>(null);
   const [pdf, setPdf] = useState<Blob | null>(null);
+  // The PDF's SyncTeX (gzipped), from the same compile: a double-click on the PDF opens the line that made it.
+  const [synctex, setSynctex] = useState<Blob | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [compileError, setCompileError] = useState<string | null>(null);
   const [engines, setEngines] = useState<PaperEngines | null>(null);
@@ -2334,7 +2337,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     try {
       const done = await compilePaper(server, folder.path, options.engine, { main: mainRef.current, compiler, halt: options.errors === 'halt' });
       setCompiled(done);
-      if (done.pdf) setPdf(toBlob(done.pdf));
+      if (done.pdf) (setPdf(toBlob(done.pdf)), setSynctex(done.synctex ? toBlob(done.synctex) : null));
       if (done.errors.length && !done.pdf) setShowLog(true);
     } catch (error) {
       setCompileError(error instanceof Error ? error.message : String(error));
@@ -2671,12 +2674,48 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   // Linked to Overleaf with no account to sync with: a nudge, the account's form only when asked for (or the paper card asked).
   const [accountOpen, setAccountOpen] = useState(connectOverleaf);
   const canConnect = inDrive && !git && Boolean(rootStore);
+  // A line asked for in a file not open yet (a double-click on the PDF): gone to as the file opens, in place of where it was left.
+  const jump = useRef<{ file: string; line: number } | null>(null);
   useEffect(() => {
-    if (!shown || !current || placed.current === shown) return;
+    if (!shown || !current) return;
+    const asked = jump.current?.file === shown ? jump.current : null;
+    if (!asked && placed.current === shown) return;
     placed.current = shown;
-    const line = lineIn(project.id, placeDir, shown);
+    jump.current = null;
+    const line = asked ? asked.line : lineIn(project.id, placeDir, shown);
     window.setTimeout(() => (line > 1 ? editor.current?.goToLine(line) : editor.current?.focus()), 60);
   }, [shown, current, project.id, placeDir]);
+
+  // ---- from the PDF to the source: a double-click, as in Overleaf, by the compile's SyncTeX
+  const syncRead = useRef<{ of: Blob; map: Promise<SyncTex> } | null>(null);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+  const noteTimer = useRef<number>();
+  const note = (text: string) => {
+    setSyncNote(text);
+    window.clearTimeout(noteTimer.current);
+    noteTimer.current = window.setTimeout(() => setSyncNote(null), 5000);
+  };
+  const toSource = async (page: number, x: number, y: number) => {
+    if (!synctex) {
+      return note(options.pdf === 'here' && here && !inDrive ? 'Double-clicking the PDF to reach its source needs the Companion’s latest version, and a compile after.' : 'Compile once more, and a double-click on the PDF opens the line that made it.');
+    }
+    if (syncRead.current?.of !== synctex) syncRead.current = { of: synctex, map: synctex.arrayBuffer().then((bytes) => unzipSyncTex(new Uint8Array(bytes))).then(parseSyncTex) };
+    let map: SyncTex;
+    try {
+      map = await syncRead.current.map;
+    } catch (error) {
+      return note(`The PDF’s SyncTeX couldn’t be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const place = sourceAt(map, page, x, y, texts);
+    if (!place) return note('Nothing there came from this project’s files.');
+    setSyncNote(null);
+    if (options.layout === 'tabs') setPane('source');
+    if (place.file === shown && current && !looking) return void editor.current?.goToLine(place.line);
+    jump.current = place;
+    // Opened again even if it is the file open, so the effect above goes to the line once it shows.
+    if (place.file === shown) placed.current = null;
+    setOpen(place.file);
+  };
   const onCursor = useCallback(
     (cursor: { line: number }) => {
       if (!shown) return;
@@ -2690,6 +2729,14 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const texLive = compiled?.engine === 'latexmk' ? engines?.texVersion?.match(/TeX Live (\d{4})/)?.[1] : undefined;
   // Packages the compile looked for and this computer's TeX hasn't got: Overleaf has them all.
   const missing = useMemo(() => missingPackages(compiled), [compiled]);
+  // Figures "not found" that are there, as PNG, JPEG or PDF: the LaTeX compiler goes through DVI, which takes only EPS.
+  const dviFigures = useMemo(() => {
+    if (compiler !== 'latex' || !compiled) return [];
+    const figures = scoped.filter((path) => /\.(png|jpe?g|pdf)$/i.test(path)).map((path) => path.split('/').pop()!.replace(/\.[^.]+$/, ''));
+    const named = compiled.errors.map((item) => /File `([^']+)' not found/.exec(item.message)?.[1]?.split('/').pop()?.replace(/\.(png|jpe?g|pdf)$/i, ''));
+    return [...new Set(named.filter((name): name is string => Boolean(name) && figures.includes(name!)))];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compiled, compiler, paths]);
 
   const source = (
     <section className="wr-source">
@@ -2797,7 +2844,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
       while (Date.now() < until) {
         await new Promise((resolve) => setTimeout(resolve, wait));
         wait = 4000;
-        const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null)) as { state?: string; pdf?: boolean; exit?: number | null; error?: string | null } | null;
+        const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null)) as { state?: string; pdf?: boolean; synctex?: boolean; exit?: number | null; error?: string | null } | null;
         if (!now?.state) continue;
         if (now.state === 'failed') throw new Error(now.error ?? 'The compile didn’t start.');
         if (now.state !== 'done') {
@@ -2806,9 +2853,10 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         }
         const log = await (await apiFetch(`/latex/jobs/${job.id}/log`, { cache: 'no-store' })).text().catch(() => '');
         const blob = now.pdf ? await (await apiFetch(`/latex/jobs/${job.id}/pdf`, { cache: 'no-store' })).blob() : null;
+        const sync = blob && now.synctex ? await apiFetch(`/latex/jobs/${job.id}/synctex`, { cache: 'no-store' }).then((got) => (got.ok ? got.blob() : null), () => null) : null;
         const read = readTexLog(log);
         setCompiled({ ok: Boolean(blob) && now.exit === 0, main, engine: 'GitHub · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
-        if (blob) setPdf(new Blob([blob], { type: 'application/pdf' }));
+        if (blob) (setPdf(new Blob([blob], { type: 'application/pdf' })), setSynctex(sync));
         if (read.errors.length && !blob) setShowLog(true);
         setGh({ phase: 'done', on, startedAt: started, finishedAt: Date.now(), });
         return;
@@ -2880,14 +2928,14 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         changed = [...new Set([...changed, ...need])];
         answer = await send(need);
       }
-      const result = (await answer.json().catch(() => ({}))) as { pdf?: string; log?: string; exit?: number; seconds?: number; cached?: boolean; error?: string; need?: string[] };
+      const result = (await answer.json().catch(() => ({}))) as { pdf?: string; synctex?: string; log?: string; exit?: number; seconds?: number; cached?: boolean; error?: string; need?: string[] };
       if (!answer.ok) throw new Error(result.error ?? `The compiler answered ${answer.status}.`);
       state.acked = new Map(Object.entries(manifest));
       const log = result.log ?? '';
       const read = readTexLog(log);
       const blob = result.pdf ? toBlob(result.pdf) : null;
       setCompiled({ ok: Boolean(blob) && result.exit === 0, main, engine: 'Cloud Run · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
-      if (blob) setPdf(blob);
+      if (blob) (setPdf(blob), setSynctex(result.synctex ? toBlob(result.synctex) : null));
       if (read.errors.length && !blob) setShowLog(true);
       setGh({ phase: 'done', on: 'cloudrun', startedAt: started, finishedAt: Date.now(), texSeconds: result.seconds ?? null, readSeconds, sent: changed.length, kept: Boolean(result.cached) });
     } catch (error) {
@@ -3092,7 +3140,16 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
       {compiled && compiled.compiler && compiled.compiler !== compiler ? (
         <p className="wr-banner is-soft">Compiled with Tectonic, which is always XeLaTeX, not this project’s {TEX_COMPILERS.find((item) => item.id === compiler)?.label}: install TeX Live (or MacTeX) for the PDF Overleaf makes.</p>
       ) : null}
-      <PdfPages blob={pdf} />
+      {dviFigures.length ? (
+        <p className="wr-banner">
+          <b>{dviFigures.join(', ')}</b> {dviFigures.length === 1 ? 'is a PNG, JPEG or PDF figure' : 'are PNG, JPEG or PDF figures'}, which the LaTeX compiler can’t include: it goes through DVI, which takes EPS only (on Overleaf too). pdfLaTeX takes them.{' '}
+          <button type="button" className="link-btn" onClick={() => updateLink({ compiler: 'pdflatex' })}>
+            Compile with pdfLaTeX
+          </button>
+        </p>
+      ) : null}
+      {syncNote ? <p className="wr-banner is-soft">{syncNote}</p> : null}
+      <PdfPages blob={pdf} onSource={(page, x, y) => void toSource(page, x, y)} />
     </section>
   );
 
@@ -3501,7 +3558,7 @@ function FilePreview({ store, path }: { store: PaperStore; path: string }) {
 }
 
 /** The compiled PDF, every page drawn at the pane's width; where you were stays put across compiles. */
-function PdfPages({ blob }: { blob: Blob | null }) {
+function PdfPages({ blob, onSource }: { blob: Blob | null; /** A double-click on a page: its number, and the point in PDF points from its top-left corner. */ onSource?: (page: number, x: number, y: number) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -3537,6 +3594,9 @@ function PdfPages({ blob }: { blob: Blob | null }) {
           canvas.style.width = `${Math.floor(viewport.width / scale)}px`;
           canvas.style.height = `${Math.floor(viewport.height / scale)}px`;
           canvas.className = 'wr-page';
+          canvas.dataset.page = String(n);
+          canvas.dataset.width = String(base.width);
+          canvas.dataset.height = String(base.height);
           await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
           if (cancelled) return;
           canvases.push(canvas);
@@ -3560,7 +3620,19 @@ function PdfPages({ blob }: { blob: Blob | null }) {
     <div className="wr-pdf" ref={box}>
       {problem ? <p className="wr-bad wr-pad">The PDF couldn’t be drawn: {problem}</p> : null}
       {!blob ? <p className="wr-quiet wr-pad">The PDF shows here once it compiles.</p> : null}
-      <div className="wr-pdf-pages" ref={pagesRef} />
+      <div
+        className="wr-pdf-pages"
+        ref={pagesRef}
+        title={onSource && blob ? 'Double-click to go to its source' : undefined}
+        onDoubleClick={(event) => {
+          const canvas = event.target instanceof HTMLCanvasElement ? event.target : null;
+          if (!onSource || !canvas?.dataset.page) return;
+          event.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          const rect = canvas.getBoundingClientRect();
+          onSource(Number(canvas.dataset.page), ((event.clientX - rect.left) / rect.width) * Number(canvas.dataset.width), ((event.clientY - rect.top) / rect.height) * Number(canvas.dataset.height));
+        }}
+      />
     </div>
   );
 }
