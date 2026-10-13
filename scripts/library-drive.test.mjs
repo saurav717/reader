@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, loadTogether } from './bundle.mjs';
 
-const { parseLibrary, mergeLibraries, serialise, fromSidecar, libraryFromSidecars, sidecar, emptyLibrary } = await loadTogether([
+const { parseLibrary, parseLibraryFile, mergeLibraries, serialise, fromSidecar, libraryFromSidecars, sidecar, emptyLibrary } = await loadTogether([
   'src/lib/driveLibrary.ts',
   'src/lib/sidecar.ts',
 ]);
@@ -59,6 +59,18 @@ describe('the file in Drive', () => {
   it('refuses something that is not a library rather than emptying the one open', () => {
     assert.equal(parseLibrary('not json'), null);
     assert.equal(parseLibrary('{"hello": 1}'), null);
+  });
+
+  // The page checks whose a file says it is against the account it is showing
+  // before it merges or writes over it: a token for another account, reached
+  // through a renewal that Google answered as someone else, must not carry one
+  // account's library into the other's Drive.
+  it('says whose the file is, when it says', () => {
+    const library = emptyLibrary();
+    const text = JSON.stringify({ generator: 'reader', version: 1, account: 'reader@example.com', updatedAt: 'x', ...library });
+    assert.deepEqual(parseLibraryFile(text), { library, account: 'reader@example.com' });
+    assert.deepEqual(parseLibraryFile(JSON.stringify({ ...library, account: '  ' })), { library });
+    assert.deepEqual(parseLibraryFile(JSON.stringify(library)), { library });
   });
 
   it('drops records it cannot use and fills in missing lists', () => {

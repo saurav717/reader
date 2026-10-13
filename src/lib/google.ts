@@ -21,6 +21,14 @@
  * them. `connectDrive` is the same request again, for a sign-in where Drive
  * was left unticked or has lapsed.
  *
+ * Every token is held beside who it is for, and that is never assumed: the
+ * profile is read on each grant, a renewal's included. A browser signed in to
+ * several Google accounts is offered a chooser, so a renewal names the account
+ * it is for (Google's `hint`), and one that still comes back as someone else
+ * is theirs — the page is told to open that account's library, and the work
+ * waiting on the renewal is refused the token rather than sent to the wrong
+ * Drive with it.
+ *
  * Everything a click reaches is synchronous once the GIS script is in the page:
  * a browser only opens a popup for a window that still has the user's gesture,
  * and awaiting a script download in between spends it. So the script is
@@ -64,7 +72,7 @@ interface TokenResponse {
 }
 
 interface TokenClient {
-  requestAccessToken: (overrides?: { prompt?: string }) => void;
+  requestAccessToken: (overrides?: { prompt?: string; hint?: string }) => void;
 }
 
 declare global {
@@ -76,6 +84,8 @@ declare global {
             client_id: string;
             scope: string;
             prompt?: string;
+            /** The account the request is for, as its email: Google picks it rather than asking. */
+            hint?: string;
             callback: (response: TokenResponse) => void;
             error_callback?: (error: { type?: string; message?: string }) => void;
           }) => TokenClient;
@@ -171,6 +181,34 @@ function writeSession(next: StoredToken | null): void {
 }
 
 let token: StoredToken | null = readSession();
+/**
+ * Whose sign-in this tab's is. Kept past the token running out or being
+ * refused — those drop the token, not the person — so that a renewal can be
+ * checked against it; a sign-out clears it.
+ */
+let whose: GoogleUser | null = token?.user ?? null;
+/** Counts sign-outs, so a profile still being read when one happens is not held as a sign-in after it. */
+let signOuts = 0;
+
+/** Whether two emails name the same account, as Google writes them. */
+export const sameAccount = (a: string | undefined, b: string | undefined): boolean =>
+  Boolean(a && b) && a!.trim().toLowerCase() === b!.trim().toLowerCase();
+
+/**
+ * A renewal Google answered as another account than the one signed in here.
+ * The token is that account's, and is held as its sign-in; whatever was
+ * waiting on the renewal is refused it, since that work was the first
+ * account's.
+ */
+export class AccountChangedError extends Error {
+  constructor(
+    public readonly expected: string,
+    public readonly actual: string,
+  ) {
+    super(`Google signed you in as ${actual}, not ${expected}. Opening that account's library instead.`);
+    this.name = 'AccountChangedError';
+  }
+}
 
 // ---------------------------------------------------- the other tabs ----
 
@@ -203,10 +241,13 @@ if (tabs) {
     } else if (message?.type === 'token') {
       if (!adoptable(token, message.token)) return;
       token = message.token;
+      whose = token.user ?? whose;
       writeSession(token);
       sessionListeners.forEach((listener) => listener('token'));
     } else if (message?.type === 'signout') {
       token = null;
+      whose = null;
+      signOuts += 1;
       writeSession(null);
       sessionListeners.forEach((listener) => listener('signout'));
     }
@@ -241,12 +282,13 @@ export function askOtherTabs(ms = 400): Promise<boolean> {
 
 function setToken(next: StoredToken | null): void {
   token = next;
+  if (next?.user) whose = next.user;
   writeSession(next);
   // A new or renewed sign-in reaches the other tabs too; a token dropped here (refused, expired) does not.
   if (next?.user && tabs) tabs.postMessage({ type: 'token', token: next } satisfies TabMessage);
 }
 
-/** Drop a token Google or Drive no longer honours, so the next need asks afresh. */
+/** Drop a token Google or Drive no longer honours, so the next need asks afresh. Whose it was is kept. */
 function forgetToken(): void {
   setToken(null);
 }
@@ -254,6 +296,11 @@ function forgetToken(): void {
 /** The person the restored session belongs to, for a page that has just loaded. */
 export function restoredUser(): GoogleUser | null {
   return token && token.expiresAt > Date.now() ? (token.user ?? null) : null;
+}
+
+/** Whose sign-in this tab's is, token or no token: who a renewal is asked for, and shown as waiting. */
+export function heldUser(): GoogleUser | null {
+  return whose;
 }
 
 /**
@@ -282,7 +329,16 @@ function describe(type: string | undefined, message: string | undefined, descrip
   return description || message || 'Authorisation was cancelled';
 }
 
-function requestToken(clientId: string, scope: string, prompt: string): Promise<StoredToken> {
+/** A token as Google granted it, before anyone knows whose it is. */
+type Grant = Omit<StoredToken, 'user'>;
+
+/**
+ * Google's window, for a token. Nothing is held yet: whose the token is comes
+ * from its profile (`adopt`), and only then is it this tab's sign-in. The
+ * account signed in here is named, so a browser with several Google accounts
+ * is not asked which — and a renewal is for the account whose work is waiting.
+ */
+function requestToken(clientId: string, scope: string, prompt: string): Promise<Grant> {
   return new Promise((resolve, reject) => {
     if (!googleReady()) {
       reject(new Error('Google Identity Services is not available'));
@@ -292,20 +348,17 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
       client_id: clientId,
       scope,
       prompt,
+      ...(whose?.email ? { hint: whose.email } : {}),
       callback: (response) => {
         if (response.error || !response.access_token) {
           reject(new Error(describe(undefined, response.error, response.error_description)));
           return;
         }
-        const next: StoredToken = {
+        resolve({
           accessToken: response.access_token,
           expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000 - 60_000,
           scopes: (response.scope || scope).split(' '),
-          // A renewal is for the same person; a first sign-in learns who below.
-          user: token?.user,
-        };
-        setToken(next);
-        resolve(next);
+        });
       },
       error_callback: (error) => reject(new Error(describe(error.type, error.message))),
     });
@@ -322,9 +375,26 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
  * fast path runs inside the click that started it, which is what keeps the
  * popup from being blocked.
  */
-function tokenFor(clientId: string, scope: string, prompt: string): Promise<StoredToken> {
+function tokenFor(clientId: string, scope: string, prompt: string): Promise<Grant> {
   if (googleReady()) return requestToken(clientId, scope, prompt);
   return loadGoogleScript().then(() => requestToken(clientId, scope, prompt));
+}
+
+/**
+ * A granted token taken as this tab's sign-in, once its profile says whose it
+ * is. Never on trust: Google's chooser can answer a renewal with another
+ * account, and a token held under the wrong name would send one account's
+ * library to another's Drive. A profile that cannot be read leaves nothing
+ * held, and the next click asks again.
+ */
+async function adopt(granted: Grant): Promise<StoredToken & { user: GoogleUser }> {
+  const before = signOuts;
+  const user = await fetchProfile(granted.accessToken);
+  // A sign-out while the profile was being read is the end of this sign-in too.
+  if (signOuts !== before) throw new Error('Signed out.');
+  const next = { ...granted, user };
+  setToken(next);
+  return next;
 }
 
 /** The live Google access token of whoever is signed in, for swapping for a proxy pass; null when none. */
@@ -355,15 +425,11 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   });
   if (!response.ok) throw new Error(`Could not read your Google profile (${response.status})`);
   const payload = (await response.json()) as { name?: string; email?: string; picture?: string };
-  const user: GoogleUser = {
+  return {
     name: payload.name || payload.email || 'Signed in',
     email: payload.email || '',
     picture: payload.picture,
   };
-  // The token this profile was read with is the one to remember it against; a
-  // token that changed underneath (a sign-out mid-request) is left alone.
-  if (token && token.accessToken === accessToken) setToken({ ...token, user });
-  return user;
 }
 
 /**
@@ -374,7 +440,9 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
  * not there, for the app to offer it again.
  */
 export function signIn(clientId: string): Promise<GoogleUser> {
-  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, '').then((granted) => fetchProfile(granted.accessToken));
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, '')
+    .then(adopt)
+    .then((held) => held.user);
 }
 
 /**
@@ -388,10 +456,13 @@ export function signIn(clientId: string): Promise<GoogleUser> {
  * inside a click.
  */
 export function connectDrive(clientId: string, quiet = false): Promise<GoogleUser> {
-  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, quiet ? '' : 'consent').then((granted) => {
-    if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
-    return fetchProfile(granted.accessToken);
-  });
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, quiet ? '' : 'consent')
+    .then(adopt)
+    .then((held) => {
+      // The sign-in stands either way; without Drive it is one the app offers Drive to again.
+      if (!held.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
+      return held.user;
+    });
 }
 
 // ------------------------------------------------------- renewing quietly ---
@@ -409,6 +480,8 @@ export function connectDrive(clientId: string, quiet = false): Promise<GoogleUse
 interface Waiting {
   clientId: string;
   scopes: Set<string>;
+  /** Whose work is waiting: a token for anyone else is refused it. */
+  account?: string;
   promise: Promise<StoredToken>;
   resolve: (granted: StoredToken) => void;
   reject: (error: Error) => void;
@@ -424,13 +497,22 @@ function inGesture(): boolean {
   return Boolean(activation?.isActive);
 }
 
-/** A new token from Google, asked for once however many callers need it at the same time. */
+/**
+ * A new token from Google, asked for once however many callers need it at the
+ * same time — for the account signed in here. Google's chooser can still hand
+ * back another account's: that token is held as that account's sign-in (the
+ * page hears, and opens its library), and the callers are refused it, since
+ * what they were about to do was the first account's.
+ */
 function renewOnce(clientId: string, scopes: string): Promise<StoredToken> {
   if (renewing) return renewing;
+  const expected = whose?.email;
   renewing = tokenFor(clientId, scopes, '')
+    .then(adopt)
     .then((granted) => {
       // This tab's own listeners hear of it too, as they do of a token another tab hands over.
       sessionListeners.forEach((listener) => listener('token'));
+      if (expected && !sameAccount(expected, granted.user.email)) throw new AccountChangedError(expected, granted.user.email);
       return granted;
     })
     .finally(() => {
@@ -451,15 +533,25 @@ function renewQuietly(clientId: string, scopes: string[]): Promise<StoredToken> 
     let resolve!: (granted: StoredToken) => void;
     let reject!: (error: Error) => void;
     const promise = new Promise<StoredToken>((yes, no) => ((resolve = yes), (reject = no)));
-    waiting = { clientId, scopes: new Set(), promise, resolve, reject };
-    // Another tab renewing does for this one too.
+    waiting = { clientId, scopes: new Set(), account: whose?.email, promise, resolve, reject };
+    // Another tab renewing does for this one too — as the same person. A tab
+    // that signed in as someone else hands over their token, and this one's
+    // waiting work is not done with it.
     const stop = onSessionChange((change) => {
-      if (change !== 'token' || !waiting || !live(token) || ![...waiting.scopes].every((scope) => token!.scopes.includes(scope) || !scope.startsWith('https://'))) return;
+      if (change !== 'token' || !waiting || !live(token)) return;
+      const held = waiting;
+      if (held.account && token.user?.email && !sameAccount(held.account, token.user.email)) {
+        stop();
+        waiting = null;
+        tellRenewal();
+        held.reject(new AccountChangedError(held.account, token.user.email));
+        return;
+      }
+      if (![...held.scopes].every((scope) => token!.scopes.includes(scope) || !scope.startsWith('https://'))) return;
       stop();
-      const done = waiting;
       waiting = null;
       tellRenewal();
-      done.resolve(token!);
+      held.resolve(token!);
     });
   }
   for (const scope of scopes.join(' ').split(' ')) waiting.scopes.add(scope);
@@ -492,8 +584,11 @@ export async function renewNow(clientId: string): Promise<void> {
     const granted = await renewOnce(clientId, wanted);
     held?.resolve(granted);
   } catch (error) {
-    // Closed or refused: everything waits again, and the prompt stays to try once more.
-    if (held) {
+    if (held && error instanceof AccountChangedError) {
+      // Someone else's token: the work that was waiting was not theirs to do.
+      held.reject(error);
+    } else if (held) {
+      // Closed or refused: everything waits again, and the prompt stays to try once more.
       waiting = held;
       tellRenewal();
     }
@@ -551,6 +646,8 @@ export function dropColab(): void {
  */
 export function dropSignIn(): void {
   forgetToken();
+  whose = null;
+  signOuts += 1;
 }
 
 export function signOut(): void {
@@ -562,6 +659,8 @@ export function signOut(): void {
     held.reject(new Error('Signed out.'));
   }
   forgetToken();
+  whose = null;
+  signOuts += 1;
   // Every tab signs out with this one: the token is about to be revoked, and a tab left signed in would show an account that is gone.
   tabs?.postMessage({ type: 'signout' } satisfies TabMessage);
   if (active) window.google?.accounts.oauth2.revoke(active);

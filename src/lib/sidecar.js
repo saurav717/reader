@@ -1,0 +1,96 @@
+/**
+ * The annotation format both mirrors write, kept in one place so that the copy
+ * in Drive and the copy in a Git repository are the same document rather than
+ * two things that drift apart.
+ */
+export function slug(value) {
+    return value
+        .normalize('NFKD')
+        .replace(/[^\w\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, 80)
+        .trim();
+}
+/** The folder at the top level of Drive that every paper folder sits in. */
+export const ROOT_FOLDER = 'Papers_collection';
+export function baseName(paper) {
+    const stem = slug(paper.title) || paper.id.replace(/[^\w.-]/g, '-');
+    return paper.arxivId ? `${stem} (arXiv ${paper.arxivId})` : stem;
+}
+/** The same stem, safe for a path in a Git repository. */
+export function pathName(paper) {
+    const stem = (slug(paper.title) || paper.id)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 72);
+    const tail = paper.arxivId ? `-arxiv-${paper.arxivId.replace(/[^\w.]/g, '-')}` : '';
+    return `${stem || 'paper'}${tail}`;
+}
+/**
+ * The sidecar written next to the PDF. Shaped after the W3C Web Annotation
+ * model so the export is the storage format rather than a lossy copy of it.
+ */
+/**
+ * `drive` is for the copy in Drive, which is also what a library is rebuilt
+ * from if its library.json is ever lost (driveLibrary.ts): it adds where the
+ * reading had got to and the collections' colours, so that rebuild loses
+ * little. The Git copy leaves them out — a commit for every page turned
+ * would be noise.
+ */
+export function sidecar(paper, highlights, collectionNames, drive) {
+    return {
+        '@context': 'http://www.w3.org/ns/anno.jsonld',
+        generator: 'reader',
+        savedAt: new Date().toISOString(),
+        paper: {
+            id: paper.id,
+            title: paper.title,
+            authors: paper.authors,
+            abstract: paper.abstract,
+            published: paper.published,
+            categories: paper.categories,
+            arxivId: paper.arxivId,
+            doi: paper.doi,
+            venue: paper.venue,
+            landingUrl: paper.landingUrl,
+            pdfUrl: paper.pdfUrl,
+            addedAt: paper.addedAt,
+            tags: paper.tags,
+            collections: collectionNames,
+            ...(drive
+                ? {
+                    source: paper.source,
+                    progress: paper.progress,
+                    lastOpenedAt: paper.lastOpenedAt,
+                    pdfChoice: paper.pdfChoice,
+                    collectionColours: Object.fromEntries(collectionNames.filter((name) => drive.colours[name]).map((name) => [name, drive.colours[name]])),
+                }
+                : {}),
+        },
+        annotations: highlights.map((highlight) => ({
+            id: highlight.id,
+            type: 'Annotation',
+            created: highlight.createdAt,
+            motivation: highlight.note ? 'commenting' : 'highlighting',
+            bodyValue: highlight.note ?? undefined,
+            tags: highlight.tags,
+            colour: highlight.color,
+            style: highlight.style ?? 'highlight',
+            section: highlight.section,
+            target: {
+                source: paper.landingUrl || paper.id,
+                selector: [
+                    {
+                        type: 'TextQuoteSelector',
+                        exact: highlight.exact,
+                        prefix: highlight.prefix,
+                        suffix: highlight.suffix,
+                    },
+                    { type: 'TextPositionSelector', start: highlight.hint },
+                ],
+            },
+        })),
+    };
+}

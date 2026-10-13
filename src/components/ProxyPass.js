@@ -1,0 +1,98 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+// Settings → Google account → Proxy sign-in: whether this browser holds the
+// proxy's pass, whose, until when, and whether the proxy calls it the owner's
+// (which is what puts Usage on the rail). And a way to get a new one without
+// signing out: the proxy's check that you are a person, then the pass, the way
+// the sign-in screen does it (passForGoogle in lib/api.ts).
+//
+// A browser can be signed in with Google and still hold no pass: signed in while
+// the site had no proxy, or with the pass gone. Nothing asks for one again until
+// the next sign-in, since only the sign-in screen shows the check; this does.
+// The owner needs none for Usage: the proxy knows them by their Google email
+// (READER_OWNERS), which this row also says.
+import { useCallback, useEffect, useState } from 'react';
+import { BUILT_IN_BASE, captchaSiteKey, hasProxy, isPass, mayAskForPass, passEmail, passExpires, passForGoogle } from '../lib/api';
+import * as google from '../lib/google';
+import { ownerFetch } from '../lib/owner';
+import { useStore } from '../lib/store';
+import { Captcha } from './Welcome';
+/** What the proxy says of this browser's token: the owner's (it answers /usage), or why not. */
+async function ownerCheck(token) {
+    try {
+        const response = await ownerFetch('/usage?days=1', token);
+        if (response.ok)
+            return { state: 'owner' };
+        const body = (await response.json().catch(() => ({})));
+        return { state: 'not-owner', why: body.error || `The proxy said ${response.status}.` };
+    }
+    catch {
+        return { state: 'unknown' };
+    }
+}
+export default function ProxyPass() {
+    const { user, settings, updateSettings, connectDrive } = useStore();
+    const held = settings.proxyToken.trim();
+    const pass = isPass(held);
+    const email = pass ? passEmail(held) : null;
+    const expires = pass ? passExpires(held) : 0;
+    const expired = pass && expires <= Date.now();
+    const [owner, setOwner] = useState({ state: 'checking' });
+    const [asking, setAsking] = useState(false);
+    const [siteKey, setSiteKey] = useState(undefined);
+    const [solved, setSolved] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [problem, setProblem] = useState(null);
+    useEffect(() => {
+        // The owner is known by a pass, or by the Google sign-in alone (ownerFetch sends both).
+        if (!hasProxy() || (!held && !google.liveAccessToken()))
+            return setOwner({ state: 'unknown' });
+        let live = true;
+        setOwner({ state: 'checking' });
+        void ownerCheck(held).then((answer) => live && setOwner(answer));
+        return () => {
+            live = false;
+        };
+    }, [held, settings.proxyBase, user?.email]);
+    const start = useCallback(async () => {
+        setProblem(null);
+        setAsking(true);
+        setSiteKey(await captchaSiteKey());
+    }, []);
+    const finish = async () => {
+        setBusy(true);
+        setProblem(null);
+        try {
+            // The proxy wants a live Google sign-in to vouch for the pass: renew it quietly if it has run out.
+            if (!google.liveAccessToken())
+                await connectDrive();
+            const googleToken = google.liveAccessToken();
+            if (!googleToken)
+                throw new Error('Google didn’t hand over a sign-in. Try Sign out, then sign in again.');
+            const fresh = await passForGoogle(googleToken, pass && !expired ? held : undefined);
+            if (!fresh)
+                throw new Error('The proxy didn’t give a pass. Check that this account is on its READER_EMAILS list, if it has one.');
+            updateSettings({ proxyToken: fresh });
+            setAsking(false);
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    if (!user || !hasProxy())
+        return null;
+    // A proxy typed into Settings that isn't this site's own is never given the sign-in.
+    if (!mayAskForPass()) {
+        return (_jsxs("p", { className: "proxy-pass", children: [_jsx("b", { children: "Proxy sign-in." }), " The Proxy URL below names a proxy other than this site\u2019s", BUILT_IN_BASE ? ` (${BUILT_IN_BASE})` : '', ", so your Google sign-in isn\u2019t passed to it, and it can\u2019t know you. Empty that box to use the site\u2019s own."] }));
+    }
+    const date = expires ? new Date(expires).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    return (_jsxs("div", { className: "proxy-pass", children: [_jsxs("div", { children: [_jsx("b", { children: "Proxy sign-in." }), ' ', !held
+                        ? 'This browser holds no pass for the proxy: it gets one when you sign in.'
+                        : !pass
+                            ? 'A token pasted by hand (Paper proxy → Proxy token) is in use, not a pass from your sign-in.'
+                            : expired
+                                ? `The pass for ${email ?? 'you'} ran out on ${date}.`
+                                : `A pass for ${email ?? 'you'}, good until ${date}.`, ' ', owner.state === 'checking' ? 'Asking the proxy…' : owner.state === 'owner' ? `The proxy knows ${user?.email ?? 'you'} as its owner: Usage is on the rail.` : owner.state === 'not-owner' ? `The proxy doesn’t treat it as the owner’s: “${owner.why}”` : null] }), asking ? (_jsxs("div", { className: "proxy-pass-ask", children: [siteKey === undefined ? _jsx("span", { className: "spinner" }) : siteKey ? _jsx(Captcha, { siteKey: siteKey, onSolved: setSolved }) : null, _jsx("button", { type: "button", className: "btn sm primary", disabled: busy || siteKey === undefined || (Boolean(siteKey) && !solved), onClick: () => void finish(), children: busy ? 'Asking…' : 'Get the pass' })] })) : owner.state !== 'owner' && owner.state !== 'checking' ? (_jsx("button", { type: "button", className: "btn sm", onClick: () => void start(), children: "Get a new pass" })) : null, problem ? _jsx("p", { className: "banner error", children: problem }) : null] }));
+}

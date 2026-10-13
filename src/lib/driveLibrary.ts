@@ -73,13 +73,18 @@ export function serialise(library: Library): string {
   });
 }
 
-/** A file read back from Drive, checked enough that a stray or older file cannot break the library. */
-export function parseLibrary(text: string): Library | null {
+/**
+ * A file read back from Drive, checked enough that a stray or older file
+ * cannot break the library — with whose it says it is, where it says: the
+ * page compares that with the account it is showing before it takes the
+ * library in or writes over it.
+ */
+export function parseLibraryFile(text: string): { library: Library; account?: string } | null {
   try {
     const parsed = JSON.parse(text) as Partial<LibraryFile>;
     if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.papers)) return null;
     const list = <T>(value: unknown, ok: (item: T) => boolean): T[] => (Array.isArray(value) ? (value as T[]).filter(ok) : []);
-    return {
+    const library: Library = {
       papers: list<Paper>(parsed.papers, (paper) => typeof paper?.id === 'string' && typeof paper.title === 'string').map((paper) => ({
         ...paper,
         collectionIds: Array.isArray(paper.collectionIds) ? paper.collectionIds : [],
@@ -92,10 +97,15 @@ export function parseLibrary(text: string): Library | null {
       highlights: list<Highlight>(parsed.highlights, (item) => typeof item?.id === 'string' && typeof item.paperId === 'string'),
       junk: list<JunkEntry>(parsed.junk, (item) => typeof item?.paper?.id === 'string'),
     };
+    const account = typeof parsed.account === 'string' && parsed.account.trim() ? parsed.account.trim() : undefined;
+    return account ? { library, account } : { library };
   } catch {
     return null;
   }
 }
+
+/** The library in a file read back from Drive, or null when the text is not one. */
+export const parseLibrary = (text: string): Library | null => parseLibraryFile(text)?.library ?? null;
 
 /**
  * A project as `base` has it, with where its paper is from `extra` too: the
@@ -258,11 +268,11 @@ const rootName = (folderName: string | undefined) => folderName?.trim() || ROOT_
 export type LibrarySource = 'file' | 'trash' | 'backup';
 
 /** The spare copy in the app's hidden folder, or null when there is none or it cannot be reached. */
-async function readBackup(token: string): Promise<Library | null> {
+async function readBackup(token: string): Promise<{ library: Library; account?: string } | null> {
   if (!hasAppDataAccess()) return null;
   const file = await findAppDataFile(token, LIBRARY_FILE).catch(() => null);
   if (!file) return null;
-  return parseLibrary(await downloadText(token, file.id).catch(() => ''));
+  return parseLibraryFile(await downloadText(token, file.id).catch(() => ''));
 }
 
 /** The root folder, taken back out of the trash if that is where it went. */
@@ -276,12 +286,13 @@ async function findRoot(token: string, name: string): Promise<string | null> {
 /**
  * The library in this account's Drive, or null when it has none at all. The
  * file in the root folder first — out of the trash, folder and all, if it
- * was put there — and the spare copy when the file is gone.
+ * was put there — and the spare copy when the file is gone. `account` is
+ * whose the file says it is, when it says.
  */
 export async function readLibraryFromDrive(
   clientId: string,
   folderName: string | undefined,
-): Promise<{ library: Library; mark: RemoteMark | null; source: LibrarySource } | null> {
+): Promise<{ library: Library; mark: RemoteMark | null; source: LibrarySource; account?: string } | null> {
   const token = await ensureDriveToken(clientId);
   const rootId = await findRoot(token, rootName(folderName));
   let file = rootId ? await findFile(token, LIBRARY_FILE, rootId) : null;
@@ -294,15 +305,15 @@ export async function readLibraryFromDrive(
     }
   }
   if (file) {
-    const library = parseLibrary(await downloadText(token, file.id));
-    if (library) return { library, mark: { fileId: file.id, modifiedTime: file.modifiedTime }, source };
+    const read = parseLibraryFile(await downloadText(token, file.id));
+    if (read) return { ...read, mark: { fileId: file.id, modifiedTime: file.modifiedTime }, source };
     // A file that will not parse — edited by hand — is not trusted over the spare copy.
     const backup = await readBackup(token);
-    if (backup) return { library: backup, mark: null, source: 'backup' };
+    if (backup) return { ...backup, mark: null, source: 'backup' };
     throw new Error(`${rootName(folderName)}/${LIBRARY_FILE} in Drive could not be read.`);
   }
   const backup = await readBackup(token);
-  return backup ? { library: backup, mark: null, source: 'backup' } : null;
+  return backup ? { ...backup, mark: null, source: 'backup' } : null;
 }
 
 /** When Drive last saw the library file change, without reading it. */

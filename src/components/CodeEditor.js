@@ -1,0 +1,444 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+// The playground's code editor, as VS Code's: line numbers, the current line
+// lit, a minimap, find and replace, and VS Code's keys for lines — comment,
+// move, copy, delete, indent — with brackets closed and the indent carried
+// on a new line. It is still a textarea over the highlighted text, sized to
+// its content inside a box that scrolls; every edit is typed in through the
+// browser (insertText), so ⌘Z and ⇧⌘Z undo and redo it as they do typing.
+// What it does to the text is src/lib/editing.ts.
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { highlightCode } from '../lib/languages';
+import { highlightTex } from '../lib/overleaf';
+import { commentFor, copyLines, deleteLines, deletePair, findAll, lineCol, lineSpan, moveLines, newLine, offsetOfLine, replaceAll, toggleComment, typeBracket } from '../lib/editing';
+import { highlightPython } from './Explain';
+import { CloseIcon } from './icons';
+const esc = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const PAD_Y = 10;
+const PAD_X = 14;
+const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const CodeEditor = forwardRef(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete }, ref) {
+    const text = useRef(null);
+    const scroller = useRef(null);
+    const map = useRef(null);
+    const lineHeight = Math.round(fontSize * 1.6);
+    const [charWidth, setCharWidth] = useState(fontSize * 0.6);
+    const [caret, setCaret] = useState(0);
+    const [findOpen, setFindOpen] = useState(null);
+    const [query, setQuery] = useState('');
+    const [replacement, setReplacement] = useState('');
+    const [options, setOptions] = useState({});
+    const [current, setCurrent] = useState(0);
+    const findInput = useRef(null);
+    const [view, setView] = useState({ top: 0, height: 0 });
+    const lines = useMemo(() => value.split('\n'), [value]);
+    const widest = useMemo(() => lines.reduce((most, line) => Math.max(most, line.replace(/\t/g, '    ').length), 0), [lines]);
+    const html = useMemo(() => (/\.py$/i.test(path) ? highlightPython(value) : /\.(tex|bib|sty|cls)$/i.test(path) ? highlightTex(value) : highlightCode(value, path)), [value, path]);
+    const found = useMemo(() => (findOpen ? findAll(value, query, options) : { matches: [] }), [findOpen, value, query, options]);
+    const marks = useMemo(() => {
+        if (!found.matches.length)
+            return '';
+        let out = '';
+        let at = 0;
+        found.matches.forEach((match, index) => {
+            out += esc(value.slice(at, match.start)) + `<mark class="${index === current ? 'is-current' : ''}">${esc(value.slice(match.start, match.end))}</mark>`;
+            at = match.end;
+        });
+        return out + esc(value.slice(at));
+    }, [found, value, current]);
+    // The width of one character of the font, measured: the caret's place on screen comes from it.
+    useLayoutEffect(() => {
+        const probe = document.createElement('span');
+        probe.textContent = 'x'.repeat(100);
+        probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${fontSize}px var(--mono)`;
+        scroller.current?.appendChild(probe);
+        setCharWidth(probe.getBoundingClientRect().width / 100 || fontSize * 0.6);
+        probe.remove();
+    }, [fontSize]);
+    const report = useCallback(() => {
+        const element = text.current;
+        if (!element)
+            return;
+        setCaret(element.selectionEnd);
+        const { line, col } = lineCol(element.value, element.selectionEnd);
+        onCursor?.({ line, col, selected: Math.abs(element.selectionEnd - element.selectionStart), lines: element.value.split('\n').length });
+    }, [onCursor]);
+    /** The caret kept in view, as an editor scrolls to it: the box scrolls, not the textarea. */
+    const reveal = useCallback(() => {
+        const element = text.current;
+        const box = scroller.current;
+        if (!element || !box)
+            return;
+        const { line, col } = lineCol(element.value, element.selectionEnd);
+        const y = topOf(line);
+        const x = gutterWidth + PAD_X + (col - 1) * charWidth;
+        if (y < box.scrollTop)
+            box.scrollTop = y - lineHeight;
+        else if (y + heightOf(line) + lineHeight > box.scrollTop + box.clientHeight)
+            box.scrollTop = y + heightOf(line) + lineHeight - box.clientHeight;
+        if (wrap)
+            return;
+        if (x < box.scrollLeft + gutterWidth + 20)
+            box.scrollLeft = Math.max(0, x - gutterWidth - 40);
+        else if (x + 30 > box.scrollLeft + box.clientWidth)
+            box.scrollLeft = x + 60 - box.clientWidth;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lineHeight, charWidth, lines.length]);
+    const gutterWidth = Math.max(3, String(lines.length).length) * charWidth + 28;
+    // Wrapped, a line takes as many rows as it needs: its top and height are measured off the shadow's line boxes.
+    const shadowLines = useRef(null);
+    const [rows, setRows] = useState(null);
+    // Read by reveal, which is made once: the rows as they are now, not as they were then.
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
+    useLayoutEffect(() => {
+        if (!wrap)
+            return;
+        const holder = shadowLines.current;
+        if (!holder)
+            return;
+        const measure = () => {
+            const children = Array.from(holder.children);
+            setRows({ tops: children.map((child) => child.offsetTop), heights: children.map((child) => child.offsetHeight) });
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(holder);
+        return () => observer.disconnect();
+    }, [wrap, value, fontSize]);
+    const topOf = (line) => (wrap && rowsRef.current ? rowsRef.current.tops[line - 1] ?? PAD_Y + (line - 1) * lineHeight : PAD_Y + (line - 1) * lineHeight);
+    const heightOf = (line) => (wrap && rowsRef.current ? rowsRef.current.heights[line - 1] ?? lineHeight : lineHeight);
+    /** One edit typed in through the browser, so undo keeps it; the selection placed after. */
+    const apply = useCallback((edit) => {
+        const element = text.current;
+        if (!element || !edit || readOnly)
+            return false;
+        element.focus();
+        element.setSelectionRange(edit.from, edit.to);
+        const typed = edit.insert ? document.execCommand('insertText', false, edit.insert) : edit.from === edit.to || document.execCommand('delete');
+        if (!typed)
+            onChange(element.value.slice(0, edit.from) + edit.insert + element.value.slice(edit.to));
+        window.requestAnimationFrame(() => {
+            element.setSelectionRange(edit.select.start, edit.select.end);
+            report();
+            reveal();
+        });
+        return true;
+    }, [onChange, report, reveal, readOnly]);
+    // ---- suggestions, at the caret
+    const [suggest, setSuggest] = useState(null);
+    const suggestRef = useRef(suggest);
+    suggestRef.current = suggest;
+    const listBox = useRef(null);
+    /** Where the caret is, in the editor's inner box: a hidden copy of the textarea up to it, measured. */
+    const caretPoint = useCallback((at) => {
+        const element = text.current;
+        if (!element)
+            return { x: 0, y: 0 };
+        const style = window.getComputedStyle(element);
+        const mirror = document.createElement('div');
+        for (const name of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'tabSize', 'paddingTop', 'paddingLeft', 'paddingRight', 'boxSizing', 'whiteSpace', 'overflowWrap', 'wordBreak'])
+            mirror.style[name] = style[name];
+        mirror.style.position = 'absolute';
+        mirror.style.visibility = 'hidden';
+        mirror.style.width = `${element.clientWidth}px`;
+        mirror.style.left = `${element.offsetLeft}px`;
+        mirror.style.top = `${element.offsetTop}px`;
+        mirror.textContent = element.value.slice(0, at);
+        const mark = document.createElement('span');
+        mark.textContent = '\u200b';
+        mirror.appendChild(mark);
+        element.parentElement?.appendChild(mirror);
+        const point = { x: element.offsetLeft + mark.offsetLeft, y: element.offsetTop + mark.offsetTop };
+        mirror.remove();
+        return point;
+    }, []);
+    const suggestNow = useCallback((manual = false) => {
+        const element = text.current;
+        if (!complete || !element || readOnly || element.selectionStart !== element.selectionEnd)
+            return setSuggest(null);
+        const list = complete(element.value, element.selectionEnd);
+        if (!list || (!manual && !list.items.length))
+            return setSuggest(null);
+        const point = caretPoint(list.from);
+        setSuggest({ list, index: 0, ...point });
+    }, [complete, readOnly, caretPoint]);
+    // After an edit the caret settles a frame later (apply places it then): ask once it has.
+    const suggestSoon = useCallback(() => window.requestAnimationFrame(() => window.requestAnimationFrame(() => suggestNow())), [suggestNow]);
+    const takeSuggestion = useCallback((item) => {
+        const open = suggestRef.current;
+        if (!open)
+            return;
+        const at = open.list.from + (item.caret ?? item.insert.length);
+        setSuggest(null);
+        apply({ from: open.list.from, to: open.list.to, insert: item.insert, select: { start: at, end: at } });
+        suggestSoon();
+    }, [apply, suggestSoon]);
+    useEffect(() => {
+        listBox.current?.querySelector('.is-on')?.scrollIntoView({ block: 'nearest' });
+    }, [suggest?.index]);
+    const go = useCallback((offset, end = offset) => {
+        const element = text.current;
+        if (!element)
+            return;
+        element.focus();
+        element.setSelectionRange(offset, end);
+        report();
+        window.requestAnimationFrame(reveal);
+    }, [report, reveal]);
+    useImperativeHandle(ref, () => ({
+        focus: () => text.current?.focus(),
+        goToLine: (line, word) => {
+            const all = text.current?.value ?? value;
+            // The word as the PDF has it (ligatures, quotes) and without the punctuation about it.
+            const plain = word?.normalize('NFKC').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+            if (plain) {
+                const whole = new RegExp(`(?<![\\p{L}\\p{N}])${plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u');
+                for (const at of [line, line + 1, line - 1, line + 2, line - 2]) {
+                    if (at < 1)
+                        continue;
+                    const start = offsetOfLine(all, at);
+                    const end = all.indexOf('\n', start);
+                    const found = whole.exec(all.slice(start, end < 0 ? undefined : end));
+                    if (found)
+                        return go(start + found.index, start + found.index + plain.length);
+                }
+            }
+            go(offsetOfLine(all, line));
+        },
+        insert: (insert) => {
+            const element = text.current;
+            if (!element)
+                return;
+            const from = element.selectionStart;
+            const at = from + insert.length;
+            apply({ from, to: element.selectionEnd, insert, select: { start: at, end: at } });
+        },
+        openFind: (replace = false) => {
+            const element = text.current;
+            const picked = element ? element.value.slice(element.selectionStart, element.selectionEnd) : '';
+            if (picked && !picked.includes('\n'))
+                setQuery(picked);
+            setFindOpen(replace ? 'replace' : 'find');
+            window.requestAnimationFrame(() => {
+                findInput.current?.focus();
+                findInput.current?.select();
+            });
+        },
+    }), [go, value, apply]);
+    // A new query goes to the match nearest after the caret.
+    useEffect(() => {
+        if (!findOpen || !found.matches.length)
+            return;
+        const next = found.matches.findIndex((match) => match.start >= (text.current?.selectionStart ?? 0));
+        setCurrent(next === -1 ? 0 : next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [query, options, findOpen]);
+    const step = (by) => {
+        const count = found.matches.length;
+        if (!count)
+            return;
+        const next = (current + by + count) % count;
+        setCurrent(next);
+        const match = found.matches[next];
+        const element = text.current;
+        if (!element)
+            return;
+        element.setSelectionRange(match.start, match.end);
+        report();
+        reveal();
+    };
+    // The minimap: each line a bar as long as its text, the part in view framed; a click or drag scrolls there.
+    useEffect(() => {
+        const canvas = map.current;
+        const box = scroller.current;
+        if (!canvas || !box || !minimap)
+            return;
+        const ratio = window.devicePixelRatio || 1;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        canvas.width = width * ratio;
+        canvas.height = height * ratio;
+        const g = canvas.getContext('2d');
+        if (!g)
+            return;
+        g.scale(ratio, ratio);
+        g.clearRect(0, 0, width, height);
+        const row = Math.min(3, Math.max(1, height / Math.max(1, lines.length)));
+        const ink = getComputedStyle(canvas).color;
+        g.fillStyle = ink;
+        g.globalAlpha = 0.45;
+        lines.forEach((line, index) => {
+            const lead = line.length - line.trimStart().length;
+            const len = line.trimEnd().length - lead;
+            if (len > 0)
+                g.fillRect(4 + lead * 0.9, index * row, Math.min(width - 8, len * 0.9), Math.max(1, row - 1));
+        });
+        g.globalAlpha = 1;
+        found.matches.forEach((match) => {
+            g.fillStyle = 'rgba(232, 170, 40, 0.9)';
+            g.fillRect(0, (lineCol(value, match.start).line - 1) * row, width, Math.max(2, row));
+        });
+        const total = PAD_Y * 2 + lines.length * lineHeight;
+        const scale = (lines.length * row) / total;
+        g.fillStyle = getComputedStyle(canvas).getPropertyValue('--ce-view') || 'rgba(127,127,127,0.18)';
+        g.fillRect(0, view.top * scale, width, Math.max(10, view.height * scale));
+    }, [lines, view, minimap, found, value, lineHeight]);
+    const scrollFromMap = (clientY) => {
+        const canvas = map.current;
+        const box = scroller.current;
+        if (!canvas || !box)
+            return;
+        const row = Math.min(3, Math.max(1, canvas.clientHeight / Math.max(1, lines.length)));
+        const total = PAD_Y * 2 + lines.length * lineHeight;
+        const y = clientY - canvas.getBoundingClientRect().top;
+        box.scrollTop = (y / (lines.length * row)) * total - box.clientHeight / 2;
+    };
+    const { line: caretLine } = lineCol(value, Math.min(caret, value.length));
+    const keys = (event) => {
+        const element = event.currentTarget;
+        const sel = { start: element.selectionStart, end: element.selectionEnd };
+        const mod = mac ? event.metaKey : event.ctrlKey;
+        const k = event.key;
+        const open = suggestRef.current;
+        if (open && open.list.items.length) {
+            if (k === 'ArrowDown' || k === 'ArrowUp') {
+                event.preventDefault();
+                const count = open.list.items.length;
+                setSuggest({ ...open, index: (open.index + (k === 'ArrowDown' ? 1 : -1) + count) % count });
+                return;
+            }
+            if ((k === 'Enter' || k === 'Tab') && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                event.preventDefault();
+                takeSuggestion(open.list.items[open.index]);
+                return;
+            }
+            if (k === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                setSuggest(null);
+                return;
+            }
+        }
+        if (complete && event.ctrlKey && (k === ' ' || event.code === 'Space')) {
+            event.preventDefault();
+            suggestNow(true);
+            return;
+        }
+        const take = (edit) => {
+            if (!edit)
+                return;
+            event.preventDefault();
+            apply(edit);
+        };
+        if (k === 'Tab' && !mod && !event.altKey) {
+            event.preventDefault();
+            const { from, to } = lineSpan(element.value, sel);
+            if (event.shiftKey || sel.start !== sel.end) {
+                const chunk = element.value.slice(from, to);
+                const next = event.shiftKey ? chunk.replace(/^ {1,4}/gm, '') : chunk.replace(/^(?=.)/gm, '    ');
+                const firstShift = (next.split('\n')[0].length - chunk.split('\n')[0].length);
+                apply({ from, to, insert: next, select: { start: Math.max(from, sel.start + firstShift), end: Math.max(from, sel.end + next.length - chunk.length) } });
+            }
+            else
+                apply({ from: sel.start, to: sel.end, insert: '    ', select: { start: sel.start + 4, end: sel.start + 4 } });
+            return;
+        }
+        if (mod && (k === ']' || k === '[')) {
+            event.preventDefault();
+            const { from, to } = lineSpan(element.value, sel);
+            const chunk = element.value.slice(from, to);
+            const next = k === ']' ? chunk.replace(/^/gm, '    ') : chunk.replace(/^ {1,4}/gm, '');
+            apply({ from, to, insert: next, select: { start: from, end: from + next.length } });
+            return;
+        }
+        if (k === 'Enter' && !mod && !event.shiftKey && !event.altKey)
+            return take(newLine(element.value, sel));
+        if (mod && k === '/')
+            return take(toggleComment(element.value, sel, commentFor(path)));
+        if (event.altKey && !mod && (k === 'ArrowUp' || k === 'ArrowDown')) {
+            if (event.shiftKey)
+                return take(copyLines(element.value, sel, k === 'ArrowDown'));
+            event.preventDefault();
+            apply(moveLines(element.value, sel, k === 'ArrowDown'));
+            return;
+        }
+        if (mod && event.shiftKey && k.toLowerCase() === 'k')
+            return take(deleteLines(element.value, sel));
+        if (mod && !event.shiftKey && k.toLowerCase() === 'l') {
+            event.preventDefault();
+            const { from, to } = lineSpan(element.value, sel);
+            go(from, Math.min(element.value.length, to + 1));
+            return;
+        }
+        if (mod && !event.shiftKey && !event.altKey && k.toLowerCase() === 'f') {
+            event.preventDefault();
+            event.stopPropagation();
+            const picked = element.value.slice(sel.start, sel.end);
+            if (picked && !picked.includes('\n'))
+                setQuery(picked);
+            setFindOpen((open) => (open === 'replace' ? 'replace' : 'find'));
+            window.requestAnimationFrame(() => (findInput.current?.focus(), findInput.current?.select()));
+            return;
+        }
+        if ((mod && k.toLowerCase() === 'h') || (mac && event.metaKey && event.altKey && k.toLowerCase() === 'f')) {
+            event.preventDefault();
+            event.stopPropagation();
+            setFindOpen('replace');
+            window.requestAnimationFrame(() => findInput.current?.focus());
+            return;
+        }
+        if (k === 'F3') {
+            event.preventDefault();
+            step(event.shiftKey ? -1 : 1);
+            return;
+        }
+        if (k === 'Escape' && findOpen) {
+            event.preventDefault();
+            setFindOpen(null);
+            return;
+        }
+        if (k === 'Backspace' && !mod && !event.altKey)
+            return take(deletePair(element.value, sel));
+        if (k.length === 1 && !mod && !event.altKey && '([{"\'`)]}'.includes(k))
+            return take(typeBracket(element.value, sel, k));
+        onKeyDown?.(event);
+    };
+    const replaceOne = () => {
+        const match = found.matches[current];
+        if (!match)
+            return;
+        const result = replaceAll(value.slice(match.start, match.end), query, replacement, options);
+        apply({ from: match.start, to: match.end, insert: result.text, select: { start: match.start + result.text.length, end: match.start + result.text.length } });
+    };
+    const replaceEvery = () => {
+        const result = replaceAll(value, query, replacement, options);
+        if (result.count)
+            apply({ from: 0, to: value.length, insert: result.text, select: { start: 0, end: 0 } });
+    };
+    return (_jsxs("div", { className: `ce${minimap ? ' has-map' : ''}`, style: { '--ce-fs': `${fontSize}px`, '--ce-lh': `${lineHeight}px`, '--ce-gutter': `${gutterWidth}px` }, children: [_jsx("div", { className: "ce-scroll", ref: scroller, onScroll: (event) => setView({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight }), children: _jsxs("div", { className: `ce-inner${wrap ? ' is-wrap' : ''}`, style: wrap ? undefined : { height: PAD_Y * 2 + lines.length * lineHeight, width: `max(100%, ${gutterWidth + PAD_X * 2 + (widest + 4) * charWidth}px)` }, children: [wrap ? (_jsx("div", { className: "ce-gutter ce-gutter-rows", "aria-hidden": "true", children: lines.map((_, index) => (_jsx("span", { style: { top: topOf(index + 1) }, className: index + 1 === caretLine ? 'is-on' : undefined, children: index + 1 }, index))) })) : (_jsx("pre", { className: "ce-gutter", "aria-hidden": "true", dangerouslySetInnerHTML: { __html: lines.map((_, index) => (index + 1 === caretLine ? `<b>${index + 1}</b>` : String(index + 1))).join('\n') } })), _jsx("div", { className: "ce-current", style: { top: topOf(caretLine), height: heightOf(caretLine) }, "aria-hidden": "true" }), marks ? _jsx("pre", { className: "ce-layer ce-marks", "aria-hidden": "true", dangerouslySetInnerHTML: { __html: `${marks}\n` } }) : null, wrap ? (
+                        // A box a line, so each line's rows can be measured; the first in the flow, so it gives the editor its height.
+                        _jsx("div", { className: "ce-layer ce-shadow ce-shadow-lines", "aria-hidden": "true", ref: shadowLines, dangerouslySetInnerHTML: { __html: html.split('\n').map((line) => `<div>${line}</div>`).join('') } })) : (_jsx("pre", { className: "ce-layer ce-shadow", "aria-hidden": "true", children: _jsx("code", { dangerouslySetInnerHTML: { __html: `${html}\n` } }) })), _jsx("textarea", { ref: text, className: "ce-layer ce-text", value: value, wrap: wrap ? 'soft' : 'off', spellCheck: false, autoCapitalize: "off", autoCorrect: "off", "aria-label": readOnly ? `${path}, read-only` : `Editing ${path}`, readOnly: readOnly, onChange: (event) => {
+                                if (readOnly)
+                                    return;
+                                onChange(event.target.value);
+                                window.requestAnimationFrame(() => (report(), reveal()));
+                                if (complete)
+                                    suggestSoon();
+                            }, onKeyDown: keys, onKeyUp: report, onClick: () => (report(), suggestRef.current && setSuggest(null)), onSelect: () => {
+                                report();
+                                // The caret gone from the word being completed: the list goes too.
+                                const open = suggestRef.current;
+                                const caretNow = text.current?.selectionEnd ?? 0;
+                                if (open && (caretNow < open.list.from || caretNow > open.list.to + 1))
+                                    setSuggest(null);
+                            }, onBlur: () => window.setTimeout(() => setSuggest(null), 120), onFocus: () => (report(), onFocus?.()) }), suggest && suggest.list.items.length ? (_jsx("div", { className: "ce-suggest", ref: listBox, role: "listbox", "aria-label": "Suggestions", style: { left: suggest.x, top: suggest.y + lineHeight + 2 }, onMouseDown: (event) => event.preventDefault(), children: suggest.list.items.map((item, index) => (_jsxs("button", { type: "button", role: "option", "aria-selected": index === suggest.index, className: index === suggest.index ? 'is-on' : undefined, onMouseEnter: () => setSuggest((current) => (current ? { ...current, index } : current)), onClick: () => takeSuggestion(item), children: [_jsx("span", { className: "ce-suggest-label", children: item.label }), item.detail ? _jsx("span", { className: "ce-suggest-detail", children: item.detail }) : null] }, `${item.label}:${index}`))) })) : null] }) }), minimap ? (_jsx("canvas", { ref: map, className: "ce-map", "aria-hidden": "true", onPointerDown: (event) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    scrollFromMap(event.clientY);
+                }, onPointerMove: (event) => event.buttons === 1 && scrollFromMap(event.clientY) })) : null, findOpen ? (_jsxs("div", { className: "ce-find", role: "search", onKeyDown: (event) => event.key === 'Escape' && (setFindOpen(null), text.current?.focus()), children: [_jsx("button", { type: "button", className: "ce-find-fold", onClick: () => setFindOpen(findOpen === 'replace' ? 'find' : 'replace'), "aria-label": findOpen === 'replace' ? 'Hide replace' : 'Show replace', title: "Toggle Replace", children: findOpen === 'replace' ? '▾' : '▸' }), _jsxs("div", { className: "ce-find-rows", children: [_jsxs("div", { className: "ce-find-row", children: [_jsx("input", { ref: findInput, value: query, placeholder: "Find", "aria-label": "Find", spellCheck: false, className: found.error ? 'is-bad' : '', title: found.error, onChange: (event) => setQuery(event.target.value), onKeyDown: (event) => {
+                                            if (event.key === 'Enter') {
+                                                event.preventDefault();
+                                                step(event.shiftKey ? -1 : 1);
+                                            }
+                                        } }), _jsx("button", { type: "button", className: `ce-opt${options.caseSensitive ? ' is-on' : ''}`, "aria-pressed": Boolean(options.caseSensitive), onClick: () => setOptions({ ...options, caseSensitive: !options.caseSensitive }), title: "Match Case", children: "Aa" }), _jsx("button", { type: "button", className: `ce-opt${options.wholeWord ? ' is-on' : ''}`, "aria-pressed": Boolean(options.wholeWord), onClick: () => setOptions({ ...options, wholeWord: !options.wholeWord }), title: "Match Whole Word", children: _jsx("u", { children: "ab" }) }), _jsx("button", { type: "button", className: `ce-opt${options.regex ? ' is-on' : ''}`, "aria-pressed": Boolean(options.regex), onClick: () => setOptions({ ...options, regex: !options.regex }), title: "Use Regular Expression", children: ".*" }), _jsx("span", { className: "ce-count", children: query ? (found.matches.length ? `${current + 1} of ${found.matches.length}` : 'No results') : '' }), _jsx("button", { type: "button", className: "ce-opt", onClick: () => step(-1), disabled: !found.matches.length, title: "Previous Match (\u21E7\u21B5)", "aria-label": "Previous match", children: "\u2191" }), _jsx("button", { type: "button", className: "ce-opt", onClick: () => step(1), disabled: !found.matches.length, title: "Next Match (\u21B5)", "aria-label": "Next match", children: "\u2193" }), _jsx("button", { type: "button", className: "ce-opt", onClick: () => (setFindOpen(null), text.current?.focus()), title: "Close (Escape)", "aria-label": "Close find", children: _jsx(CloseIcon, { size: 12 }) })] }), findOpen === 'replace' ? (_jsxs("div", { className: "ce-find-row", children: [_jsx("input", { value: replacement, placeholder: "Replace", "aria-label": "Replace", spellCheck: false, onChange: (event) => setReplacement(event.target.value), onKeyDown: (event) => event.key === 'Enter' && (event.preventDefault(), replaceOne()) }), _jsx("button", { type: "button", className: "ce-opt is-word", onClick: replaceOne, disabled: !found.matches.length, title: "Replace (\u21B5)", children: "Replace" }), _jsx("button", { type: "button", className: "ce-opt is-word", onClick: replaceEvery, disabled: !found.matches.length, title: "Replace All", children: "All" })] })) : null] })] })) : null] }));
+});
+export default CodeEditor;

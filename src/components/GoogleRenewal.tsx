@@ -6,7 +6,7 @@
 // ahead, so a long run on a GPU isn't stopped by it.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { DRIVE_SCOPE, COLAB_SCOPE, onRenewal, renewalWaiting, renewNow, tokenExpiresAt, tokenScopes } from '../lib/google';
+import { DRIVE_SCOPE, COLAB_SCOPE, heldUser, onRenewal, renewalWaiting, renewNow, tokenExpiresAt, tokenScopes } from '../lib/google';
 import { GoogleMark } from './icons';
 
 const AHEAD_MS = 5 * 60_000;
@@ -27,6 +27,8 @@ export default function GoogleRenewal({ clientId }: { clientId: string }) {
   const soon = !waiting && expires !== null && expires > now && expires - now < AHEAD_MS && (scopes.includes(DRIVE_SCOPE) || scopes.includes(COLAB_SCOPE)) && later !== expires;
   if (!clientId || (!waiting && !soon)) return null;
   const minutes = expires ? Math.max(1, Math.round((expires - now) / 60_000)) : 0;
+  // Named, so that a browser with several Google accounts carries on as this one, not another.
+  const who = heldUser()?.email;
   const renew = async () => {
     setBusy(true);
     setProblem(null);
@@ -45,11 +47,11 @@ export default function GoogleRenewal({ clientId }: { clientId: string }) {
       <span>
         {waiting ? (
           <>
-            <b>Your Google sign-in ran out.</b> Drive and Colab are waiting — nothing is lost; one click carries on.
+            <b>Your Google sign-in{who ? ` as ${who}` : ''} ran out.</b> Drive and Colab are waiting — nothing is lost; one click carries on.
           </>
         ) : (
           <>
-            <b>Your Google sign-in ends in {minutes} min.</b> Renew it now, so a run in progress isn’t interrupted.
+            <b>Your Google sign-in{who ? ` as ${who}` : ''} ends in {minutes} min.</b> Renew it now, so a run in progress isn’t interrupted.
           </>
         )}
         {problem ? <em> {problem}</em> : null}

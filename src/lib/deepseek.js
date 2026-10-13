@@ -1,0 +1,317 @@
+// ===========================================================================
+//  DeepSeek — the second provider behind Ask AI and Explain.
+//
+//  DeepSeek's API speaks the OpenAI chat-completions dialect, so there is no
+//  SDK to load: one fetch to api.deepseek.com with the visitor's own key, read
+//  as server-sent events — or, for a visitor with no key of their own, the same
+//  request to the proxy's `POST /ai/deepseek`, which sends it on with the
+//  site's key (server/aiRelay.js) and streams the answer back unchanged. The stream it returns has the few methods the app
+//  uses on Anthropic's MessageStream — on('text'), on('thinking'), abort()
+//  and finalMessage() — so the callers need not care which one they hold.
+//
+//  Pictures — the pages in view in PDF mode, and screenshots — go as OpenAI's
+//  image_url parts holding a base64 data URL; deepseek-flash (V4.1 Flash) reads
+//  them. DeepSeek bills each picture at no more than 384 tokens, so it sees a
+//  page at a lower resolution than Claude does: small print in an equation can
+//  be lost where the paper's text is still there to fall back on.
+//
+//  Thinking is on by default on DeepSeek's models; `thinking` switches it on or
+//  off per request, and `reasoning_effort` sets how hard it thinks.
+//
+//  Tools — the web, with Ask AI's Web button on (webTools.ts) — go as
+//  OpenAI-style function declarations. When the model answers with
+//  `tool_calls` instead of an answer, the stream runs each through the
+//  `runTool` it was given, sends the results back as `tool` turns, and asks
+//  again, round after round until the model answers in text or the cap on
+//  calls is reached. DeepSeek wants the reasoning of every round that
+//  called a tool sent back with it (`reasoning_content` on the assistant
+//  turn), or it refuses the next request; so it is kept, round to round,
+//  while the text of it also streams to the thinking listeners as before.
+//
+//  There are no cache breakpoints. DeepSeek caches a repeated prefix on its
+//    own, so the paper, which leads the system prompt, is still cheap the
+//    second time.
+// ===========================================================================
+export const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
+/**
+ * A failure DeepSeek (or the way to it) reported. `status` is 0 when the
+ * request never got an answer; `fromProxy` when it was the proxy that said no
+ * (not signed in, no key there, the owner's alone) rather than DeepSeek.
+ */
+export class DeepSeekError extends Error {
+    status;
+    fromProxy;
+    /** The proxy's reason: NO_KEY, SIGN_IN or OWNERS_ONLY. */
+    reason;
+    /** Asked through the proxy, on the site's key, rather than straight at DeepSeek. */
+    viaProxy = false;
+    constructor(status, message, fromProxy = false, reason = '') {
+        super(message);
+        this.name = 'DeepSeekError';
+        this.status = status;
+        this.fromProxy = fromProxy;
+        this.reason = reason;
+    }
+}
+/** The proxy's own refusal, which it words as a string where a provider's is an object: why, in a word. */
+export function proxyReason(body) {
+    return body.setup ? 'NO_KEY' : body.owners ? 'OWNERS_ONLY' : body.token || body.auth ? 'SIGN_IN' : '';
+}
+/** Anthropic-style content, in the shape DeepSeek takes: a string stays a string. */
+export function toWire(content) {
+    if (typeof content === 'string')
+        return content;
+    return content.map((part) => part.type === 'text'
+        ? { type: 'text', text: part.text }
+        : { type: 'image_url', image_url: { url: `data:${part.source.media_type};base64,${part.source.data}` } });
+}
+/** The request body, as sent: the conversation, and the rounds of tool calls so far after it. */
+export function requestBody(params, rounds = []) {
+    return {
+        model: params.model,
+        max_tokens: params.maxTokens,
+        stream: true,
+        // One last chunk with the tokens the answer took, for the usage tally.
+        stream_options: { include_usage: true },
+        thinking: { type: params.thinking === 'off' ? 'disabled' : 'enabled' },
+        ...(params.thinking === 'off' ? {} : { reasoning_effort: params.thinking }),
+        ...(params.tools?.length
+            ? {
+                tools: params.tools.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
+                // Past the cap on calls the tools stay declared, so the rounds so far still parse, but may not be called again.
+                ...(params.toolChoice ? { tool_choice: params.toolChoice } : {}),
+            }
+            : {}),
+        messages: [
+            ...(params.system ? [{ role: 'system', content: params.system }] : []),
+            ...params.messages.map((message) => ({ role: message.role, content: toWire(message.content) })),
+            ...rounds,
+        ],
+    };
+}
+/** Why the answer ended, in the words Anthropic uses, which is what the callers check for. */
+export function stopReason(finish) {
+    if (!finish)
+        return null;
+    if (finish === 'length')
+        return 'max_tokens';
+    if (finish === 'content_filter')
+        return 'refusal';
+    if (finish === 'stop')
+        return 'end_turn';
+    if (finish === 'tool_calls')
+        return 'tool_use';
+    return finish;
+}
+/** The arguments of a tool call, parsed; what would not parse goes as the text it was. */
+export function parseArguments(text) {
+    try {
+        return text.trim() ? JSON.parse(text) : {};
+    }
+    catch {
+        return { raw: text };
+    }
+}
+export class DeepSeekStream {
+    controller = new AbortController();
+    listeners = { text: [], thinking: [], step: [] };
+    done;
+    constructor(params, fetcher = fetch) {
+        this.done = this.run(params, fetcher).catch((error) => {
+            if (error instanceof DeepSeekError)
+                error.viaProxy = Boolean(params.url);
+            throw error;
+        });
+        // A caller that never asks for the result must not leave an unhandled rejection behind.
+        this.done.catch(() => { });
+    }
+    on(event, listener) {
+        this.listeners[event].push(listener);
+        return this;
+    }
+    abort() {
+        this.controller.abort();
+    }
+    finalMessage() {
+        return this.done;
+    }
+    emit(event, delta) {
+        for (const listener of this.listeners[event])
+            listener(delta);
+    }
+    step(step) {
+        for (const listener of this.listeners.step)
+            listener(step);
+    }
+    /**
+     * The answer: one request, or — with tools — a request a round, each
+     * round's tool calls run and answered before the next, until the model
+     * answers in text. Past the cap on calls the model is asked once more
+     * with calling turned off, so it answers with what it has.
+     */
+    async run(params, fetcher) {
+        const canCall = Boolean(params.tools?.length && params.runTool);
+        const cap = params.maxToolCalls ?? 8;
+        const rounds = [];
+        let made = 0;
+        for (;;) {
+            const withTools = canCall && made < cap;
+            const round = await this.request(canCall ? { ...params, ...(withTools ? {} : { toolChoice: 'none' }) } : params, rounds, fetcher);
+            if (!withTools || !round.calls.length)
+                return { stop_reason: round.stop === 'tool_use' ? 'end_turn' : round.stop };
+            rounds.push({
+                role: 'assistant',
+                content: round.text,
+                ...(round.reasoning ? { reasoning_content: round.reasoning } : {}),
+                tool_calls: round.calls.map((call) => ({ id: call.id, type: 'function', function: { name: call.name, arguments: call.arguments } })),
+            });
+            for (const call of round.calls) {
+                made += 1;
+                const args = parseArguments(call.arguments);
+                let text;
+                if (made > cap) {
+                    text = `The cap of ${cap} tool calls for one answer is reached; this call was not made. Answer with what you have.`;
+                }
+                else {
+                    const result = await params.runTool(call.name, args, this.controller.signal);
+                    if (this.controller.signal.aborted)
+                        throw aborted();
+                    if (result.step)
+                        this.step(result.step);
+                    text = result.text;
+                }
+                rounds.push({ role: 'tool', tool_call_id: call.id, content: text });
+            }
+        }
+    }
+    /** One request, streamed: text and reasoning to the listeners as they come, the tool calls assembled, and why it stopped. */
+    async request(params, rounds, fetcher) {
+        let response;
+        try {
+            response = await fetcher(params.url ?? DEEPSEEK_URL, {
+                method: 'POST',
+                headers: params.url ? { ...params.headers, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
+                body: JSON.stringify(requestBody(params, rounds)),
+                signal: this.controller.signal,
+            });
+        }
+        catch (error) {
+            if (this.controller.signal.aborted)
+                throw aborted();
+            throw new DeepSeekError(0, String(error?.message ?? error));
+        }
+        if (!response.ok) {
+            let message = response.statusText;
+            try {
+                const body = await response.json();
+                if (params.url && typeof body?.error === 'string') {
+                    throw new DeepSeekError(response.status, body.error, true, proxyReason(body));
+                }
+                message = body?.error?.message || message;
+            }
+            catch (error) {
+                if (error instanceof DeepSeekError)
+                    throw error;
+                // not JSON: the status line will do
+            }
+            throw new DeepSeekError(response.status, message || `HTTP ${response.status}`);
+        }
+        if (!response.body)
+            throw new DeepSeekError(response.status, 'The answer came back empty.');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const round = { text: '', reasoning: '', calls: [], stop: null };
+        // Tool calls arrive as deltas, each naming its place in the list.
+        const calls = new Map();
+        const line = (raw) => {
+            const text = raw.trim();
+            // Blank lines end an event; ": keep-alive" is a comment, sent while the model thinks.
+            if (!text.startsWith('data:'))
+                return false;
+            const data = text.slice(5).trim();
+            if (data === '[DONE]')
+                return true;
+            let chunk;
+            try {
+                chunk = JSON.parse(data);
+            }
+            catch {
+                return false;
+            }
+            if (chunk.error)
+                throw new DeepSeekError(500, chunk.error.message || 'DeepSeek stopped with an error.');
+            if (chunk.usage && params.onUsage) {
+                try {
+                    params.onUsage(chunk.usage);
+                }
+                catch {
+                    // counting never gets in the way of the answer
+                }
+            }
+            const choice = chunk.choices?.[0];
+            if (!choice)
+                return false;
+            if (choice.delta?.reasoning_content) {
+                round.reasoning += choice.delta.reasoning_content;
+                this.emit('thinking', choice.delta.reasoning_content);
+            }
+            if (choice.delta?.content) {
+                round.text += choice.delta.content;
+                this.emit('text', choice.delta.content);
+            }
+            for (const delta of choice.delta?.tool_calls ?? []) {
+                const at = delta.index ?? calls.size;
+                const call = calls.get(at) ?? { id: '', name: '', arguments: '' };
+                if (delta.id)
+                    call.id = delta.id;
+                if (delta.function?.name)
+                    call.name += delta.function.name;
+                if (delta.function?.arguments)
+                    call.arguments += delta.function.arguments;
+                calls.set(at, call);
+            }
+            if (choice.finish_reason) {
+                if (choice.finish_reason === 'insufficient_system_resource') {
+                    throw new DeepSeekError(503, 'DeepSeek ran short of capacity and cut the answer off.');
+                }
+                round.stop = stopReason(choice.finish_reason);
+            }
+            return false;
+        };
+        try {
+            let ended = false;
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done)
+                    break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                if (lines.some(line)) {
+                    ended = true;
+                    break;
+                }
+            }
+            if (!ended) {
+                buffer += decoder.decode();
+                if (buffer)
+                    line(buffer);
+            }
+        }
+        catch (error) {
+            if (this.controller.signal.aborted)
+                throw aborted();
+            throw error instanceof DeepSeekError ? error : new DeepSeekError(0, String(error?.message ?? error));
+        }
+        round.calls = Array.from(calls.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([, call], i) => ({ ...call, id: call.id || `call_${i}`, name: call.name || 'unknown' }));
+        return round;
+    }
+}
+function aborted() {
+    const error = new Error('Stopped.');
+    error.name = 'AbortError';
+    return error;
+}

@@ -286,13 +286,146 @@ describe('staying signed in across a reload', () => {
     const module = await fresh();
     install(grant(WITH_DRIVE));
     const accessToken = await module.ensureDriveToken('client-id');
+    const profile = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => 'Invalid Credentials' });
     await assert.rejects(module.findFile(accessToken, 'paper.pdf', 'folder'), /401/);
     assert.equal(module.hasDriveAccess(), false);
     assert.equal(stored.has(SESSION_KEY), false);
+    // The token went; whose sign-in this is did not, and the next ask is for them.
+    assert.equal(module.heldUser()?.email, 'reader@example.com');
+    globalThis.fetch = profile;
     const calls = install(grant(WITH_DRIVE));
     await module.ensureDriveToken('client-id');
     assert.equal(calls.length, 1);
+    assert.equal(calls[0].hint, 'reader@example.com');
+  });
+});
+
+describe('whose token it is', () => {
+  // A browser signed in to two Google accounts is offered a chooser on every
+  // window, a renewal's included. Pick the wrong one and, before this, the new
+  // token was filed under the old name: the page went on showing the first
+  // account while every Drive request went to the second's — its library read
+  // into the first's page, and the first's written over it.
+
+  /** A tab signed in as `email` whose hour is about to be up: loaded live, then the token runs out under it. */
+  async function ranOut(email = 'reader@example.com', scopes = WITH_DRIVE) {
+    const expiresAt = Date.now() + 250;
+    stored.set(SESSION_KEY, JSON.stringify({ accessToken: 'old', expiresAt, scopes: scopes.split(' '), user: { name: 'A Reader', email } }));
+    const module = await fresh();
+    assert.equal(module.heldUser()?.email, email);
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, expiresAt - Date.now()) + 5));
+    assert.equal(module.restoredUser(), null, 'the token ran out');
+    assert.equal(module.heldUser()?.email, email, 'whose it was did not');
+    return module;
+  }
+
+  it('reads the profile on a renewal rather than assuming the same person', async () => {
+    const module = await ranOut();
+    let profiles = 0;
+    globalThis.fetch = async () => {
+      profiles += 1;
+      return { ok: true, json: async () => ({ name: 'A Reader', email: 'reader@example.com' }) };
+    };
+    install(grant(WITH_DRIVE));
+    assert.equal(await module.ensureDriveToken('client-id'), 'token');
+    assert.equal(profiles, 1);
+    assert.deepEqual(module.restoredUser(), { name: 'A Reader', email: 'reader@example.com', picture: undefined });
+  });
+
+  it('names the account a renewal is for, so Google need not ask which', async () => {
+    const module = await ranOut();
+    const calls = install(grant(WITH_DRIVE));
+    await module.ensureDriveToken('client-id');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].hint, 'reader@example.com');
+  });
+
+  it('gives no hint on a first sign-in, where there is nobody to name', async () => {
+    const module = await fresh();
+    const calls = install(grant(WITH_DRIVE));
+    await module.signIn('client-id');
+    assert.equal(calls[0].hint, undefined);
+  });
+
+  it('refuses the waiting work another account’s token, and holds that token as their sign-in', async () => {
+    const module = await ranOut();
+    const changes = [];
+    module.onSessionChange((change) => changes.push(change));
+    gesture = false;
+    const waiting = [module.ensureDriveToken('client-id'), module.ensureDriveToken('client-id')];
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(module.renewalWaiting(), true);
+    // The click on the prompt; in Google's chooser, the other account.
+    gesture = true;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ name: 'Someone Else', email: 'other@example.com' }) });
+    install(grant(WITH_DRIVE));
+    await assert.rejects(module.renewNow('client-id'), (error) => error instanceof module.AccountChangedError && /other@example\.com, not reader@example\.com/.test(error.message));
+    // Nothing of the first account's goes to the second's Drive: the callers are told, not handed the token.
+    for (const pending of waiting) await assert.rejects(pending, module.AccountChangedError);
+    assert.equal(module.renewalWaiting(), false);
+    // The token is the second account's sign-in, and the page hears, to open their library.
+    assert.deepEqual(module.restoredUser(), { name: 'Someone Else', email: 'other@example.com', picture: undefined });
+    assert.equal(module.heldUser()?.email, 'other@example.com');
+    assert.deepEqual(changes, ['token']);
+  });
+
+  it('refuses it inside a click too, where no prompt was waiting', async () => {
+    const module = await ranOut();
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ name: 'Someone Else', email: 'other@example.com' }) });
+    install(grant(WITH_DRIVE));
+    await assert.rejects(module.ensureDriveToken('client-id'), module.AccountChangedError);
+    assert.equal(module.heldUser()?.email, 'other@example.com');
+  });
+
+  it('carries on as the same person, whatever the case of the letters', async () => {
+    const module = await ranOut('Reader@Example.com');
+    install(grant(WITH_DRIVE));
+    assert.equal(await module.ensureDriveToken('client-id'), 'token');
+  });
+
+  it('holds no token whose profile could not be read, and the next click asks again', async () => {
+    const module = await ranOut();
+    gesture = false;
+    const pending = module.ensureDriveToken('client-id');
+    gesture = true;
+    globalThis.fetch = async () => ({ ok: false, status: 503 });
+    install(grant(WITH_DRIVE));
+    await assert.rejects(module.renewNow('client-id'), /Could not read your Google profile \(503\)/);
+    assert.equal(module.liveAccessToken(), null);
+    assert.equal(module.renewalWaiting(), true);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ name: 'A Reader', email: 'reader@example.com' }) });
+    const calls = install(grant(WITH_DRIVE));
+    await module.renewNow('client-id');
+    assert.equal(await pending, 'token');
+    assert.equal(calls.length, 1);
+  });
+
+  it('holds no token whose profile was still being read when the person signed out', async () => {
+    const module = await fresh();
+    let answer;
+    globalThis.fetch = () => new Promise((resolve) => (answer = () => resolve({ ok: true, json: async () => ({ name: 'A Reader', email: 'reader@example.com' }) })));
+    install(grant(WITH_DRIVE));
+    const pending = module.signIn('client-id');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    module.signOut();
+    answer();
+    await assert.rejects(pending, /Signed out/);
+    assert.equal(module.liveAccessToken(), null);
+    assert.equal(module.heldUser(), null);
+    assert.equal(stored.has(SESSION_KEY), false);
+  });
+
+  it('forgets whose it was on sign-out, so the next sign-in names nobody', async () => {
+    const module = await fresh();
+    install(grant(WITH_DRIVE));
+    await module.connectDrive('client-id');
+    assert.equal(module.heldUser()?.email, 'reader@example.com');
+    module.signOut();
+    assert.equal(module.heldUser(), null);
+    const calls = install(grant(WITH_DRIVE));
+    await module.signIn('client-id');
+    assert.equal(calls[0].hint, undefined);
   });
 });
 
@@ -341,7 +474,7 @@ describe('renewing for work in the background', () => {
     install(grant(`${WITH_DRIVE} https://www.googleapis.com/auth/colaboratory`));
     await module.connectColab('client-id');
     // An hour later: the token is gone, and the run's readings and the explorer both need it.
-    stored.set(SESSION_KEY, JSON.stringify({ accessToken: 'old', expiresAt: Date.now() - 1, scopes: [...WITH_DRIVE.split(' '), 'https://www.googleapis.com/auth/colaboratory'], user: { name: 'A', email: 'a@b' } }));
+    stored.set(SESSION_KEY, JSON.stringify({ accessToken: 'old', expiresAt: Date.now() - 1, scopes: [...WITH_DRIVE.split(' '), 'https://www.googleapis.com/auth/colaboratory'], user: { name: 'A Reader', email: 'reader@example.com' } }));
     const later = await fresh();
     install(grant(`${WITH_DRIVE} https://www.googleapis.com/auth/colaboratory`));
     gesture = false;
