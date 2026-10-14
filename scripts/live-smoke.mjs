@@ -108,6 +108,13 @@ await page.locator('.welcome-greeting').waitFor({ timeout: 10000 });
 check('it greets by the inviter’s name, with the note', /Priya Natarajan invited you to Reader/.test(await page.locator('.welcome-greeting').innerText()) && /Have a look before Thursday\?/.test(await page.locator('.welcome-greeting').innerText()), await page.locator('.welcome-greeting').innerText());
 await shot('9-welcome-invited');
 
+console.log('a project invitation, signed out');
+await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&as=priya%40example.org`, { waitUntil: 'networkidle' });
+const projectGreeting = page.locator('.welcome-greeting', { hasText: 'invitation is for' });
+await projectGreeting.waitFor({ timeout: 10000 });
+check('the welcome page names the account the invitation is for', /invitation is for priya@example\.org/.test(await projectGreeting.innerText()), await projectGreeting.innerText());
+await shot('9b-welcome-project-invite');
+
 console.log('the project bar: who is here');
 await seed();
 /** The opening screen (a build with a Google client id): past it, as someone keeping everything in this browser. */
