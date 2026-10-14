@@ -6,7 +6,7 @@
 // browser (insertText), so ⌘Z and ⇧⌘Z undo and redo it as they do typing.
 // What it does to the text is src/lib/editing.ts.
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { highlightCode } from '../lib/languages';
 import { highlightTex } from '../lib/overleaf';
@@ -30,6 +30,25 @@ export interface CodeEditorHandle {
   caretPoint: (at: number) => { x: number; y: number };
   /** The text as it is in the editor right now. */
   value: () => string;
+}
+
+/** Someone else in the file: where their caret is, and what they have selected. */
+export interface EditorPeer {
+  id: string;
+  name: string;
+  color: string;
+  offset: number;
+  sel?: [number, number];
+}
+
+interface PeerSpot {
+  id: string;
+  name: string;
+  color: string;
+  x: number;
+  y: number;
+  line: number;
+  rects: { x: number; y: number; w: number }[];
 }
 
 export interface Cursor {
@@ -77,7 +96,12 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   beforeKey?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean;
   /** A card shown at an offset in the text, under the caret's line, as the suggestions are. */
   aside?: { at: number; node: ReactNode } | null;
-}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete, beforeKey, aside }, ref) {
+  /**
+   * Other people in this file (a shared project: src/lib/liveRoom.ts), each drawn as a caret in their colour with their
+   * name on a flag, their selection tinted the same, and a tick on the editor's edge at their line.
+   */
+  peers?: EditorPeer[];
+}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete, beforeKey, aside, peers }, ref) {
   const text = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -210,6 +234,34 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     mirror.remove();
     return point;
   }, []);
+  // ---- other people's carets, measured the way the suggestions are placed
+  const [peerSpots, setPeerSpots] = useState<PeerSpot[]>([]);
+  useLayoutEffect(() => {
+    const element = text.current;
+    if (!peers?.length || !element) return setPeerSpots((now) => (now.length ? [] : now));
+    const left = element.offsetLeft + PAD_X;
+    const right = element.offsetLeft + element.clientWidth - PAD_X;
+    const spots = peers.map((peer) => {
+      const at = Math.max(0, Math.min(peer.offset, value.length));
+      const point = caretPoint(at);
+      const rects: PeerSpot['rects'] = [];
+      if (peer.sel && peer.sel[0] !== peer.sel[1]) {
+        const from = Math.max(0, Math.min(peer.sel[0], peer.sel[1], value.length));
+        const to = Math.min(value.length, Math.max(peer.sel[0], peer.sel[1]));
+        const a = caretPoint(from);
+        const b = caretPoint(to);
+        if (a.y === b.y) rects.push({ x: a.x, y: a.y, w: Math.max(2, b.x - a.x) });
+        else {
+          rects.push({ x: a.x, y: a.y, w: Math.max(2, right - a.x) });
+          for (let y = a.y + lineHeight; y < b.y; y += lineHeight) rects.push({ x: left, y, w: Math.max(2, right - left) });
+          rects.push({ x: left, y: b.y, w: Math.max(2, b.x - left) });
+        }
+      }
+      return { id: peer.id, name: peer.name, color: peer.color, x: point.x, y: point.y, line: lineCol(value, at).line, rects };
+    });
+    setPeerSpots(spots);
+  }, [peers, value, caretPoint, lineHeight, charWidth, wrap]);
+
   const suggestNow = useCallback(
     (manual = false) => {
       const element = text.current;
@@ -527,6 +579,20 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
             onBlur={() => window.setTimeout(() => setSuggest(null), 120)}
             onFocus={() => (report(), onFocus?.())}
           />
+          {peerSpots.length ? (
+            <div className="ce-peers" aria-hidden="true">
+              {peerSpots.map((spot) => (
+                <Fragment key={spot.id}>
+                  {spot.rects.map((rect, index) => (
+                    <i key={index} className="ce-peer-sel" style={{ left: rect.x, top: rect.y, width: rect.w, height: lineHeight, background: spot.color }} />
+                  ))}
+                  <span className="ce-peer" style={{ left: spot.x, top: spot.y, height: lineHeight, background: spot.color }} title={`${spot.name} is here`}>
+                    <b style={{ background: spot.color }}>{spot.name}</b>
+                  </span>
+                </Fragment>
+              ))}
+            </div>
+          ) : null}
           {aside && !suggest ? <AsideAt at={aside.at} point={caretPoint} lineHeight={lineHeight}>{aside.node}</AsideAt> : null}
           {suggest && suggest.list.items.length ? (
             <div className="ce-suggest" ref={listBox} role="listbox" aria-label="Suggestions" style={{ left: suggest.x, top: suggest.y + lineHeight + 2 }} onMouseDown={(event) => event.preventDefault()}>
@@ -548,6 +614,13 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
           ) : null}
         </div>
       </div>
+      {peerSpots.length ? (
+        <div className="ce-peer-track" aria-hidden="true">
+          {peerSpots.map((spot) => (
+            <i key={spot.id} style={{ top: `${((spot.line - 0.5) / Math.max(1, lines.length)) * 100}%`, background: spot.color }} title={`${spot.name} · line ${spot.line}`} />
+          ))}
+        </div>
+      ) : null}
       {minimap ? (
         <canvas
           ref={map}

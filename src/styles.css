@@ -8156,3 +8156,94 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .bib-paste div, .bib-rename { display: flex; gap: 6px; align-items: center; }
 .bib-rename input { font-size: 12px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); min-width: 220px; }
 .bib-text { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 11.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; overflow: auto; max-height: 260px; }
+
+/* ---- Working on a project together: the people in the project bar, their carets, the share dialog (docs/live-collaboration.md) */
+.pj-people-wrap { display: flex; align-items: center; gap: 8px; position: relative; }
+.pj-people { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.pj-people-btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 9px 0 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
+.pj-people-btn:hover, .pj-people.is-open .pj-people-btn { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pj-people.is-following .pj-people-btn { color: var(--ink); }
+.pj-avatars { display: inline-flex; align-items: center; }
+.pj-avatars .pj-av { margin-left: -6px; border: 2px solid var(--surface); }
+.pj-avatars .pj-av:first-child { margin-left: 0; }
+.pj-av { position: relative; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: #fff; font: 600 10.5px var(--sans); flex: none; overflow: visible; }
+.pj-av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.pj-av.is-lg { width: 34px; height: 34px; font-size: 13px; }
+.pj-av.is-away { opacity: 0.6; filter: saturate(0.4); }
+.pj-av.is-gone { opacity: 0.45; filter: saturate(0); }
+.pj-av.is-following { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--who); }
+.pj-av-dot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); background: #3c9160; }
+.pj-av-dot.is-away { background: #c9781e; }
+.pj-av-dot.is-gone { display: none; }
+.pj-people-n { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pj-live { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pj-live.is-live { background: #3c9160; box-shadow: 0 0 0 3px rgba(60, 145, 96, 0.18); }
+.pj-live.is-connecting { background: #c9781e; }
+.pj-live.is-error { background: var(--danger); }
+.pj-stop-follow { height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font: 500 11.5px var(--sans); cursor: pointer; }
+.pj-person { position: absolute; z-index: 45; right: 0; top: calc(100% + 8px); width: 320px; padding: 12px 13px 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-md); font-size: 12px; }
+.pj-person-who { display: flex; align-items: center; gap: 10px; }
+.pj-person-who b { display: block; font-size: 13px; }
+.pj-person-who small { color: var(--muted); font-size: 11px; }
+.pj-person-where { margin-top: 10px; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 9px 10px; border-radius: 9px; background: var(--panel); font-size: 11.5px; }
+.pj-person-where span { color: var(--muted); }
+.pj-person-where code { font: 11.5px var(--mono); color: var(--ink); }
+.pj-person-where em { font-style: normal; color: var(--ink-2); }
+.pj-person-acts { display: flex; gap: 6px; margin-top: 10px; }
+.pj-person-acts .btn { flex: 1; justify-content: center; }
+.pj-person-acts .btn.ghost { flex: none; }
+.pj-person-note { margin: 9px 0 0; font-size: 10.5px; color: var(--muted); line-height: 1.45; }
+.pj-people-list { position: absolute; z-index: 45; right: 0; top: calc(100% + 8px); width: 390px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-md); overflow: hidden; font-size: 12px; }
+.pj-people-list h5 { margin: 0; padding: 10px 14px 6px; font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.pj-people-none { margin: 0; padding: 4px 14px 10px; color: var(--muted); }
+.pj-people-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 0 10px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--border-soft); }
+.pj-people-row.is-me { background: var(--panel); }
+.pj-people-row-text { min-width: 0; }
+.pj-people-row-text b { display: block; font-size: 12.5px; }
+.pj-people-row-text small { display: block; color: var(--ink-2); font-size: 11px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj-people-row-text code { font: 11px var(--mono); color: var(--accent-ink); }
+.pj-people-row-acts { display: inline-flex; gap: 10px; }
+.pj-people-foot { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-top: 1px solid var(--border-soft); background: var(--panel); }
+.pj-share-btn { color: var(--accent-ink); }
+.pj-toast { position: fixed; z-index: 48; right: 20px; bottom: 44px; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 9px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-md); font-size: 12px; max-width: 420px; }
+.pj-toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-toast-x { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.pj-following { display: flex; align-items: center; gap: 10px; flex: none; height: 34px; padding: 0 20px; background: var(--who); color: #fff; font: 500 12px var(--sans); }
+.pj-following b { font-weight: 600; }
+.pj-following kbd { font-family: var(--mono); font-size: 10.5px; background: rgba(255, 255, 255, 0.18); color: #fff; border: 0; padding: 1px 6px; border-radius: 4px; }
+.pj-following .btn { margin-left: auto; height: 24px; background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.3); color: #fff; }
+.pj-peer-chip { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 6px; border-radius: 999px; color: #fff; font: 500 10px var(--sans); font-style: normal; line-height: 1.4; flex: none; }
+.pj-peer-chip.is-away { opacity: 0.55; }
+.pg-entry .pj-peer-chip { margin-left: auto; }
+.pg-entry .pj-peer-chip + small { margin-left: 6px; }
+/* Their carets in the editor, over the text and under the textarea's own caret */
+.ce-peers { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.ce-peer { position: absolute; width: 2px; margin-left: -1px; border-radius: 1px; }
+.ce-peer b { position: absolute; left: -1px; bottom: 100%; padding: 2px 5px; border-radius: 3px 3px 3px 0; color: #fff; font: 600 9.5px/1 var(--sans); white-space: nowrap; }
+.ce-peer-sel { position: absolute; border-radius: 2px; opacity: 0.2; }
+.ce-peer-track { position: absolute; top: 0; bottom: 0; right: 0; width: 10px; pointer-events: none; z-index: 3; }
+.ce.has-map .ce-peer-track { right: 76px; }
+.ce-peer-track i { position: absolute; left: 1px; width: 8px; height: 3px; border-radius: 2px; }
+/* The share dialog */
+.sheet.pj-share { width: min(620px, calc(100vw - 32px)); }
+.pj-share-invite { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; }
+.pj-share-invite input { flex: 1; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); }
+.pj-share-invite select, .pj-share-role select, select.pj-share-role { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--ink); font: 11.5px var(--sans); }
+.pj-share-members { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.pj-share-row { display: grid; grid-template-columns: 34px 1fr auto auto; gap: 0 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border-soft); font-size: 12px; }
+.pj-share-row:first-child { border-top: 0; }
+.pj-share-row.is-invited { background: var(--panel); }
+.pj-share-row-text { min-width: 0; }
+.pj-share-row-text b { display: block; font-size: 12.5px; }
+.pj-share-row-text small { display: block; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj-share-role { font-size: 11.5px; color: var(--ink-2); }
+.pj-share-row-acts { display: inline-flex; gap: 10px; }
+.pj-share-gets { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.pj-share-gets div { border: 1px dashed var(--border); border-radius: 9px; padding: 8px 10px; font-size: 11px; line-height: 1.45; color: var(--ink-2); }
+.pj-share-gets b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+.pj-share-gets em { font-style: normal; color: var(--accent-ink); }
+.pj-share-link { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12px; flex-wrap: wrap; }
+.pj-share-switch { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.pj-share-domain { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 11.5px var(--mono); width: 200px; }
+.pj-share-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
+@media (max-width: 720px) { .pj-share-gets { grid-template-columns: 1fr; } .pj-people-list, .pj-person { width: min(390px, calc(100vw - 32px)); } }

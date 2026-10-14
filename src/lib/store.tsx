@@ -268,6 +268,8 @@ interface StoreValue {
   renameCollection: (id: string, name: string) => Promise<void>;
   /** Change a collection in place — its colour, or the project it is (src/lib/projects.ts). */
   updateCollection: (id: string, change: Partial<Collection> | ((collection: Collection) => Partial<Collection>)) => Promise<void>;
+  /** A collection put whole, with the id it has — a shared project adopted from its room, under the owner's id so links to it work for everyone. */
+  adoptCollection: (collection: Collection) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
 
   addHighlight: (highlight: Omit<Highlight, 'id' | 'createdAt'>) => Promise<Highlight>;
@@ -1404,6 +1406,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const adoptCollection = useCallback(async (collection: Collection) => {
+    const had = latest.current.collections.some((item) => item.id === collection.id);
+    latest.current.collections = had ? latest.current.collections.map((item) => (item.id === collection.id ? collection : item)) : [...latest.current.collections, collection];
+    setCollections(latest.current.collections);
+    await lib.putCollection(collection);
+  }, []);
+
   const deleteCollection = useCallback(async (id: string) => {
     await lib.deleteCollection(id);
     setCollections((current) => current.filter((item) => item.id !== id));
@@ -1593,6 +1602,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createCollection,
       renameCollection,
       updateCollection,
+      adoptCollection,
       deleteCollection,
       addHighlight,
       updateHighlight,
@@ -1613,7 +1623,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors, setPaperCitation, lookupPaperCitations, citationsLooking,
-      createCollection, renameCollection, updateCollection, deleteCollection, addHighlight, updateHighlight,
+      createCollection, renameCollection, updateCollection, adoptCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
     ],

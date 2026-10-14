@@ -53,6 +53,7 @@ export { BrowserSession } from './browserSession.js';
 export { Usage } from './usage.js';
 export { Devices } from './devices.js';
 export { LatexJob } from './latex.js';
+export { ProjectRoom } from './projectRoom.js';
 import { rateLimited, refusal } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -335,7 +336,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -422,6 +423,47 @@ export default {
           const body = await request.json().catch(() => ({}));
           const answer = await of(who.email).fetch(`https://devices${path.slice('/devices'.length)}`, { method: 'POST', body: JSON.stringify(body) });
           return json({ ...(await answer.json()), email: who.email }, answer.status, noStore);
+        }
+        return json({ error: 'not found' }, 404, headers);
+      }
+
+      // A project shared with the people you work with: worker/projectRoom.js.
+      // Every call takes the account's pass; the room checks the email on it
+      // against its members. The live socket is taken only from this app.
+      if (path === '/rooms' || path.startsWith('/rooms/')) {
+        if (!env.ROOMS) return json({ error: 'no ROOMS object is bound here — see wrangler.toml' }, 501, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        // The live socket carries no headers of its own: the page sends its pass as a subprotocol, read here as the Authorization header would be.
+        let asked = request;
+        if (path.endsWith('/live') && !request.headers.get('Authorization')) {
+          const pass = (request.headers.get('Sec-WebSocket-Protocol') || '').split(',').map((item) => item.trim()).find((item) => item.startsWith('rp1.'));
+          if (pass) asked = new Request(request, { headers: { ...Object.fromEntries(request.headers), Authorization: `Bearer ${pass}` } });
+        }
+        const who = await authorized(asked, env);
+        if (!who?.email) return json({ error: 'sign in with Google to share a project' }, 401, headers);
+        const roomOf = (id) => env.ROOMS.get(env.ROOMS.idFromName(`room:${id}`));
+        const forward = async (id, route, body) => {
+          const answer = await roomOf(id).fetch(`https://room${route}?email=${encodeURIComponent(who.email)}`, body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+          return json(await answer.json(), answer.status, noStore);
+        };
+        if (path === '/rooms') {
+          if (request.method !== 'POST') return json({ error: 'POST a project to share it' }, 405, headers);
+          const body = await request.json().catch(() => ({}));
+          // A new room, or the one the project already has: its id is the project's own to keep.
+          const id = /^[0-9a-f]{32}$/.test(body.room || '') ? body.room : crypto.randomUUID().replace(/-/g, '');
+          return forward(id, '/create', { ...body, room: id });
+        }
+        const [, , id, action = 'state'] = path.split('/');
+        if (!/^[0-9a-f]{32}$/.test(id || '')) return json({ error: 'no such room' }, 404, headers);
+        if (action === 'live') {
+          if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+          if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426, headers);
+          return roomOf(id).fetch(new URL(`https://room/live?email=${encodeURIComponent(who.email)}`), { headers: request.headers });
+        }
+        if (action === 'state') return forward(id, '/state');
+        if (['join', 'project', 'invite', 'uninvite', 'role', 'link', 'remove', 'leave'].includes(action)) {
+          if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+          return forward(id, `/${action}`, await request.json().catch(() => ({})));
         }
         return json({ error: 'not found' }, 404, headers);
       }

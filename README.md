@@ -1111,6 +1111,52 @@ papers are the collection's: a paper in two projects is in two collections,
 a collection can be turned into a project (and back), and Drive keeps a
 project in `library.json` the way it keeps any collection.
 
+### Working on a project together
+
+**Share** on the project bar makes the project one you work on with other
+people: see where each of you is, as it happens — the design and its
+pictures are [docs/live-collaboration.md](docs/live-collaboration.md).
+Invitations are by Google email, since that is how everyone signs in; an
+invited person opens the project's link and the project appears in their own
+library, under the same id, so links to it work for everyone. Two roles,
+*edit* and *view*. A join link for anyone, off unless switched on, can be
+kept to a domain.
+
+The people in the project then sit at the right of the project bar, on every
+tab: a stack of avatars, a green dot for someone active, dimmed for someone
+away, and *3 here*. Hover one and a card says where they are in words —
+*Code · train.py · line 42* — with **Jump there**, which opens that tab and
+that file at their caret, once, and **Follow**, which keeps the page where
+they go until you press Esc or edit something, with a banner in their colour
+while it lasts. Click the group for everyone in a list, the people who were
+here earlier with when and where they left off. In the Code and Write
+editors the others' carets are drawn in their colours, named on a flag,
+their selections tinted the same, with a tick on the editor's edge at their
+line; the file trees name who is in which file. Someone arriving, or opening
+a file or a paper, is a toast with a Jump. **Appear away**, on your own row
+in the list, hides your place.
+
+![The project bar with four people in it, the list open: here now with where each is and Jump and Follow on every row, earlier with when and where they left off](docs/live-list.png)
+
+![Following Priya: a banner in Priya's colour across the page, the Code tab opened by itself](docs/live-following.png)
+
+![The share dialog: an invitation field, the members with their roles and where each is, two invitations waiting with a link to copy, and the join link switched off](docs/live-share.png)
+
+What is shared is the project's record — its question, its papers' roles and
+its to-do list, kept current by the owner — and where everyone is, to members
+only, while the page is open. Reading progress, highlights and notes stay
+each person's own, and the files are each person's copy, synced as before
+through the Companion, GitHub or Overleaf's Git. Editing one file together,
+live, is the next step (the design has it). A place is also a link:
+`&at=sections/related.tex:12` on a project's address opens that file at that
+line, which is what **Link** on the card copies.
+
+Underneath, each shared project has a room on the Worker: a Durable Object
+(`worker/projectRoom.js`, bound as `ROOMS`) holding the members, the
+invitations and where each member is, over one WebSocket per open page that
+hibernates when nobody is typing. Every call takes the pass the app already
+holds; the socket carries it as a subprotocol.
+
 ### Writing with Overleaf
 
 A project can be linked to the Overleaf project its paper is written in:
@@ -4898,6 +4944,7 @@ node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book
 node scripts/pdf-assistant-smoke.mjs # every author off the PDF's first page; Ask Claude reading a PDF
 node scripts/library-smoke.mjs  # the list and cards, selecting, moving, marking, Junk and back
+node scripts/live-smoke.mjs     # the people in a shared project's bar, the card, the list, following, the share dialog
 node scripts/calendar-smoke.mjs # the Calendar page: connecting, the week, the day, the month, a meeting's card
 
 npm run build                  # then, needing no server of its own:

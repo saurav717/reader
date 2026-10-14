@@ -16,6 +16,24 @@ are static mock-ups in the app's own colours and type; their sources are in
 [`mockups/live-src/`](mockups/live-src/), and
 `node docs/mockups/live-src/render.mjs` renders them again.
 
+> **Built, in part.** Step 1 — sharing a project, the people in the bar,
+> the card with Jump and Follow, the list, the toasts, the carets in the
+> editors, the share dialog and the room on the Worker — is in the app. See
+> the README's [Working on a project together](../README.md#working-on-a-project-together).
+> Two things were decided by building rather than as written here:
+>
+> - **Invitations are a link.** The app sends no mail: inviting an address
+>   lists it, and the owner sends that person the project's link, which only
+>   an invited (or link-admitted) Google account can join by. Nothing is
+>   kept per invitee beyond their email and role.
+> - **The pass rides as a subprotocol.** A browser's WebSocket sends no
+>   headers, so the live socket names the pass in `Sec-WebSocket-Protocol`,
+>   which the Worker reads as it would the Authorization header, rather
+>   than in the address.
+>
+> Step 2, editing one file together, and step 3, reading together, are not
+> built.
+
 ---
 
 ## The pictures

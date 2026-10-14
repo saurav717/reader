@@ -45,6 +45,19 @@ class_name = "Devices"
 tag = "v3"
 new_sqlite_classes = ["Devices"]
 
+# A project shared with the people you work with (worker/projectRoom.js):
+# one object per shared project, holding its members, the invitations
+# waiting, a summary of the project, and where each member is right now,
+# over a WebSocket per open page that hibernates when nobody is typing.
+# See docs/live-collaboration.md.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "ProjectRoom"
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["ProjectRoom"]
+
 # Anyone signed in with Google in the reader need paste nothing: the app
 # swaps the sign-in for a thirty-day pass signed with READER_TOKEN (see
 # server/passes.js and GOOGLE_CLIENT_ID below), so the token is the key the
