@@ -161,6 +161,13 @@ await page.locator('.pj-people-list').waitFor({ timeout: 5000 });
 const list = await page.locator('.pj-people-list').innerText();
 check('here now, then earlier, with where each is', /here now/i.test(list) && /earlier/i.test(list) && /You\n.*Overview/.test(list) && /Lin Zhao/.test(list) && /Read · Switch Transformers/.test(list) && /Appear away/.test(list), list.replace(/\n/g, ' | '));
 await shot('3-list');
+// Under glass, dark: the popover must still read (its surface is see-through there).
+await page.evaluate(() => (document.documentElement.setAttribute('data-glass', 'on'), document.documentElement.setAttribute('data-theme', 'dark')));
+await page.waitForTimeout(300);
+const listBg = await page.locator('.pj-people-list').evaluate((el) => getComputedStyle(el).backgroundColor);
+check('the list is solid under glass', /rgba?\((\d+), (\d+), (\d+)(?:, (0\.9\d+|1))?\)/.test(listBg) && !/, 0\.[0-8]/.test(listBg), listBg);
+await shot('3b-list-glass');
+await page.evaluate(() => (document.documentElement.removeAttribute('data-glass'), document.documentElement.removeAttribute('data-theme')));
 await page.keyboard.press('Escape');
 
 console.log('someone opens a file: a toast');

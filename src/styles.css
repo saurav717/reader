@@ -8332,3 +8332,6 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-theme='dark'] .pj-notice { background: #3b2f1c; color: #f0d9b5; border-bottom-color: #5a4728; }
 .pj-notice span { flex: 1; min-width: 0; }
 .pj-notice .btn { flex: none; }
+/* Under glass the surface is see-through: the people's popovers, the toast and the notice are solid enough to read, as the app's other menus are. */
+:root[data-glass='on'] :is(.pj-people-list, .pj-person, .pj-toast) { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(20px) saturate(185%); backdrop-filter: blur(20px) saturate(185%); border-color: var(--border); }
+:root[data-glass='on'] .pj-people-row.is-me, :root[data-glass='on'] .pj-people-foot, :root[data-glass='on'] .pj-person-where { background: rgb(255 255 255 / 0.06); }
