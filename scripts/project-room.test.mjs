@@ -202,6 +202,26 @@ describe('sharing a project', () => {
     assert.equal((await call(e, `/rooms/${room}`, { pass: priya })).status, 403);
   });
 
+  it('lets the owner stop sharing: everyone out, told so, and the room gone', async () => {
+    const e = env();
+    const owner = await issuePass('owner@x.org', SECRET);
+    const priya = await issuePass('priya@x.org', SECRET);
+    const { room } = await (await call(e, '/rooms', { pass: owner, body: { project } })).json();
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'priya@x.org' } });
+    await call(e, `/rooms/${room}/join`, { pass: priya, body: {} });
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'marco@x.org' } });
+    const { object } = e.ROOMS.get(`room:${room}`);
+    const socket = fakeSocket('priya@x.org');
+    object.state.acceptWebSocket(socket);
+    assert.equal((await call(e, `/rooms/${room}/close`, { pass: priya, body: {} })).status, 403, 'only the owner');
+    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true });
+    assert.deepEqual(socket.sent.at(-1), { type: 'closed' });
+    assert.deepEqual(socket.closed, { code: 1000, reason: 'the project is no longer shared' });
+    assert.equal((await call(e, `/rooms/${room}`, { pass: priya })).status, 404);
+    assert.equal((await call(e, `/rooms/${room}`, { pass: owner })).status, 404);
+    assert.equal((await call(e, `/rooms/${room}/join`, { pass: priya, body: {} })).status, 404);
+  });
+
   it('wants a WebSocket upgrade from this app for the live socket', async () => {
     const e = env();
     const owner = await issuePass('owner@x.org', SECRET);

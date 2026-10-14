@@ -145,8 +145,26 @@ console.log('the collaborators, on the overview and on the board');
 await page.locator('.pj-views').getByRole('button', { name: 'Overview' }).click();
 await page.locator('.pj-collab .pj-collab-list li').first().waitFor({ timeout: 10000 });
 const collab = await page.locator('.pj-collab').innerText();
-check('the overview lists everyone with their role and where they are', /collaborators · 4/i.test(collab) && /Priya Natarajan/.test(collab) && /can edit · here · Code · train\.py · line 42/.test(collab) && /Lin Zhao/.test(collab) && /last here/.test(collab) && /\(you\)\s*\n?\s*owner · here · Overview/.test(collab), collab.replace(/\n/g, ' | ').slice(0, 300));
+const priyaRole = await page.locator('.pj-collab-list li', { hasText: 'Priya Natarajan' }).locator('select.pj-collab-role').inputValue().catch(() => '');
+check('the overview lists everyone with their role and where they are', /collaborators · 4/i.test(collab) && /Priya Natarajan/.test(collab) && priyaRole === 'editor' && /here · Code · train\.py · line 42/.test(collab) && /Lin Zhao/.test(collab) && /last here/.test(collab) && /\(you\)\s*\n?\s*owner · here · Overview/.test(collab), `${priyaRole} | ${collab.replace(/\n/g, ' | ').slice(0, 300)}`);
 await shot('13-overview-collaborators');
+console.log('the owner’s say: a role, Remove, Withdraw, Stop sharing');
+page.once('dialog', (dialog) => dialog.accept());
+await page.route(`**/api/rooms/${ROOM}/remove`, (route) => {
+  state = { ...state, members: state.members.filter((m) => m.email !== route.request().postDataJSON().email) };
+  route.fulfill({ json: state });
+});
+const priyaRow = page.locator('.pj-collab-list li', { hasText: 'Priya Natarajan' });
+check('the owner can change a role, and remove someone', (await priyaRow.locator('select.pj-collab-role').count()) === 1 && (await priyaRow.getByRole('button', { name: 'Remove' }).count()) === 1 && (await page.locator('.pj-collab-list li', { hasText: '(you)' }).getByRole('button', { name: 'Remove' }).count()) === 0);
+await priyaRow.getByRole('button', { name: 'Remove' }).click();
+await page.locator('.pj-collab-list li', { hasText: 'Priya Natarajan' }).waitFor({ state: 'detached', timeout: 10000 });
+check('removed, the row is gone', /collaborators · 3/i.test(await page.locator('.pj-collab').innerText()));
+await shot('16-overview-removed');
+check('an invitation can be withdrawn, and sharing stopped', (await page.locator('.pj-collab-list li.is-invited').getByRole('button', { name: 'Withdraw' }).count()) === 1 && (await page.getByRole('button', { name: 'Stop sharing' }).count()) === 1);
+// Priya is back for what follows: the room tells everyone its state again.
+state = { ...state, members };
+tell({ type: 'here', state });
+await page.locator('.pj-collab-list li', { hasText: 'Priya Natarajan' }).waitFor({ timeout: 10000 });
 await page.locator('.pj-which-btn').click();
 await page.getByRole('menuitem', { name: 'All projects' }).click();
 await page.locator('.pj-card .pj-collab-stack').waitFor({ timeout: 10000 });
@@ -286,6 +304,40 @@ if (await usageTab.isVisible().catch(() => false)) {
   console.log('  (the Usage page is not shown here: not the owner)');
 }
 
+console.log('taken out of a project: told so, and the project gone');
+// Signed in with the pass again (the Usage page above used a plain token), so the room connects — and this time as an
+// editor in Priya's project, not its owner: the copy and the room both say so.
+state = { ...state, owner: 'priya@example.org', role: 'editor' };
+await page.evaluate(async ({ PASS }) => {
+  localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), proxyToken: PASS }));
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('reader', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('collections', 'readwrite');
+    const store = tx.objectStore('collections');
+    store.get('p-moe').onsuccess = (event) => {
+      const row = event.target.result;
+      store.put({ ...row, project: { ...row.project, shared: { ...row.project.shared, owner: 'priya@example.org', role: 'editor' } } });
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}, { PASS });
+await page.goto(`${BASE}/project/?id=p-moe`, { waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.pj-people-btn').waitFor({ timeout: 10000 });
+tell({ type: 'left', who: ME, gone: true });
+await page.locator('.pj-notice').waitFor({ timeout: 10000 });
+const told = await page.locator('.pj-notice').innerText();
+check('the board says the owner took me out, and that the project is gone from mine', /taken out of “Sparse-gated MoE” by its owner/.test(told) && /no longer in your projects/.test(told), told.replace(/\n/g, ' | '));
+await page.locator('.pj-card', { hasText: 'Reading list' }).waitFor({ timeout: 10000 });
+check('the board shows the other project, not that one', (await page.locator('.pj-card', { hasText: 'Sparse-gated MoE' }).count()) === 0 && (await page.locator('.pj-card', { hasText: 'Reading list' }).count()) === 1, (await page.locator('.pj-card').allInnerTexts()).join(' / ').replace(/\n/g, ' '));
+await shot('17-taken-out');
+await page.getByRole('button', { name: 'Got it' }).click();
+
 console.log('a project that is not shared');
 await page.goto(`${BASE}/project/?id=p-plain`, { waitUntil: 'networkidle' });
 await pastWelcome();
@@ -295,6 +347,18 @@ check('and the overview says it is just you', /Just you/.test(await page.locator
 await page.getByRole('button', { name: 'Share', exact: true }).click();
 check('and the dialog offers to share it', /Share this project/.test(await page.locator('.pj-share').innerText()));
 await shot('7-share-first');
+
+console.log('a copy of a project, from the board');
+await page.keyboard.press('Escape');
+await page.locator('.pj-which-btn').click();
+await page.getByRole('menuitem', { name: 'All projects' }).click();
+await page.locator('.pj-card', { hasText: 'Reading list' }).getByRole('button', { name: 'Make a copy' }).click();
+await page.locator('.pj-collab').waitFor({ timeout: 10000 });
+check('the copy opens, named as one', /Reading list \(copy\)/.test(await page.locator('.pj-page').innerText()));
+await page.locator('.pj-which-btn').click();
+await page.getByRole('menuitem', { name: 'All projects' }).click();
+check('and is on the board beside the original', (await page.locator('.pj-card', { hasText: 'Reading list (copy)' }).count()) === 1 && (await page.locator('.pj-card', { hasText: 'Reading list' }).count()) === 2);
+await shot('18-copy');
 
 await browser.close();
 if (problems.length) {

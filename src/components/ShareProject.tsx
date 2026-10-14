@@ -66,6 +66,21 @@ export default function ShareProject({ project, onClose }: { project: Project; o
     }
   };
 
+  const stopSharing = async () => {
+    if (!shared || !window.confirm(`Stop sharing ${project.name}? Everyone else is taken out and the project is yours alone again. Their copies stay with them as plain projects.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await roomAction(shared.room, 'close', {});
+      const { shared: _gone, ...info } = project.project;
+      await updateCollection(project.id, { project: info });
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
   const act = async (action: 'invite' | 'uninvite' | 'role' | 'link' | 'remove', body: Record<string, unknown>) => {
     if (!shared) return;
     setBusy(true);
@@ -253,6 +268,11 @@ export default function ShareProject({ project, onClose }: { project: Project; o
               <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setSomeone(true)} title="Not for this project — just an email saying what Reader is, with the site's address">
                 Just want to show someone Reader?
               </button>
+              {owner ? (
+                <button type="button" className="link-btn" disabled={busy} onClick={() => void stopSharing()} title="Take everyone out and keep the project to yourself">
+                  Stop sharing
+                </button>
+              ) : null}
               <button type="button" className="btn primary" onClick={close}>
                 Done
               </button>
