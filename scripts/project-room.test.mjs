@@ -129,7 +129,11 @@ describe('sharing a project', () => {
       assert.deepEqual(sent[0].body.to, ['dana@ethz.ch']);
       assert.equal(sent[0].body.reply_to, 'owner@x.org');
       assert.equal(sent[0].body.subject, 'Owner One invited you to “Sparse-gated MoE” on Reader');
-      assert.match(sent[0].body.text, new RegExp(`${link.replace(/[.?+]/g, '\\$&')}&as=dana%40ethz\\.ch`), 'the link names the address it is for');
+      const tag = await (await import('../server/mail.js')).addressTag('dana@ethz.ch');
+      assert.match(tag, /^[0-9a-f]{12}$/);
+      assert.match(sent[0].body.text, new RegExp(`${link.replace(/[.?+]/g, '\\$&')}&for=${tag}`), 'the link carries a tag of the address, not the address');
+      assert.doesNotMatch(sent[0].body.text, /as=dana/);
+      assert.equal(invited.invitations[0].tag, tag, 'the invitation keeps the tag, for the share dialog’s copied link');
       assert.match(sent[0].body.text, /As a viewer you can see the project, and where everyone/);
       // A link that is not this app's is never mailed: the invitation stands, the mail does not go.
       const elsewhere = await (await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'lin@x.org', role: 'editor', link: 'https://evil.example/x' } })).json();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { basePath } from '../lib/route';
+import { basePath, currentAddress, placeFor } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
 import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
@@ -33,6 +33,8 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
   }, [signingIn]);
   const waitingOnCaptcha = signingIn && Boolean(siteKey) && !solved;
 
+  // Opened from a project's invitation (`?room=…&for=…`): for one account, which the link does not name.
+  const [invited] = useState(() => (typeof window === 'undefined' ? false : Boolean(placeFor(currentAddress())?.join)));
   // Opened from someone's invite link (`?invite=`): who asked, and their note, over the page everyone sees.
   const [greeting, setGreeting] = useState<Greeting | null>(null);
   useEffect(() => {
@@ -60,6 +62,19 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         <div className="brand" style={{ width: 44, height: 44, fontSize: 25, marginBottom: 18 }}>
           R
         </div>
+        {invited && !user ? (
+          <div className="welcome-greeting">
+            <span className="pj-av is-lg" style={{ background: '#8a3a6e' }}>
+              ✉
+            </span>
+            <div>
+              <b>You’re invited to a project</b>
+              <p style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+                Sign in with Google as the account the invitation was emailed to, and the project opens. Signed in as anyone else, the link says so and opens nothing.
+              </p>
+            </div>
+          </div>
+        ) : null}
         {greeting ? (
           <div className="welcome-greeting">
             <span className="pj-av is-lg" style={{ background: '#1f5e52' }}>

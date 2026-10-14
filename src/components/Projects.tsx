@@ -14,7 +14,7 @@ import { CollaboratorsPanel, CollaboratorsStack } from './Collaborators';
 import { adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
 import { atFrom, viewFor, type Tab } from '../lib/presence';
 import { currentAddress, placeFor } from '../lib/route';
-import { suggestAccount } from '../lib/google';
+import { addressTag } from '../lib/invites';
 import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
 import { colabAvailable } from '../lib/colab';
 import { currentAccount, hasProxy } from '../lib/api';
@@ -167,14 +167,10 @@ export default function ProjectsPage({
   // A link into the project — `&at=` a place in it, `&room=` an invitation — read once, as the page opens.
   const asked = useRef(typeof window === 'undefined' ? null : placeFor(currentAddress()));
   const [joining, setJoining] = useState<string | null>(null);
-  // An invitation opened by the wrong account: the address it was for, and whether this one is in the project anyway.
-  const [wrongAccount, setWrongAccount] = useState<{ as: string | null; member: boolean } | null>(null);
+  // An invitation opened by the wrong account — never told which address it was for — and whether this one is in the project anyway.
+  const [wrongAccount, setWrongAccount] = useState<{ member: boolean } | null>(null);
   // Whoever is signed in, as the pass says even before the Google profile is here.
   const who = user?.email?.trim().toLowerCase() ?? currentAccount();
-  useEffect(() => {
-    const as = asked.current?.join?.as;
-    if (as && !who) suggestAccount(as);
-  }, [who]);
   useEffect(() => {
     const place = asked.current;
     if (!place?.at || view.kind !== 'project' || !tab) return;
@@ -188,22 +184,25 @@ export default function ProjectsPage({
     if (!join || !who || view.kind !== 'project') return;
     asked.current = { ...place!, join: undefined };
     const member = project?.project.shared?.room === join.room;
-    // Sent to another address: said so, rather than joined as this one (or, a member already, just opened).
-    if (join.as && join.as !== who) return setWrongAccount({ as: join.as, member });
-    if (member) return;
-    setJoining('Joining the project…');
-    void joinRoom(join.room, join.token, user)
-      .then(async (state) => {
+    const go = async () => {
+      // Sent to another account (the link's tag is not this account's): said so, rather than joined as this one — or, a member already, just opened.
+      if (join.tag && join.tag !== (await addressTag(who))) return setWrongAccount({ member });
+      if (member) return;
+      setJoining('Joining the project…');
+      try {
+        const state = await joinRoom(join.room, join.token, user);
         const id = await adoptJoined(state, projects, adoptCollection);
         setJoining(null);
         onView({ kind: 'project', id });
-      })
-      .catch((error: Error) => {
-        if (/not invited/i.test(error.message)) {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/not invited/i.test(message)) {
           setJoining(null);
-          setWrongAccount({ as: join.as ?? null, member: false });
-        } else setJoining(`This project couldn’t be joined: ${error.message}`);
-      });
+          setWrongAccount({ member: false });
+        } else setJoining(`This project couldn’t be joined: ${message}`);
+      }
+    };
+    void go();
   }, [user, who, view, project, projects, adoptCollection, onView]);
   // Asked for while the page is already open: the page is not mounted afresh, so it is told.
   useEffect(() => {
@@ -247,8 +246,8 @@ export default function ProjectsPage({
           <h1>{joining === 'Joining the project…' ? 'Joining…' : wrongAccount ? 'This invitation is for another account' : 'No project here'}</h1>
           <p>
             {wrongAccount
-              ? `${wrongAccount.as ? `It was sent to ${wrongAccount.as}` : 'It was sent to a different Google account'}; you are signed in as ${who ?? 'someone else'}. ${wrongAccount.as ? `Sign in with Google as ${wrongAccount.as}` : 'Sign in as the address it was sent to'} and open the link again, or ask whoever it was sent to to open it.`
-              : joining ?? (asked.current?.join && !who ? `Sign in with Google${asked.current.join.as ? ` as ${asked.current.join.as}` : ''} to join the project you were invited to.` : 'It may have been deleted, or it was made by another account. Projects are kept with your library.')}
+              ? `It was sent to a different Google account; you are signed in as ${who ?? 'someone else'}. Sign in as the account it was sent to and open the link again, or ask whoever it was sent to to open it.`
+              : joining ?? (asked.current?.join && !who ? 'Sign in with Google, as the account the invitation was sent to, to join the project.' : 'It may have been deleted, or it was made by another account. Projects are kept with your library.')}
           </p>
           <button type="button" className="btn primary" onClick={() => onView({ kind: 'projects' })}>
             See your projects
@@ -270,7 +269,7 @@ export default function ProjectsPage({
       {wrongAccount && project ? (
         <div className="pj-notice" role="status">
           <span>
-            This link is an invitation for <b>{wrongAccount.as ?? 'another account'}</b>, not for {who ?? 'you'}. {wrongAccount.member ? `It opened your own copy of the project${project.project.shared?.role === 'owner' ? ', as its owner' : ''}; the invitation stands until ${wrongAccount.as ?? 'that account'} opens it signed in.` : 'Sign in as that account to join.'}
+            This link is an invitation for <b>another account</b>, not for {who ?? 'you'}. {wrongAccount.member ? `It opened your own copy of the project${project.project.shared?.role === 'owner' ? ', as its owner' : ''}; the invitation stands until that account opens it signed in.` : 'Sign in as that account to join.'}
           </span>
           <button type="button" className="btn sm" onClick={() => setWrongAccount(null)}>
             Got it

@@ -60,6 +60,13 @@ export function cleanPlace(raw, now = Date.now()) {
   return place;
 }
 
+/** The tag a link carries for an address (server/mail.js): kept on the invitation, so links need no hashing on the page. */
+async function tagOf(email) {
+  const bytes = new TextEncoder().encode(`reader-invite:${email}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].slice(0, 6).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 const randomToken = () => {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -184,7 +191,7 @@ export class ProjectRoom {
       if (!target || !target.includes('@')) return json({ error: 'an email address' }, 400);
       if (await this.member(target)) return json({ error: `${target} is already a member` }, 409);
       const role = ROLES.has(body.role) && body.role !== 'owner' ? body.role : 'editor';
-      await this.state.storage.put(`invite:${target}`, { email: target, role, by: who, at: new Date().toISOString() });
+      await this.state.storage.put(`invite:${target}`, { email: target, role, by: who, at: new Date().toISOString(), tag: await tagOf(target) });
       return json(await this.stateFor(who));
     }
 

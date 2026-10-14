@@ -108,6 +108,15 @@ await page.locator('.welcome-greeting').waitFor({ timeout: 10000 });
 check('it greets by the inviter’s name, with the note', /Priya Natarajan invited you to Reader/.test(await page.locator('.welcome-greeting').innerText()) && /Have a look before Thursday\?/.test(await page.locator('.welcome-greeting').innerText()), await page.locator('.welcome-greeting').innerText());
 await shot('9-welcome-invited');
 
+console.log('a project invitation, signed out');
+const { createHash } = await import('node:crypto');
+const tagOf = (email) => createHash('sha256').update(`reader-invite:${email.trim().toLowerCase()}`).digest('hex').slice(0, 12);
+await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&for=${tagOf('priya@example.org')}`, { waitUntil: 'networkidle' });
+const projectGreeting = page.locator('.welcome-greeting', { hasText: 'invited to a project' });
+await projectGreeting.waitFor({ timeout: 10000 });
+check('the welcome page says the invitation is for one account, without naming it', /account the invitation was emailed to/.test(await projectGreeting.innerText()) && !/priya/.test(await projectGreeting.innerText()), await projectGreeting.innerText());
+await shot('9b-welcome-project-invite');
+
 console.log('the project bar: who is here');
 await seed();
 /** The opening screen (a build with a Google client id): past it, as someone keeping everything in this browser. */
@@ -124,11 +133,11 @@ check('four avatars, the one gone dimmed', (await page.locator('.pj-avatars .pj-
 await shot('1-bar');
 
 console.log('an invitation opened by the wrong account');
-await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&as=saurav.varaprasad%40gmail.com`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&for=${tagOf('saurav.varaprasad@gmail.com')}`, { waitUntil: 'networkidle' });
 await pastWelcome();
 await page.locator('.pj-notice').waitFor({ timeout: 10000 });
 const notice = await page.locator('.pj-notice').innerText();
-check('the owner opening an invitee’s link is told whom it was for', /invitation for saurav\.varaprasad@gmail\.com, not for me@example\.org/.test(notice) && /opened your own copy of the project, as its owner/.test(notice), notice);
+check('the owner opening an invitee’s link is told it was for another account, which is not named', /invitation for another account, not for me@example\.org/.test(notice) && /opened your own copy of the project, as its owner/.test(notice) && !/varaprasad/.test(notice), notice);
 await shot('15-wrong-account');
 await page.locator('.pj-notice').getByRole('button', { name: 'Got it' }).click();
 
@@ -161,6 +170,13 @@ await page.locator('.pj-people-list').waitFor({ timeout: 5000 });
 const list = await page.locator('.pj-people-list').innerText();
 check('here now, then earlier, with where each is', /here now/i.test(list) && /earlier/i.test(list) && /You\n.*Overview/.test(list) && /Lin Zhao/.test(list) && /Read · Switch Transformers/.test(list) && /Appear away/.test(list), list.replace(/\n/g, ' | '));
 await shot('3-list');
+// Under glass, dark: the popover must still read (its surface is see-through there).
+await page.evaluate(() => (document.documentElement.setAttribute('data-glass', 'on'), document.documentElement.setAttribute('data-theme', 'dark')));
+await page.waitForTimeout(300);
+const listBg = await page.locator('.pj-people-list').evaluate((el) => getComputedStyle(el).backgroundColor);
+check('the list is solid under glass', /rgba?\((\d+), (\d+), (\d+)(?:, (0\.9\d+|1))?\)/.test(listBg) && !/, 0\.[0-8]/.test(listBg), listBg);
+await shot('3b-list-glass');
+await page.evaluate(() => (document.documentElement.removeAttribute('data-glass'), document.documentElement.removeAttribute('data-theme')));
 await page.keyboard.press('Escape');
 
 console.log('someone opens a file: a toast');

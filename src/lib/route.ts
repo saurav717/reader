@@ -29,7 +29,7 @@ import type { View } from '../types.view';
  * shared project (docs/live-collaboration.md); both are read once and never
  * written back.
  */
-export type Place = { view: View; usage?: boolean; at?: string; join?: { room: string; token: string | null; /** The address the invitation was sent to, when the link says. */ as?: string } };
+export type Place = { view: View; usage?: boolean; at?: string; join?: { room: string; token: string | null; /** A tag of the address the invitation was sent to (`addressTag`), when the link carries one: never the address itself. */ tag?: string } };
 
 const LISTS = ['reading', 'unread', 'finished', 'unsorted', 'junk'] as const;
 
@@ -74,7 +74,7 @@ export const currentAddress = () => `${window.location.pathname}${window.locatio
 export function addressWith(path: string, search: string): string {
   const [pathname, own = ''] = path.split('?');
   const params = new URLSearchParams(search);
-  for (const key of ['id', 'view', 'at', 'room', 'join', 'invite', 'as']) params.delete(key);
+  for (const key of ['id', 'view', 'at', 'room', 'join', 'invite', 'for', 'as']) params.delete(key);
   new URLSearchParams(own).forEach((value, key) => params.set(key, value));
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -120,7 +120,7 @@ export function placeFor(address: string, base = basePath()): Place | null {
     const mode = asked === 'read' || asked === 'workspace' || asked === 'write' ? asked : undefined;
     const at = params.get('at');
     const room = params.get('room');
-    return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id }, ...(at ? { at } : {}), ...(room && /^[0-9a-f]{32}$/.test(room) ? { join: { room, token: params.get('join'), ...(params.get('as')?.includes('@') ? { as: params.get('as')!.trim().toLowerCase() } : {}) } } : {}) };
+    return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id }, ...(at ? { at } : {}), ...(room && /^[0-9a-f]{32}$/.test(room) ? { join: { room, token: params.get('join'), ...(/^[0-9a-f]{12}$/.test(params.get('for') ?? '') ? { tag: params.get('for')! } : {}) } } : {}) };
   }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };
   return null;

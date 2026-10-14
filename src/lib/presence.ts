@@ -48,6 +48,8 @@ export interface Invitation {
   role: Role;
   by: string;
   at: string;
+  /** The tag a link carries for this address (never the address): `&for=`. */
+  tag?: string;
 }
 
 export interface JoinLink {
