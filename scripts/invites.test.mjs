@@ -183,3 +183,32 @@ describe('the report', () => {
     assert.equal(linkToken(8).length, 8);
   });
 });
+
+describe('which rooms an account is in', () => {
+  it('is told by sharing, joining, a role, leaving, removal and closing — for a lost record to be put back from', async () => {
+    const e = env();
+    const owner = await issuePass('owner@x.org', SECRET);
+    const priya = await issuePass('priya@x.org', SECRET);
+    const marco = await issuePass('marco@x.org', SECRET);
+    const mine = async (pass) => (await (await call(e, '/rooms/mine', { pass })).json()).rooms.map((item) => [item.room, item.role, item.project]);
+    const { room } = await (await call(e, '/rooms', { pass: owner, body: { project } })).json();
+    assert.deepEqual(await mine(owner), [[room, 'owner', 'Sparse-gated MoE']]);
+    assert.deepEqual(await mine(priya), []);
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'priya@x.org', role: 'viewer' } });
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'marco@x.org' } });
+    await call(e, `/rooms/${room}/join`, { pass: priya, body: {} });
+    await call(e, `/rooms/${room}/join`, { pass: marco, body: {} });
+    assert.deepEqual(await mine(priya), [[room, 'viewer', 'Sparse-gated MoE']]);
+    await call(e, `/rooms/${room}/role`, { pass: owner, body: { email: 'priya@x.org', role: 'editor' } });
+    assert.deepEqual(await mine(priya), [[room, 'editor', 'Sparse-gated MoE']]);
+    await call(e, `/rooms/${room}/role`, { pass: owner, body: { email: 'priya@x.org', role: 'owner' } });
+    assert.deepEqual(await mine(priya), [[room, 'owner', 'Sparse-gated MoE']]);
+    assert.deepEqual(await mine(owner), [[room, 'editor', 'Sparse-gated MoE']]);
+    await call(e, `/rooms/${room}/leave`, { pass: owner, body: {} });
+    assert.deepEqual(await mine(owner), []);
+    await call(e, `/rooms/${room}/remove`, { pass: priya, body: { email: 'marco@x.org' } });
+    assert.deepEqual(await mine(marco), []);
+    await call(e, `/rooms/${room}/close`, { pass: priya, body: {} });
+    assert.deepEqual(await mine(priya), []);
+  });
+});

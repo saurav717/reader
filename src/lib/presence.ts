@@ -65,7 +65,8 @@ export interface SharedProject {
   color: string;
   question: string;
   startedAt: string;
-  papers: { id: string; title: string; role: string | null }[];
+  /** Each paper by id, with its role — and enough of it for a member's library to take it in without a lookup. */
+  papers: { id: string; title: string; role: string | null; source?: string; authors?: string[]; published?: string; doi?: string; arxivId?: string; pdfUrl?: string }[];
   todos: { id: string; text: string; done: boolean }[];
   overleaf?: unknown;
   codeRepo?: unknown;
@@ -75,6 +76,8 @@ export interface SharedProject {
 export interface RoomState {
   room: string;
   owner: string;
+  /** The list's version: up by one with each change; a change sent names the one it was built on. */
+  version?: number;
   project: SharedProject;
   me: string;
   role: Role;

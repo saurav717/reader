@@ -526,8 +526,13 @@ export default {
           const body = await request.json().catch(() => ({}));
           // A new room, or the one the project already has: its id is the project's own to keep.
           const id = /^[0-9a-f]{32}$/.test(body.room || '') ? body.room : crypto.randomUUID().replace(/-/g, '');
-          return forward(id, '/create', { ...body, room: id });
+          const answer = await roomOf(id).fetch(`https://room/create?email=${encodeURIComponent(who.email)}`, { method: 'POST', body: JSON.stringify({ ...body, room: id }) });
+          const state = await answer.json();
+          // The ledger (worker/invites.js) knows which rooms each account is in, to put a lost record back.
+          if (answer.ok) await invites(env, '/member', { email: who.email, room: id, role: 'owner', project: state.project?.name });
+          return json(state, answer.status, noStore);
         }
+        if (path === '/rooms/mine') return json((await invites(env, `/rooms?email=${encodeURIComponent(who.email)}`)) ?? { rooms: [] }, 200, noStore);
         const [, , id, action = 'state'] = path.split('/');
         if (!/^[0-9a-f]{32}$/.test(id || '')) return json({ error: 'no such room' }, 404, headers);
         if (action === 'live') {
@@ -564,9 +569,20 @@ export default {
           const body = await request.json().catch(() => ({}));
           const answer = await roomOf(id).fetch(`https://room/${action}?email=${encodeURIComponent(who.email)}`, { method: 'POST', body: JSON.stringify(body) });
           const state = await answer.json();
-          // The ledger (worker/invites.js): an invitation taken up by joining, or taken back.
-          if (answer.ok && action === 'join') await invites(env, '/converted', { email: who.email, name: text(body.name, 200), how: 'project', room: id });
+          // The ledger (worker/invites.js): an invitation taken up by joining, or taken back — and who is in which room.
+          if (answer.ok && action === 'join') {
+            await invites(env, '/converted', { email: who.email, name: text(body.name, 200), how: 'project', room: id });
+            await invites(env, '/member', { email: who.email, room: id, role: state.role, project: state.project?.name });
+          }
           if (answer.ok && action === 'uninvite') await invites(env, '/withdraw', { room: id, to: String(body.email || '').trim().toLowerCase() });
+          if (answer.ok && action === 'leave') await invites(env, '/member', { email: who.email, room: id, gone: true });
+          if (answer.ok && action === 'remove') await invites(env, '/member', { email: String(body.email || '').trim().toLowerCase(), room: id, gone: true });
+          if (answer.ok && action === 'role') {
+            const target = String(body.email || '').trim().toLowerCase();
+            await invites(env, '/member', { email: target, room: id, role: body.role === 'owner' ? 'owner' : body.role === 'viewer' ? 'viewer' : 'editor', project: state.project?.name });
+            if (body.role === 'owner') await invites(env, '/member', { email: who.email, room: id, role: 'editor', project: state.project?.name });
+          }
+          if (answer.ok && action === 'close') await invites(env, '/room-closed', { room: id, emails: state.members ?? [] });
           return json(state, answer.status, noStore);
         }
         return json({ error: 'not found' }, 404, headers);

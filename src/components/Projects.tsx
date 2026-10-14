@@ -11,8 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useStore } from '../lib/store';
 import PresenceBar from './PresenceBar';
 import { CollaboratorsPanel, CollaboratorsStack } from './Collaborators';
-import { accessLost, adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, roomState, summarize, useJumps, useLive } from '../lib/liveRoom';
-import { atFrom, viewFor, type Tab } from '../lib/presence';
+import { accessLost, adoptJoined, closeRoom, follow, fromSummary, joinRoom, leaveRoom, liveNow, onFollow, openRoom, pushProject, reportPlace, requestJump, roomAction, roomState, roomsOfMine, summarize, useJumps, useLive } from '../lib/liveRoom';
+import { atFrom, viewFor, type Tab, type RoomState, type SharedProject } from '../lib/presence';
 import { currentAddress, placeFor } from '../lib/route';
 import { addressTag } from '../lib/invites';
 import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
@@ -32,6 +32,7 @@ import {
   byRole,
   continueWith,
   copyOf,
+  followPapers,
   initialsOf,
   lastActive,
   newProjectInfo,
@@ -40,6 +41,7 @@ import {
   projectsOf,
   readingState,
   roleLabel,
+  sameList,
   sharedWith,
   toggledIn,
   whenSaid,
@@ -80,6 +82,8 @@ const NEW_PROJECT = 'reader.project.new';
 /** Asks the Projects page to open with the new-project dialog; the caller then goes there. */
 /** The rooms of shared projects asked, this session, whether this account is still in them (the board asks once each). */
 const checkedRooms = new Set<string>();
+/** The accounts whose rooms the board has asked the server for this session, to put back a record the library lost. */
+const rebuiltFor = new Set<string>();
 
 export function askForNewProject() {
   try {
@@ -118,7 +122,7 @@ export default function ProjectsPage({
   /** The paper up in the workspace, for Explain to be about; null with none, or on leaving. */
   onReading?: (id: string | null) => void;
 }) {
-  const { collections, settings, user, papers, adoptCollection, createCollection, updateCollection, deleteCollection, setPaperCollections } = useStore();
+  const { collections, settings, user, papers, adoptCollection, createCollection, updateCollection, deleteCollection, setPaperCollections, addPaper } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
   // "New project…" from the rail's project menus: the page opens with the dialog up.
   const [creating, setCreating] = useState(() => {
@@ -134,6 +138,8 @@ export default function ProjectsPage({
   const opensOn = settings.projectOpensOn;
   const live = useLive();
   const shared = project?.project.shared;
+  // Whoever is signed in, as the pass says even before the Google profile is here.
+  const who = user?.email?.trim().toLowerCase() ?? currentAccount();
   const tab: Tab | null = view.kind !== 'project' ? null : view.mode === 'workspace' ? 'code' : view.mode === 'read' || view.mode === 'write' ? view.mode : 'overview';
   // ---- a shared project: its room, while its page is showing (src/lib/liveRoom.ts)
   useEffect(() => {
@@ -153,21 +159,49 @@ export default function ProjectsPage({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, []);
-  // The owner keeps the room's copy of the project current; a member's copy follows the room's.
-  useEffect(() => {
-    if (!shared || !project || shared.role !== 'owner') return;
-    const timer = window.setTimeout(() => void roomAction(shared.room, 'project', { project: summarize(project, papers) }).catch(() => undefined), 1500);
-    return () => window.clearTimeout(timer);
-  }, [shared, project, papers]);
+  // ---- the room is the record of a shared project (docs/live-collaboration.md): every copy, the owner's too, takes the
+  // room's list as it arrives — each version once — and the papers with it; the owner or an editor sends a change of
+  // their own back naming the version it was built on, and follows the newer list instead when the room refuses it.
+  const adopted = useRef(new Map<string, number>());
+  const takePapers = useCallback(
+    async (list: SharedProject['papers'], projectId: string) => {
+      const { add, include, drop } = followPapers(list, papers, projectId);
+      for (const ref of add) await addPaper(ref, projectId);
+      for (const id of include) await setPaperCollections(id, [...(papers.find((paper) => paper.id === id)?.collectionIds ?? []), projectId]);
+      for (const id of drop) await setPaperCollections(id, (papers.find((paper) => paper.id === id)?.collectionIds ?? []).filter((item) => item !== projectId));
+    },
+    [papers, addPaper, setPaperCollections],
+  );
+  const takeList = useCallback(
+    async (state: RoomState, current: Project) => {
+      const had = current.project.shared;
+      if (!sameList(state.project, summarize(current, papers)) || had?.role !== state.role || had?.owner !== state.owner) {
+        await updateCollection(current.id, { name: state.project.name, color: state.project.color, project: fromSummary(state.project, { room: state.room, owner: state.owner, role: state.role }, current.project) });
+      }
+      await takePapers(state.project.papers, current.id);
+    },
+    [papers, updateCollection, takePapers],
+  );
   useEffect(() => {
     const state = live.state;
-    if (!shared || !project || shared.role === 'owner' || !state || state.room !== shared.room) return;
-    const next = fromSummary(state.project, { ...shared, role: state.role }, project.project);
-    // Compared field by field, in a fixed order: the record read back from the library has its keys in its own order.
-    const gist = (info: ProjectInfo, name: string, color: string) => JSON.stringify([name, color, info.question, info.startedAt, info.roles, info.todos, info.overleaf ?? null, info.codeRepo ?? null, info.shared?.role ?? null]);
-    if (gist(next, state.project.name, state.project.color) === gist(project.project, project.name, project.color)) return;
-    void updateCollection(project.id, { name: state.project.name, color: state.project.color, project: next });
-  }, [live.state, shared, project, updateCollection]);
+    if (!shared || !project || !state || state.room !== shared.room) return;
+    const version = state.version ?? 0;
+    if (adopted.current.get(state.room) === version) return;
+    adopted.current.set(state.room, version);
+    void takeList(state, project);
+  }, [live.state, shared, project, takeList]);
+  useEffect(() => {
+    const state = live.state;
+    if (!shared || !project || shared.role === 'viewer' || !state || state.room !== shared.room) return;
+    const version = state.version ?? 0;
+    if (adopted.current.get(shared.room) !== version) return;
+    const mine = summarize(project, papers);
+    if (sameList(mine, state.project)) return;
+    const timer = window.setTimeout(() => {
+      void pushProject(shared.room, mine, version).then((fresh) => fresh && adopted.current.set(shared.room, fresh.version ?? 0));
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [live.state, shared, project, papers]);
   // A link into the project — `&at=` a place in it, `&room=` an invitation — read once, as the page opens.
   const asked = useRef(typeof window === 'undefined' ? null : placeFor(currentAddress()));
   const [joining, setJoining] = useState<string | null>(null);
@@ -211,6 +245,26 @@ export default function ProjectsPage({
     const why = accessLost(live.error, project.name);
     if (why) putOut(project, why);
   }, [live.status, live.error, live.room, shared, project, putOut]);
+  // A shared project the library has lost — its record deleted or damaged in Drive, say — put back from the server:
+  // the ledger says which rooms this account is in, and the room gives the project and its papers.
+  useEffect(() => {
+    if (view.kind !== 'projects' || !who || rebuiltFor.has(who)) return;
+    rebuiltFor.add(who);
+    void roomsOfMine()
+      .then(async (rooms) => {
+        for (const entry of rooms) {
+          if (projects.some((item) => item.project.shared?.room === entry.room)) continue;
+          try {
+            const state = await roomState(entry.room);
+            const id = await adoptJoined(state, projects, adoptCollection);
+            await takePapers(state.project.papers, id);
+          } catch {
+            // not in it after all, or the room is gone: nothing to put back
+          }
+        }
+      })
+      .catch(() => rebuiltFor.delete(who));
+  }, [view.kind, who, projects, adoptCollection, takePapers]);
   useEffect(() => {
     if (view.kind !== 'projects') return;
     for (const item of projects) {
@@ -226,8 +280,6 @@ export default function ProjectsPage({
   }, [view.kind, projects, putOut]);
   // An invitation opened by the wrong account — never told which address it was for — and whether this one is in the project anyway.
   const [wrongAccount, setWrongAccount] = useState<{ member: boolean } | null>(null);
-  // Whoever is signed in, as the pass says even before the Google profile is here.
-  const who = user?.email?.trim().toLowerCase() ?? currentAccount();
   useEffect(() => {
     const place = asked.current;
     if (!place?.at || view.kind !== 'project' || !tab) return;
@@ -249,6 +301,7 @@ export default function ProjectsPage({
       try {
         const state = await joinRoom(join.room, join.token, user);
         const id = await adoptJoined(state, projects, adoptCollection);
+        await takePapers(state.project.papers, id);
         setJoining(null);
         onView({ kind: 'project', id });
       } catch (error) {
@@ -260,7 +313,7 @@ export default function ProjectsPage({
       }
     };
     void go();
-  }, [user, who, view, project, projects, adoptCollection, onView]);
+  }, [user, who, view, project, projects, adoptCollection, takePapers, onView]);
   // Asked for while the page is already open: the page is not mounted afresh, so it is told.
   useEffect(() => {
     const ask = () => {
@@ -803,9 +856,14 @@ function ProjectOverview({
                 className="btn sm"
                 title="Its papers stay in the collection; the question, roles and to-dos go"
                 onClick={() => {
-                  if (!window.confirm(`Turn “${project.name}” back into a plain collection? Its papers stay; its question, roles and to-do list are dropped.`)) return;
-                  void updateCollection(project.id, { project: undefined });
-                  onView({ kind: 'collection', id: project.id });
+                  const shared = project.project.shared;
+                  const warn = !shared ? '' : shared.role === 'owner' ? ' It is shared: everyone else is taken out of it first, and loses it.' : ' It is shared: you leave the project first, and keep its papers as a collection of your own.';
+                  if (!window.confirm(`Turn “${project.name}” back into a plain collection?${warn} Its papers stay; its question, roles and to-do list are dropped.`)) return;
+                  void (async () => {
+                    if (shared) await (shared.role === 'owner' ? roomAction(shared.room, 'close', {}) : leaveRoom(shared.room)).catch(() => undefined);
+                    await updateCollection(project.id, { project: undefined });
+                    onView({ kind: 'collection', id: project.id });
+                  })();
                 }}
               >
                 Turn back into a collection
@@ -814,9 +872,19 @@ function ProjectOverview({
                 type="button"
                 className="btn sm danger"
                 onClick={() => {
-                  if (!window.confirm(`Delete the project “${project.name}”? Its papers stay in your library and in their other collections.`)) return;
-                  void deleteCollection(project.id);
-                  onView({ kind: 'projects' });
+                  // Shared: deleting is leaving (a member), or stopping the sharing (the owner) — the owner is told to hand it over instead if it should go on.
+                  const shared = project.project.shared;
+                  const ask = !shared
+                    ? `Delete the project “${project.name}”? Its papers stay in your library and in their other collections.`
+                    : shared.role === 'owner'
+                      ? `“${project.name}” is shared. Deleting it stops the sharing: everyone else is taken out and loses the project. To keep it going without you, hand it to someone first — their role, in the collaborators panel. Delete it anyway? Its papers stay in your library.`
+                      : `Leave “${project.name}”? The project stays with its owner; your copy of it is taken off your library, and its papers stay in it.`;
+                  if (!window.confirm(ask)) return;
+                  void (async () => {
+                    if (shared) await (shared.role === 'owner' ? roomAction(shared.room, 'close', {}) : leaveRoom(shared.room)).catch(() => undefined);
+                    await deleteCollection(project.id);
+                    onView({ kind: 'projects' });
+                  })();
                 }}
               >
                 <TrashIcon size={13} /> Delete project

@@ -5,7 +5,8 @@
 // What is here reads that record and nothing else: no store, no React, so it
 // can be tested without a browser.
 
-import type { CodeRepo, Collection, MeetingTag, Paper, PaperRole, ProjectInfo, ProjectTodo, SharedWith } from '../types';
+import type { CodeRepo, Collection, MeetingTag, Paper, PaperRef, PaperRole, ProjectInfo, ProjectTodo, SharedWith, SourceId } from '../types';
+import type { SharedProject } from './presence';
 import { overleafLinkOf } from './overleaf';
 
 export interface Project extends Collection {
@@ -230,3 +231,59 @@ const ago = (iso: string, now: number) => {
 
 /** When something happened, said the way a person would: "today", "3 days ago", "last week". */
 export const whenSaid = (iso: string, now = Date.now()) => ago(iso, now);
+
+// ---- the room's list, as every copy of a shared project follows it (src/lib/liveRoom.ts)
+
+const SOURCES: SourceId[] = ['arxiv', 'openalex', 'semanticscholar', 'crossref', 'scholar', 'books'];
+
+/** A paper as the room lists it, as a reference this library can take in: the source from the entry, or told by the id. */
+export function paperRefOf(entry: SharedProject['papers'][number]): PaperRef {
+  const source = SOURCES.includes(entry.source as SourceId) ? (entry.source as SourceId) : entry.id.startsWith('doi:') ? 'crossref' : entry.id.startsWith('openalex:') ? 'openalex' : entry.id.startsWith('s2:') ? 'semanticscholar' : entry.id.startsWith('books:') ? 'books' : 'arxiv';
+  const arxivId = entry.arxivId ?? (entry.id.startsWith('arxiv:') ? entry.id.slice(6) : undefined);
+  return {
+    id: entry.id,
+    source,
+    title: entry.title || entry.id,
+    authors: entry.authors ?? [],
+    abstract: '',
+    published: entry.published ?? '',
+    categories: [],
+    ...(arxivId ? { arxivId } : {}),
+    ...(entry.doi ? { doi: entry.doi } : {}),
+    ...(entry.pdfUrl ? { pdfUrl: entry.pdfUrl } : {}),
+  };
+}
+
+/**
+ * What brings a library's project in line with the room's list of papers: those to add to the library (and the
+ * project), those in the library to put in the project, and those in the project the list no longer has.
+ */
+export function followPapers(list: SharedProject['papers'], papers: Pick<Paper, 'id' | 'collectionIds'>[], projectId: string): { add: PaperRef[]; include: string[]; drop: string[] } {
+  const listed = new Set(list.map((entry) => entry.id));
+  const have = new Map(papers.map((paper) => [paper.id, paper]));
+  const add: PaperRef[] = [];
+  const include: string[] = [];
+  for (const entry of list) {
+    const paper = have.get(entry.id);
+    if (!paper) add.push(paperRefOf(entry));
+    else if (!paper.collectionIds.includes(projectId)) include.push(entry.id);
+  }
+  const drop = papers.filter((paper) => paper.collectionIds.includes(projectId) && !listed.has(paper.id)).map((paper) => paper.id);
+  return { add, include, drop };
+}
+
+/** Whether two lists say the same of a project — what the room keeps of it, in a fixed order, so nothing is sent or taken for a difference of key order. */
+export function sameList(a: SharedProject, b: SharedProject): boolean {
+  const gist = (list: SharedProject) =>
+    JSON.stringify([
+      list.name,
+      list.color,
+      list.question,
+      list.startedAt,
+      [...list.papers].map((paper) => `${paper.id}\t${paper.role ?? ''}`).sort(),
+      list.todos.map((todo) => [todo.id, todo.text, Boolean(todo.done)]),
+      list.overleaf ?? null,
+      list.codeRepo ?? null,
+    ]);
+  return gist(a) === gist(b);
+}

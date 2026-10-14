@@ -161,8 +161,19 @@ The room holds:
 
 - **the members** — email, role, name, picture, the colour assigned to them,
   when they joined — and the invitations waiting;
-- **the project's list** — its paper ids and roles, its question and to-do,
-  so every member's copy of the project shows the same papers;
+- **the project's list** — its papers (enough of each for a library to take
+  it in) with their roles, its question, to-do and links — which is the
+  record of a shared project, with a version that goes up by one on each
+  change. Every copy, the owner's too, follows it: as a version arrives the
+  copy takes the list and brings its papers in line; the owner or an editor
+  sends a change of their own back naming the version it was built on, and
+  the room refuses one built on an older list, answering its own for the
+  page to take instead. So a page that was away never overwrites what the
+  others did, and a copy edited by hand in Drive is put right at the next
+  open;
+- **who is in which room**, by account, in the invitations ledger
+  (`worker/invites.js`), so a project record a library has lost — deleted
+  in Drive, say — is put back from the room when the board shows;
 - **presence** — where each member is right now, in memory, and when each was
   last here, in storage;
 - in the second step, **the live documents** (below).
@@ -171,8 +182,11 @@ Inviting writes an invitation to the room and sends nothing itself: the
 owner copies the link, or the app mails it through Gmail if that is
 connected. Opening `/project/?join=<token>` with a pass whose email is
 invited makes that person a member, and puts a project record in their own
-library that points at the room (`shared: { owner, room }`). Their library
-and their other projects are untouched. Reading progress, highlights and
+library that points at the room (`shared: { owner, room }`), and the
+project's papers come into their library with it. Their library and their
+other projects are untouched. The owner can hand the project to a member
+(their role → *owner*) and stays as an editor; deleting a shared project
+from its settings leaves it (a member) or stops the sharing (the owner). Reading progress, highlights and
 notes stay per person, in each person's own database, exactly as a paper in
 two of one person's collections keeps one set of highlights today.
 

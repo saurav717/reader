@@ -1162,10 +1162,22 @@ the board each project's card stacks the people in it with how many are
 here now. The owner has the say there: each person's role is a switch,
 **Remove** takes someone out, **Withdraw** takes an invitation back, and
 **Stop sharing** takes everyone out and keeps the project to the owner. A
-member has **Leave the project**. Someone taken out no longer has the
-project at all — it was the owner's, not theirs — and is told so once on
-the board; the papers it brought them stay in their library, as a deleted
-project's do. To keep a version of your own, shared or not, **Make a copy**
+member has **Leave the project**, and the owner can hand the project to
+someone (their role → *owner*), staying in it as an editor. Someone taken
+out no longer has the project at all — it was the owner's, not theirs — and
+is told so once on the board; the papers it brought them stay in their
+library, as a deleted project's do. Deleting a shared project from its
+settings is the same: a member leaves, the owner stops the sharing.
+
+Once shared, the project's list — its papers and their roles, its question,
+to-do and links — is kept by its room on the Worker, and every copy, the
+owner's included, is a mirror of it: each takes the room's list as it
+changes, with the papers, and the owner or an editor sends a change back
+naming the version it was built on, so a page with an older list never
+overwrites a newer one. A copy edited by hand in Drive is put right the
+next time the project opens, and one deleted there is put back from the
+server when the board shows: nothing done to a copy can lose the team's
+work. To keep a version of your own, shared or not, **Make a copy**
 on the board's card or in the project's settings makes a new project with
 the same papers, question, roles and to-dos — not its code, Overleaf
 project or sharing.

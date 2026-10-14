@@ -67,7 +67,7 @@ export default function ShareProject({ project, onClose }: { project: Project; o
   };
 
   const stopSharing = async () => {
-    if (!shared || !window.confirm(`Stop sharing ${project.name}? Everyone else is taken out and the project is yours alone again. Their copies stay with them as plain projects.`)) return;
+    if (!shared || !window.confirm(`Stop sharing ${project.name}? Everyone else is taken out and loses the project; it is yours alone again. Their own papers, notes and highlights stay theirs.`)) return;
     setBusy(true);
     setError(null);
     try {

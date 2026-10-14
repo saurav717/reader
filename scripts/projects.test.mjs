@@ -126,3 +126,27 @@ describe('a copy of a project', () => {
     assert.equal(pj.copyName('MoE', ['MoE', 'MoE (copy)', 'MoE (copy 2)']), 'MoE (copy 3)');
   });
 });
+
+describe('the room’s list, followed', () => {
+  it('reads a paper from the list as a reference, with the source told by the entry or the id', () => {
+    assert.deepEqual(pj.paperRefOf({ id: 'arxiv:2101.03961', title: 'Switch', role: 'core', source: 'arxiv', authors: ['A'], published: '2021-01-11', pdfUrl: 'https://arxiv.org/pdf/2101.03961' }), { id: 'arxiv:2101.03961', source: 'arxiv', title: 'Switch', authors: ['A'], abstract: '', published: '2021-01-11', categories: [], arxivId: '2101.03961', pdfUrl: 'https://arxiv.org/pdf/2101.03961' });
+    assert.equal(pj.paperRefOf({ id: 'doi:10.1/x', title: '', role: null }).source, 'crossref');
+    assert.equal(pj.paperRefOf({ id: 'doi:10.1/x', title: '', role: null }).title, 'doi:10.1/x');
+    assert.equal(pj.paperRefOf({ id: 'arxiv:1', title: 'x', role: null, source: 'nope' }).source, 'arxiv');
+  });
+  it('says what to add, what to put in the project, and what to take out of it', () => {
+    const list = [{ id: 'a', title: 'A', role: 'core' }, { id: 'b', title: 'B', role: null }, { id: 'c', title: 'C', role: null }];
+    const library = [paper('a', ['p']), paper('b', ['other']), paper('d', ['p', 'other'])];
+    const { add, include, drop } = pj.followPapers(list, library, 'p');
+    assert.deepEqual(add.map((ref) => ref.id), ['c']);
+    assert.deepEqual(include, ['b']);
+    assert.deepEqual(drop, ['d']);
+  });
+  it('knows the same list however its papers are ordered, and a different one', () => {
+    const list = { id: 'p', name: 'N', color: '#000', question: 'Q', startedAt: '2026', papers: [{ id: 'a', title: 'A', role: 'core' }, { id: 'b', title: 'B', role: null }], todos: [{ id: 't', text: 'x', done: false }] };
+    assert.equal(pj.sameList(list, { ...list, papers: [{ id: 'b', title: 'B elsewhere', role: null, source: 'arxiv' }, { id: 'a', title: 'A', role: 'core' }] }), true, 'titles and order are not the list');
+    assert.equal(pj.sameList(list, { ...list, papers: [{ id: 'a', title: 'A', role: 'baseline' }, { id: 'b', title: 'B', role: null }] }), false, 'a role is');
+    assert.equal(pj.sameList(list, { ...list, todos: [{ id: 't', text: 'x', done: true }] }), false);
+    assert.equal(pj.sameList(list, { ...list, overleaf: { id: 'o' } }), false);
+  });
+});

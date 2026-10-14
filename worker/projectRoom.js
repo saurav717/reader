@@ -4,9 +4,11 @@
  *
  * - the members — email, role, name, picture, the colour given to them, when
  *   they joined — and the invitations waiting, by email;
- * - a summary of the project (its name, colour, question, the papers' ids
- *   and titles, its roles and to-do list), kept by the owner, so every
- *   member's copy shows the same project;
+ * - the project's list (its name, colour, question, its papers with their
+ *   roles, its to-do list), which is the record of a shared project: every
+ *   member's copy, the owner's too, takes it from here, and the owner or an
+ *   editor sends a change back naming the version it was built on — a
+ *   stale one is refused, so nobody's page overwrites a newer list;
  * - where each member is right now (in memory, re-sent by their page when
  *   this object wakes), and when each was last here (in storage).
  *
@@ -37,12 +39,24 @@ export function projectSummary(raw) {
     ? raw.papers
         .filter((paper) => paper && typeof paper.id === 'string')
         .slice(0, 500)
-        .map((paper) => ({ id: text(paper.id, 200), title: text(paper.title, 400), role: ROLE_IDS.has(paper.role) ? paper.role : null }))
+        .map((paper) => ({
+          id: text(paper.id, 200),
+          title: text(paper.title, 400),
+          role: ROLE_IDS.has(paper.role) ? paper.role : null,
+          // Enough of the paper for a member's library to take it in without a lookup (src/lib/projects.ts, `paperRefOf`).
+          ...(SOURCES.has(paper.source) ? { source: paper.source } : {}),
+          ...(Array.isArray(paper.authors) ? { authors: paper.authors.filter((a) => typeof a === 'string').slice(0, 12).map((a) => a.slice(0, 120)) } : {}),
+          ...(typeof paper.published === 'string' && paper.published ? { published: text(paper.published, 40) } : {}),
+          ...(typeof paper.doi === 'string' && paper.doi ? { doi: text(paper.doi, 200) } : {}),
+          ...(typeof paper.arxivId === 'string' && paper.arxivId ? { arxivId: text(paper.arxivId, 40) } : {}),
+          ...(typeof paper.pdfUrl === 'string' && /^https?:\/\//.test(paper.pdfUrl) ? { pdfUrl: text(paper.pdfUrl, 1000) } : {}),
+        }))
     : [];
   const todos = Array.isArray(raw.todos) ? raw.todos.filter((todo) => todo && typeof todo.id === 'string' && typeof todo.text === 'string').slice(0, 200).map((todo) => ({ id: text(todo.id, 100), text: text(todo.text, 1000), done: Boolean(todo.done) })) : [];
   return { id: text(raw.id, 200), name: text(raw.name, 200) || 'Untitled project', color: /^#[0-9a-fA-F]{6}$/.test(raw.color || '') ? raw.color : '#1f5e52', question: text(raw.question, 2000), startedAt: text(raw.startedAt, 40), papers, todos, ...(raw.overleaf && typeof raw.overleaf === 'object' ? { overleaf: raw.overleaf } : {}), ...(raw.codeRepo && typeof raw.codeRepo === 'object' ? { codeRepo: raw.codeRepo } : {}) };
 }
 const ROLE_IDS = new Set(['core', 'baseline', 'method', 'related']);
+const SOURCES = new Set(['arxiv', 'openalex', 'semanticscholar', 'crossref', 'scholar', 'books']);
 
 /** A place as a page sends it, with anything else left out: what every other member's page is handed. */
 export function cleanPlace(raw, now = Date.now()) {
@@ -110,7 +124,7 @@ export class ProjectRoom {
     const seen = await this.seen();
     const members = (await this.members()).map((member) => ({ ...member, place: this.places.get(member.email) ?? null, lastSeen: seen[member.email]?.at ?? null, lastPlace: seen[member.email]?.place ?? null }));
     const manages = me.role === 'owner' || me.role === 'editor';
-    return { room: room.id, owner: room.owner, project: room.project, me: who, role: me.role, members, ...(manages ? { invitations: await this.invitations() } : {}), ...(me.role === 'owner' ? { link: (await this.state.storage.get('link')) || null } : {}) };
+    return { room: room.id, owner: room.owner, version: room.version ?? 1, project: room.project, me: who, role: me.role, members, ...(manages ? { invitations: await this.invitations() } : {}), ...(me.role === 'owner' ? { link: (await this.state.storage.get('link')) || null } : {}) };
   }
 
   // ------------------------------------------------------------- fetch ----
@@ -127,7 +141,8 @@ export class ProjectRoom {
       if (was && was.owner !== who) return json({ error: 'this room is someone else’s' }, 403);
       const project = projectSummary(body.project);
       if (!project || !project.id) return json({ error: 'which project?' }, 400);
-      const room = { id: text(body.room, 64), owner: who, project, createdAt: was?.createdAt ?? new Date().toISOString() };
+      // A room there already keeps its list — the record — and its version; only a new one takes the project as sent.
+      const room = was ? { ...was, version: was.version ?? 1 } : { id: text(body.room, 64), owner: who, project, version: 1, createdAt: new Date().toISOString() };
       await this.state.storage.put('room', room);
       if (!(await this.member(who))) await this.state.storage.put(`member:${who}`, { email: who, role: 'owner', name: text(body.name, 200) || who, picture: text(body.picture, 1000) || undefined, color: PALETTE[0], joinedAt: room.createdAt });
       if (!(await this.state.storage.get('link'))) await this.state.storage.put('link', { token: randomToken(), on: false, domain: '' });
@@ -180,8 +195,12 @@ export class ProjectRoom {
       if (!manages) return json({ error: 'only the owner or an editor changes the project' }, 403);
       const project = projectSummary(body.project);
       if (!project) return json({ error: 'which project?' }, 400);
-      await this.state.storage.put('room', { ...room, project: { ...project, id: room.project.id } });
-      this.broadcast({ type: 'project', project: { ...project, id: room.project.id } }, who);
+      // Built on an older list than the room's: refused, with the room's own, for the page to take instead.
+      const version = room.version ?? 1;
+      if (Number.isFinite(body.version) && body.version !== version) return json({ error: 'the project changed since this page read it', ...(await this.stateFor(who)) }, 409);
+      const next = { ...project, id: room.project.id };
+      await this.state.storage.put('room', { ...room, project: next, version: version + 1, updatedAt: new Date().toISOString(), updatedBy: who });
+      this.broadcast({ type: 'project', project: next, version: version + 1 }, who);
       return json(await this.stateFor(who));
     }
 
@@ -206,7 +225,15 @@ export class ProjectRoom {
       const target = email(body.email);
       const member = await this.member(target);
       if (!member || member.role === 'owner') return json({ error: 'no such member' }, 404);
-      const role = ROLES.has(body.role) && body.role !== 'owner' ? body.role : 'editor';
+      if (body.role === 'owner') {
+        // The project handed over: they own it, and the owner who handed it over stays as an editor.
+        await this.state.storage.put(`member:${target}`, { ...member, role: 'owner' });
+        await this.state.storage.put(`member:${who}`, { ...me, role: 'editor' });
+        await this.state.storage.put('room', { ...room, owner: target });
+        this.broadcast({ type: 'members' }, null);
+        return json(await this.stateFor(who));
+      }
+      const role = ROLES.has(body.role) ? body.role : 'editor';
       await this.state.storage.put(`member:${target}`, { ...member, role });
       this.broadcast({ type: 'members' }, null);
       return json(await this.stateFor(who));
@@ -232,10 +259,11 @@ export class ProjectRoom {
         }
       }
       this.places.clear();
+      const members = (await this.members()).map((member) => member.email);
       for (const prefix of ['member:', 'invite:', 'seen:']) for (const key of (await this.state.storage.list({ prefix })).keys()) await this.state.storage.delete(key);
       await this.state.storage.delete('link');
       await this.state.storage.delete('room');
-      return json({ ok: true });
+      return json({ ok: true, members });
     }
 
     if (path === '/remove' || path === '/leave') {
