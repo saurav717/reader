@@ -30,7 +30,7 @@ import {
 } from '../server/scholar.js';
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
-import { invitationMail, mailConfigured, sendMail } from '../server/mail.js';
+import { invitationMail, mailConfigured, sendMail, tryItMail } from '../server/mail.js';
 import { contributionsAsked, readContributions } from '../server/contributionReader.js';
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
@@ -55,6 +55,7 @@ export { Usage } from './usage.js';
 export { Devices } from './devices.js';
 export { LatexJob } from './latex.js';
 export { ProjectRoom } from './projectRoom.js';
+export { Invites } from './invites.js';
 import { rateLimited, refusal } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -77,6 +78,9 @@ function cors(origin) {
     'Access-Control-Max-Age': '86400',
   };
 }
+
+/** A string from a request body, cut to size; anything else is nothing. */
+const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
 
 const json = (body, status, headers) =>
   new Response(JSON.stringify(body), {
@@ -166,6 +170,17 @@ async function ownerAuthorized(request, env) {
     ownersSeen.set(key, { email, until: Date.now() + OWNER_SEEN_MS });
   }
   return emailAllowed(email, owners) ? { email, owner: true } : who;
+}
+
+/** The invitations ledger (worker/invites.js): a call on it, or nothing where it is not bound. */
+async function invites(env, route, body) {
+  if (!env.INVITES) return null;
+  try {
+    const answer = await env.INVITES.get(env.INVITES.idFromName('invites')).fetch(`https://invites${route}`, body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+    return await answer.json();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -337,7 +352,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -383,6 +398,8 @@ export default {
         }
         const pass = await issuePass(email, secret);
         tally(env, ctx, { email }, { signin: 1 });
+        // An invitation by mail to this address is taken up by the sign-in (worker/invites.js).
+        if (env.INVITES && ctx?.waitUntil) ctx.waitUntil(invites(env, '/converted', { email, how: 'signin' }));
         const { expires } = await readPass(pass, secret);
         return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
       }
@@ -425,6 +442,63 @@ export default {
           const answer = await of(who.email).fetch(`https://devices${path.slice('/devices'.length)}`, { method: 'POST', body: JSON.stringify(body) });
           return json({ ...(await answer.json()), email: who.email }, answer.status, noStore);
         }
+        return json({ error: 'not found' }, 404, headers);
+      }
+
+      // "Invite someone": a mail from someone signed in to a colleague or anyone who may never have opened Reader — what it
+      // is, a note of their own, and the site's address (server/mail.js). Only a link to this app is ever sent,
+      // under the same per-person limit as Scholar; where READER_EMAILS limits who may sign in, an address not on
+      // it is refused here with the reason, rather than mailed an invitation it cannot take up.
+      if (path === '/invite') {
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google to invite someone' }, 401, headers);
+        if (!mailConfigured(env)) return json({ error: 'this site cannot send mail: MAIL_API_KEY and MAIL_FROM are not set (wrangler.toml)' }, 501, headers);
+        const body = await request.json().catch(() => ({}));
+        const to = String(body.email || '').trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json({ error: 'an email address' }, 400, headers);
+        const link = String(body.link || '').trim();
+        if (!ALLOWED_ORIGINS.some((allowed) => link === allowed || link.startsWith(`${allowed}/`))) return json({ error: 'only a link to this site is sent' }, 400, headers);
+        const limited = String(env.READER_EMAILS || '').trim();
+        if (limited && !emailAllowed(to, limited)) return json({ error: `${to} could not sign in here: this site's sign-in is limited to certain addresses (READER_EMAILS). Add theirs there first.` }, 403, noStore);
+        if (await personOverLimit(env, who)) return json({ error: 'too many invitations at once; try again in a minute' }, 429, noStore);
+        const mail = tryItMail({ to, inviter: text(body.name, 200), inviterEmail: who.email, note: text(body.note, 1000), link });
+        const sent = await sendMail(env, { to, ...mail, replyTo: who.email });
+        if (sent.ok) await invites(env, '/event', { kind: 'mail', by: who.email, byName: text(body.name, 200), to });
+        return json(sent.ok ? { ok: true, to } : { ok: false, error: sent.error }, sent.ok ? 200 : 502, noStore);
+      }
+
+      // Invitations that need no link in hand (worker/invites.js): a personal link with your name and a note,
+      // what a link says to whoever opens it, who signed in from it, and the projects waiting for you.
+      if (path === '/invites' || path.startsWith('/invites/')) {
+        if (!env.INVITES) return json({ error: 'no INVITES object is bound here — see wrangler.toml' }, 501, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        const opened = /^\/invites\/link\/([a-z0-9]{6,20})$/.exec(path);
+        // What a link says, to anyone who opens it: a name and a note, nothing more.
+        if (opened && request.method === 'GET') {
+          const answer = await invites(env, `/link/${opened[1]}?open=${url.searchParams.get('open') === '1' ? '1' : '0'}`);
+          return json(answer ?? { error: 'no such link' }, answer && !answer.error ? 200 : 404, noStore);
+        }
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google first' }, 401, headers);
+        if (path === '/invites/link' && request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const site = String(body.link || '').trim();
+          if (!ALLOWED_ORIGINS.some((allowed) => site === allowed || site.startsWith(`${allowed}/`))) return json({ error: 'only a link to this site' }, 400, headers);
+          if (await personOverLimit(env, who)) return json({ error: 'too many links at once; try again in a minute' }, 429, noStore);
+          const made = await invites(env, '/link', { by: who.email, byName: text(body.name, 200), note: text(body.note, 1000) });
+          if (!made?.token) return json({ error: 'the link could not be made' }, 502, noStore);
+          return json({ token: made.token, expiresAt: made.expiresAt, url: `${site}${site.includes('?') ? '&' : '?'}invite=${made.token}` }, 200, noStore);
+        }
+        const joined = /^\/invites\/link\/([a-z0-9]{6,20})\/joined$/.exec(path);
+        if (joined && request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const answer = await invites(env, `/link/${joined[1]}/joined`, { email: who.email, name: text(body.name, 200) });
+          return json(answer ?? { error: 'no such link' }, answer && !answer.error ? 200 : 404, noStore);
+        }
+        if (path === '/invites/inbox') return json((await invites(env, `/inbox?email=${encodeURIComponent(who.email)}`)) ?? { invitations: [] }, 200, noStore);
+        if (path === '/invites/mine') return json((await invites(env, `/mine?email=${encodeURIComponent(who.email)}`)) ?? {}, 200, noStore);
         return json({ error: 'not found' }, 404, headers);
       }
 
@@ -471,18 +545,26 @@ export default {
           const answer = await roomOf(id).fetch(`https://room/invite?email=${encodeURIComponent(who.email)}`, { method: 'POST', body: JSON.stringify(body) });
           const state = await answer.json();
           if (!answer.ok) return json(state, answer.status, noStore);
+          // The ledger (worker/invites.js): the invitee's inbox on Home, and the owner's tally — mailed or not.
+          const inviter = (state.members || []).find((member) => member.email === who.email);
+          await invites(env, '/event', { kind: 'project', by: who.email, byName: inviter?.name, to: String(body.email).trim().toLowerCase(), room: id, project: state.project?.name, role: body.role === 'viewer' ? 'viewer' : 'editor' });
           const link = String(body.link || '').trim();
           const sendable = mailConfigured(env) && ALLOWED_ORIGINS.some((allowed) => link.startsWith(`${allowed}/`));
           if (!sendable) return json({ ...state, mailed: false }, 200, noStore);
           if (await personOverLimit(env, who)) return json({ ...state, mailed: false, mailError: 'too many invitations at once; the link still works' }, 200, noStore);
-          const inviter = (state.members || []).find((member) => member.email === who.email);
           const mail = invitationMail({ to: String(body.email).trim().toLowerCase(), inviter: inviter?.name, inviterEmail: who.email, project: state.project?.name, question: state.project?.question, role: body.role === 'viewer' ? 'viewer' : 'editor', link });
           const sent = await sendMail(env, { to: String(body.email).trim().toLowerCase(), ...mail, replyTo: who.email });
           return json({ ...state, mailed: sent.ok, ...(sent.ok ? {} : { mailError: sent.error }) }, 200, noStore);
         }
         if (['join', 'project', 'uninvite', 'role', 'link', 'remove', 'leave'].includes(action)) {
           if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
-          return forward(id, `/${action}`, await request.json().catch(() => ({})));
+          const body = await request.json().catch(() => ({}));
+          const answer = await roomOf(id).fetch(`https://room/${action}?email=${encodeURIComponent(who.email)}`, { method: 'POST', body: JSON.stringify(body) });
+          const state = await answer.json();
+          // The ledger (worker/invites.js): an invitation taken up by joining, or taken back.
+          if (answer.ok && action === 'join') await invites(env, '/converted', { email: who.email, name: text(body.name, 200), how: 'project', room: id });
+          if (answer.ok && action === 'uninvite') await invites(env, '/withdraw', { room: id, to: String(body.email || '').trim().toLowerCase() });
+          return json(state, answer.status, noStore);
         }
         return json({ error: 'not found' }, 404, headers);
       }
@@ -497,6 +579,14 @@ export default {
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
         const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/report?days=${days}`);
         return json(await answer.json(), 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // Who invited whom, and whether it took: worker/invites.js. The owner's alone, like /usage.
+      if (path === '/usage/invites') {
+        const who = await ownerAuthorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        if (!env.INVITES) return json({ error: 'no INVITES object is bound here — see wrangler.toml' }, 501, headers);
+        return json((await invites(env, '/report')) ?? { people: [], totals: { sent: 0, converted: 0 } }, 200, { ...headers, 'Cache-Control': 'no-store' });
       }
 
       // The owner's DeepSeek account as DeepSeek itself reports it — the

@@ -71,31 +71,87 @@ export function mailConfigured(env) {
 const escape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
- * The invitation: who asked, to what, and the link that joins it. The link
- * works only signed in with Google as the address invited, and signing in is
- * all an account is — so someone who has never opened Reader is told just that.
+ * The invitation: who asked, to what, and the link that joins it, for
+ * someone who may never have heard of Reader. The link works only signed in
+ * with Google as the address invited, and signing in is all an account is —
+ * so the steps say exactly that, and nothing to create.
  */
 export function invitationMail({ to, inviter, inviterEmail, project, question, role, link }) {
   const name = inviter || inviterEmail || 'Someone';
   const what = project || 'a project';
-  const may = role === 'viewer' ? 'see the project, and where everyone in it is' : 'edit the project, and see where everyone in it is';
-  const subject = `${name} invited you to ${what} on Reader`;
+  const may = role === 'viewer' ? 'As a viewer you can see the project, and where everyone in it is.' : 'As an editor you can change the project — its papers, to-do list and question — and see where everyone in it is.';
+  const subject = `${name} invited you to “${what}” on Reader`;
   const text = [
-    `${name} invited you to work on “${what}” in Reader${question ? `: ${question}` : '.'}`,
+    'Hi,',
     '',
-    'Open the project:',
-    link,
+    `${name} has invited you to work together on “${what}” in Reader — a reading room for research papers, where a project keeps its papers, its code and the paper being written in one place, with everyone's place in it shown as it happens.`,
+    ...(question ? ['', `The project's question: ${question}`] : []),
     '',
-    `Sign in with Google as ${to} — the invitation is for that address. If you haven’t used Reader before, signing in is all it takes: your library is kept in your own Google Drive, and the project appears in it.`,
+    'To join:',
     '',
-    `You can ${may}.${inviterEmail ? ` Replies go to ${name}.` : ''}`,
+    `1. Open the project: ${link}`,
+    `2. Sign in with Google as ${to}. The invitation is for that address, and signing in is all an account is — there is nothing to create.`,
+    '3. The project appears in your library, under Projects.',
+    '',
+    may,
+    '',
+    ...(inviterEmail ? [`Questions? Just reply — it goes to ${name} (${inviterEmail}).`, ''] : []),
+    'Not expecting this? You can ignore it: nothing happens unless you open the link.',
   ].join('\n');
   const html = [
-    `<p>${escape(name)} invited you to work on <b>${escape(what)}</b> in Reader${question ? `: <i>${escape(question)}</i>` : '.'}</p>`,
-    `<p><a href="${escape(link)}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#1f5e52;color:#f6f4ec;text-decoration:none;font-weight:600">Open the project</a></p>`,
-    `<p style="color:#55524a">Sign in with Google as <b>${escape(to)}</b> — the invitation is for that address. If you haven’t used Reader before, signing in is all it takes: your library is kept in your own Google Drive, and the project appears in it.</p>`,
-    `<p style="color:#55524a">You can ${may}.${inviterEmail ? ` Replies go to ${escape(name)}.` : ''}</p>`,
+    '<div style="font:15px/1.55 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a17;max-width:560px">',
+    '<p>Hi,</p>',
+    `<p><b>${escape(name)}</b> has invited you to work together on <b>${escape(what)}</b> in Reader — a reading room for research papers, where a project keeps its papers, its code and the paper being written in one place, with everyone's place in it shown as it happens.</p>`,
+    ...(question ? [`<p style="color:#55524a">The project's question: <i>${escape(question)}</i></p>`] : []),
+    '<p style="margin:22px 0 6px"><b>To join</b></p>',
+    '<ol style="margin:0 0 18px;padding-left:22px">',
+    `<li style="margin-bottom:6px">Open the project:<br><a href="${escape(link)}" style="display:inline-block;margin:8px 0 2px;padding:10px 16px;border-radius:8px;background:#1f5e52;color:#f6f4ec;text-decoration:none;font-weight:600">Open the project</a></li>`,
+    `<li style="margin-bottom:6px">Sign in with Google as <b>${escape(to)}</b>. The invitation is for that address, and signing in is all an account is — there is nothing to create.</li>`,
+    '<li>The project appears in your library, under Projects.</li>',
+    '</ol>',
+    `<p>${escape(may)}</p>`,
+    ...(inviterEmail ? [`<p style="color:#55524a">Questions? Just reply — it goes to ${escape(name)} (${escape(inviterEmail)}).</p>`] : []),
+    '<p style="color:#6f6c63;font-size:13px">Not expecting this? You can ignore it: nothing happens unless you open the link.</p>',
     `<p style="color:#6f6c63;font-size:12px">If the button does nothing, open this address: ${escape(link)}</p>`,
+    '</div>',
+  ].join('\n');
+  return { subject, text, html };
+}
+
+/**
+ * An invitation to try Reader, from someone who uses it to a colleague, a
+ * student, anyone they know, who may not: what it is in a few lines, a note of the sender's own, and the site's
+ * address. Nothing to accept: the link is the site, and signing in is the
+ * account.
+ */
+export function tryItMail({ to, inviter, inviterEmail, note, link }) {
+  const name = inviter || inviterEmail || 'Someone';
+  const said = String(note || '').trim().slice(0, 1000);
+  const subject = `${name} thinks you'd like Reader`;
+  const text = [
+    'Hi,',
+    '',
+    `${name} invited you to try Reader — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.`,
+    ...(said ? ['', `${name} says:`, '', ...said.split('\n').map((line) => `    ${line}`)] : []),
+    '',
+    `Try it: ${link}`,
+    '',
+    'Sign in with Google and your library is yours, in your own Drive — nothing to install, nothing to create.',
+    '',
+    ...(inviterEmail ? [`Questions? Just reply — it goes to ${name} (${inviterEmail}).`, ''] : []),
+    'Not expecting this? You can ignore it.',
+  ].join('\n');
+  const html = [
+    '<div style="font:15px/1.55 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a17;max-width:560px">',
+    '<p>Hi,</p>',
+    `<p><b>${escape(name)}</b> invited you to try <b>Reader</b> — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.</p>`,
+    ...(said ? [`<blockquote style="margin:16px 0;padding:10px 14px;border-left:3px solid #1f5e52;background:#f4f1e8;color:#1a1a17;white-space:pre-wrap">${escape(said)}</blockquote>`] : []),
+    `<p><a href="${escape(link)}" style="display:inline-block;margin:6px 0;padding:10px 16px;border-radius:8px;background:#1f5e52;color:#f6f4ec;text-decoration:none;font-weight:600">Try Reader</a></p>`,
+    '<p style="color:#55524a">Sign in with Google and your library is yours, in your own Drive — nothing to install, nothing to create.</p>',
+    ...(inviterEmail ? [`<p style="color:#55524a">Questions? Just reply — it goes to ${escape(name)} (${escape(inviterEmail)}).</p>`] : []),
+    '<p style="color:#6f6c63;font-size:13px">Not expecting this? You can ignore it.</p>',
+    `<p style="color:#6f6c63;font-size:12px">If the button does nothing, open this address: ${escape(link)}</p>`,
+    '</div>',
   ].join('\n');
   return { subject, text, html };
 }

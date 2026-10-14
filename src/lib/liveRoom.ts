@@ -113,6 +113,16 @@ export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvit
 
 export const joinRoom = (room: string, token: string | null, me: GoogleUser | null) => apiFetch(`/rooms/${room}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...whoAmI(me) }) }).then((response) => answer<RoomState>(response));
 
+/**
+ * A project joined, taken into this library under its owner's id — so links to it work for everyone — with
+ * whatever this copy already had kept. Answers the project's id.
+ */
+export async function adoptJoined(state: RoomState, projects: Project[], adoptCollection: (collection: { id: string; name: string; color: string; createdAt: string; project: ProjectInfo }) => Promise<void>): Promise<string> {
+  const was = projects.find((item) => item.id === state.project.id);
+  await adoptCollection({ id: state.project.id, name: state.project.name, color: state.project.color, createdAt: was?.createdAt ?? state.project.startedAt ?? new Date().toISOString(), project: fromSummary(state.project, { room: state.room, owner: state.owner, role: state.role }, was?.project) });
+  return state.project.id;
+}
+
 export const leaveRoom = (room: string) => apiFetch(`/rooms/${room}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((response) => answer<{ ok: true }>(response));
 
 // ----------------------------------------------------------- socket -------
@@ -267,6 +277,51 @@ export function refreshRoom(): void {
   void roomState(room)
     .then((state) => live.room === room && set({ state, status: live.status === 'error' ? 'connecting' : live.status, error: null }))
     .catch(() => undefined);
+}
+
+// ------------------------------------------------------- a room, read ----
+
+const snapshots = new Map<string, { state: RoomState | null; at: number; listeners: Set<() => void> }>();
+const SNAPSHOT_MS = 30_000;
+
+/**
+ * A room's state for the eye alone — the collaborators on a project's card or overview — read once and every
+ * thirty seconds while something shows it; the room open on this page, with its live places, is answered as it is.
+ */
+export function useRoomSnapshot(room: string | undefined): RoomState | null {
+  const open = useLive();
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (!room || open.room === room) return () => undefined;
+      let entry = snapshots.get(room);
+      if (!entry) {
+        entry = { state: null, at: 0, listeners: new Set() };
+        snapshots.set(room, entry);
+      }
+      entry.listeners.add(listener);
+      const ask = () => {
+        const here = snapshots.get(room);
+        if (!here || Date.now() - here.at < SNAPSHOT_MS) return;
+        here.at = Date.now();
+        void roomState(room)
+          .then((state) => {
+            here.state = state;
+            here.listeners.forEach((fn) => fn());
+          })
+          .catch(() => undefined);
+      };
+      ask();
+      const timer = window.setInterval(ask, SNAPSHOT_MS);
+      return () => {
+        window.clearInterval(timer);
+        entry!.listeners.delete(listener);
+      };
+    },
+    [room, open.room],
+  );
+  const snapshot = useSyncExternalStore(subscribe, () => (room ? snapshots.get(room)?.state ?? null : null), () => null);
+  if (room && open.room === room) return open.state;
+  return snapshot;
 }
 
 // ------------------------------------------------------------ my place ----

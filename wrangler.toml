@@ -296,6 +296,17 @@ new_sqlite_classes = ["LatexJob"]
 tag = "v5"
 new_sqlite_classes = ["ProjectRoom"]
 
+# The invitations ledger (worker/invites.js): who invited whom, by project,
+# mail or a personal link, and whether it took — the projects waiting for
+# someone on Home, and the owner's Invitations tab on the Usage page.
+[[durable_objects.bindings]]
+name = "INVITES"
+class_name = "Invites"
+
+[[migrations]]
+tag = "v6"
+new_sqlite_classes = ["Invites"]
+
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,
 # worker/tavilyUsage.js). Does nothing until DEEPSEEK_KEY or TAVILY_KEY is set:

@@ -11,6 +11,7 @@ import { createRoom, leaveRoom, openRoom, refreshRoom, roomAction, roomState, su
 import { describePlace, initials, orderMembers, presenceOf, whenSeen, type Role, type RoomState } from '../lib/presence';
 import { basePath, pathFor } from '../lib/route';
 import type { Project } from '../lib/projects';
+import InviteSomeone from './InviteSomeone';
 
 export default function ShareProject({ project, onClose }: { project: Project; onClose: () => void }) {
   const { user, papers, updateCollection, deleteCollection } = useStore();
@@ -22,6 +23,8 @@ export default function ShareProject({ project, onClose }: { project: Project; o
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('editor');
   const [copied, setCopied] = useState<string | null>(null);
+  // Not a member for this project, just someone to show Reader to: that dialog, in this one's place.
+  const [someone, setSomeone] = useState(false);
   // Whether the site sends the invitation by mail, or the owner sends the link: the Worker's /health says.
   const [mails, setMails] = useState<boolean | null>(null);
   // What became of the last invitation's mail: sent, or why not.
@@ -107,6 +110,7 @@ export default function ShareProject({ project, onClose }: { project: Project; o
   const copy = (what: string, text: string) => void navigator.clipboard?.writeText(text).then(() => (setCopied(what), window.setTimeout(() => setCopied(null), 1500)));
 
   const members = state ? orderMembers(state.members) : [];
+  if (someone) return <InviteSomeone onClose={onClose} />;
   return (
     <>
       <div className="scrim" onClick={close} role="presentation" />
@@ -246,6 +250,9 @@ export default function ShareProject({ project, onClose }: { project: Project; o
             ) : null}
             {error ? <p className="pj-share-error">{error}</p> : null}
             <div className="dialog-actions">
+              <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setSomeone(true)} title="Not for this project — just an email saying what Reader is, with the site's address">
+                Just want to show someone Reader?
+              </button>
               <button type="button" className="btn primary" onClick={close}>
                 Done
               </button>

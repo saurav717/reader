@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import PresenceBar from './PresenceBar';
-import { closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
+import { CollaboratorsPanel, CollaboratorsStack } from './Collaborators';
+import { adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
 import { atFrom, viewFor, type Tab } from '../lib/presence';
 import { currentAddress, placeFor } from '../lib/route';
 import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
@@ -181,10 +182,9 @@ export default function ProjectsPage({
     setJoining('Joining the project…');
     void joinRoom(join.room, join.token, user)
       .then(async (state) => {
-        const was = projects.find((item) => item.id === state.project.id);
-        await adoptCollection({ id: state.project.id, name: state.project.name, color: state.project.color, createdAt: was?.createdAt ?? state.project.startedAt ?? new Date().toISOString(), project: fromSummary(state.project, { room: state.room, owner: state.owner, role: state.role }, was?.project) });
+        const id = await adoptJoined(state, projects, adoptCollection);
         setJoining(null);
-        onView({ kind: 'project', id: state.project.id });
+        onView({ kind: 'project', id });
       })
       .catch((error: Error) => setJoining(`This project couldn’t be joined: ${error.message}`));
   }, [user, view, project, projects, adoptCollection, onView]);
@@ -452,6 +452,7 @@ function ProjectBoard({ projects, onEnter, onNew }: { projects: Project[]; onEnt
                   </ul>
                 </div>
               ) : null}
+              <CollaboratorsStack project={project} />
               {shared.length ? (
                 <div className="pj-card-part">
                   <span className="eyebrow">Shared with</span>
@@ -618,6 +619,7 @@ function ProjectOverview({
           </form>
         </section>
       </div>
+      <CollaboratorsPanel project={project} />
 
       <div className="pj-paper-row">
         <OverleafCard

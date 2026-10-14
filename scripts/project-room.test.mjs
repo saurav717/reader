@@ -128,9 +128,9 @@ describe('sharing a project', () => {
       assert.equal(sent[0].url, 'https://api.resend.com/emails');
       assert.deepEqual(sent[0].body.to, ['dana@ethz.ch']);
       assert.equal(sent[0].body.reply_to, 'owner@x.org');
-      assert.equal(sent[0].body.subject, 'Owner One invited you to Sparse-gated MoE on Reader');
+      assert.equal(sent[0].body.subject, 'Owner One invited you to “Sparse-gated MoE” on Reader');
       assert.match(sent[0].body.text, new RegExp(link.replace(/[.?+]/g, '\\$&')));
-      assert.match(sent[0].body.text, /see the project, and where everyone/);
+      assert.match(sent[0].body.text, /As a viewer you can see the project, and where everyone/);
       // A link that is not this app's is never mailed: the invitation stands, the mail does not go.
       const elsewhere = await (await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'lin@x.org', role: 'editor', link: 'https://evil.example/x' } })).json();
       assert.equal(elsewhere.mailed, false);
@@ -209,6 +209,52 @@ describe('sharing a project', () => {
     assert.equal(asSub.status, 426);
     const noPass = await worker.fetch(new Request(`https://proxy.example/rooms/${room}/live`, { headers: { Origin: 'http://localhost:5173' } }), e, { waitUntil() {} });
     assert.equal(noPass.status, 401);
+  });
+});
+
+describe('inviting someone to try Reader', () => {
+  const withMail = () => ({ ...env(), MAIL_API_KEY: 're_test', MAIL_FROM: 'Reader <noreply@reader.example>' });
+  const stub = () => {
+    const sent = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => (sent.push({ url: String(url), body: JSON.parse(init.body) }), new Response('{}', { status: 200 }));
+    return { sent, restore: () => (globalThis.fetch = real) };
+  };
+
+  it('mails the site, with the note and the sender as reply-to, only to a link of this app', async () => {
+    const { sent, restore } = stub();
+    try {
+      const e = withMail();
+      const pass = await issuePass('owner@x.org', SECRET);
+      const ok = await (await call(e, '/invite', { pass, body: { email: 'Colleague@Uni.edu', name: 'Owner One', note: 'Have a look?', link: 'https://saurav717.github.io/reader/' } })).json();
+      assert.deepEqual(ok, { ok: true, to: 'colleague@uni.edu' });
+      assert.equal(sent.length, 1);
+      assert.deepEqual(sent[0].body.to, ['colleague@uni.edu']);
+      assert.equal(sent[0].body.reply_to, 'owner@x.org');
+      assert.equal(sent[0].body.subject, "Owner One thinks you'd like Reader");
+      assert.match(sent[0].body.text, /Have a look\?/);
+      assert.equal((await call(e, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://evil.example/' } })).status, 400);
+      assert.equal((await call(e, '/invite', { pass, body: { email: 'not-an-address', link: 'https://saurav717.github.io/reader/' } })).status, 400);
+      assert.equal((await call(e, '/invite', { body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } })).status, 401);
+      assert.equal(sent.length, 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('says so when the site cannot send mail, or when the address could not sign in here', async () => {
+    const { sent, restore } = stub();
+    try {
+      const pass = await issuePass('owner@x.org', SECRET);
+      const none = await call(env(), '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } });
+      assert.equal(none.status, 501);
+      const limited = await call({ ...withMail(), READER_EMAILS: '@x.org' }, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } });
+      assert.equal(limited.status, 403);
+      assert.match((await limited.json()).error, /READER_EMAILS/);
+      assert.equal(sent.length, 0);
+    } finally {
+      restore();
+    }
   });
 });
 
