@@ -8447,3 +8447,9 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
   .settings-tabs.is-row { flex-wrap: nowrap; overflow-x: auto; padding: 10px 16px; }
   .settings-intro { padding: 16px 16px 0; }
 }
+
+/* The Usage page's tabs, in groups: Overview | People | Paid services | Infrastructure. Scrolls sideways on a phone. */
+.usage-tabs { display: flex; align-items: flex-end; gap: 14px; margin-top: 12px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.usage-tab-group { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.usage-tab-group-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-left: 4px; }
+.usage-tabs .segmented button { white-space: nowrap; }

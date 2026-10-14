@@ -6,6 +6,11 @@ import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading,
 import WebUsage from './WebUsage';
 import CloudUsage from './CloudUsage';
 import CloudflareUsage from './CloudflareUsage';
+import MailUsage from './MailUsage';
+import UsageOverview from './UsageOverview';
+import UsageGuide from './UsageGuide';
+import { GROUPS, GUIDES, TABS } from '../lib/usageGuide';
+import type { UsageTab } from '../lib/usageGuide';
 import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 import { KEEP_DAYS, addDays, dayOf, daysSpanned, resolvePeriod, sliceReport } from '../lib/usagePeriod';
@@ -141,17 +146,47 @@ const SERVICE_SORTS: SortOption<Person>[] = [
 /** How often the page asks again while it is open and in view. */
 export const REFRESH_MS = 30_000;
 
-/** The page's tabs: who used what, the Google Cloud project, and the Cloudflare account. */
-type UsageTab = 'people' | 'cloud' | 'cloudflare' | 'invites';
+/** The page's tabs, grouped (src/lib/usageGuide.ts): the Overview, then the people, the services Reader pays for, and what it runs on. */
 const TAB_KEY = 'reader.usageTab';
+/** The tabs that read the people's tally, and so follow the period picker. */
+const PERIOD_TABS: UsageTab[] = ['overview', 'people', 'ai', 'search'];
 
 function rememberedTab(): UsageTab {
   try {
-    const kept = window.localStorage.getItem(TAB_KEY);
-    return kept === 'cloud' || kept === 'cloudflare' || kept === 'invites' ? kept : 'people';
+    const kept = window.localStorage.getItem(TAB_KEY) as UsageTab | null;
+    return kept && (TABS as string[]).includes(kept) ? kept : 'overview';
   } catch {
-    return 'people';
+    return 'overview';
   }
+}
+
+/** The Search tab's head: Scholar through the paid services over the period, from the tally. */
+function ScholarSummary({ report }: { report: UsageReport }) {
+  const totals = report.totals;
+  const askers = report.people.filter((person) => (person.total.scholar || 0) > 0).length;
+  const stat = (label: string, value: number, note: string) => (
+    <div style={{ minWidth: 150 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 500, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{value.toLocaleString('en-US')}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{note}</div>
+    </div>
+  );
+  return (
+    <div style={card}>
+      <div style={cardHead}>
+        <h3 style={cardTitle}>Google Scholar</h3>
+        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>through Serply and SerpApi, {report.since} to {report.until}</span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 28, padding: '14px 16px' }}>
+        {stat('Scholar asks', totals.scholar || 0, `by ${askers} ${askers === 1 ? 'person' : 'people'}`)}
+        {stat('Serply credits', totals.serply || 0, 'of 2,500 free a month')}
+        {stat('SerpApi searches', totals.serpapi || 0, 'against your SerpApi plan')}
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, padding: '0 16px 14px', lineHeight: 1.6 }}>
+        From your Worker’s tally; each service’s own dashboard has the month’s exact balance. The People tab says who asked.
+      </p>
+    </div>
+  );
 }
 
 export default function UsageView() {
@@ -161,7 +196,7 @@ export default function UsageView() {
     try {
       window.localStorage.setItem(TAB_KEY, next);
     } catch {
-      // Not kept: the page opens on People next time.
+      // Not kept: the page opens on the Overview next time.
     }
   };
   const [days, setDays] = useState(30);
@@ -249,20 +284,6 @@ export default function UsageView() {
             <ChartIcon size={18} />
           </span>
           <h1 className="collection-title">Usage</h1>
-          <div className="segmented" role="tablist" aria-label="Usage" style={{ marginLeft: 8 }}>
-            {(
-              [
-                ['people', 'People & services'],
-                ['cloud', 'Google Cloud'],
-                ['cloudflare', 'Cloudflare'],
-                ['invites', 'Invitations'],
-              ] as const
-            ).map(([id, label]) => (
-              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}>
-                {label}
-              </button>
-            ))}
-          </div>
           <span style={{ flexGrow: 1 }} />
           {updatedAt ? (
             <span style={{ fontSize: 12, color: 'var(--muted)' }} title="Refreshes every 30 seconds while this page is open and in view">
@@ -281,42 +302,62 @@ export default function UsageView() {
             <RestoreIcon size={14} />
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
+          {PERIOD_TABS.includes(tab) ? (
           <select className="chat-model" value={days} onChange={(event) => setDays(Number(event.target.value))} aria-label="Period">
             <option value={1}>Today</option>
             <option value={7}>7 days</option>
             <option value={30}>30 days</option>
             <option value={90}>90 days</option>
           </select>
+          ) : null}
         </div>
+        <nav className="usage-tabs" role="tablist" aria-label="Usage">
+          {GROUPS.map((group) => (
+            <div key={group.title || 'top'} className="usage-tab-group">
+              {group.title ? <span className="usage-tab-group-label">{group.title}</span> : null}
+              <div className="segmented">
+                {group.tabs.map((id) => (
+                  <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}>
+                    {GUIDES[id].tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
         <p className="collection-sub">
-          {report ? (
+          {report && PERIOD_TABS.includes(tab) ? (
             <span>
               {report.people.length} {report.people.length === 1 ? 'person' : 'people'} · {report.since} to {report.until} (UTC)
             </span>
           ) : null}
-          <span>
-            {tab === 'invites'
-              ? 'who invited whom — to a project, by email or by a link — and whether it took; only you see this'
-              : tab === 'cloud'
-              ? 'your Google Cloud project: services, billing and transactions — only you see this'
-              : tab === 'cloudflare'
-              ? 'your Cloudflare account: today’s use against the Free plan’s limits — only you see this'
-              : 'what everyone signed in used on your accounts — only you see this'}
-          </span>
+          <span>{GUIDES[tab].subtitle} — only you see this</span>
         </p>
       </div>
 
       <div className="scroll" style={{ padding: '18px 32px 32px' }}>
-        {tab === 'invites' ? (
+        {tab !== 'overview' ? <UsageGuide key={tab} guide={GUIDES[tab]} /> : null}
+        {tab === 'overview' ? (
+          <UsageOverview report={report} days={days} refreshedAt={updatedAt} onOpen={pickTab} />
+        ) : tab === 'invites' ? (
           <InvitesReportView />
         ) : tab === 'cloud' ? (
           <CloudUsage report={report} refreshedAt={updatedAt} />
         ) : tab === 'cloudflare' ? (
           <CloudflareUsage refreshedAt={updatedAt} />
+        ) : tab === 'mail' ? (
+          <MailUsage refreshedAt={updatedAt} />
         ) : report === undefined ? (
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>
         ) : report === null ? (
           <p className="banner error">The proxy did not answer with the tally. Sign in again, or check that your email is in READER_OWNERS.</p>
+        ) : tab === 'ai' ? (
+          aiReport ? <AiUsage report={aiReport} period={aiPeriod} range={aiRange} onPeriod={setAiPeriod} /> : null
+        ) : tab === 'search' ? (
+          <>
+            <ScholarSummary report={report} />
+            <WebUsage report={report} days={days} refreshedAt={updatedAt} />
+          </>
         ) : (
           <>
             {!report.people.length ? (
@@ -418,8 +459,6 @@ export default function UsageView() {
                 </p>
               </>
             )}
-            <WebUsage report={report} days={days} refreshedAt={updatedAt} />
-            {aiReport ? <AiUsage report={aiReport} period={aiPeriod} range={aiRange} onPeriod={setAiPeriod} /> : null}
           </>
         )}
       </div>

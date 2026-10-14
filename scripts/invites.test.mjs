@@ -123,6 +123,35 @@ describe('an invitation by mail', () => {
   });
 });
 
+describe('the site’s mail log', () => {
+  it('keeps each send, taken or refused, for the owner’s Email tab — and a test mail', async () => {
+    const real = globalThis.fetch;
+    let refuse = false;
+    globalThis.fetch = async () => (refuse ? new Response('daily limit reached', { status: 402 }) : new Response('{}', { status: 200 }));
+    try {
+      const e = env({ MAIL_API_KEY: 're_test', MAIL_FROM: 'Reader <noreply@reader.example>' });
+      const owner = await issuePass('owner@x.org', SECRET);
+      const priya = await issuePass('priya@x.org', SECRET);
+      assert.equal((await call(e, '/invite', { pass: owner, body: { email: 'dana@uni.edu', link: SITE } })).status, 200);
+      refuse = true;
+      assert.equal((await call(e, '/invite', { pass: owner, body: { email: 'eli@uni.edu', link: SITE } })).status, 502);
+      refuse = false;
+      assert.equal((await call(e, '/usage/mail/test', { pass: owner, body: {} })).status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const overview = await (await call(e, '/usage/mail', { pass: owner })).json();
+      assert.equal(overview.provider, 'resend');
+      assert.deepEqual(overview.log.today, { sent: 2, failed: 1 });
+      assert.equal(overview.used.today, 2);
+      assert.deepEqual(overview.log.recent.map((entry) => [entry.kind, entry.to, entry.ok]).sort(), [['test', 'owner@x.org', true], ['try', 'dana@uni.edu', true], ['try', 'eli@uni.edu', false]]);
+      assert.match(overview.log.lastFailure.error, /402: daily limit reached/);
+      assert.equal((await call(e, '/usage/mail', { pass: priya })).status, 401, 'the owner’s alone');
+      assert.equal((await call(e, '/usage/mail/test', { pass: priya, body: {} })).status, 401);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+});
+
 describe('a personal link', () => {
   it('says its inviter’s name and note to anyone, counts who signed in from it, and is only to this site', async () => {
     const e = env();

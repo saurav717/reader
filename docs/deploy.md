@@ -193,6 +193,33 @@ migration v6); `npx wrangler deploy` makes it. It feeds the projects waiting
 for someone on Home, and the **Invitations** tab of the Usage page, which is
 the owner's (`READER_OWNERS`).
 
+### Mail on the Usage page
+
+The **Email** tab of the Usage page (the owner's) shows the mail the site
+sends against the provider's plan (`worker/mailUsage.js`), with nothing more
+to set up than the mail itself:
+
+- **Sent today and this month**, against the plan's sends: Brevo's free plan
+  allows 300 a day, Resend's 100 a day and 3,000 a month, SendGrid's trial
+  100 a day, Postmark's developer plan 100 a month. Marked at 70% and 90%.
+  On a paid plan, set `MAIL_DAILY_LIMIT` and `MAIL_MONTHLY_LIMIT` in
+  `wrangler.toml`.
+- **The provider's own account**, asked with `MAIL_API_KEY`: Brevo's plan and
+  credits left, the last 30 days (sent, delivered, bounced, blocked, marked
+  spam, opened, clicked), its latest events, whether `MAIL_FROM` is a verified
+  sender, and the addresses it no longer sends to, each with **Unblock**.
+  SendGrid gives its credits and the days; Postmark the days' sends and
+  bounces; Resend has no API for any of it.
+- **Sent by the site**: every mail the Worker tried — a project invitation,
+  Invite someone, a test — to whom, by whom, and the provider's refusal when
+  it refused (it keeps the last 2,000, in the `INVITES` ledger). With Resend,
+  this is what the tab counts.
+- **Send a test mail**, to your own address or one you name: it uses one of
+  the plan's sends.
+
+A key restricted to sending may be refused the account and statistics; the tab
+then says so for that part and counts from the site's log.
+
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,
