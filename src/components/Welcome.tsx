@@ -6,8 +6,9 @@ import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
 import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
 import { linkGreeting, pendingInvite, type Greeting } from '../lib/invites';
 import { initials } from '../lib/presence';
+import { openSettings } from '../lib/openSettings';
 
-export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () => void; onOpenSettings: () => void }) {
+export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
   const { user, driveConnected, driveRemembered, connectDrive, settings, authError } = useStore();
   const configured = Boolean(settings.googleClientId);
   // A visit that has connected before is reconnecting, not being introduced.
@@ -125,7 +126,7 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         {!configured ? (
           <p className="banner warn" style={{ marginBottom: 14 }}>
             Google sign-in needs an OAuth client ID first — it takes a minute in the Google Cloud Console.{' '}
-            <button type="button" className="btn ghost sm" onClick={onOpenSettings} style={{ padding: 0, height: 'auto' }}>
+            <button type="button" className="btn ghost sm" onClick={() => openSettings('account', 'settings-client-id')} style={{ padding: 0, height: 'auto' }}>
               Add it in Settings
             </button>
             .
@@ -166,7 +167,7 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
           <p className="banner warn" style={{ marginTop: 14 }}>
             No paper proxy is set, so a PDF cannot be fetched and Drive would receive each paper's details
             without its file.{' '}
-            <button type="button" className="btn ghost sm" onClick={onOpenSettings} style={{ padding: 0, height: 'auto' }}>
+            <button type="button" className="btn ghost sm" onClick={() => openSettings('proxy')} style={{ padding: 0, height: 'auto' }}>
               Set one in Settings
             </button>
             .

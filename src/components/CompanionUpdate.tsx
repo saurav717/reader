@@ -197,14 +197,11 @@ function WebsiteRow() {
   );
 }
 
-/** The website, then every Companion this browser is paired with, or the one on this computer to pair with. */
+/** The website, then every Companion this browser is paired with, or the one on this computer to pair with; Settings → Updates gives it its heading. */
 export default function CompanionUpdates() {
   const companions = useServers().filter(isCompanion);
   return (
-    <section style={{ marginBottom: 22 }}>
-      <div className="eyebrow" style={{ marginBottom: 10 }}>
-        Updates
-      </div>
+    <>
       <WebsiteRow />
       {companions.length ? companions.map((server) => <CompanionRow key={server.id} server={server} />) : <UnpairedRow />}
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
@@ -214,6 +211,6 @@ export default function CompanionUpdates() {
         it installs the newest one from this site, refreshes the Reader extension in VS Code, and starts again; your files and
         settings stay as they are.
       </p>
-    </section>
+    </>
   );
 }

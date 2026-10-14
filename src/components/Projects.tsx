@@ -18,14 +18,14 @@ import { addressTag } from '../lib/invites';
 import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
 import { colabAvailable } from '../lib/colab';
 import { currentAccount, hasProxy } from '../lib/api';
+import { openSettings } from '../lib/openSettings';
 
-/** Asks the app to open Settings, from a page that has no handle on it. */
-export const OPEN_SETTINGS = 'reader:open-settings';
+/** Asks the app to open Settings, from a page that has no handle on it (lib/openSettings.ts). */
+export { OPEN_SETTINGS } from '../lib/openSettings';
 
-/** Settings, at its Compute section. */
+/** Settings, at its Compute tab. */
 export function openComputeSettings() {
-  window.dispatchEvent(new Event(OPEN_SETTINGS));
-  window.setTimeout(() => document.getElementById('settings-compute')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
+  openSettings('compute', 'settings-compute');
 }
 import {
   ROLES,
@@ -1517,7 +1517,7 @@ function SetUpCode({ project, papers, missing, onLinked, onView }: { project: Pr
           {!colabSetUp ? (
             <span>
               needs {colabNeeds.join(' and ') || 'a Google sign-in'} —{' '}
-              <button type="button" className="link-btn" onClick={() => window.dispatchEvent(new Event(OPEN_SETTINGS))}>
+              <button type="button" className="link-btn" onClick={() => (!settings.googleClientId.trim() ? openSettings('account', 'settings-client-id') : openSettings(hasProxy() ? 'account' : 'proxy'))}>
                 set it up in Settings
               </button>
             </span>

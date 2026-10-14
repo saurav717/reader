@@ -1,4 +1,11 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+// Settings: a page of its own over the app, with a tab for each part of it —
+// the account and where the library is kept, the proxy, how the app looks and
+// reads, Ask AI, projects and their writing, citations, compute, updates and
+// the tour. The sidebar lists the tabs in four groups and finds a setting by
+// name; a page that asks for Settings can open it at a tab and a place in it
+// (lib/openSettings.ts). The tab last open is opened again next time.
+
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
@@ -8,6 +15,44 @@ import { computeControlsOf } from '../lib/compute';
 import { ComputeList } from './Compute';
 import { PAPER_TEMPLATES_VERSION, forgetOverleafToken, tokenKnown } from '../lib/companion';
 import { thisComputer } from '../lib/thisComputer';
+import { overleafViewOf } from '../lib/overleaf';
+import OverleafAccounts from './OverleafAccounts';
+import InviteSomeone from './InviteSomeone';
+import { WriteGuideLink } from './WriteGuide';
+import type { PassageLook, ZenHaze } from '../types';
+import { prepare as prepareGoogle } from '../lib/google';
+import {
+  BookIcon,
+  CheckIcon,
+  CloseIcon,
+  CloudCheckIcon,
+  CodeIcon,
+  FileIcon,
+  FlagIcon,
+  GlobeIcon,
+  GoogleMark,
+  GridIcon,
+  OpenBookIcon,
+  PanelLeftIcon,
+  RestoreIcon,
+  SearchIcon,
+  SparkleIcon,
+  StackIcon,
+  SunIcon,
+  TreeIcon,
+} from './icons';
+import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
+import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
+import { KeyRow } from './Assistant';
+import CompanionUpdates from './CompanionUpdate';
+import ProxyPass from './ProxyPass';
+import { RunningChooser } from './PlaygroundRuns';
+import { GitHubConnect } from './Connections';
+import { CalendarConnect } from './Calendar';
+import { basePath } from '../lib/route';
+import { startTour } from '../lib/tour';
+import { startShowcase } from '../lib/showcase';
+import type { SettingsPlace, SettingsTab } from '../lib/openSettings';
 
 /** Whether this computer's Companion keeps an Overleaf account's Git token, and the way to forget it. */
 function OverleafTokenRow() {
@@ -42,24 +87,6 @@ function OverleafTokenRow() {
     </p>
   );
 }
-import { overleafViewOf } from '../lib/overleaf';
-import OverleafAccounts from './OverleafAccounts';
-import InviteSomeone from './InviteSomeone';
-import { WriteGuideLink } from './WriteGuide';
-import type { PassageLook, ZenHaze } from '../types';
-import { prepare as prepareGoogle } from '../lib/google';
-import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
-import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
-import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
-import { KeyRow } from './Assistant';
-import CompanionUpdates from './CompanionUpdate';
-import ProxyPass from './ProxyPass';
-import { RunningChooser } from './PlaygroundRuns';
-import { GitHubConnect } from './Connections';
-import { CalendarConnect } from './Calendar';
-import { basePath } from '../lib/route';
-import { startTour } from '../lib/tour';
-import { startShowcase } from '../lib/showcase';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -90,7 +117,195 @@ const PASSAGE_LOOKS: { id: PassageLook; label: string; note: string }[] = [
   { id: 'outline', label: 'Outline', note: 'framed, with a bar in the accent colour down its side.' },
 ];
 
-export default function Settings({ onClose }: { onClose: () => void }) {
+type TabInfo = {
+  id: SettingsTab;
+  group: string;
+  label: string;
+  icon: ReactNode;
+  /** What the tab holds, under its title. */
+  blurb: string;
+  /** What else finding a setting by name matches: the names of what is in the tab. */
+  finds: string;
+};
+
+const TABS: TabInfo[] = [
+  {
+    id: 'account',
+    group: 'You',
+    label: 'Account',
+    icon: <GoogleMark size={16} />,
+    blurb: 'The Google account your library belongs to, the pass it gives the proxy, its calendar, and the OAuth client the sign-in uses.',
+    finds: 'google sign in sign out invite someone proxy pass calendar privacy terms oauth client id console',
+  },
+  {
+    id: 'library',
+    group: 'You',
+    label: 'Library & Drive',
+    icon: <CloudCheckIcon size={16} />,
+    blurb: 'Where your papers are kept in Google Drive, and when they are saved there.',
+    finds: 'drive folder sync all save automatically include pdf save when open reconnect library json papers_collection',
+  },
+  {
+    id: 'git',
+    group: 'You',
+    label: 'Git mirror',
+    icon: <TreeIcon size={16} />,
+    blurb: 'A repository that keeps the notes and the bibliography under version control beside Drive.',
+    finds: 'github repository branch token commit as i read push all references.bib markdown',
+  },
+  {
+    id: 'proxy',
+    group: 'You',
+    label: 'Proxy & access',
+    icon: <GlobeIcon size={16} />,
+    blurb: 'The proxy that fetches papers, signing in through your institution, and the address the search indexes are given.',
+    finds: 'paper proxy url token test worker institutional access publisher sign-ins forget browserless contact email openalex crossref unpaywall polite pool',
+  },
+  {
+    id: 'appearance',
+    group: 'Reading & look',
+    label: 'Appearance',
+    icon: <SunIcon size={16} />,
+    blurb: 'Light or dark, solid or glass, and the wallpaper behind the glass.',
+    finds: 'theme light dark material solid glass frosted light pointer wallpaper',
+  },
+  {
+    id: 'navigation',
+    group: 'Reading & look',
+    label: 'Navigation',
+    icon: <PanelLeftIcon size={16} />,
+    blurb: 'How the rail or sidebar is laid out, and how projects show in it.',
+    finds: 'navigation layout rail sidebar labelled classic projects in the rail switcher',
+  },
+  {
+    id: 'reading',
+    group: 'Reading & look',
+    label: 'Reading',
+    icon: <OpenBookIcon size={16} />,
+    blurb: 'What a paper opens in, and what zen mode does to the page.',
+    finds: 'reading mode pdf reflow zen mode shadow mist glow',
+  },
+  {
+    id: 'ai',
+    group: 'Reading & look',
+    label: 'Ask AI & models',
+    icon: <SparkleIcon size={16} />,
+    blurb: 'Which models answer, whose keys they run on, and how papers and passages Ask AI names are shown.',
+    finds: 'ai models claude deepseek gemini api key explain implementation chat papers cards passages marker spotlight outline',
+  },
+  {
+    id: 'projects',
+    group: 'Projects',
+    label: 'Projects',
+    icon: <GridIcon size={16} />,
+    blurb: 'What a project opens on.',
+    finds: 'project opens on overview workspace board',
+  },
+  {
+    id: 'writing',
+    group: 'Projects',
+    label: 'Writing',
+    icon: <FileIcon size={16} />,
+    blurb: 'Where a project’s paper is written, the Overleaf accounts it syncs with, and how the Write tab behaves.',
+    finds: 'writing paper write tab overleaf accounts token latex compile companion guide',
+  },
+  {
+    id: 'citations',
+    group: 'Projects',
+    label: 'Citations',
+    icon: <BookIcon size={16} />,
+    blurb: 'Which BibTeX entry a draft takes, how cite keys are made, and what the Write tab does while you write.',
+    finds: 'citations bibtex cite key references',
+  },
+  {
+    id: 'compute',
+    group: 'Projects',
+    label: 'Compute & playgrounds',
+    icon: <CodeIcon size={16} />,
+    blurb: 'Where code runs, where it is turned on and off, and how running playgrounds are shown.',
+    finds: 'compute colab companion computer runtime stop running playgrounds dock peek',
+  },
+  {
+    id: 'updates',
+    group: 'About',
+    label: 'Updates',
+    icon: <RestoreIcon size={16} />,
+    blurb: 'The website’s version, and every Companion this browser is paired with.',
+    finds: 'updates version website companion reload pair',
+  },
+  {
+    id: 'help',
+    group: 'About',
+    label: 'Tour & help',
+    icon: <FlagIcon size={16} />,
+    blurb: 'A walk round the app, the app used on a real paper, and what Reader does with your data.',
+    finds: 'guided tour showcase show me help privacy policy terms of service',
+  },
+];
+
+const TAB_KEY = 'reader:settings-tab';
+
+function rememberedTab(): SettingsTab {
+  try {
+    const kept = window.localStorage.getItem(TAB_KEY);
+    if (TABS.some((tab) => tab.id === kept)) return kept as SettingsTab;
+  } catch {
+    // Storage blocked: start at the account.
+  }
+  return 'account';
+}
+
+/** One card of a tab: a title, what it is for, and its controls. */
+function Card({ id, title, note, children }: { id?: string; title?: string; note?: ReactNode; children?: ReactNode }) {
+  return (
+    <section className="set-card" id={id}>
+      {title ? <h4>{title}</h4> : null}
+      {note ? <p className="set-note">{note}</p> : null}
+      {children}
+    </section>
+  );
+}
+
+/** A choice between cards of text: a mark on the one picked, the first one the default. */
+function TextChoices<T extends string>({
+  label,
+  options,
+  value,
+  fallback,
+  onPick,
+}: {
+  label: string;
+  options: readonly { id: T; label: string; note: string }[];
+  value: T;
+  /** The default's id, when it is not the first. */
+  fallback?: T;
+  onPick: (id: T) => void;
+}) {
+  return (
+    <div className="nav-choices is-text" role="radiogroup" aria-label={label}>
+      {options.map((option, index) => (
+        <button
+          key={option.id}
+          type="button"
+          role="radio"
+          aria-checked={value === option.id}
+          className={`nav-choice${value === option.id ? ' is-on' : ''}`}
+          onClick={() => onPick(option.id)}
+        >
+          <b>
+            {option.label}
+            {(fallback ? option.id === fallback : index === 0) ? <small> · default</small> : null}
+          </b>
+          <span>{option.note}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const muted = { fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' } as const;
+
+export default function Settings({ onClose, at }: { onClose: () => void; at?: SettingsPlace }) {
   const paperLayout = useLayout();
   const ai = useSyncExternalStore(onAssistant, assistantState);
   const {
@@ -114,6 +329,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     githubPending,
     pushToGitHub,
   } = useStore();
+  const [tab, setTab] = useState<SettingsTab>(() => at?.tab ?? rememberedTab());
+  const [find, setFind] = useState('');
   const [clientId, setClientId] = useState(settings.googleClientId);
   const [repo, setRepo] = useState(settings.githubRepo);
   const [branch, setBranch] = useState(settings.githubBranch);
@@ -123,10 +340,15 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   // "Invite someone": a mail from the site to a colleague or anyone who may never have opened it (components/InviteSomeone.tsx).
   const [inviting, setInviting] = useState(false);
   const [checking, setChecking] = useState(false);
-  /** Whether the proxy can open a sign-in window, asked once the sheet opens. */
+  /** Whether the proxy can open a sign-in window, asked once the page opens. */
   const [access, setAccess] = useState<AccessStatus | null>(null);
   const [forgetting, setForgetting] = useState(false);
   const [forgot, setForgot] = useState<string | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const tabButtons = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
+  /** A place in the tab to scroll to once it is drawn, from the page that opened Settings. */
+  const [anchor, setAnchor] = useState(at?.anchor);
+
   useEffect(() => {
     let live = true;
     accessStatus().then((status) => {
@@ -139,12 +361,47 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.proxyBase]);
 
-  // Fetch Google's script while the sheet is being read, not inside the click
+  // Fetch Google's script while the page is being read, not inside the click
   // that needs it: a popup opened after an awaited download has lost the user
   // gesture that allows it, and the browser blocks it.
   useEffect(() => {
     if (settings.googleClientId.trim()) prepareGoogle();
   }, [settings.googleClientId]);
+
+  // Asked for again while open, at another tab or place.
+  useEffect(() => {
+    if (at?.tab) setTab(at.tab);
+    if (at?.anchor) setAnchor(at.anchor);
+  }, [at]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TAB_KEY, tab);
+    } catch {
+      // Storage blocked: the tab is not remembered.
+    }
+    body.current?.scrollTo({ top: 0 });
+  }, [tab]);
+
+  useEffect(() => {
+    if (!anchor) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(anchor)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      setAnchor(undefined);
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [anchor, tab]);
+
+  // Esc closes, unless a dialog opened from here (an invitation, a key) is the one on top.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (document.querySelectorAll('.sheet').length > 1) return;
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const pending = syncLog.filter((entry) => entry.state === 'queued' || entry.state === 'running').length;
   const failed = syncLog.filter((entry) => entry.state === 'error');
@@ -153,49 +410,60 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const githubFailed = githubLog.filter((entry) => entry.state === 'error');
   const repoIsValid = !repo.trim() || Boolean(parseRepo(repo));
 
-  return (
+  /** What needs looking at in a tab, shown as a dot beside it. */
+  const attention: Partial<Record<SettingsTab, string>> = {
+    ...(authError ? { account: 'Sign-in needs attention' } : {}),
+    ...(failed.length || librarySync.state === 'error' || (user && strays) || (user && !driveConnected)
+      ? { library: 'Drive needs attention' }
+      : {}),
+    ...(githubFailed.length ? { git: 'Commits failed' } : {}),
+    ...(!hasProxy() ? { proxy: 'No proxy configured' } : {}),
+  };
+
+  const query = find.trim().toLowerCase();
+  const shown = useMemo(
+    () => (query ? TABS.filter((item) => `${item.label} ${item.group} ${item.blurb} ${item.finds}`.toLowerCase().includes(query)) : TABS),
+    [query],
+  );
+  const groups = [...new Set(shown.map((item) => item.group))];
+  const current = TABS.find((item) => item.id === tab) ?? TABS[0];
+
+  /** Up and down (and Home, End) move between the tabs shown, as in any list of tabs. */
+  const onTabKey = (event: ReactKeyboardEvent) => {
+    const at = shown.findIndex((item) => item.id === tab);
+    const next =
+      event.key === 'ArrowDown' || event.key === 'ArrowRight'
+        ? shown[(at + 1) % shown.length]
+        : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+          ? shown[(at - 1 + shown.length) % shown.length]
+          : event.key === 'Home'
+            ? shown[0]
+            : event.key === 'End'
+              ? shown[shown.length - 1]
+              : undefined;
+    if (!next) return;
+    event.preventDefault();
+    setTab(next.id);
+    tabButtons.current[next.id]?.focus();
+  };
+
+  const privacyLinks = (
     <>
-      <div className="scrim" onClick={onClose} role="presentation" />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label="Settings">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <div style={{ flexGrow: 1 }}>
-            <h2>Settings</h2>
-            <p className="lede">
-              Your library belongs to your Google account and lives in your own Drive — every paper with its
-              highlights, and the list of them all — so it is the same in any browser you sign in from, and
-              nobody else's. A Git repository can keep the notes and the bibliography under version control
-              beside it.
-            </p>
-          </div>
-          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close settings">
-            <CloseIcon size={18} />
-          </button>
-        </div>
+      <a href={`${basePath()}privacy/`} style={{ color: 'inherit' }}>
+        privacy policy
+      </a>{' '}
+      · <a href={`${basePath()}terms/`} style={{ color: 'inherit' }}>terms of service</a>
+    </>
+  );
 
-        {authError ? (
-          <p className="banner error" style={{ marginBottom: 16 }}>
-            {authError}
-          </p>
-        ) : null}
+  const accountTab = (
+    <>
+      {authError ? <p className="banner error">{authError}</p> : null}
 
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Google account
-          </div>
-
-          {user ? (
-            <>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: 12,
-                border: '1px solid var(--border)',
-                borderRadius: 12,
-                marginBottom: 12,
-              }}
-            >
+      <Card title="Google account" note="Your library belongs to your Google account and lives in your own Drive — every paper with its highlights, and the list of them all — so it is the same in any browser you sign in from, and nobody else's.">
+        {user ? (
+          <>
+            <div className="set-status">
               {user.picture ? (
                 <img className="avatar" src={user.picture} alt="" />
               ) : (
@@ -203,9 +471,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                   {user.name.slice(0, 1).toUpperCase()}
                 </span>
               )}
-              <div style={{ flexGrow: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{user.name}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{user.email}</div>
+              <div className="set-status-text">
+                <b>{user.name}</b>
+                <small>{user.email}</small>
               </div>
               <button type="button" className="btn sm" onClick={() => setInviting(true)} title="Email someone what Reader is, with a note of your own and the site's address">
                 Invite someone
@@ -215,378 +483,229 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               </button>
             </div>
             {inviting ? <InviteSomeone onClose={() => setInviting(false)} /> : null}
-            </>
+          </>
+        ) : (
+          <button type="button" className="btn" onClick={() => void signIn()} style={{ height: 40, padding: '0 16px', fontSize: 13.5 }}>
+            <GoogleMark size={18} /> Sign in with Google
+          </button>
+        )}
+        <ProxyPass />
+      </Card>
+
+      {user ? (
+        <Card title="Google Calendar" note="Your meetings, read from the account you signed in with, on the Calendar page.">
+          <CalendarConnect />
+        </Card>
+      ) : null}
+
+      <Card id="settings-client-id" title="Google OAuth client ID">
+        <label className="setting">
+          <span className="vh">Google OAuth client ID</span>
+          <input
+            type="text"
+            value={clientId}
+            onChange={(event) => setClientId(event.target.value)}
+            onBlur={() => updateSettings({ googleClientId: clientId.trim() })}
+            placeholder="000000000000-xxxxxxxx.apps.googleusercontent.com"
+          />
+          <small>
+            Create one in the Google Cloud Console under APIs &amp; Services → Credentials → OAuth client ID → Web
+            application, enable the Google Drive API, and add this app's origin to the authorised JavaScript origins.
+            Stored in this browser only.
+          </small>
+        </label>
+        {settings.googleClientId ? (
+          <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent)', margin: 0 }}>
+            <CheckIcon size={14} /> A client ID is configured.
+          </p>
+        ) : null}
+      </Card>
+
+      <p className="set-foot">What Reader does with your Google account, your Drive and your calendar, and what it never sees: {privacyLinks}.</p>
+    </>
+  );
+
+  const libraryTab = (
+    <>
+      <Card title="Your library in Drive">
+        <div className="set-status">
+          <CloudCheckIcon size={20} style={{ color: driveConnected ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
+          <div className="set-status-text">
+            <b>
+              {driveConnected
+                ? librarySync.state === 'loading'
+                  ? 'Reading your library from Drive…'
+                  : librarySync.state === 'saving'
+                    ? 'Saving your library to Drive…'
+                    : 'Library saved in your Drive'
+                : user
+                  ? 'Google Drive not connected'
+                  : 'Signed out'}
+            </b>
+            <small>
+              {driveConnected ? (
+                <>
+                  <span className="mono">{settings.driveFolderName || 'Papers_collection'}/library.json</span> ·{' '}
+                  {`${synced} of ${papers.length} papers saved${pending ? ` · ${pending} in progress` : ''}`}
+                </>
+              ) : user ? (
+                'Your library is kept in your Drive, so changes made now stay in this browser until it is reconnected.'
+              ) : (
+                'Sign in to open your library. It is read from your Drive, with access only to the files this app creates.'
+              )}
+            </small>
+          </div>
+          {driveConnected ? (
+            <button type="button" className="btn sm" onClick={syncAll}>
+              Sync all
+            </button>
+          ) : user ? (
+            <button type="button" className="btn primary sm" onClick={() => void connectDrive()}>
+              Reconnect Drive
+            </button>
           ) : (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void signIn()}
-              style={{ marginBottom: 12, height: 40, padding: '0 16px', fontSize: 13.5 }}
-            >
-              <GoogleMark size={18} /> Sign in with Google
+            <button type="button" className="btn sm" onClick={() => setTab('account')}>
+              Sign in
             </button>
           )}
+        </div>
 
-          <ProxyPass />
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: 12,
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-            }}
-          >
-            <CloudCheckIcon size={20} style={{ color: driveConnected ? 'var(--accent)' : 'var(--muted)' }} />
-            <div style={{ flexGrow: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>
-                {driveConnected
-                  ? librarySync.state === 'loading'
-                    ? 'Reading your library from Drive…'
-                    : librarySync.state === 'saving'
-                      ? 'Saving your library to Drive…'
-                      : 'Library saved in your Drive'
-                  : user
-                    ? 'Google Drive not connected'
-                    : 'Signed out'}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                {driveConnected ? (
-                  <>
-                    <span className="mono">{settings.driveFolderName || 'Papers_collection'}/library.json</span> ·{' '}
-                    {`${synced} of ${papers.length} papers saved${pending ? ` · ${pending} in progress` : ''}`}
-                  </>
-                ) : user ? (
-                  'Your library is kept in your Drive, so changes made now stay in this browser until it is reconnected.'
-                ) : (
-                  'Sign in to open your library. It is read from your Drive, with access only to the files this app creates.'
-                )}
-              </div>
-            </div>
-            {driveConnected ? (
-              <button type="button" className="btn sm" onClick={syncAll}>
-                Sync all
-              </button>
-            ) : user ? (
-              <button type="button" className="btn primary sm" onClick={() => void connectDrive()}>
-                Reconnect Drive
-              </button>
-            ) : null}
-          </div>
-
-          {librarySync.state !== 'error' && librarySync.message ? (
-            <p className="banner warn" style={{ marginTop: 10 }}>
-              {librarySync.message}
-            </p>
-          ) : null}
-
-          <CalendarConnect />
-
-          <p style={{ margin: '10px 2px 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-            What Reader does with your Google account, your Drive and your calendar, and what it never sees:{' '}
-            <a href={`${basePath()}privacy/`} style={{ color: 'inherit' }}>
-              privacy policy
-            </a>{' '}
-            · <a href={`${basePath()}terms/`} style={{ color: 'inherit' }}>terms of service</a>.
+        {librarySync.state !== 'error' && librarySync.message ? (
+          <p className="banner warn" style={{ marginTop: 10 }}>
+            {librarySync.message}
           </p>
+        ) : null}
 
-          {librarySync.state === 'error' ? (
-            <p className="banner error" style={{ marginTop: 10 }}>
-              The library could not be saved to Drive: {librarySync.message}
-            </p>
-          ) : null}
-
-          {user && strays ? (
-            <div className="banner warn" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <span>
-                This browser still has {strays} paper{strays === 1 ? '' : 's'} from before libraries belonged to an
-                account, never saved to any Drive. Add {strays === 1 ? 'it' : 'them'} to {user.email}'s library only if{' '}
-                {strays === 1 ? 'it is' : 'they are'} yours.
-              </span>
-              <span style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="btn primary sm" onClick={() => void adoptStrays()}>
-                  Add to my library
-                </button>
-                <button type="button" className="btn sm" onClick={() => void discardStrays()}>
-                  Remove from this browser
-                </button>
-              </span>
-            </div>
-          ) : null}
-
-          {failed.length ? (
-            <p className="banner error" style={{ marginTop: 10 }}>
-              {failed.length} paper{failed.length === 1 ? '' : 's'} failed to save. Most recent: {failed[0].message}
-            </p>
-          ) : null}
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Where papers are stored
-          </div>
-
-          <label className="setting">
-            <span>Drive folder</span>
-            <input
-              type="text"
-              value={settings.driveFolderName}
-              onChange={(event) => updateSettings({ driveFolderName: event.target.value })}
-              placeholder="Papers_collection"
-            />
-            <small>
-              A folder of this name is created at the top level of your Drive, and every paper gets a folder of
-              its own inside it — <span className="mono">Papers_collection/&lt;paper&gt;/</span>, holding the PDF and
-              a JSON sidecar. The link beside each paper in a collection opens that folder. Because the app asks
-              only for the <span className="mono">drive.file</span> scope, it can read and write the files it
-              created and nothing else in your Drive.
-            </small>
-          </label>
-
-          <div className="setting-row">
-            <input
-              id="auto-sync"
-              type="checkbox"
-              checked={settings.autoSync}
-              onChange={(event) => updateSettings({ autoSync: event.target.checked })}
-            />
-            <label htmlFor="auto-sync" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              <strong style={{ fontWeight: 500 }}>Save new papers automatically</strong>
-              <br />
-              <span style={{ color: 'var(--muted)' }}>
-                Every paper added to a collection is uploaded, along with a JSON sidecar holding its metadata and
-                your highlights. Editing a highlight re-uploads the sidecar.
-              </span>
-            </label>
-          </div>
-
-          <div className="setting-row">
-            <input
-              id="save-pdf"
-              type="checkbox"
-              checked={settings.savePdf}
-              onChange={(event) => updateSettings({ savePdf: event.target.checked })}
-            />
-            <label htmlFor="save-pdf" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              <strong style={{ fontWeight: 500 }}>Include the PDF</strong>
-              <br />
-              <span style={{ color: 'var(--muted)' }}>
-                PDFs are fetched through the proxy — arXiv, or whichever repository OpenAlex, Unpaywall and
-                Semantic Scholar point at. A paper with no free copy anywhere saves its metadata only.
-              </span>
-            </label>
-          </div>
-
-          <div className="setting-row">
-            <input
-              id="sync-on-open"
-              type="checkbox"
-              checked={settings.syncOnOpen}
-              onChange={(event) => updateSettings({ syncOnOpen: event.target.checked })}
-            />
-            <label htmlFor="sync-on-open" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              <strong style={{ fontWeight: 500 }}>Save a paper when I open it</strong>
-              <br />
-              <span style={{ color: 'var(--muted)' }}>
-                Opening a paper that is not in Drive yet uploads it — the same copy the reader is showing, so it
-                is one download rather than two. This is what catches the papers you collected before connecting
-                Drive. Afterwards the reader opens that copy straight from Drive.
-              </span>
-            </label>
-          </div>
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Paper proxy
-          </div>
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            arXiv and the publishers send no CORS headers, so a browser cannot fetch a paper from them directly —
-            a small proxy has to do it. On a static host (GitHub Pages) there is no server to run one, so deploy
-            the Cloudflare Worker in <span className="mono">worker/</span> — <span className="mono">npx wrangler
-            deploy</span>, free tier — and paste its address here. Without it, search still works through
-            OpenAlex, Crossref and Semantic Scholar, but there are no PDFs to read or to save.
+        {librarySync.state === 'error' ? (
+          <p className="banner error" style={{ marginTop: 10 }}>
+            The library could not be saved to Drive: {librarySync.message}
           </p>
+        ) : null}
 
-          <label className="setting">
-            <span className="vh">Proxy URL</span>
-            <input
-              type="url"
-              value={proxy}
-              onChange={(event) => {
-                setProxy(event.target.value);
-                setProxyCheck(null);
-              }}
-              onBlur={() => updateSettings({ proxyBase: proxy.trim() })}
-              placeholder="https://reader-arxiv-proxy.you.workers.dev"
-              spellCheck={false}
-            />
-            <small>
-              {BUILT_IN_BASE
-                ? `Leave it empty to use this deployment's own ${BUILT_IN_BASE}.`
-                : 'This build has no proxy compiled in, so PDFs need one here.'}{' '}
-              Kept in this browser. The Worker only answers origins listed in its{' '}
-              <span className="mono">ALLOWED_ORIGINS</span>, so add this site's to it.
-            </small>
-          </label>
-
-          <label className="setting">
-            <span className="vh">Proxy token</span>
-            <input
-              type="password"
-              value={settings.proxyToken}
-              onChange={(event) => updateSettings({ proxyToken: event.target.value })}
-              placeholder="The proxy's READER_TOKEN"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <small>
-              Signed in with Google, you need nothing here: the reader asks the proxy for a pass and fills it in
-              itself. Otherwise, this is what the proxy asks for before it drives the browser inside the reader,
-              keeps a sign-in, or asks Scholar on its Serply or SerpApi account — anyone can read the proxy's
-              address out of this site, so those take a token or a sign-in. The proxy's own token is its{' '}
-              <span className="mono">READER_TOKEN</span>. Sent only to the proxy. arXiv and open-access PDFs need none.
-            </small>
-          </label>
-
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Whatever proxy this is, it sees what goes through it: the PDFs, arXiv pages and Scholar queries, and
-            everything typed into the browser inside the reader — a sign-in's password included. Point this at a
-            proxy you run, or one run by someone you would tell your password to.
-          </p>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              type="button"
-              className="btn sm"
-              // The one compiled in is a proxy too: with the box empty, that is what is tested.
-              disabled={checking || !(proxy.trim() || BUILT_IN_BASE)}
-              onClick={async () => {
-                setChecking(true);
-                updateSettings({ proxyBase: proxy.trim() });
-                setProxyCheck(await checkProxy(proxy.trim() || BUILT_IN_BASE || ''));
-                forgetAccess();
-                setAccess(await accessStatus());
-                setChecking(false);
-              }}
-            >
-              {checking ? <span className="spinner" /> : null} Test it
-            </button>
-            {proxyCheck ? (
-              <span
-                style={{
-                  fontSize: 12,
-                  lineHeight: 1.5,
-                  color: proxyCheck.ok ? 'var(--accent)' : 'var(--danger)',
-                }}
-              >
-                {proxyCheck.message}
-              </span>
-            ) : (
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {hasProxy() ? 'A proxy is configured.' : 'No proxy — PDFs are links out only.'}
-              </span>
-            )}
-          </div>
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Institutional access
-          </div>
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            IEEE, ACM, Springer and the rest hand their PDFs to a browser signed in through a university, and a
-            web page to everyone else. When a copy comes back as that page, the result offers to sign in: the
-            proxy opens a real browser window on its own machine at the publisher, you sign in there through your
-            institution, and the paper is fetched again through that browser. The session is kept in a browser
-            profile of its own, so the next paper needs no sign-in. A window needs a proxy on your own machine —{' '}
-            <span className="mono">npm start</span>, then <span className="mono">http://localhost:8080</span> as
-            the proxy above. The same offer can instead open a browser <em>inside the reader</em>, in the PDF pane:
-            a browser the proxy drives, shown here and driven from here, which needs no screen — the Node proxy
-            with its Chromium on any machine, or the Cloudflare Worker with Cloudflare&rsquo;s Browser Rendering
-            bound to it. A site whose check for a person is Cloudflare&rsquo;s refuses Cloudflare&rsquo;s own browser
-            by design; give the Worker a Browserless token (<span className="mono">npx wrangler secret put
-            BROWSERLESS_TOKEN</span>) and such a site is opened in a browser at Browserless instead, on an address
-            of its own, where the box is yours to tick.
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, lineHeight: 1.5, color: access?.available ? 'var(--accent)' : 'var(--muted)' }}>
-              {access === null
-                ? 'Asking the proxy…'
-                : access.available
-                  ? `This proxy can open a sign-in window, and a browser inside the reader.${access.everSignedIn ? ' A signed-in profile is kept on it.' : ' Nothing has been signed in to yet.'}`
-                  : access.browse?.available
-                    ? `This proxy can open a browser inside the reader, though not a window of its own. ${access.reason || ''}${access.everSignedIn ? ' A signed-in profile is kept on it.' : ''}`
-                    : `Not available on this proxy. ${access.reason || ''}`}
+        {user && strays ? (
+          <div className="banner warn" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span>
+              This browser still has {strays} paper{strays === 1 ? '' : 's'} from before libraries belonged to an
+              account, never saved to any Drive. Add {strays === 1 ? 'it' : 'them'} to {user.email}'s library only if{' '}
+              {strays === 1 ? 'it is' : 'they are'} yours.
             </span>
-            {(access?.available || access?.browse?.available) && access.everSignedIn ? (
-              <button
-                type="button"
-                className="btn sm"
-                disabled={forgetting}
-                onClick={async () => {
-                  setForgetting(true);
-                  setForgot(null);
-                  try {
-                    await forgetSignIns();
-                    setForgot('Signed out: the profile and every session in it are gone.');
-                    setAccess(await accessStatus());
-                  } catch (error) {
-                    setForgot(error instanceof Error ? error.message : String(error));
-                  } finally {
-                    setForgetting(false);
-                  }
-                }}
-              >
-                {forgetting ? <span className="spinner" /> : null} Forget sign-ins
+            <span style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="btn primary sm" onClick={() => void adoptStrays()}>
+                Add to my library
               </button>
-            ) : null}
-            {forgot ? <span style={{ fontSize: 12, color: 'var(--muted)' }}>{forgot}</span> : null}
+              <button type="button" className="btn sm" onClick={() => void discardStrays()}>
+                Remove from this browser
+              </button>
+            </span>
           </div>
-        </section>
+        ) : null}
 
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Git mirror
-          </div>
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Drive holds the PDFs; a repository holds everything that is text — a sidecar and a Markdown note
-            per paper, an index, and a <span className="mono">references.bib</span> you can cite from. PDFs are
-            deliberately <em>not</em> written here: a binary blob bloats a repository's history forever and
-            gains nothing from being diffed.
+        {failed.length ? (
+          <p className="banner error" style={{ marginTop: 10 }}>
+            {failed.length} paper{failed.length === 1 ? '' : 's'} failed to save. Most recent: {failed[0].message}
           </p>
+        ) : null}
+      </Card>
 
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: 12,
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              marginBottom: 12,
-            }}
-          >
-            <CloudCheckIcon size={20} style={{ color: githubConnected ? 'var(--accent)' : 'var(--muted)' }} />
-            <div style={{ flexGrow: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>
-                {githubConnected ? `Mirroring to ${settings.githubRepo}` : 'No repository configured'}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                {githubConnected
-                  ? `${committed} of ${papers.length} papers committed${githubPending ? ` · ${githubPending} waiting` : ''}`
-                  : 'Add a repository and a token below.'}
-              </div>
-            </div>
-            {githubConnected ? (
-              <button type="button" className="btn sm" onClick={pushToGitHub}>
-                Push all
-              </button>
-            ) : null}
+      <Card title="Drive folder">
+        <label className="setting">
+          <span className="vh">Drive folder</span>
+          <input
+            type="text"
+            value={settings.driveFolderName}
+            onChange={(event) => updateSettings({ driveFolderName: event.target.value })}
+            placeholder="Papers_collection"
+          />
+          <small>
+            A folder of this name is created at the top level of your Drive, and every paper gets a folder of its own
+            inside it — <span className="mono">Papers_collection/&lt;paper&gt;/</span>, holding the PDF and a JSON
+            sidecar. The link beside each paper in a collection opens that folder. Because the app asks only for the{' '}
+            <span className="mono">drive.file</span> scope, it can read and write the files it created and nothing else
+            in your Drive.
+          </small>
+        </label>
+      </Card>
+
+      <Card title="When papers are saved">
+        <div className="setting-row">
+          <input id="auto-sync" type="checkbox" checked={settings.autoSync} onChange={(event) => updateSettings({ autoSync: event.target.checked })} />
+          <label htmlFor="auto-sync" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <strong style={{ fontWeight: 500 }}>Save new papers automatically</strong>
+            <br />
+            <span style={{ color: 'var(--muted)' }}>
+              Every paper added to a collection is uploaded, along with a JSON sidecar holding its metadata and your
+              highlights. Editing a highlight re-uploads the sidecar.
+            </span>
+          </label>
+        </div>
+
+        <div className="setting-row">
+          <input id="save-pdf" type="checkbox" checked={settings.savePdf} onChange={(event) => updateSettings({ savePdf: event.target.checked })} />
+          <label htmlFor="save-pdf" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <strong style={{ fontWeight: 500 }}>Include the PDF</strong>
+            <br />
+            <span style={{ color: 'var(--muted)' }}>
+              PDFs are fetched through the proxy — arXiv, or whichever repository OpenAlex, Unpaywall and Semantic
+              Scholar point at. A paper with no free copy anywhere saves its metadata only.
+            </span>
+          </label>
+        </div>
+
+        <div className="setting-row" style={{ marginBottom: 0 }}>
+          <input id="sync-on-open" type="checkbox" checked={settings.syncOnOpen} onChange={(event) => updateSettings({ syncOnOpen: event.target.checked })} />
+          <label htmlFor="sync-on-open" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <strong style={{ fontWeight: 500 }}>Save a paper when I open it</strong>
+            <br />
+            <span style={{ color: 'var(--muted)' }}>
+              Opening a paper that is not in Drive yet uploads it — the same copy the reader is showing, so it is one
+              download rather than two. This is what catches the papers you collected before connecting Drive.
+              Afterwards the reader opens that copy straight from Drive.
+            </span>
+          </label>
+        </div>
+      </Card>
+    </>
+  );
+
+  const gitTab = (
+    <>
+      <Card
+        title="Mirror"
+        note={
+          <>
+            Drive holds the PDFs; a repository holds everything that is text — a sidecar and a Markdown note per paper,
+            an index, and a <span className="mono">references.bib</span> you can cite from. PDFs are deliberately{' '}
+            <em>not</em> written here: a binary blob bloats a repository's history forever and gains nothing from being
+            diffed.
+          </>
+        }
+      >
+        <div className="set-status">
+          <CloudCheckIcon size={20} style={{ color: githubConnected ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
+          <div className="set-status-text">
+            <b>{githubConnected ? `Mirroring to ${settings.githubRepo}` : 'No repository configured'}</b>
+            <small>
+              {githubConnected
+                ? `${committed} of ${papers.length} papers committed${githubPending ? ` · ${githubPending} waiting` : ''}`
+                : 'Add a repository and a token below.'}
+            </small>
           </div>
+          {githubConnected ? (
+            <button type="button" className="btn sm" onClick={pushToGitHub}>
+              Push all
+            </button>
+          ) : null}
+        </div>
+        {githubFailed.length ? (
+          <p className="banner error" style={{ marginTop: 10 }}>
+            {githubFailed.length} paper{githubFailed.length === 1 ? '' : 's'} failed to commit. Most recent:{' '}
+            {githubFailed[0].message}
+          </p>
+        ) : null}
+      </Card>
 
+      <Card title="Repository">
+        <div className="set-two">
           <label className="setting">
             <span>Repository</span>
             <input
@@ -606,429 +725,212 @@ export default function Settings({ onClose }: { onClose: () => void }) {
 
           <label className="setting">
             <span>Branch</span>
-            <input
-              type="text"
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-              onBlur={() => updateSettings({ githubBranch: branch.trim() || 'main' })}
-              placeholder="main"
-            />
+            <input type="text" value={branch} onChange={(event) => setBranch(event.target.value)} onBlur={() => updateSettings({ githubBranch: branch.trim() || 'main' })} placeholder="main" />
           </label>
+        </div>
 
-          <div className="setting">
-            <span>GitHub</span>
-            <GitHubConnect compact />
-            <small>
-              The same GitHub connection as Projects → Connections: a <strong>fine-grained</strong> token limited to
-              this repository (and any Reader writes), Contents: read and write, with an expiry. Reader’s server keeps
-              it encrypted for you alone; it is never kept in this browser.
-            </small>
-          </div>
+        <div className="setting">
+          <span>GitHub</span>
+          <GitHubConnect compact />
+          <small>
+            The same GitHub connection as Projects → Connections: a <strong>fine-grained</strong> token limited to this
+            repository (and any Reader writes), Contents: read and write, with an expiry. Reader’s server keeps it
+            encrypted for you alone; it is never kept in this browser.
+          </small>
+        </div>
 
-          <div className="setting-row">
-            <input
-              id="github-sync"
-              type="checkbox"
-              checked={settings.githubSync}
-              onChange={(event) => updateSettings({ githubSync: event.target.checked })}
-            />
-            <label htmlFor="github-sync" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              <strong style={{ fontWeight: 500 }}>Commit as I read</strong>
-              <br />
-              <span style={{ color: 'var(--muted)' }}>
-                Adding a paper, writing a note or changing a tag is committed a few seconds later. Everything
-                that changed in that window goes into one commit, so a reading session is a handful of commits
-                rather than a hundred.
-              </span>
-            </label>
-          </div>
+        <div className="setting-row" style={{ marginBottom: 0 }}>
+          <input id="github-sync" type="checkbox" checked={settings.githubSync} onChange={(event) => updateSettings({ githubSync: event.target.checked })} />
+          <label htmlFor="github-sync" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <strong style={{ fontWeight: 500 }}>Commit as I read</strong>
+            <br />
+            <span style={{ color: 'var(--muted)' }}>
+              Adding a paper, writing a note or changing a tag is committed a few seconds later. Everything that changed
+              in that window goes into one commit, so a reading session is a handful of commits rather than a hundred.
+            </span>
+          </label>
+        </div>
+      </Card>
+    </>
+  );
 
-          {githubFailed.length ? (
-            <p className="banner error" style={{ marginTop: 10 }}>
-              {githubFailed.length} paper{githubFailed.length === 1 ? '' : 's'} failed to commit. Most recent:{' '}
-              {githubFailed[0].message}
-            </p>
+  const proxyTab = (
+    <>
+      <Card
+        title="Paper proxy"
+        note={
+          <>
+            arXiv and the publishers send no CORS headers, so a browser cannot fetch a paper from them directly — a
+            small proxy has to do it. On a static host (GitHub Pages) there is no server to run one, so deploy the
+            Cloudflare Worker in <span className="mono">worker/</span> — <span className="mono">npx wrangler deploy</span>,
+            free tier — and paste its address here. Without it, search still works through OpenAlex, Crossref and
+            Semantic Scholar, but there are no PDFs to read or to save.
+          </>
+        }
+      >
+        <label className="setting">
+          <span>Proxy URL</span>
+          <input
+            type="url"
+            value={proxy}
+            onChange={(event) => {
+              setProxy(event.target.value);
+              setProxyCheck(null);
+            }}
+            onBlur={() => updateSettings({ proxyBase: proxy.trim() })}
+            placeholder="https://reader-arxiv-proxy.you.workers.dev"
+            spellCheck={false}
+          />
+          <small>
+            {BUILT_IN_BASE ? `Leave it empty to use this deployment's own ${BUILT_IN_BASE}.` : 'This build has no proxy compiled in, so PDFs need one here.'}{' '}
+            Kept in this browser. The Worker only answers origins listed in its <span className="mono">ALLOWED_ORIGINS</span>,
+            so add this site's to it.
+          </small>
+        </label>
+
+        <label className="setting">
+          <span>Proxy token</span>
+          <input
+            type="password"
+            value={settings.proxyToken}
+            onChange={(event) => updateSettings({ proxyToken: event.target.value })}
+            placeholder="The proxy's READER_TOKEN"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <small>
+            Signed in with Google, you need nothing here: the reader asks the proxy for a pass and fills it in itself.
+            Otherwise, this is what the proxy asks for before it drives the browser inside the reader, keeps a sign-in,
+            or asks Scholar on its Serply or SerpApi account — anyone can read the proxy's address out of this site, so
+            those take a token or a sign-in. The proxy's own token is its <span className="mono">READER_TOKEN</span>.
+            Sent only to the proxy. arXiv and open-access PDFs need none.
+          </small>
+        </label>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type="button"
+            className="btn sm"
+            // The one compiled in is a proxy too: with the box empty, that is what is tested.
+            disabled={checking || !(proxy.trim() || BUILT_IN_BASE)}
+            onClick={async () => {
+              setChecking(true);
+              updateSettings({ proxyBase: proxy.trim() });
+              setProxyCheck(await checkProxy(proxy.trim() || BUILT_IN_BASE || ''));
+              forgetAccess();
+              setAccess(await accessStatus());
+              setChecking(false);
+            }}
+          >
+            {checking ? <span className="spinner" /> : null} Test it
+          </button>
+          {proxyCheck ? (
+            <span style={{ fontSize: 12, lineHeight: 1.5, color: proxyCheck.ok ? 'var(--accent)' : 'var(--danger)' }}>{proxyCheck.message}</span>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{hasProxy() ? 'A proxy is configured.' : 'No proxy — PDFs are links out only.'}</span>
+          )}
+        </div>
+
+        <p className="banner warn" style={{ margin: '14px 0 0' }}>
+          Whatever proxy this is, it sees what goes through it: the PDFs, arXiv pages and Scholar queries, and
+          everything typed into the browser inside the reader — a sign-in's password included. Point this at a proxy
+          you run, or one run by someone you would tell your password to.
+        </p>
+      </Card>
+
+      <Card
+        title="Institutional access"
+        note={
+          <>
+            IEEE, ACM, Springer and the rest hand their PDFs to a browser signed in through a university, and a web page
+            to everyone else. When a copy comes back as that page, the result offers to sign in: the proxy opens a real
+            browser window on its own machine at the publisher, you sign in there through your institution, and the paper
+            is fetched again through that browser. The session is kept in a browser profile of its own, so the next paper
+            needs no sign-in. A window needs a proxy on your own machine — <span className="mono">npm start</span>, then{' '}
+            <span className="mono">http://localhost:8080</span> as the proxy above. The same offer can instead open a
+            browser <em>inside the reader</em>, in the PDF pane: a browser the proxy drives, shown here and driven from
+            here, which needs no screen — the Node proxy with its Chromium on any machine, or the Cloudflare Worker with
+            Cloudflare&rsquo;s Browser Rendering bound to it. A site whose check for a person is Cloudflare&rsquo;s
+            refuses Cloudflare&rsquo;s own browser by design; give the Worker a Browserless token (
+            <span className="mono">npx wrangler secret put BROWSERLESS_TOKEN</span>) and such a site is opened in a
+            browser at Browserless instead, on an address of its own, where the box is yours to tick.
+          </>
+        }
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, lineHeight: 1.5, color: access?.available ? 'var(--accent)' : 'var(--muted)' }}>
+            {access === null
+              ? 'Asking the proxy…'
+              : access.available
+                ? `This proxy can open a sign-in window, and a browser inside the reader.${access.everSignedIn ? ' A signed-in profile is kept on it.' : ' Nothing has been signed in to yet.'}`
+                : access.browse?.available
+                  ? `This proxy can open a browser inside the reader, though not a window of its own. ${access.reason || ''}${access.everSignedIn ? ' A signed-in profile is kept on it.' : ''}`
+                  : `Not available on this proxy. ${access.reason || ''}`}
+          </span>
+          {(access?.available || access?.browse?.available) && access.everSignedIn ? (
+            <button
+              type="button"
+              className="btn sm"
+              disabled={forgetting}
+              onClick={async () => {
+                setForgetting(true);
+                setForgot(null);
+                try {
+                  await forgetSignIns();
+                  setForgot('Signed out: the profile and every session in it are gone.');
+                  setAccess(await accessStatus());
+                } catch (error) {
+                  setForgot(error instanceof Error ? error.message : String(error));
+                } finally {
+                  setForgetting(false);
+                }
+              }}
+            >
+              {forgetting ? <span className="spinner" /> : null} Forget sign-ins
+            </button>
           ) : null}
-        </section>
+          {forgot ? <span style={{ fontSize: 12, color: 'var(--muted)' }}>{forgot}</span> : null}
+        </div>
+      </Card>
 
-        <CompanionUpdates />
+      <Card title="Contact address">
+        <label className="setting" style={{ marginBottom: 0 }}>
+          <span className="vh">Contact email</span>
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} onBlur={() => updateSettings({ contactEmail: email.trim() })} placeholder="you@example.com" />
+          <small>
+            Optional, and sent only to OpenAlex, Crossref and Unpaywall. The first two run a faster "polite pool" for
+            requests that carry a way to reach you; Unpaywall — which finds free copies of papers the other indexes miss
+            — refuses the request without one, so leaving this empty simply skips it.
+          </small>
+        </label>
+      </Card>
+    </>
+  );
 
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Contact address
-          </div>
-          <label className="setting">
-            <span className="vh">Contact email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              onBlur={() => updateSettings({ contactEmail: email.trim() })}
-              placeholder="you@example.com"
-            />
-            <small>
-              Optional, and sent only to OpenAlex, Crossref and Unpaywall. The first two run a faster "polite
-              pool" for requests that carry a way to reach you; Unpaywall — which finds free copies of papers
-              the other indexes miss — refuses the request without one, so leaving this empty simply skips it.
-            </small>
-          </label>
-        </section>
+  const appearanceTab = (
+    <>
+      <Card title="Theme">
+        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Theme">
+          <button type="button" aria-pressed={settings.theme === 'light'} onClick={() => updateSettings({ theme: 'light' })}>
+            Light
+          </button>
+          <button type="button" aria-pressed={settings.theme === 'dark'} onClick={() => updateSettings({ theme: 'dark' })}>
+            Dark
+          </button>
+        </div>
+      </Card>
 
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Google OAuth client ID
-          </div>
-          <label className="setting">
-            <span className="vh">Google OAuth client ID</span>
-            <input
-              type="text"
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
-              onBlur={() => updateSettings({ googleClientId: clientId.trim() })}
-              placeholder="000000000000-xxxxxxxx.apps.googleusercontent.com"
-            />
-            <small>
-              Create one in the Google Cloud Console under APIs &amp; Services → Credentials → OAuth client ID →
-              Web application, enable the Google Drive API, and add this app's origin to the authorised JavaScript
-              origins. Stored in this browser only.
-            </small>
-          </label>
-          {settings.googleClientId ? (
-            <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent)', margin: 0 }}>
-              <CheckIcon size={14} /> A client ID is configured.
-            </p>
-          ) : null}
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            AI models
-          </div>
-          <label className="setting">
-            <span>Ask AI (the chat window)</span>
-            <select value={ai.prefs.model} onChange={(event) => setModel(event.target.value)} disabled={ai.live}>
-              <ModelOptions keys={ai.keys} />
-            </select>
-          </label>
-          <label className="setting">
-            <span>Explain and Implementation</span>
-            <select value={ai.prefs.explainModel ?? ai.prefs.model} onChange={(event) => setExplainModel(event.target.value)}>
-              <ModelOptions keys={ai.keys} />
-            </select>
-            <small>
-              What writes a paper’s Explain and Implementation pages. A page already written keeps the model that wrote
-              it; Rewrite uses this one. DeepSeek bills each picture of a page at no more than 384 tokens, so it sees
-              the pages in view, and screenshots, at a lower resolution than Claude does.
-            </small>
-          </label>
-          {PROVIDER_IDS.map((provider) => (
-            <KeyRow key={provider} provider={provider} />
-          ))}
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Claude, DeepSeek and Gemini run on the site’s own keys by default — held by your paper proxy
-            (ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY), which never reach this page. To spend your own account instead,
-            press “Use my own key” on Claude or DeepSeek: your key is kept in this browser only and sent straight to
-            api.anthropic.com or api.deepseek.com. Forget it to go back to the site’s.
-          </p>
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Papers Ask AI names
-          </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Where the papers' cards go">
-            {PAPER_LAYOUTS.map(({ value, label, note }) => (
-              <button key={value} type="button" aria-pressed={paperLayout === value} title={note} onClick={() => setLayout(value)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            {PAPER_LAYOUTS.find((layout) => layout.value === paperLayout)?.note}. Each card has Find, which opens the
-            paper in Discover, and +, which adds it to the Reading list. The same switch is under every answer that
-            names papers, and in the chat window's ⚙.
-          </p>
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Reading
-          </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What a paper opens in">
-            <button
-              type="button"
-              aria-pressed={settings.readingMode === 'pdf'}
-              onClick={() => updateSettings({ readingMode: 'pdf' })}
-            >
-              PDF
-            </button>
-            <button
-              type="button"
-              aria-pressed={settings.readingMode === 'reflow'}
-              onClick={() => updateSettings({ readingMode: 'reflow' })}
-            >
-              Reflow
-            </button>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            What a paper opens in. The PDF is the paper as it was published; Reflow is the text rendering, which is
-            the one you can highlight. Either way the switch in the top bar changes a paper you already have open —
-            and sets this.
-          </p>
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Navigation
-          </div>
-          <div className="nav-choices" role="radiogroup" aria-label="How the navigation is laid out">
-            {NAV_STYLES.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={settings.navStyle === option.id}
-                className={`nav-choice${settings.navStyle === option.id ? ' is-on' : ''}`}
-                onClick={() => updateSettings({ navStyle: option.id })}
-              >
-                <span className={`nav-choice-pic is-${option.id}`} aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <b>
-                  {option.label}
-                  {option.id === 'labelled' ? <small> · default</small> : null}
-                </b>
-                <span>{option.note}</span>
-              </button>
-            ))}
-          </div>
-          <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
-            Projects in the rail
-          </div>
-          <div className="nav-choices is-text" role="radiogroup" aria-label="How projects show in the rail">
-            {PROJECT_NAVS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={settings.projectNav === option.id}
-                className={`nav-choice${settings.projectNav === option.id ? ' is-on' : ''}`}
-                onClick={() => updateSettings({ projectNav: option.id })}
-              >
-                <b>
-                  {option.label}
-                  {option.id === 'switcher' ? <small> · default</small> : null}
-                </b>
-                <span>{option.note}</span>
-              </button>
-            ))}
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Every layout but Classic keeps pages (Home, Reading, Library, Projects, Code) apart from the panels that open
-            beside the page (Library, Discover, Notes, Ask AI). On a phone the wide ones use the narrow rail with its tray.
-            How projects show applies to the rails; the sidebar names every project, and Classic keeps its marks.
-          </p>
-        </section>
-
-        <section style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Projects
-          </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What a project opens on">
-            <button
-              type="button"
-              aria-pressed={settings.projectOpensOn === 'overview'}
-              onClick={() => updateSettings({ projectOpensOn: 'overview' })}
-            >
-              Overview
-            </button>
-            <button
-              type="button"
-              aria-pressed={settings.projectOpensOn === 'workspace'}
-              onClick={() => updateSettings({ projectOpensOn: 'workspace' })}
-            >
-              Workspace
-            </button>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            What a project’s mark on the rail opens: its overview — what to read next, its papers by role, its to-do
-            list and code — or its workspace, a paper of the project beside the project’s code. The switch at the top
-            of every project page goes between the board, the overview and the workspace whichever you pick.
-          </p>
-          <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
-            Writing your paper
-          </div>
-          <p className="wg-settings-cta">
-            New to the Write tab, or unsure what to pick? <WriteGuideLink section="start">Read the guide to writing your paper</WriteGuideLink>
-          </p>
-          <div className="nav-choices is-text" role="radiogroup" aria-label="Where a project’s paper is written">
-            {OVERLEAF_VIEWS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={overleafViewOf(settings) === option.id}
-                className={`nav-choice${overleafViewOf(settings) === option.id ? ' is-on' : ''}`}
-                onClick={() => updateSettings({ overleafView: option.id })}
-              >
-                <b>
-                  {option.label}
-                  {option.id === 'tab' ? <small> · default</small> : null}
-                </b>
-                <span>{option.note}</span>
-              </button>
-            ))}
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            A project’s paper is always written in its Write tab, kept in your Google Drive (or, if you choose, on your
-            computers): the choice above only adds another place to reach it. Overleaf is optional — link a project to one
-            from its Write tab or the paper card, and Reader’s server keeps the two in step through Overleaf’s Git, with
-            the Overleaf account connected once under Projects → Connections (or below).
-          </p>
-          <div id="settings-overleaf-accounts" className="eyebrow" style={{ margin: '16px 0 8px' }}>
-            Overleaf accounts
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-            Connected once, here or from any project’s Write tab: Reader’s server keeps each account’s Git token
-            encrypted with your Reader account, for every project and every device. Each project syncs with whichever
-            connected account can open it — its own Overleaf account’s, or one it is shared with.
-          </p>
-          <OverleafAccounts />
-          {overleafViewOf(settings) === 'tab' ? (
-            <>
-              <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
-                The Write tab
-              </div>
-              {WRITE_OPTIONS.map((group) => {
-                const value = (settings.write ?? WRITE_DEFAULTS)[group.key] ?? WRITE_DEFAULTS[group.key];
-                return (
-                  <div key={group.key} className="write-choice">
-                    <span className="write-choice-label">{group.label}</span>
-                    <div className="nav-choices is-text" role="radiogroup" aria-label={`The Write tab: ${group.label}`}>
-                      {group.choices.map((choice, index) => (
-                        <button
-                          key={choice.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={value === choice.id}
-                          className={`nav-choice${value === choice.id ? ' is-on' : ''}`}
-                          onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), [group.key]: choice.id } })}
-                        >
-                          <b>
-                            {choice.label}
-                            {index === 0 ? <small> · default</small> : null}
-                          </b>
-                          <span>{choice.note}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-              <OverleafTokenRow />
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-                A paper in Google Drive compiles on Cloud Run (or GitHub Actions, or Overleaf). One kept on your computers
-                needs the Companion ({'0.10.0'} or later): it keeps the paper in a folder there, compiles it with your TeX
-                (or Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.
-              </p>
-            </>
-          ) : null}
-        </section>
-
-        <section id="settings-citations" style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>
-            Citations
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-            Every paper in the library keeps the BibTeX entries found for it — the publisher’s by DOI, Semantic Scholar’s,
-            dblp’s, OpenReview’s, arXiv’s — and one made here from its record. These choices say which entry a draft and
-            the mirror’s references.bib take, how a cite key is made, and what the Write tab does while you write. Each
-            can be changed any time; a key already in a draft is never changed under it.
-          </p>
-          {CITATION_OPTIONS.map((group) => {
-            const value = (settings.citations ?? CITATION_DEFAULTS)[group.key] ?? CITATION_DEFAULTS[group.key];
-            return (
-              <div key={group.key} className="write-choice">
-                <span className="write-choice-label">{group.label}</span>
-                <div className="nav-choices is-text" role="radiogroup" aria-label={`Citations: ${group.label}`}>
-                  {group.choices.map((choice, index) => (
-                    <button
-                      key={choice.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={value === choice.id}
-                      className={`nav-choice${value === choice.id ? ' is-on' : ''}`}
-                      onClick={() => updateSettings({ citations: { ...CITATION_DEFAULTS, ...(settings.citations ?? {}), [group.key]: choice.id } })}
-                    >
-                      <b>
-                        {choice.label}
-                        {index === 0 ? <small> · default</small> : null}
-                      </b>
-                      <span>{choice.note}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </section>
-
-        <section id="settings-compute" style={{ marginBottom: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Compute
-          </div>
-          <ComputeList />
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 14px' }}>
-            Off leaves a place out of every choice of where code runs — nothing is removed, and a playground already on
-            it keeps it. Stop ends what runs now: Colab’s runtimes, which spend units, or a Companion, which can be
-            started again here on this computer.
-          </p>
-          <div className="eyebrow" style={{ margin: '0 0 8px' }}>
-            Where to turn it on and off
-          </div>
-          <div className="nav-choices is-text" role="radiogroup" aria-label="Where compute is turned on and off">
-            {COMPUTE_CONTROLS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={computeControlsOf(settings) === option.id}
-                className={`nav-choice${computeControlsOf(settings) === option.id ? ' is-on' : ''}`}
-                onClick={() => updateSettings({ computeControls: option.id })}
-              >
-                <b>
-                  {option.label}
-                  {option.id === 'everywhere' ? <small> · default</small> : null}
-                </b>
-                <span>{option.note}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Appearance
-          </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Theme">
-            <button type="button" aria-pressed={settings.theme === 'light'} onClick={() => updateSettings({ theme: 'light' })}>
-              Light
-            </button>
-            <button type="button" aria-pressed={settings.theme === 'dark'} onClick={() => updateSettings({ theme: 'dark' })}>
-              Dark
-            </button>
-          </div>
-          <div className="segmented" style={{ width: 'fit-content', marginTop: 10 }} role="group" aria-label="Material">
-            <button type="button" aria-pressed={!settings.glass} onClick={() => updateSettings({ glass: false })}>
-              Solid
-            </button>
-            <button type="button" aria-pressed={settings.glass} onClick={() => updateSettings({ glass: true })}>
-              Glass
-            </button>
-          </div>
-          {settings.glass ? (
+      <Card title="Material">
+        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Material">
+          <button type="button" aria-pressed={!settings.glass} onClick={() => updateSettings({ glass: false })}>
+            Solid
+          </button>
+          <button type="button" aria-pressed={settings.glass} onClick={() => updateSettings({ glass: true })}>
+            Glass
+          </button>
+        </div>
+        {settings.glass ? (
+          <>
             <label className="frost-row">
               <span>Clear</span>
               <input
@@ -1042,8 +944,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               />
               <span>Frosted</span>
             </label>
-          ) : null}
-          {settings.glass ? (
             <label className="frost-row">
               <span>No light</span>
               <input
@@ -1058,88 +958,327 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               />
               <span>Bright</span>
             </label>
-          ) : null}
-          {settings.glass ? (
-            <>
-              <div className="wall-grid" role="radiogroup" aria-label="Wallpaper behind the glass">
-                {GLASS_WALLS.map((wall) => (
-                  <button
-                    key={wall.id}
-                    type="button"
-                    role="radio"
-                    className="wall-option"
-                    aria-checked={settings.glassWall === wall.id}
-                    title={wall.note}
-                    onClick={() => updateSettings({ glassWall: wall.id })}
-                  >
-                    <span className="wall-swatch" style={{ background: `var(--wall-${wall.id})` }} aria-hidden="true" />
-                    <span>{wall.label}</span>
-                  </button>
-                ))}
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-                {GLASS_WALLS.find((wall) => wall.id === settings.glassWall)?.note} The wallpapers are listed calmest
-                first — the least colour round the page, the least pull away from it.
-              </p>
-            </>
-          ) : null}
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Glass turns the library, the dock and every card that floats over the paper into panes you can see a
-            wash of colour through, and catches the light where the pointer is (the second slider dims it, or turns
-            it off at the far left). The page you read stays nearly
-            solid whatever you set here — the slider moves everything around it.
-          </p>
-        </section>
+          </>
+        ) : null}
+        <p style={muted}>
+          Glass turns the library, the dock and every card that floats over the paper into panes you can see a wash of
+          colour through, and catches the light where the pointer is (the second slider dims it, or turns it off at the
+          far left). The page you read stays nearly solid whatever you set here — the slider moves everything around it.
+        </p>
+      </Card>
 
-        <section>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Zen mode
-          </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What the panes cast over the page in zen mode">
-            {ZEN_HAZES.map((haze) => (
+      {settings.glass ? (
+        <Card title="Wallpaper behind the glass">
+          <div className="wall-grid" role="radiogroup" aria-label="Wallpaper behind the glass" style={{ marginTop: 0 }}>
+            {GLASS_WALLS.map((wall) => (
               <button
-                key={haze.id}
+                key={wall.id}
                 type="button"
-                aria-pressed={settings.zenHaze === haze.id}
-                onClick={() => updateSettings({ zenHaze: haze.id })}
+                role="radio"
+                className="wall-option"
+                aria-checked={settings.glassWall === wall.id}
+                title={wall.note}
+                onClick={() => updateSettings({ glassWall: wall.id })}
               >
-                {haze.label}
+                <span className="wall-swatch" style={{ background: `var(--wall-${wall.id})` }} aria-hidden="true" />
+                <span>{wall.label}</span>
               </button>
             ))}
           </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Zen mode (<kbd>Z</kbd>, or the corners button in the reader’s top bar) hides the library, the dock and the
-            top bar itself while you read. Move the pointer to the left, right or top edge of the screen and that side
-            slides back out,{' '}
-            {ZEN_HAZES.find((haze) => haze.id === settings.zenHaze)?.note}
+          <p style={muted}>
+            {GLASS_WALLS.find((wall) => wall.id === settings.glassWall)?.note} The wallpapers are listed calmest first —
+            the least colour round the page, the least pull away from it.
           </p>
-        </section>
+        </Card>
+      ) : null}
+    </>
+  );
 
-        <section>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Passages Ask AI points at
-          </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="How a passage Ask AI points at is marked">
-            {PASSAGE_LOOKS.map((look) => (
-              <button key={look.id} type="button" aria-pressed={settings.passageLook === look.id} onClick={() => updateSettings({ passageLook: look.id })}>
-                {look.label}
-              </button>
-            ))}
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Ask AI <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
-            {PASSAGE_LOOKS.find((look) => look.id === settings.passageLook)?.note}
-          </p>
-        </section>
+  const navigationTab = (
+    <>
+      <Card title="Layout">
+        <div className="nav-choices" role="radiogroup" aria-label="How the navigation is laid out">
+          {NAV_STYLES.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={settings.navStyle === option.id}
+              className={`nav-choice${settings.navStyle === option.id ? ' is-on' : ''}`}
+              onClick={() => updateSettings({ navStyle: option.id })}
+            >
+              <span className={`nav-choice-pic is-${option.id}`} aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              <b>
+                {option.label}
+                {option.id === 'labelled' ? <small> · default</small> : null}
+              </b>
+              <span>{option.note}</span>
+            </button>
+          ))}
+        </div>
+        <p style={muted}>
+          Every layout but Classic keeps pages (Home, Reading, Library, Projects, Code) apart from the panels that open
+          beside the page (Library, Discover, Notes, Ask AI). On a phone the wide ones use the narrow rail with its tray.
+        </p>
+      </Card>
 
-        <section style={{ marginTop: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Guided tour
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-            A two-minute walk round the app — its pages, its panes and their keys, with a few to try as you go. It
-            opens once, on a first visit; take it again whenever you like, and leave it with <kbd>Esc</kbd>.
+      <Card title="Projects in the rail">
+        <TextChoices label="How projects show in the rail" options={PROJECT_NAVS} value={settings.projectNav} fallback="switcher" onPick={(id) => updateSettings({ projectNav: id })} />
+        <p style={muted}>How projects show applies to the rails; the sidebar names every project, and Classic keeps its marks.</p>
+      </Card>
+    </>
+  );
+
+  const readingTab = (
+    <>
+      <Card title="What a paper opens in">
+        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What a paper opens in">
+          <button type="button" aria-pressed={settings.readingMode === 'pdf'} onClick={() => updateSettings({ readingMode: 'pdf' })}>
+            PDF
+          </button>
+          <button type="button" aria-pressed={settings.readingMode === 'reflow'} onClick={() => updateSettings({ readingMode: 'reflow' })}>
+            Reflow
+          </button>
+        </div>
+        <p style={muted}>
+          The PDF is the paper as it was published; Reflow is the text rendering, which is the one you can highlight.
+          Either way the switch in the top bar changes a paper you already have open — and sets this.
+        </p>
+      </Card>
+
+      <Card title="Zen mode">
+        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What the panes cast over the page in zen mode">
+          {ZEN_HAZES.map((haze) => (
+            <button key={haze.id} type="button" aria-pressed={settings.zenHaze === haze.id} onClick={() => updateSettings({ zenHaze: haze.id })}>
+              {haze.label}
+            </button>
+          ))}
+        </div>
+        <p style={muted}>
+          Zen mode (<kbd>Z</kbd>, or the corners button in the reader’s top bar) hides the library, the dock and the top
+          bar itself while you read. Move the pointer to the left, right or top edge of the screen and that side slides
+          back out, {ZEN_HAZES.find((haze) => haze.id === settings.zenHaze)?.note}
+        </p>
+      </Card>
+    </>
+  );
+
+  const aiTab = (
+    <>
+      <Card title="Models">
+        <div className="set-two is-even">
+          <label className="setting">
+            <span>Ask AI (the chat window)</span>
+            <select value={ai.prefs.model} onChange={(event) => setModel(event.target.value)} disabled={ai.live}>
+              <ModelOptions keys={ai.keys} />
+            </select>
+          </label>
+          <label className="setting">
+            <span>Explain and Implementation</span>
+            <select value={ai.prefs.explainModel ?? ai.prefs.model} onChange={(event) => setExplainModel(event.target.value)}>
+              <ModelOptions keys={ai.keys} />
+            </select>
+          </label>
+        </div>
+        <p style={{ ...muted, margin: 0 }}>
+          Explain and Implementation is what writes a paper’s Explain and Implementation pages. A page already written
+          keeps the model that wrote it; Rewrite uses this one. DeepSeek bills each picture of a page at no more than 384
+          tokens, so it sees the pages in view, and screenshots, at a lower resolution than Claude does.
+        </p>
+      </Card>
+
+      <Card
+        title="Keys"
+        note="Claude, DeepSeek and Gemini run on the site’s own keys by default — held by your paper proxy (ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY), which never reach this page. To spend your own account instead, press “Use my own key” on Claude or DeepSeek: your key is kept in this browser only and sent straight to api.anthropic.com or api.deepseek.com. Forget it to go back to the site’s."
+      >
+        {PROVIDER_IDS.map((provider) => (
+          <KeyRow key={provider} provider={provider} />
+        ))}
+      </Card>
+
+      <Card title="Papers Ask AI names">
+        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Where the papers' cards go">
+          {PAPER_LAYOUTS.map(({ value, label, note }) => (
+            <button key={value} type="button" aria-pressed={paperLayout === value} title={note} onClick={() => setLayout(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p style={muted}>
+          {PAPER_LAYOUTS.find((layout) => layout.value === paperLayout)?.note}. Each card has Find, which opens the paper
+          in Discover, and +, which adds it to the Reading list. The same switch is under every answer that names papers,
+          and in the chat window's ⚙.
+        </p>
+      </Card>
+
+      <Card title="Passages Ask AI points at">
+        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="How a passage Ask AI points at is marked">
+          {PASSAGE_LOOKS.map((look) => (
+            <button key={look.id} type="button" aria-pressed={settings.passageLook === look.id} onClick={() => updateSettings({ passageLook: look.id })}>
+              {look.label}
+            </button>
+          ))}
+        </div>
+        <p style={muted}>
+          Ask AI <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
+          {PASSAGE_LOOKS.find((look) => look.id === settings.passageLook)?.note}
+        </p>
+      </Card>
+    </>
+  );
+
+  const projectsTab = (
+    <Card title="What a project opens on">
+      <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What a project opens on">
+        <button type="button" aria-pressed={settings.projectOpensOn === 'overview'} onClick={() => updateSettings({ projectOpensOn: 'overview' })}>
+          Overview
+        </button>
+        <button type="button" aria-pressed={settings.projectOpensOn === 'workspace'} onClick={() => updateSettings({ projectOpensOn: 'workspace' })}>
+          Workspace
+        </button>
+      </div>
+      <p style={muted}>
+        What a project’s mark on the rail opens: its overview — what to read next, its papers by role, its to-do list and
+        code — or its workspace, a paper of the project beside the project’s code. The switch at the top of every project
+        page goes between the board, the overview and the workspace whichever you pick.
+      </p>
+      <p style={muted}>
+        How projects show in the rail is under{' '}
+        <button type="button" className="link-btn" onClick={() => setTab('navigation')}>
+          Navigation
+        </button>
+        ; where a project’s paper is written, under{' '}
+        <button type="button" className="link-btn" onClick={() => setTab('writing')}>
+          Writing
+        </button>
+        ; where its code runs, under{' '}
+        <button type="button" className="link-btn" onClick={() => setTab('compute')}>
+          Compute &amp; playgrounds
+        </button>
+        .
+      </p>
+    </Card>
+  );
+
+  const writingTab = (
+    <>
+      <Card title="Where a project’s paper is written">
+        <p className="wg-settings-cta">
+          New to the Write tab, or unsure what to pick? <WriteGuideLink section="start">Read the guide to writing your paper</WriteGuideLink>
+        </p>
+        <TextChoices label="Where a project’s paper is written" options={OVERLEAF_VIEWS} value={overleafViewOf(settings)} fallback="tab" onPick={(id) => updateSettings({ overleafView: id })} />
+        <p style={muted}>
+          A project’s paper is always written in its Write tab, kept in your Google Drive (or, if you choose, on your
+          computers): the choice above only adds another place to reach it. Overleaf is optional — link a project to one
+          from its Write tab or the paper card, and Reader’s server keeps the two in step through Overleaf’s Git, with the
+          Overleaf account connected once under Projects → Connections (or below).
+        </p>
+      </Card>
+
+      <Card
+        id="settings-overleaf-accounts"
+        title="Overleaf accounts"
+        note="Connected once, here or from any project’s Write tab: Reader’s server keeps each account’s Git token encrypted with your Reader account, for every project and every device. Each project syncs with whichever connected account can open it — its own Overleaf account’s, or one it is shared with."
+      >
+        <OverleafAccounts />
+      </Card>
+
+      {overleafViewOf(settings) === 'tab' ? (
+        <Card title="The Write tab">
+          {WRITE_OPTIONS.map((group) => {
+            const value = (settings.write ?? WRITE_DEFAULTS)[group.key] ?? WRITE_DEFAULTS[group.key];
+            return (
+              <div key={group.key} className="write-choice">
+                <span className="write-choice-label">{group.label}</span>
+                <TextChoices
+                  label={`The Write tab: ${group.label}`}
+                  options={group.choices}
+                  value={value}
+                  onPick={(id) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), [group.key]: id } })}
+                />
+              </div>
+            );
+          })}
+          <OverleafTokenRow />
+          <p style={muted}>
+            A paper in Google Drive compiles on Cloud Run (or GitHub Actions, or Overleaf). One kept on your computers
+            needs the Companion ({'0.10.0'} or later): it keeps the paper in a folder there, compiles it with your TeX (or
+            Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.
           </p>
+        </Card>
+      ) : null}
+    </>
+  );
+
+  const citationsTab = (
+    <Card
+      id="settings-citations"
+      title="Citations"
+      note="Every paper in the library keeps the BibTeX entries found for it — the publisher’s by DOI, Semantic Scholar’s, dblp’s, OpenReview’s, arXiv’s — and one made here from its record. These choices say which entry a draft and the mirror’s references.bib take, how a cite key is made, and what the Write tab does while you write. Each can be changed any time; a key already in a draft is never changed under it."
+    >
+      {CITATION_OPTIONS.map((group) => {
+        const value = (settings.citations ?? CITATION_DEFAULTS)[group.key] ?? CITATION_DEFAULTS[group.key];
+        return (
+          <div key={group.key} className="write-choice">
+            <span className="write-choice-label">{group.label}</span>
+            <TextChoices
+              label={`Citations: ${group.label}`}
+              options={group.choices}
+              value={value}
+              onPick={(id) => updateSettings({ citations: { ...CITATION_DEFAULTS, ...(settings.citations ?? {}), [group.key]: id } })}
+            />
+          </div>
+        );
+      })}
+    </Card>
+  );
+
+  const computeTab = (
+    <>
+      <Card id="settings-compute" title="Where code runs">
+        <ComputeList />
+        <p style={muted}>
+          Off leaves a place out of every choice of where code runs — nothing is removed, and a playground already on it
+          keeps it. Stop ends what runs now: Colab’s runtimes, which spend units, or a Companion, which can be started
+          again here on this computer.
+        </p>
+      </Card>
+
+      <Card title="Where to turn it on and off">
+        <TextChoices label="Where compute is turned on and off" options={COMPUTE_CONTROLS} value={computeControlsOf(settings)} fallback="everywhere" onPick={(id) => updateSettings({ computeControls: id })} />
+      </Card>
+
+      <Card
+        title="Running playgrounds"
+        note="A playground goes on running when you leave its page — on Colab, or on the computer it runs on. Choose how what runs, and what can be picked back up, is shown around the app: any of these, or none."
+      >
+        <RunningChooser />
+      </Card>
+    </>
+  );
+
+  const updatesTab = (
+    <Card title="Website and Companion">
+      <CompanionUpdates />
+    </Card>
+  );
+
+  const helpTab = (
+    <>
+      <Card
+        title="Guided tour"
+        note={
+          <>
+            A two-minute walk round the app — its pages, its panes and their keys, with a few to try as you go. It opens
+            once, on a first visit; take it again whenever you like, and leave it with <kbd>Esc</kbd>.
+          </>
+        }
+      >
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn sm"
@@ -1149,7 +1288,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             }}
           >
             Take the tour
-          </button>{' '}
+          </button>
           <button
             type="button"
             className="btn sm"
@@ -1161,18 +1300,134 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           >
             Show me, with a paper
           </button>
-        </section>
+        </div>
+      </Card>
 
-        <section style={{ marginTop: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Running playgrounds
+      <Card title="Your data">
+        <p style={{ ...muted, margin: 0 }}>What Reader does with your Google account, your Drive and your calendar, and what it never sees: {privacyLinks}.</p>
+      </Card>
+    </>
+  );
+
+  const content: Record<SettingsTab, ReactNode> = {
+    account: accountTab,
+    library: libraryTab,
+    git: gitTab,
+    proxy: proxyTab,
+    appearance: appearanceTab,
+    navigation: navigationTab,
+    reading: readingTab,
+    ai: aiTab,
+    projects: projectsTab,
+    writing: writingTab,
+    citations: citationsTab,
+    compute: computeTab,
+    updates: updatesTab,
+    help: helpTab,
+  };
+
+  return (
+    <>
+      <div className="scrim" onClick={onClose} role="presentation" />
+      <div className="sheet settings-page" role="dialog" aria-modal="true" aria-label="Settings">
+        <aside className="settings-nav">
+          <div className="settings-nav-head">
+            <h2>Settings</h2>
+            <button type="button" className="icon-btn sm settings-close-narrow" onClick={onClose} aria-label="Close settings">
+              <CloseIcon size={18} />
+            </button>
           </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-            A playground goes on running when you leave its page — on Colab, or on the computer it runs on. Choose
-            how what runs, and what can be picked back up, is shown around the app: any of these, or none.
+
+          <button type="button" className="settings-who" onClick={() => setTab('account')}>
+            {user ? (
+              user.picture ? (
+                <img className="avatar" src={user.picture} alt="" />
+              ) : (
+                <span className="avatar-fallback" aria-hidden="true">
+                  {user.name.slice(0, 1).toUpperCase()}
+                </span>
+              )
+            ) : (
+              <span className="avatar-fallback" aria-hidden="true">
+                ?
+              </span>
+            )}
+            <span>
+              <b>{user ? user.name : 'Not signed in'}</b>
+              <small>{user ? user.email : 'Sign in with Google'}</small>
+            </span>
+          </button>
+
+          <label className="settings-find">
+            <SearchIcon size={14} />
+            <input
+              type="search"
+              value={find}
+              onChange={(event) => setFind(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && shown[0]) {
+                  setTab(shown[0].id);
+                  setFind('');
+                }
+              }}
+              placeholder="Find a setting"
+              aria-label="Find a setting"
+            />
+          </label>
+
+          <nav className="settings-tabs" role="tablist" aria-orientation="vertical" aria-label="Settings sections" onKeyDown={onTabKey}>
+            {groups.map((group) => (
+              <div key={group} className="settings-tab-group" role="presentation">
+                <div className="settings-group-label" role="presentation">
+                  {group}
+                </div>
+                {shown
+                  .filter((item) => item.group === group)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      ref={(element) => {
+                        tabButtons.current[item.id] = element;
+                      }}
+                      type="button"
+                      role="tab"
+                      id={`settings-tab-${item.id}`}
+                      aria-selected={tab === item.id}
+                      aria-controls="settings-panel"
+                      tabIndex={tab === item.id ? 0 : -1}
+                      className={tab === item.id ? 'is-on' : ''}
+                      onClick={() => setTab(item.id)}
+                    >
+                      <span className="settings-tab-icon">{item.icon}</span>
+                      <span className="settings-tab-label">{item.label}</span>
+                      {attention[item.id] ? <span className="settings-dot" title={attention[item.id]} aria-label={attention[item.id]} /> : null}
+                    </button>
+                  ))}
+              </div>
+            ))}
+            {!shown.length ? <p className="settings-none">Nothing called “{find.trim()}”.</p> : null}
+          </nav>
+
+          <p className="settings-nav-foot">
+            <StackIcon size={13} /> Saved as you change it
           </p>
-          <RunningChooser />
-        </section>
+        </aside>
+
+        <div className="settings-main">
+          <header className="settings-head">
+            <div>
+              <div className="eyebrow">{current.group}</div>
+              <h3>{current.label}</h3>
+              <p>{current.blurb}</p>
+            </div>
+            <button type="button" className="icon-btn sm settings-close-wide" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
+              <CloseIcon size={18} />
+            </button>
+          </header>
+          <div className="settings-body" ref={body} role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${current.id}`}>
+            <div className="settings-content">{content[current.id]}</div>
+          </div>
+        </div>
       </div>
     </>
   );
