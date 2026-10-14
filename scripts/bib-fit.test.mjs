@@ -61,6 +61,8 @@ describe('the style', () => {
   it('is numeric for IEEEtran and plain, biblatex when that is loaded', () => {
     assert.equal(bf.styleOf([{ path: 'main.tex', text: '\\documentclass{IEEEtran}\n\\bibliographystyle{IEEEtran}' }]).authorYear, false);
     assert.equal(bf.styleOf([{ path: 'main.tex', text: '\\bibliographystyle{plain}' }]).name, 'plain');
+    // The style named in the .tex runs; a .bst left over from another template does not.
+    assert.equal(bf.styleOf([{ path: 'main.tex', text: '\\documentclass[conference]{IEEEtran}\n\\bibliographystyle{IEEEtran}' }, { path: 'iclr2027_conference.bst', text: '' }]).name, 'IEEE');
     assert.equal(bf.styleOf([{ path: 'main.tex', text: '\\usepackage[style=authoryear]{biblatex}' }]).biblatex, true);
     assert.equal(bf.styleOf([{ path: 'main.tex', text: '\\usepackage[style=authoryear]{biblatex}' }]).authorYear, true);
   });

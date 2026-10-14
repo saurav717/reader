@@ -70,7 +70,8 @@ export function styleOf(files: DraftFileText[]): Omit<StyleInfo, 'wants'> {
   const biblatex = /\\usepackage(\[[^\]]*\])?\{biblatex\}/.test(tex);
   const biblatexStyle = /\\usepackage\[([^\]]*)\]\{biblatex\}/.exec(tex)?.[1] ?? '';
   const bst = named ?? bsts[0];
-  const all = `${bst ?? ''} ${bsts.join(' ')} ${tex.match(/\\documentclass(\[[^\]]*\])?\{[^}]+\}/)?.[0] ?? ''} ${tex.match(/\\usepackage(\[[^\]]*\])?\{[^}]+\}/g)?.join(' ') ?? ''}`.toLowerCase();
+  // The style named in the .tex is the one that runs; a .bst left in the folder from another template is not.
+  const all = `${bst ?? ''} ${named ? '' : bsts.join(' ')} ${tex.match(/\\documentclass(\[[^\]]*\])?\{[^}]+\}/)?.[0] ?? ''} ${tex.match(/\\usepackage(\[[^\]]*\])?\{[^}]+\}/g)?.join(' ') ?? ''}`.toLowerCase();
   const natbib = /natbib/.test(all) || /\\citep|\\citet/.test(tex);
   let name = bst ?? (biblatex ? 'biblatex' : 'plain');
   let authorYear = /plainnat|abbrvnat|unsrtnat|apalike|chicago|harvard|authordate|natbib/.test(all) && !/unsrtnat|plainnat.*numbers/.test(all) && !/\\usepackage\[[^\]]*numbers[^\]]*\]\{natbib\}/.test(tex);
