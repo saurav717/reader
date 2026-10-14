@@ -23,6 +23,7 @@ import type { CitationOptions, CitationRecord, CitationSource, CitationVariant, 
 import { CITATION_DEFAULTS } from '../types';
 import { titleFits } from './citations';
 import { politely } from './contact';
+import { apiFetch, hasProxy } from './api';
 
 // ----------------------------------------------------------- the options ---
 
@@ -301,43 +302,23 @@ export function generatedBibtex(paper: PaperRef & { tags?: string[]; citation?: 
   return formatBibtex(generatedRecord(paper, extra, opts), FIELD_ORDER);
 }
 
-/** arXiv's own export form of a preprint: what arxiv.org/bibtex/<id> writes. */
-export function arxivBibtex(paper: PaperRef, key: string): string {
-  const id = paper.arxivId!.replace(/^arxiv:/i, '');
-  return formatBibtex(
-    {
-      type: 'misc',
-      key,
-      fields: Object.fromEntries(
-        Object.entries({
-          title: escapeBib(paper.title),
-          author: paper.authors.map(escapeBib).join(' and '),
-          year: (paper.published || '').slice(0, 4),
-          eprint: id,
-          archiveprefix: 'arXiv',
-          primaryclass: paper.categories?.[0] ?? '',
-          url: `https://arxiv.org/abs/${id}`,
-        }).filter(([, value]) => value),
-      ),
-    },
-    FIELD_ORDER,
-  );
-}
-
 // ---------------------------------------------------------- the choice ---
 
 export const SOURCE_LABELS: Record<CitationSource, string> = {
   crossref: 'Crossref',
-  semanticscholar: 'Semantic Scholar',
-  dblp: 'dblp',
+  acl: 'ACL Anthology',
   openreview: 'OpenReview',
+  dblp: 'dblp',
   arxiv: 'arXiv',
+  datacite: 'DataCite',
+  semanticscholar: 'Semantic Scholar',
   pasted: 'pasted',
   generated: 'made here',
 };
 
-const OFFICIAL: CitationSource[] = ['crossref', 'openreview', 'semanticscholar', 'dblp', 'arxiv', 'pasted', 'generated'];
-const DBLP_FIRST: CitationSource[] = ['dblp', 'crossref', 'openreview', 'semanticscholar', 'arxiv', 'pasted', 'generated'];
+/** The sources, the one closest to the paper's publisher first: a draft takes the first that answered. */
+const OFFICIAL: CitationSource[] = ['crossref', 'acl', 'openreview', 'dblp', 'arxiv', 'datacite', 'semanticscholar', 'pasted', 'generated'];
+const DBLP_FIRST: CitationSource[] = ['dblp', 'crossref', 'acl', 'openreview', 'arxiv', 'datacite', 'semanticscholar', 'pasted', 'generated'];
 
 export function preferenceOrder(opts: CitationOptions = options): CitationSource[] {
   return opts.prefer === 'dblp' ? DBLP_FIRST : opts.prefer === 'generated' ? ['pasted', 'generated'] : OFFICIAL;
@@ -396,7 +377,7 @@ export function citationState(paper: Paper, opts: CitationOptions = options): Ci
   return {
     key: keyOf(paper, opts),
     source: variant.source,
-    label: variant.source === 'generated' ? 'made here' : variant.source === 'pasted' ? 'pasted' : `official · ${SOURCE_LABELS[variant.source]}`,
+    label: variant.source === 'generated' ? (paper.citation?.lookedAt ? 'made here · no source had it' : 'made here · not looked up yet') : variant.source === 'pasted' ? 'pasted' : `official · ${SOURCE_LABELS[variant.source]}`,
     official,
     published: pending,
     summary: [record ? `@${record.type}` : '', venue ? `${venue}${record?.fields.year && !venue.includes(plain(record.fields.year)) ? ` ${plain(record.fields.year)}` : ''}` : ''].filter(Boolean).join(' · '),
@@ -580,27 +561,93 @@ const CROSSREF = 'https://api.crossref.org';
 const S2 = 'https://api.semanticscholar.org/graph/v1';
 const DBLP = 'https://dblp.org';
 const OPENREVIEW = 'https://api2.openreview.net';
+const DATACITE = 'https://api.datacite.org';
 
-async function text(url: string, init?: RequestInit): Promise<string | null> {
-  const response = await fetch(url, init);
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`${new URL(url).host} answered ${response.status}`);
-  return response.text();
+/** The hosts whose APIs answer the page directly (CORS); the rest answer only the proxy's /cite route. */
+const DIRECT = /^https:\/\/(api\.semanticscholar\.org|api2?\.openreview\.net|api\.crossref\.org|api\.datacite\.org|dblp\.org\/search)/;
+
+/**
+ * A source's answer as text: 404 is null (the source has no record), any
+ * other refusal is thrown. A host that answers the page is asked directly
+ * first, then through the proxy; the others the other way round. Without a
+ * proxy only the direct ask is made.
+ */
+export async function fetchSource(url: string, init?: RequestInit): Promise<string | null> {
+  const direct = () => fetch(url, init);
+  const proxied = () => apiFetch(`/cite?url=${encodeURIComponent(url)}`);
+  const order = !hasProxy() ? [direct] : DIRECT.test(url) ? [direct, proxied] : [proxied, direct];
+  let refused: Error | null = null;
+  for (const ask of order) {
+    try {
+      const response = await ask();
+      // The source has no record — or a proxy from before this route has no route: the direct ask still settles it.
+      if (response.status === 404) {
+        if (ask === direct) return null;
+        continue;
+      }
+      if (!response.ok) {
+        refused = new Error(`${new URL(url).host} answered ${response.status}`);
+        continue;
+      }
+      return await response.text();
+    } catch (error) {
+      refused = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  if (refused) throw refused;
+  return null;
 }
 
-async function json<T>(url: string): Promise<T | null> {
-  const response = await fetch(url);
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`${new URL(url).host} answered ${response.status}`);
-  return (await response.json()) as T;
+async function jsonSource<T>(url: string): Promise<T | null> {
+  const text = await fetchSource(url);
+  return text === null ? null : (JSON.parse(text) as T);
 }
+
+const isBibtex = (text: string | null): text is string => Boolean(text && /^\s*@[a-zA-Z]+\s*[{(]/.test(text));
+const now = () => new Date().toISOString();
 
 /** The publisher's entry by DOI, as Crossref transforms its record. */
 export async function fetchCrossref(doi: string): Promise<CitationVariant | null> {
   const query = politely(new URLSearchParams()).toString();
-  const got = await text(`${CROSSREF}/works/${encodeURIComponent(doi)}/transform/application/x-bibtex${query ? `?${query}` : ''}`, { headers: { Accept: 'application/x-bibtex' } });
-  if (!got || !/^\s*@/.test(got)) return null;
-  return { source: 'crossref', bibtex: tidy(got), fetchedAt: new Date().toISOString(), of: doi };
+  const url = `${CROSSREF}/works/${encodeURIComponent(doi)}/transform/application/x-bibtex${query ? `?${query}` : ''}`;
+  const got = await fetchSource(url, { headers: { Accept: 'application/x-bibtex' } });
+  if (!isBibtex(got)) return null;
+  return { source: 'crossref', bibtex: tidy(got), fetchedAt: now(), of: doi, url };
+}
+
+/** arXiv's own export of a preprint — what its Export BibTeX Citation link gives. */
+export async function fetchArxivExport(arxivId: string): Promise<CitationVariant | null> {
+  const id = arxivId.replace(/^arxiv:/i, '');
+  const url = `https://arxiv.org/bibtex/${id}`;
+  const got = await fetchSource(url);
+  if (!isBibtex(got)) return null;
+  return { source: 'arxiv', bibtex: tidy(got), fetchedAt: now(), of: id, url };
+}
+
+/** DataCite's record of a DOI it registered: every arXiv paper has one (10.48550/arXiv.<id>). */
+export async function fetchDataCite(doi: string): Promise<CitationVariant | null> {
+  const url = `${DATACITE}/dois/application/x-bibtex/${doi}`;
+  const got = await fetchSource(url, { headers: { Accept: 'application/x-bibtex' } });
+  if (!isBibtex(got)) return null;
+  return { source: 'datacite', bibtex: tidy(got), fetchedAt: now(), of: doi, url };
+}
+
+/** The Anthology id of an ACL paper, from its DOI (10.18653/v1/<id>) or its page's address. */
+export function aclIdOf(paper: Pick<PaperRef, 'doi' | 'landingUrl'>): string | null {
+  const fromDoi = /^10\.18653\/v1\/([\w.-]+)$/i.exec(paper.doi ?? '')?.[1];
+  if (fromDoi) return fromDoi;
+  const fromUrl = /^https?:\/\/(?:www\.)?aclanthology\.org\/([\w.-]+?)(?:\.pdf|\.bib)?\/?$/i.exec(paper.landingUrl ?? '')?.[1];
+  return fromUrl ?? null;
+}
+
+/** The ACL Anthology's entry, the form ACL and EMNLP ask to be cited in. */
+export async function fetchAcl(paper: Pick<PaperRef, 'doi' | 'landingUrl'>): Promise<CitationVariant | null> {
+  const id = aclIdOf(paper);
+  if (!id) return null;
+  const url = `https://aclanthology.org/${id}.bib`;
+  const got = await fetchSource(url);
+  if (!isBibtex(got)) return null;
+  return { source: 'acl', bibtex: tidy(got), fetchedAt: now(), of: id, url };
 }
 
 interface S2Paper {
@@ -616,13 +663,14 @@ interface S2Paper {
 export async function fetchSemanticScholar(paper: Pick<PaperRef, 'doi' | 'arxivId'>): Promise<{ variant: CitationVariant | null; doi?: string; venue?: string } | null> {
   const id = paper.doi && !ARXIV_DOI.test(paper.doi) ? `DOI:${paper.doi}` : paper.arxivId ? `arXiv:${paper.arxivId.replace(/^arxiv:/i, '').replace(/v\d+$/, '')}` : null;
   if (!id) return null;
-  const got = await json<S2Paper>(`${S2}/paper/${encodeURIComponent(id)}?fields=citationStyles,externalIds,venue,journal,year,publicationVenue`);
+  const url = `${S2}/paper/${encodeURIComponent(id)}?fields=citationStyles,externalIds,venue,journal,year,publicationVenue`;
+  const got = await jsonSource<S2Paper>(url);
   if (!got) return null;
   const bibtex = got.citationStyles?.bibtex;
   const doi = got.externalIds?.DOI && !ARXIV_DOI.test(got.externalIds.DOI) ? got.externalIds.DOI : undefined;
   const venue = got.publicationVenue?.name || got.journal?.name || got.venue || undefined;
   return {
-    variant: bibtex && /^\s*@/.test(bibtex) ? { source: 'semanticscholar', bibtex: tidy(bibtex), fetchedAt: new Date().toISOString(), of: id } : null,
+    variant: isBibtex(bibtex ?? null) ? { source: 'semanticscholar', bibtex: tidy(bibtex!), fetchedAt: now(), of: id, url } : null,
     doi,
     venue: venue && !/^arxiv/i.test(venue) ? `${venue}${got.year ? ` ${got.year}` : ''}` : undefined,
   };
@@ -632,11 +680,11 @@ interface DblpHit {
   info?: { key?: string; title?: string; venue?: string | string[]; year?: string; doi?: string; url?: string; type?: string; volume?: string; pages?: string; number?: string; authors?: { author?: { text?: string } | { text?: string }[] } };
 }
 
-/** dblp's entry: the record whose title is the paper's, its .bib fetched, or made from the record when the file won't come. */
+/** dblp's entry: the record whose title is the paper's, its .bib fetched; made from the record's own fields only when the file won't come. */
 export async function fetchDblp(paper: Pick<PaperRef, 'title' | 'doi' | 'arxivId'>): Promise<{ variant: CitationVariant | null; doi?: string; venue?: string } | null> {
   const q = paper.title.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (q.length < 8) return null;
-  const got = await json<{ result?: { hits?: { hit?: DblpHit[] } } }>(`${DBLP}/search/publ/api?${new URLSearchParams({ q, format: 'json', h: '8' })}`);
+  const got = await jsonSource<{ result?: { hits?: { hit?: DblpHit[] } } }>(`${DBLP}/search/publ/api?${new URLSearchParams({ q, format: 'json', h: '8' })}`);
   const hits = (got?.result?.hits?.hit ?? []).filter((hit) => hit.info?.title && titleFits(hit.info.title.replace(/\.$/, ''), paper.title) && hit.info.key);
   if (!hits.length) return null;
   // The published record over the CoRR (arXiv) one, when dblp has both.
@@ -646,13 +694,14 @@ export async function fetchDblp(paper: Pick<PaperRef, 'title' | 'doi' | 'arxivId
   const doi = info.doi && !ARXIV_DOI.test(info.doi) ? info.doi : undefined;
   const venueName = Array.isArray(info.venue) ? info.venue[0] : info.venue;
   const venue = venueName && venueName !== 'CoRR' ? `${venueName}${info.year ? ` ${info.year}` : ''}` : undefined;
+  const url = `${DBLP}/rec/${key}.bib?param=1`;
   let bibtex: string | null = null;
   try {
-    bibtex = await text(`${DBLP}/rec/${key}.bib?param=1`);
+    bibtex = await fetchSource(url);
   } catch {
     bibtex = null;
   }
-  if (!bibtex || !/^\s*@/.test(bibtex)) {
+  if (!isBibtex(bibtex)) {
     const authors = info.authors?.author;
     const names = (Array.isArray(authors) ? authors : authors ? [authors] : []).map((author) => (author.text ?? '').replace(/\s\d{4}$/, '')).filter(Boolean);
     const conference = info.type === 'Conference and Workshop Papers' || /^conf\//.test(key);
@@ -678,10 +727,11 @@ export async function fetchDblp(paper: Pick<PaperRef, 'title' | 'doi' | 'arxivId
       FIELD_ORDER,
     );
   }
-  return { variant: { source: 'dblp', bibtex: tidy(bibtex), fetchedAt: new Date().toISOString(), of: key }, doi, venue };
+  return { variant: { source: 'dblp', bibtex: tidy(bibtex), fetchedAt: now(), of: key, url: `${DBLP}/rec/${key}` }, doi, venue };
 }
 
 interface OpenReviewNote {
+  id?: string;
   content?: { title?: { value?: string } | string; _bibtex?: { value?: string } | string; venue?: { value?: string } | string };
 }
 
@@ -689,11 +739,14 @@ const value = (field: { value?: string } | string | undefined) => (typeof field 
 
 /** OpenReview's own entry, for a paper reviewed there (ICLR, NeurIPS since 2023, and more). */
 export async function fetchOpenReview(paper: Pick<PaperRef, 'title'>): Promise<{ variant: CitationVariant | null; venue?: string } | null> {
-  const got = await json<{ notes?: OpenReviewNote[] }>(`${OPENREVIEW}/notes?${new URLSearchParams({ 'content.title': paper.title, limit: '5' })}`);
+  const got = await jsonSource<{ notes?: OpenReviewNote[] }>(`${OPENREVIEW}/notes?${new URLSearchParams({ 'content.title': paper.title, limit: '5' })}`);
   const note = (got?.notes ?? []).find((item) => value(item.content?._bibtex) && titleFits(value(item.content?.title) ?? '', paper.title));
   if (!note) return null;
   const venue = value(note.content?.venue);
-  return { variant: { source: 'openreview', bibtex: tidy(value(note.content!._bibtex)!), fetchedAt: new Date().toISOString(), of: venue }, venue: venue && !/submitted|rejected|withdrawn/i.test(venue) ? venue : undefined };
+  return {
+    variant: { source: 'openreview', bibtex: tidy(value(note.content!._bibtex)!), fetchedAt: now(), of: venue, url: note.id ? `https://openreview.net/forum?id=${note.id}` : undefined },
+    venue: venue && !/submitted|rejected|withdrawn/i.test(venue) ? venue : undefined,
+  };
 }
 
 /** An entry as fetched, with its line endings and stray blank lines straightened. */
@@ -702,22 +755,27 @@ export function tidy(bibtex: string): string {
 }
 
 /**
- * Every index asked for the paper's entries, at once, and what they said
- * put together: the variants found, and the published version where the
- * paper is a preprint and an index knows where it came out. Nothing here
- * throws: an index that would not answer is simply not among the variants.
+ * Every source asked for the paper's entry, at once, and what they said
+ * put together: the variants found, each with the address that answered,
+ * and the published version where the paper is a preprint and an index
+ * knows where it came out. Nothing here throws: a source that would not
+ * answer is simply not among the variants. Nothing is made up: an entry
+ * made from the record is never kept as a variant, and a draft falls back
+ * to it only while no source has answered.
  */
-export async function lookupCitations(paper: Paper, opts: CitationOptions = options): Promise<CitationRecord> {
+export async function lookupCitations(paper: Paper): Promise<CitationRecord> {
   const found: CitationVariant[] = [];
   let publishedDoi: string | undefined;
   let publishedIn: string | undefined;
-  const key = keyOf(paper, opts);
-  if (paper.arxivId) found.push({ source: 'arxiv', bibtex: arxivBibtex(paper, key), fetchedAt: new Date().toISOString(), of: paper.arxivId.replace(/^arxiv:/i, '') });
+  const arxivId = paper.arxivId?.replace(/^arxiv:/i, '').replace(/v\d+$/, '');
 
-  const [s2, dblp, openreview] = await Promise.all([
+  const [s2, dblp, openreview, arxiv, datacite, acl] = await Promise.all([
     fetchSemanticScholar(paper).catch(() => null),
     fetchDblp(paper).catch(() => null),
     fetchOpenReview(paper).catch(() => null),
+    arxivId ? fetchArxivExport(arxivId).catch(() => null) : null,
+    arxivId ? fetchDataCite(`10.48550/arXiv.${arxivId}`).catch(() => null) : null,
+    fetchAcl(paper).catch(() => null),
   ]);
   for (const answer of [s2, dblp]) {
     if (!answer) continue;
@@ -727,7 +785,7 @@ export async function lookupCitations(paper: Paper, opts: CitationOptions = opti
       publishedIn = answer.venue;
     }
   }
-  if (openreview?.variant) found.push(openreview.variant);
+  for (const variant of [openreview?.variant, arxiv, datacite, acl]) if (variant) found.push(variant);
   if (!publishedIn && (s2?.venue || dblp?.venue)) publishedIn = s2?.venue ?? dblp?.venue;
 
   const doi = paper.doi && !ARXIV_DOI.test(paper.doi) ? paper.doi : publishedDoi;
@@ -735,13 +793,11 @@ export async function lookupCitations(paper: Paper, opts: CitationOptions = opti
     const crossref = await fetchCrossref(doi).catch(() => null);
     if (crossref) found.push(crossref);
   }
-  const record = withVariants(paper.citation, found, { lookedAt: new Date().toISOString(), error: undefined });
+  const record = withVariants(paper.citation, found, { lookedAt: now(), error: undefined });
   if (publishedDoi) {
     record.publishedDoi = publishedDoi;
     if (publishedIn) record.publishedIn = publishedIn;
   }
-  if (!found.some((variant) => variant.source !== 'arxiv') && !record.variants.some((variant) => variant.source !== 'arxiv' && variant.source !== 'generated')) {
-    record.error = 'No index had an entry for it.';
-  }
+  if (!record.variants.some((variant) => variant.source !== 'generated' && variant.source !== 'pasted')) record.error = 'No source had an entry for it.';
   return record;
 }

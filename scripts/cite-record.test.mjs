@@ -185,33 +185,67 @@ describe('the text forms', () => {
 });
 
 describe('looking the entries up', () => {
-  it('asks Semantic Scholar, dblp and OpenReview at once, then Crossref by the published DOI, and keeps each answer by source', async () => {
+  it('asks every source at once — arXiv’s export, DataCite, Semantic Scholar, dblp, OpenReview, the Anthology — then Crossref by the published DOI, and keeps each answer with where it came from', async () => {
     const asked = [];
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init) => {
       asked.push(String(url));
       const respond = (body, text = false) => ({ ok: true, status: 200, json: async () => body, text: async () => (text ? body : JSON.stringify(body)) });
+      if (/arxiv\.org\/bibtex/.test(url)) return respond('@misc{zhou2022mixtureofexperts,\n  title={Mixture-of-Experts with Expert Choice Routing},\n  eprint={2202.09368}\n}', true);
+      if (/api\.datacite\.org/.test(url)) return respond('@misc{https://doi.org/10.48550/arxiv.2202.09368, doi = {10.48550/ARXIV.2202.09368}, title = {Mixture-of-Experts with Expert Choice Routing}}', true);
       if (/semanticscholar/.test(url)) return respond({ externalIds: { DOI: '10.5555/x' }, citationStyles: { bibtex: '@Article{Zhou2022, title={Mixture-of-Experts with Expert Choice Routing}}' }, venue: 'NeurIPS', year: 2022, publicationVenue: { name: 'Neural Information Processing Systems' } });
       if (/dblp\.org\/search/.test(url)) return respond({ result: { hits: { hit: [{ info: { key: 'journals/corr/abs-2202-09368', title: 'Mixture-of-Experts with Expert Choice Routing.', venue: 'CoRR', year: '2022' } }, { info: { key: 'conf/nips/ZhouLLDHZDCLL22', title: 'Mixture-of-Experts with Expert Choice Routing.', venue: 'NeurIPS', year: '2022', doi: '10.5555/x', type: 'Conference and Workshop Papers', pages: '7103-7114', authors: { author: [{ text: 'Yanqi Zhou' }] } } }] } } });
-      if (/dblp\.org\/rec/.test(url)) return { ok: false, status: 500, json: async () => ({}), text: async () => '' };
+      if (/dblp\.org\/rec/.test(url)) return respond('@inproceedings{DBLP:conf/nips/ZhouLLDHZDCLL22,\n  author = {Yanqi Zhou},\n  title = {Mixture-of-Experts with Expert Choice Routing},\n  booktitle = {NeurIPS},\n  year = {2022}\n}', true);
       if (/openreview/.test(url)) return respond({ notes: [] });
-      if (/crossref/.test(url)) return respond('@inproceedings{Zhou_2022, title={Mixture-of-Experts with Expert Choice Routing}, booktitle={NeurIPS}}', true);
+      if (/aclanthology/.test(url)) return respond('nothing', true);
+      if (/crossref/.test(url)) {
+        assert.equal(init?.headers?.Accept, 'application/x-bibtex');
+        return respond('@inproceedings{Zhou_2022, title={Mixture-of-Experts with Expert Choice Routing}, booktitle={NeurIPS}}', true);
+      }
       return { ok: false, status: 404, json: async () => null, text: async () => null };
     };
     const record = await cr.lookupCitations(paper());
-    assert.deepEqual(record.variants.map((variant) => variant.source).sort(), ['arxiv', 'crossref', 'dblp', 'semanticscholar']);
+    assert.deepEqual(record.variants.map((variant) => variant.source).sort(), ['arxiv', 'crossref', 'datacite', 'dblp', 'semanticscholar']);
     assert.equal(record.publishedDoi, '10.5555/x');
     assert.equal(record.publishedIn, 'Neural Information Processing Systems 2022');
     const dblp = record.variants.find((variant) => variant.source === 'dblp');
     assert.match(dblp.bibtex, /^@inproceedings\{DBLP:conf\/nips\/ZhouLLDHZDCLL22,/);
-    assert.match(dblp.bibtex, /booktitle\s+= \{NeurIPS\}/);
+    assert.equal(dblp.url, 'https://dblp.org/rec/conf/nips/ZhouLLDHZDCLL22');
+    assert.equal(record.variants.find((variant) => variant.source === 'arxiv').url, 'https://arxiv.org/bibtex/2202.09368');
+    assert.equal(record.variants.find((variant) => variant.source === 'datacite').url, 'https://api.datacite.org/dois/application/x-bibtex/10.48550/arXiv.2202.09368');
     assert.equal(asked.filter((url) => /crossref/.test(url)).length, 1);
     assert.match(asked.find((url) => /crossref/.test(url)), /works\/10\.5555%2Fx\/transform\/application\/x-bibtex/);
+    // The Anthology was not asked: the paper has no ACL id.
+    assert.equal(asked.some((url) => /aclanthology/.test(url)), false);
   });
 
-  it('says so when no index had it, and still keeps the arXiv form', async () => {
+  it('makes dblp’s entry from its record when the .bib will not come, and never from thin air', async () => {
+    globalThis.fetch = async (url) => {
+      if (/dblp\.org\/search/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify({ result: { hits: { hit: [{ info: { key: 'conf/nips/ZhouLLDHZDCLL22', title: 'Mixture-of-Experts with Expert Choice Routing.', venue: 'NeurIPS', year: '2022', type: 'Conference and Workshop Papers', pages: '7103-7114', authors: { author: [{ text: 'Yanqi Zhou' }, { text: 'Tao Lei' }] } } }] } } }) };
+      return { ok: false, status: 404, text: async () => null };
+    };
+    const record = await cr.lookupCitations(paper());
+    assert.deepEqual(record.variants.map((variant) => variant.source), ['dblp']);
+    assert.match(record.variants[0].bibtex, /^@inproceedings\{DBLP:conf\/nips\/ZhouLLDHZDCLL22,[\s\S]*author\s+= \{Yanqi Zhou and Tao Lei\}[\s\S]*bibsource/);
+  });
+
+  it('says so when no source had it, keeps no made-up entry, and the draft falls back to one made from the record', async () => {
     globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => null, text: async () => null });
     const record = await cr.lookupCitations(paper());
-    assert.deepEqual(record.variants.map((variant) => variant.source), ['arxiv']);
-    assert.match(record.error, /No index/);
+    assert.deepEqual(record.variants, []);
+    assert.match(record.error, /No source/);
+    const state = cr.citationState(paper({ citation: record }));
+    assert.equal(state.source, 'generated');
+    assert.equal(state.label, 'made here · no source had it');
+    assert.equal(state.official, false);
+  });
+
+  it('knows an ACL paper by its DOI or its page, and asks the Anthology for it', async () => {
+    assert.equal(cr.aclIdOf({ doi: '10.18653/v1/2020.acl-main.1' }), '2020.acl-main.1');
+    assert.equal(cr.aclIdOf({ landingUrl: 'https://aclanthology.org/2023.emnlp-main.12/' }), '2023.emnlp-main.12');
+    assert.equal(cr.aclIdOf({ landingUrl: 'https://arxiv.org/abs/1' }), null);
+    globalThis.fetch = async (url) => (/aclanthology\.org\/2020\.acl-main\.1\.bib$/.test(url) ? { ok: true, status: 200, text: async () => '@inproceedings{acl-1, title = {T}, booktitle = {Proceedings of ACL}}' } : { ok: false, status: 404, text: async () => null });
+    const variant = await cr.fetchAcl({ doi: '10.18653/v1/2020.acl-main.1' });
+    assert.equal(variant.source, 'acl');
+    assert.equal(variant.url, 'https://aclanthology.org/2020.acl-main.1.bib');
   });
 });

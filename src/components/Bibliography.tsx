@@ -126,11 +126,20 @@ export default function BibliographyCard({ project }: { project: Project }) {
                               {SOURCE_LABELS[variant.source]}
                             </b>
                             <small>
-                              {record ? `@${record.type}` : 'from the record'}
+                              {record ? `@${record.type}` : paper.citation?.lookedAt ? 'from the record — no source had it' : 'from the record — not looked up yet'}
                               {record?.fields.booktitle || record?.fields.journal ? ` · ${(record.fields.booktitle ?? record.fields.journal ?? '').replace(/[{}]/g, '').slice(0, 60)}` : ''}
-                              {variant.of ? ` · ${variant.of}` : ''}
+                              {variant.of && !variant.url ? ` · ${variant.of}` : ''}
                               {isChosen && paper.citation?.chosen === variant.source ? ' · chosen by hand' : isChosen ? ' · by Settings' : ''}
                             </small>
+                            {variant.url ? (
+                              <small>
+                                fetched from{' '}
+                                <a href={variant.url} target="_blank" rel="noreferrer noopener" onClick={(event) => event.stopPropagation()}>
+                                  {variant.url.replace(/^https?:\/\//, '').replace(/\?.*$/, '').slice(0, 70)}
+                                </a>
+                                {variant.fetchedAt ? ` · ${variant.fetchedAt.slice(0, 10)}` : ''}
+                              </small>
+                            ) : null}
                           </span>
                         </button>
                       );

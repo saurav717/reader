@@ -8146,7 +8146,8 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .bib-variant { display: flex; gap: 9px; align-items: flex-start; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink-2); font: 12px/1.35 var(--sans); text-align: left; cursor: pointer; }
 .bib-variant.is-on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .bib-variant b { display: block; color: var(--ink); font-size: 12.5px; font-weight: 600; }
-.bib-variant small { color: var(--muted); font-size: 11px; }
+.bib-variant small { display: block; color: var(--muted); font-size: 11px; }
+.bib-variant small a { color: var(--accent); word-break: break-all; }
 .bib-radio { flex: none; width: 13px; height: 13px; margin-top: 3px; border-radius: 50%; border: 1.5px solid var(--muted); }
 .bib-variant.is-on .bib-radio { border-color: var(--accent); background: radial-gradient(var(--accent) 42%, transparent 48%); }
 .bib-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
