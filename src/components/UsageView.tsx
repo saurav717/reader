@@ -6,6 +6,7 @@ import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading,
 import WebUsage from './WebUsage';
 import CloudUsage from './CloudUsage';
 import CloudflareUsage from './CloudflareUsage';
+import MailUsage from './MailUsage';
 import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 import { KEEP_DAYS, addDays, dayOf, daysSpanned, resolvePeriod, sliceReport } from '../lib/usagePeriod';
@@ -141,14 +142,14 @@ const SERVICE_SORTS: SortOption<Person>[] = [
 /** How often the page asks again while it is open and in view. */
 export const REFRESH_MS = 30_000;
 
-/** The page's tabs: who used what, the Google Cloud project, and the Cloudflare account. */
-type UsageTab = 'people' | 'cloud' | 'cloudflare' | 'invites';
+/** The page's tabs: who used what, the Google Cloud project, the Cloudflare account, and the mail the site sends. */
+type UsageTab = 'people' | 'cloud' | 'cloudflare' | 'mail' | 'invites';
 const TAB_KEY = 'reader.usageTab';
 
 function rememberedTab(): UsageTab {
   try {
     const kept = window.localStorage.getItem(TAB_KEY);
-    return kept === 'cloud' || kept === 'cloudflare' || kept === 'invites' ? kept : 'people';
+    return kept === 'cloud' || kept === 'cloudflare' || kept === 'mail' || kept === 'invites' ? kept : 'people';
   } catch {
     return 'people';
   }
@@ -255,6 +256,7 @@ export default function UsageView() {
                 ['people', 'People & services'],
                 ['cloud', 'Google Cloud'],
                 ['cloudflare', 'Cloudflare'],
+                ['mail', 'Email'],
                 ['invites', 'Invitations'],
               ] as const
             ).map(([id, label]) => (
@@ -301,6 +303,8 @@ export default function UsageView() {
               ? 'your Google Cloud project: services, billing and transactions — only you see this'
               : tab === 'cloudflare'
               ? 'your Cloudflare account: today’s use against the Free plan’s limits — only you see this'
+              : tab === 'mail'
+              ? 'the mail the site sends: the plan’s sends used, delivery, and every send tried — only you see this'
               : 'what everyone signed in used on your accounts — only you see this'}
           </span>
         </p>
@@ -313,6 +317,8 @@ export default function UsageView() {
           <CloudUsage report={report} refreshedAt={updatedAt} />
         ) : tab === 'cloudflare' ? (
           <CloudflareUsage refreshedAt={updatedAt} />
+        ) : tab === 'mail' ? (
+          <MailUsage refreshedAt={updatedAt} />
         ) : report === undefined ? (
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>
         ) : report === null ? (

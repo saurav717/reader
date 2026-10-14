@@ -18,6 +18,11 @@
  * removed, or a room closes. A page asks for it to put back a project record
  * its library lost — the room is the record, the library a mirror.
  *
+ * And it keeps the site's mail log: each mail the Worker tried to send — the
+ * invitation to a project, "Invite someone", the owner's test — to whom, by
+ * whom, and the provider's refusal when it refused (`/mail`, read as
+ * `/mail-log` by the Email tab of the Usage page).
+ *
  * The owner's dashboard (/usage/invites) reads the whole ledger by inviter:
  * how many each person sent or made, how many took, and who. Nothing here
  * reads a pass: the Worker checks it and hands the email in.
@@ -25,6 +30,9 @@
 
 export const LINK_DAYS = 30;
 const KEEP_EVENTS = 5000;
+/** The site's mail log (`mail:`): every send tried, for the Email tab of the Usage page (worker/mailUsage.js). */
+const KEEP_MAIL = 2000;
+const MAIL_KINDS = ['project', 'try', 'test'];
 
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
 const email = (value) => text(value, 200).trim().toLowerCase();
@@ -234,6 +242,18 @@ export class Invites {
       return json(report(mine, now).people[0] ?? { email: who, name: who, sent: { project: 0, mail: 0, link: 0 }, converted: { project: 0, mail: 0, link: 0 }, people: [], last: 0 });
     }
     if (path === '/report') return json(report(await this.events(), now));
+
+    // A mail the Worker tried to send, and whether the provider took it.
+    if (path === '/mail' && request.method === 'POST') {
+      const to = email(body.to);
+      if (!to) return json({ error: 'to whom?' }, 400);
+      const entry = { id: eventId(now), at: now, kind: MAIL_KINDS.includes(body.kind) ? body.kind : 'try', to, by: email(body.by), ok: Boolean(body.ok), ...(body.ok ? {} : { error: text(body.error, 300) }), ...(body.project ? { project: text(body.project, 200) } : {}) };
+      await this.state.storage.put(`mail:${entry.id}`, entry);
+      const rows = await this.state.storage.list({ prefix: 'mail:' });
+      if (rows.size > KEEP_MAIL) for (const key of [...rows.keys()].sort().slice(0, rows.size - KEEP_MAIL)) await this.state.storage.delete(key);
+      return json({ id: entry.id });
+    }
+    if (path === '/mail-log') return json({ entries: [...(await this.state.storage.list({ prefix: 'mail:' })).values()] });
 
     return json({ error: 'not found' }, 404);
   }

@@ -67,6 +67,12 @@ class_name = "ProjectRoom"
 # is sent and the share dialog says to send the link by hand.
 # MAIL_FROM = "Reader <noreply@example.org>"
 # MAIL_PROVIDER = "brevo"        # optional: brevo, sendgrid, postmark or resend; told by the key's shape otherwise
+# The Usage page's Email tab (worker/mailUsage.js) measures the mail sent
+# against the free plan's sends — Brevo 300 a day, Resend 100 a day and 3,000
+# a month, SendGrid's trial 100 a day, Postmark 100 a month. On a paid plan,
+# say what it allows:
+# MAIL_DAILY_LIMIT = "300"
+# MAIL_MONTHLY_LIMIT = "9000"
 
 # Anyone signed in with Google in the reader need paste nothing: the app
 # swaps the sign-in for a thirty-day pass signed with READER_TOKEN (see

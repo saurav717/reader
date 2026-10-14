@@ -44,6 +44,7 @@ import { handleGithub, isGithubPath } from './github.js';
 import { readBalance } from './deepseekBalance.js';
 import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
 import { cloudflareOverview } from './cloudflare.js';
+import { mailOverview, unblockAddress } from './mailUsage.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
 import { CITE_ACCEPT, citeContentType, citeSourceUrl } from '../server/citeSources.js';
@@ -182,6 +183,13 @@ async function invites(env, route, body) {
   } catch {
     return null;
   }
+}
+
+/** A mail the Worker tried to send, into the site's mail log (worker/invites.js) for the Usage page's Email tab. */
+function logMail(env, ctx, entry) {
+  if (!env.INVITES) return;
+  const done = invites(env, '/mail', entry);
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(done);
 }
 
 /**
@@ -353,7 +361,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -466,6 +474,7 @@ export default {
         if (await personOverLimit(env, who)) return json({ error: 'too many invitations at once; try again in a minute' }, 429, noStore);
         const mail = tryItMail({ to, inviter: text(body.name, 200), inviterEmail: who.email, note: text(body.note, 1000), link });
         const sent = await sendMail(env, { to, ...mail, replyTo: who.email });
+        logMail(env, ctx, { kind: 'try', to, by: who.email, ok: sent.ok, error: sent.error });
         if (sent.ok) await invites(env, '/event', { kind: 'mail', by: who.email, byName: text(body.name, 200), to });
         return json(sent.ok ? { ok: true, to } : { ok: false, error: sent.error }, sent.ok ? 200 : 502, noStore);
       }
@@ -563,6 +572,7 @@ export default {
           const addressed = `${link}${link.includes('?') ? '&' : '?'}for=${await addressTag(to)}`;
           const mail = invitationMail({ to, inviter: inviter?.name, inviterEmail: who.email, project: state.project?.name, question: state.project?.question, role: body.role === 'viewer' ? 'viewer' : 'editor', link: addressed });
           const sent = await sendMail(env, { to, ...mail, replyTo: who.email });
+          logMail(env, ctx, { kind: 'project', to, by: who.email, ok: sent.ok, error: sent.error, project: state.project?.name });
           return json({ ...state, mailed: sent.ok, ...(sent.ok ? {} : { mailError: sent.error }) }, 200, noStore);
         }
         if (['join', 'project', 'uninvite', 'role', 'link', 'remove', 'leave', 'close'].includes(action)) {
@@ -682,6 +692,43 @@ export default {
         const who = await ownerAuthorized(request, env);
         if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         return json(await cloudflareOverview(env), 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // The owner's mail account, for the Usage page's Email tab: the plan's
+      // sends used today and this month, delivered, bounced and blocked, and
+      // every send the site tried (worker/mailUsage.js); POSTed, a test mail
+      // to the owner, or an address taken off Brevo's blocked list. The
+      // owner's alone, like /usage.
+      if (path === '/usage/mail' || path.startsWith('/usage/mail/')) {
+        const who = await ownerAuthorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (path === '/usage/mail') {
+          const log = env.INVITES ? (await invites(env, '/mail-log'))?.entries ?? null : null;
+          return json(await mailOverview(env, { log }), 200, noStore);
+        }
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        const body = await request.json().catch(() => ({}));
+        if (path === '/usage/mail/test') {
+          if (!mailConfigured(env)) return json({ error: 'this site cannot send mail: MAIL_API_KEY and MAIL_FROM are not set (wrangler.toml)' }, 501, noStore);
+          const to = String(body.email || who.email || '').trim().toLowerCase();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json({ error: 'an address to send the test to' }, 400, noStore);
+          const sent = await sendMail(env, {
+            to,
+            subject: 'Reader: a test of the site’s mail',
+            text: `This is a test from Reader's Usage page, sent at ${new Date().toISOString()}. If it arrived, invitations by email reach people.`,
+          });
+          logMail(env, ctx, { kind: 'test', to, by: who.email || to, ok: sent.ok, error: sent.error });
+          return json(sent.ok ? { ok: true, to } : { ok: false, error: sent.error }, sent.ok ? 200 : 502, noStore);
+        }
+        if (path === '/usage/mail/unblock') {
+          try {
+            return json(await unblockAddress(env, body.email), 200, noStore);
+          } catch (error) {
+            return json({ error: String(error?.message || error) }, 400, noStore);
+          }
+        }
+        return json({ error: 'not found' }, 404, headers);
       }
 
       // An answer from Ask AI or Explain, reported by the app once it is in:
