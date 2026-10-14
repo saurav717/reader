@@ -259,7 +259,7 @@ export default function AiUsage({
   const providerName = PROVIDERS.find((entry) => entry.id === provider)?.name ?? '';
 
   return (
-    <section style={{ marginTop: 40, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }} aria-label="AI credits">
+    <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }} aria-label="AI credits">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>AI credits</h2>
         <span style={muted}>
