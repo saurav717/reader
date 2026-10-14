@@ -148,6 +148,9 @@ simple = { limit = 60, period = 60 }
 # and the default; a paid plan allows more, and the last line raises it.
 #
 [vars]
+# The sender of the site's mail — an invitation to a shared project — as
+# verified with the provider whose key is MAIL_API_KEY (server/mail.js).
+MAIL_FROM = "Reader <es16btech11007@gmail.com>"
 # Which paid Scholar service is asked first when both keys are set; the other
 # is asked when it refuses (server/scholarServices.js). "serpapi" reads a
 # profile exactly — every work, citations, h-index; "serply" is cheaper, and
