@@ -552,8 +552,11 @@ export default {
           const sendable = mailConfigured(env) && ALLOWED_ORIGINS.some((allowed) => link.startsWith(`${allowed}/`));
           if (!sendable) return json({ ...state, mailed: false }, 200, noStore);
           if (await personOverLimit(env, who)) return json({ ...state, mailed: false, mailError: 'too many invitations at once; the link still works' }, 200, noStore);
-          const mail = invitationMail({ to: String(body.email).trim().toLowerCase(), inviter: inviter?.name, inviterEmail: who.email, project: state.project?.name, question: state.project?.question, role: body.role === 'viewer' ? 'viewer' : 'editor', link });
-          const sent = await sendMail(env, { to: String(body.email).trim().toLowerCase(), ...mail, replyTo: who.email });
+          // The link names the address it is for, so a page opened by someone else can say so (and offer that account).
+          const to = String(body.email).trim().toLowerCase();
+          const addressed = `${link}${link.includes('?') ? '&' : '?'}as=${encodeURIComponent(to)}`;
+          const mail = invitationMail({ to, inviter: inviter?.name, inviterEmail: who.email, project: state.project?.name, question: state.project?.question, role: body.role === 'viewer' ? 'viewer' : 'editor', link: addressed });
+          const sent = await sendMail(env, { to, ...mail, replyTo: who.email });
           return json({ ...state, mailed: sent.ok, ...(sent.ok ? {} : { mailError: sent.error }) }, 200, noStore);
         }
         if (['join', 'project', 'uninvite', 'role', 'link', 'remove', 'leave'].includes(action)) {

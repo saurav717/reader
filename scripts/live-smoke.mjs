@@ -123,6 +123,15 @@ check('the bar counts the people here now', /3 here/.test(await page.locator('.p
 check('four avatars, the one gone dimmed', (await page.locator('.pj-avatars .pj-av').count()) === 4 && (await page.locator('.pj-avatars .pj-av.is-gone').count()) === 1);
 await shot('1-bar');
 
+console.log('an invitation opened by the wrong account');
+await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&as=saurav.varaprasad%40gmail.com`, { waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.pj-notice').waitFor({ timeout: 10000 });
+const notice = await page.locator('.pj-notice').innerText();
+check('the owner opening an invitee’s link is told whom it was for', /invitation for saurav\.varaprasad@gmail\.com, not for me@example\.org/.test(notice) && /opened your own copy of the project, as its owner/.test(notice), notice);
+await shot('15-wrong-account');
+await page.locator('.pj-notice').getByRole('button', { name: 'Got it' }).click();
+
 console.log('the collaborators, on the overview and on the board');
 await page.locator('.pj-views').getByRole('button', { name: 'Overview' }).click();
 await page.locator('.pj-collab .pj-collab-list li').first().waitFor({ timeout: 10000 });

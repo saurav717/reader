@@ -14,9 +14,10 @@ import { CollaboratorsPanel, CollaboratorsStack } from './Collaborators';
 import { adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
 import { atFrom, viewFor, type Tab } from '../lib/presence';
 import { currentAddress, placeFor } from '../lib/route';
+import { suggestAccount } from '../lib/google';
 import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
 import { colabAvailable } from '../lib/colab';
-import { hasProxy } from '../lib/api';
+import { currentAccount, hasProxy } from '../lib/api';
 
 /** Asks the app to open Settings, from a page that has no handle on it. */
 export const OPEN_SETTINGS = 'reader:open-settings';
@@ -166,6 +167,14 @@ export default function ProjectsPage({
   // A link into the project — `&at=` a place in it, `&room=` an invitation — read once, as the page opens.
   const asked = useRef(typeof window === 'undefined' ? null : placeFor(currentAddress()));
   const [joining, setJoining] = useState<string | null>(null);
+  // An invitation opened by the wrong account: the address it was for, and whether this one is in the project anyway.
+  const [wrongAccount, setWrongAccount] = useState<{ as: string | null; member: boolean } | null>(null);
+  // Whoever is signed in, as the pass says even before the Google profile is here.
+  const who = user?.email?.trim().toLowerCase() ?? currentAccount();
+  useEffect(() => {
+    const as = asked.current?.join?.as;
+    if (as && !who) suggestAccount(as);
+  }, [who]);
   useEffect(() => {
     const place = asked.current;
     if (!place?.at || view.kind !== 'project' || !tab) return;
@@ -176,9 +185,12 @@ export default function ProjectsPage({
   useEffect(() => {
     const place = asked.current;
     const join = place?.join;
-    if (!join || !user || view.kind !== 'project') return;
+    if (!join || !who || view.kind !== 'project') return;
     asked.current = { ...place!, join: undefined };
-    if (project?.project.shared?.room === join.room) return;
+    const member = project?.project.shared?.room === join.room;
+    // Sent to another address: said so, rather than joined as this one (or, a member already, just opened).
+    if (join.as && join.as !== who) return setWrongAccount({ as: join.as, member });
+    if (member) return;
     setJoining('Joining the project…');
     void joinRoom(join.room, join.token, user)
       .then(async (state) => {
@@ -186,8 +198,13 @@ export default function ProjectsPage({
         setJoining(null);
         onView({ kind: 'project', id });
       })
-      .catch((error: Error) => setJoining(`This project couldn’t be joined: ${error.message}`));
-  }, [user, view, project, projects, adoptCollection, onView]);
+      .catch((error: Error) => {
+        if (/not invited/i.test(error.message)) {
+          setJoining(null);
+          setWrongAccount({ as: join.as ?? null, member: false });
+        } else setJoining(`This project couldn’t be joined: ${error.message}`);
+      });
+  }, [user, who, view, project, projects, adoptCollection, onView]);
   // Asked for while the page is already open: the page is not mounted afresh, so it is told.
   useEffect(() => {
     const ask = () => {
@@ -227,8 +244,12 @@ export default function ProjectsPage({
     body = (
       <div className="pj-scroll">
         <div className="pj-empty">
-          <h1>{joining === 'Joining the project…' ? 'Joining…' : 'No project here'}</h1>
-          <p>{joining ?? (asked.current?.join && !user ? 'Sign in with Google to join the project you were invited to.' : 'It may have been deleted, or it was made by another account. Projects are kept with your library.')}</p>
+          <h1>{joining === 'Joining the project…' ? 'Joining…' : wrongAccount ? 'This invitation is for another account' : 'No project here'}</h1>
+          <p>
+            {wrongAccount
+              ? `${wrongAccount.as ? `It was sent to ${wrongAccount.as}` : 'It was sent to a different Google account'}; you are signed in as ${who ?? 'someone else'}. ${wrongAccount.as ? `Sign in with Google as ${wrongAccount.as}` : 'Sign in as the address it was sent to'} and open the link again, or ask whoever it was sent to to open it.`
+              : joining ?? (asked.current?.join && !who ? `Sign in with Google${asked.current.join.as ? ` as ${asked.current.join.as}` : ''} to join the project you were invited to.` : 'It may have been deleted, or it was made by another account. Projects are kept with your library.')}
+          </p>
           <button type="button" className="btn primary" onClick={() => onView({ kind: 'projects' })}>
             See your projects
           </button>
@@ -246,6 +267,16 @@ export default function ProjectsPage({
   return (
     <main className={`main pj-page${view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace') ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
+      {wrongAccount && project ? (
+        <div className="pj-notice" role="status">
+          <span>
+            This link is an invitation for <b>{wrongAccount.as ?? 'another account'}</b>, not for {who ?? 'you'}. {wrongAccount.member ? `It opened your own copy of the project${project.project.shared?.role === 'owner' ? ', as its owner' : ''}; the invitation stands until ${wrongAccount.as ?? 'that account'} opens it signed in.` : 'Sign in as that account to join.'}
+          </span>
+          <button type="button" className="btn sm" onClick={() => setWrongAccount(null)}>
+            Got it
+          </button>
+        </div>
+      ) : null}
       {live.following && shared && live.state ? (
         <div className="pj-following" style={{ '--who': live.state.members.find((member) => member.email === live.following)?.color ?? 'var(--accent)' } as CSSProperties}>
           <span>

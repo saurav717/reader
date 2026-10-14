@@ -352,6 +352,12 @@ type Grant = Omit<StoredToken, 'user'>;
  * account signed in here is named, so a browser with several Google accounts
  * is not asked which — and a renewal is for the account whose work is waiting.
  */
+/** The account a sign-in should offer first — the address an invitation was sent to — until someone is signed in. */
+let suggested: string | null = null;
+export function suggestAccount(email: string | null): void {
+  suggested = email?.trim().toLowerCase() || null;
+}
+
 function requestToken(clientId: string, scope: string, prompt: string): Promise<Grant> {
   return new Promise((resolve, reject) => {
     if (!googleReady()) {
@@ -362,7 +368,7 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
       client_id: clientId,
       scope,
       prompt,
-      ...(whose?.email ? { hint: whose.email } : {}),
+      ...(whose?.email ? { hint: whose.email } : suggested ? { hint: suggested } : {}),
       callback: (response) => {
         if (response.error || !response.access_token) {
           reject(new Error(describe(undefined, response.error, response.error_description)));
