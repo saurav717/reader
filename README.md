@@ -1116,11 +1116,29 @@ project in `library.json` the way it keeps any collection.
 **Share** on the project bar makes the project one you work on with other
 people: see where each of you is, as it happens — the design and its
 pictures are [docs/live-collaboration.md](docs/live-collaboration.md).
-Invitations are by Google email, since that is how everyone signs in; an
-invited person opens the project's link and the project appears in their own
-library, under the same id, so links to it work for everyone. Two roles,
-*edit* and *view*. A join link for anyone, off unless switched on, can be
-kept to a domain.
+Invitations are by Google email, since that is how everyone signs in. Where
+the Worker can send mail (below), the person is **emailed the project's
+link** at once — whether or not they have ever opened Reader: signing in
+with Google as that address is all an account is, and the project appears
+in their own library, under the same id, so links to it work for everyone.
+Without mail, the dialog gives you the link to send. Two roles, *edit* and
+*view*. A join link for anyone, off unless switched on, can be kept to a
+domain.
+
+The mail goes through a transactional provider — Resend, SendGrid or
+Postmark, whichever the key is for — from a sender on a domain that
+provider has verified, with the inviter as the reply-to address:
+
+```bash
+npx wrangler secret put MAIL_API_KEY            # the provider's key
+# and in wrangler.toml, under [vars]:
+# MAIL_FROM = "Reader <noreply@example.org>"
+# MAIL_PROVIDER = "resend"                       # optional; told by the key's shape otherwise
+```
+
+Only a link to this site is ever mailed, only to the address invited, and
+only as fast as a person invites (the same per-person limit as Scholar). If
+`READER_EMAILS` limits who may sign in, add the address there too.
 
 The people in the project then sit at the right of the project bar, on every
 tab: a stack of avatars, a green dot for someone active, dimmed for someone

@@ -109,6 +109,41 @@ describe('sharing a project', () => {
     assert.equal((await call(e, `/rooms/${room}/join`, { pass: marco, body: { token: 'nope' } })).status, 403);
   });
 
+  it('mails an invitation when the site can, to the address, with the page’s own link', async () => {
+    const sent = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      sent.push({ url: String(url), body: JSON.parse(init.body) });
+      return new Response('{}', { status: 200 });
+    };
+    try {
+      const e = { ...env(), MAIL_API_KEY: 're_test', MAIL_FROM: 'Reader <noreply@reader.example>' };
+      const owner = await issuePass('owner@x.org', SECRET);
+      const { room } = await (await call(e, '/rooms', { pass: owner, body: { project, name: 'Owner One' } })).json();
+      const link = `https://saurav717.github.io/reader/project/?id=proj-1&room=${room}`;
+      const invited = await (await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'Dana@ethz.ch', role: 'viewer', link } })).json();
+      assert.equal(invited.mailed, true);
+      assert.deepEqual(invited.invitations.map((i) => i.email), ['dana@ethz.ch']);
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0].url, 'https://api.resend.com/emails');
+      assert.deepEqual(sent[0].body.to, ['dana@ethz.ch']);
+      assert.equal(sent[0].body.reply_to, 'owner@x.org');
+      assert.equal(sent[0].body.subject, 'Owner One invited you to Sparse-gated MoE on Reader');
+      assert.match(sent[0].body.text, new RegExp(link.replace(/[.?+]/g, '\\$&')));
+      assert.match(sent[0].body.text, /see the project, and where everyone/);
+      // A link that is not this app's is never mailed: the invitation stands, the mail does not go.
+      const elsewhere = await (await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'lin@x.org', role: 'editor', link: 'https://evil.example/x' } })).json();
+      assert.equal(elsewhere.mailed, false);
+      assert.equal(sent.length, 1);
+      // Without mail set up, the same answer says so and sends nothing.
+      const unsent = await (await call({ ...env(), ROOMS: e.ROOMS }, `/rooms/${room}/invite`, { pass: owner, body: { email: 'marco@x.org', role: 'editor', link } })).json();
+      assert.equal(unsent.mailed, false);
+      assert.equal(sent.length, 1);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('lets anyone with the link join while it is on, within its domain', async () => {
     const e = env();
     const owner = await issuePass('owner@x.org', SECRET);

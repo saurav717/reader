@@ -141,6 +141,24 @@ Both sign-ins use PKCE and a one-time state bound to the person; the Worker
 keeps the tokens sealed with `SECRETS_KEY` (above), renews the GitHub App's,
 and on **Disconnect** revokes the person's grant with GitHub.
 
+## Optional: mail, for invitations to a shared project
+
+Sharing a project (README, *Working on a project together*) invites people
+by Google email. With mail set up, each invitation is also an email to that
+address with the project's link — so someone who has never opened Reader is
+told where to go and that signing in with Google is all it takes. The
+Worker sends through Resend, SendGrid or Postmark (`server/mail.js`), from a
+sender on a domain the provider has verified:
+
+```bash
+npx wrangler secret put MAIL_API_KEY     # re_… (Resend), SG.… (SendGrid), or a Postmark server token
+```
+
+and, in `wrangler.toml` under `[vars]`, `MAIL_FROM = "Reader <noreply@example.org>"`
+(and `MAIL_PROVIDER` when the key's shape does not say which it is). `/health`
+then answers `mail: true`, and the share dialog says invitations are emailed.
+Without it, nothing is sent and the dialog gives the owner the link to send.
+
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,

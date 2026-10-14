@@ -107,8 +107,9 @@ export const createRoom = (project: SharedProject, me: GoogleUser | null, room?:
 
 export const roomState = (room: string) => apiFetch(`/rooms/${room}`).then((response) => answer<RoomState>(response));
 
+/** An action on the room; an invitation also says whether its mail went (server/mail.js), and why not when it did not. */
 export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove', body: Record<string, unknown>) =>
-  apiFetch(`/rooms/${room}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => answer<RoomState>(response));
+  apiFetch(`/rooms/${room}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => answer<RoomState & { mailed?: boolean; mailError?: string }>(response));
 
 export const joinRoom = (room: string, token: string | null, me: GoogleUser | null) => apiFetch(`/rooms/${room}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...whoAmI(me) }) }).then((response) => answer<RoomState>(response));
 

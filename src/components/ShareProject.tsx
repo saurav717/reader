@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
+import { proxyHealth } from '../lib/api';
 import { createRoom, leaveRoom, openRoom, refreshRoom, roomAction, roomState, summarize, useLive } from '../lib/liveRoom';
 import { describePlace, initials, orderMembers, presenceOf, whenSeen, type Role, type RoomState } from '../lib/presence';
 import { basePath, pathFor } from '../lib/route';
@@ -21,6 +22,13 @@ export default function ShareProject({ project, onClose }: { project: Project; o
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('editor');
   const [copied, setCopied] = useState<string | null>(null);
+  // Whether the site sends the invitation by mail, or the owner sends the link: the Worker's /health says.
+  const [mails, setMails] = useState<boolean | null>(null);
+  // What became of the last invitation's mail: sent, or why not.
+  const [mailed, setMailed] = useState<Record<string, string>>({});
+  useEffect(() => {
+    void proxyHealth().then((health) => setMails(Boolean(health?.mail)));
+  }, []);
   const mine = state?.role ?? shared?.role ?? 'owner';
   const owner = mine === 'owner';
 
@@ -60,7 +68,9 @@ export default function ShareProject({ project, onClose }: { project: Project; o
     setBusy(true);
     setError(null);
     try {
-      setState(await roomAction(shared.room, action, body));
+      const next = await roomAction(shared.room, action, body);
+      setState(next);
+      if (action === 'invite') setMailed((was) => ({ ...was, [String(body.email)]: next.mailed ? 'sent' : next.mailError ? `not sent: ${next.mailError}` : '' }));
       refreshRoom();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -72,7 +82,7 @@ export default function ShareProject({ project, onClose }: { project: Project; o
   const invite = async () => {
     const address = email.trim().toLowerCase();
     if (!address.includes('@')) return setError('A Google account’s email address.');
-    await act('invite', { email: address, role });
+    await act('invite', { email: address, role, link: link() });
     setEmail('');
   };
 
@@ -103,7 +113,10 @@ export default function ShareProject({ project, onClose }: { project: Project; o
       <div className="sheet pj-share" role="dialog" aria-modal="true" aria-labelledby="pj-share-title">
         <span className="eyebrow">{project.name} · share</span>
         <h2 id="pj-share-title">{shared ? 'Working on this together' : 'Work on this project together'}</h2>
-        <p className="lede">Everyone you invite sees the project — its question, its papers' roles and its to-do list — and where each of you is in it, as it happens. Your library and your other projects stay yours.</p>
+        <p className="lede">
+          Everyone you invite sees the project — its question, its papers' roles and its to-do list — and where each of you is in it, as it happens. Your library and your other projects stay yours.
+          {shared ? (mails ? ' An invitation is emailed to the address, with the project’s link; signing in with Google as that address is all an account is.' : mails === false ? ' Send each person the project’s link; they join signed in with Google as the address invited.' : '') : ''}
+        </p>
         {!shared ? (
           <div className="dialog-actions">
             <button type="button" className="btn" onClick={close}>
@@ -178,13 +191,20 @@ export default function ShareProject({ project, onClose }: { project: Project; o
                   <span className="pj-av is-lg is-gone">?</span>
                   <div className="pj-share-row-text">
                     <b>{invitation.email}</b>
-                    <small>invited · send them the link; they join with that Google account</small>
+                    <small>
+                      {mailed[invitation.email] === 'sent' ? 'invited · emailed the link; they join signed in with that Google account' : mailed[invitation.email]?.startsWith('not sent') ? `invited · ${mailed[invitation.email]}` : mails ? 'invited · they join with that Google account' : 'invited · send them the link; they join with that Google account'}
+                    </small>
                   </div>
                   <span className="pj-share-role">{invitation.role === 'editor' ? 'Can edit' : 'Can view'}</span>
                   <span className="pj-share-row-acts">
                     <button type="button" className="link-btn" onClick={() => copy(invitation.email, link())}>
                       {copied === invitation.email ? 'Copied' : 'Copy link'}
                     </button>
+                    {mails && (owner || mine === 'editor') ? (
+                      <button type="button" className="link-btn" disabled={busy} onClick={() => void act('invite', { email: invitation.email, role: invitation.role, link: link() })} title="Email the invitation again">
+                        {mailed[invitation.email] === 'sent' ? 'Sent' : 'Email again'}
+                      </button>
+                    ) : null}
                     {owner || mine === 'editor' ? (
                       <button type="button" className="link-btn" disabled={busy} onClick={() => void act('uninvite', { email: invitation.email })}>
                         Withdraw

@@ -30,6 +30,7 @@ import {
 } from '../server/scholar.js';
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
+import { invitationMail, mailConfigured, sendMail } from '../server/mail.js';
 import { contributionsAsked, readContributions } from '../server/contributionReader.js';
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
@@ -343,7 +344,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
           200,
           headers,
         );
@@ -461,7 +462,25 @@ export default {
           return roomOf(id).fetch(new URL(`https://room/live?email=${encodeURIComponent(who.email)}`), { headers: request.headers });
         }
         if (action === 'state') return forward(id, '/state');
-        if (['join', 'project', 'invite', 'uninvite', 'role', 'link', 'remove', 'leave'].includes(action)) {
+        // An invitation is also a mail to the address, when the site can send one (server/mail.js): the
+        // project's link, which only that Google account can join by. The link is the page's own, and is
+        // sent only to an address of this app's, so the mailer writes nothing to anywhere else.
+        if (action === 'invite') {
+          if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+          const body = await request.json().catch(() => ({}));
+          const answer = await roomOf(id).fetch(`https://room/invite?email=${encodeURIComponent(who.email)}`, { method: 'POST', body: JSON.stringify(body) });
+          const state = await answer.json();
+          if (!answer.ok) return json(state, answer.status, noStore);
+          const link = String(body.link || '').trim();
+          const sendable = mailConfigured(env) && ALLOWED_ORIGINS.some((allowed) => link.startsWith(`${allowed}/`));
+          if (!sendable) return json({ ...state, mailed: false }, 200, noStore);
+          if (await personOverLimit(env, who)) return json({ ...state, mailed: false, mailError: 'too many invitations at once; the link still works' }, 200, noStore);
+          const inviter = (state.members || []).find((member) => member.email === who.email);
+          const mail = invitationMail({ to: String(body.email).trim().toLowerCase(), inviter: inviter?.name, inviterEmail: who.email, project: state.project?.name, question: state.project?.question, role: body.role === 'viewer' ? 'viewer' : 'editor', link });
+          const sent = await sendMail(env, { to: String(body.email).trim().toLowerCase(), ...mail, replyTo: who.email });
+          return json({ ...state, mailed: sent.ok, ...(sent.ok ? {} : { mailError: sent.error }) }, 200, noStore);
+        }
+        if (['join', 'project', 'uninvite', 'role', 'link', 'remove', 'leave'].includes(action)) {
           if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
           return forward(id, `/${action}`, await request.json().catch(() => ({})));
         }
