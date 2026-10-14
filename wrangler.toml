@@ -54,10 +54,6 @@ new_sqlite_classes = ["Devices"]
 name = "ROOMS"
 class_name = "ProjectRoom"
 
-[[migrations]]
-tag = "v5"
-new_sqlite_classes = ["ProjectRoom"]
-
 # Mail from the site (server/mail.js): the invitation to a shared project,
 # sent to the address invited — whether or not it has ever opened Reader —
 # with the project's link. Through Brevo, SendGrid, Postmark or Resend,
@@ -294,6 +290,11 @@ class_name = "LatexJob"
 [[migrations]]
 tag = "v4"
 new_sqlite_classes = ["LatexJob"]
+
+# The rooms of shared projects (worker/projectRoom.js): the ROOMS binding above.
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["ProjectRoom"]
 
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,
