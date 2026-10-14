@@ -43,6 +43,7 @@ import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, 
 import { handleGithub, isGithubPath } from './github.js';
 import { readBalance } from './deepseekBalance.js';
 import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
+import { cloudflareOverview } from './cloudflare.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
 import { CITE_ACCEPT, citeContentType, citeSourceUrl } from '../server/citeSources.js';
@@ -671,6 +672,16 @@ export default {
         } catch (error) {
           return json({ error: String(error?.message || error) }, 400, noStore);
         }
+      }
+
+      // The owner's Cloudflare account, for the Usage page's Cloudflare tab:
+      // today's Workers, Durable Objects, KV and browser time against the Free
+      // plan's allowances, and the days before (worker/cloudflare.js). The
+      // owner's alone, like /usage.
+      if (path === '/usage/cloudflare') {
+        const who = await ownerAuthorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        return json(await cloudflareOverview(env), 200, { ...headers, 'Cache-Control': 'no-store' });
       }
 
       // An answer from Ask AI or Explain, reported by the app once it is in:

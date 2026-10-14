@@ -223,6 +223,16 @@ LATEX_CLOUD_RUN_MEMORY_GIB = "4"
 # GCP_REGIONS = "us-central1"
 GCP_BILLING_EXPORT_TABLE = "reader-509409.billing_export.gcp_billing_export_v1_017A1A_D5F3BA_E6D8A0"
 
+# The Usage page's Cloudflare tab (worker/cloudflare.js): today's Workers,
+# Durable Objects, KV and browser time against the Free plan's daily limits.
+# The browser's time needs nothing more; the rest is read from Cloudflare's
+# analytics with an API token that has "Account Analytics: Read", a secret,
+# and this account's ID (docs/deploy.md, "Cloudflare on the Usage page"):
+#
+#     npx wrangler secret put CLOUDFLARE_API_TOKEN
+#
+# CLOUDFLARE_ACCOUNT_ID = "…"   # dashboard → Workers & Pages → Account details
+
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the
 # browser, which Cloudflare rations, is not needed again for a publisher
