@@ -44,7 +44,7 @@ for (const [path, text] of Object.entries(files)) writeFileSync(join(root, folde
 
 // ---- the papers, with the entries an earlier fetch kept
 const day = (ago) => new Date(Date.now() - ago * 24 * 3600 * 1000).toISOString();
-const variant = (source, bibtex, of) => ({ source, bibtex, fetchedAt: day(1), of });
+const variant = (source, bibtex, of) => ({ source, bibtex, fetchedAt: day(1), of, url: source === 'arxiv' ? `https://arxiv.org/bibtex/${of}` : source === 'crossref' ? `https://api.crossref.org/works/${encodeURIComponent(of)}/transform/application/x-bibtex` : source === 'dblp' ? `https://dblp.org/rec/${of}` : undefined });
 const paper = (id, arxivId, title, authors, abstract, extra) => ({ id, source: 'arxiv', arxivId, title, authors, abstract, published: '2022-01-01', categories: ['cs.LG'], addedAt: day(5), collectionIds: ['p-moe'], tags: [], progress: 0, ...extra });
 const PAPERS = [
   paper('arxiv:2408.15664', '2408.15664', 'Auxiliary-Loss-Free Load Balancing Strategy for Mixture-of-Experts', ['Lean Wang', 'Huazuo Gao', 'Chenggang Zhao', 'Xu Sun', 'Damai Dai'], 'We propose Loss-Free Balancing: a bias term is added to the routing scores and used only for the top-K selection, updated by the load of each expert, so no auxiliary loss is needed.', {

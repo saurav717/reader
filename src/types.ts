@@ -134,11 +134,13 @@ export interface Paper extends PaperRef {
 
 /**
  * Where a BibTeX entry for a paper came from. `crossref` is the publisher's
- * record by DOI, `semanticscholar` its index's, `dblp` the CS bibliography's,
- * `openreview` the venue's own, `arxiv` the preprint's, `pasted` one put in
- * by hand, and `generated` the one made here from the paper's record.
+ * record by DOI, `acl` the ACL Anthology's, `openreview` the venue's own,
+ * `dblp` the CS bibliography's, `arxiv` the preprint's own export,
+ * `datacite` the DOI registry's record of the preprint, `semanticscholar`
+ * its index's, `pasted` one put in by hand, and `generated` the one made
+ * here from the paper's record — kept only for a paper no source had.
  */
-export type CitationSource = 'crossref' | 'semanticscholar' | 'dblp' | 'openreview' | 'arxiv' | 'pasted' | 'generated';
+export type CitationSource = 'crossref' | 'acl' | 'openreview' | 'dblp' | 'arxiv' | 'datacite' | 'semanticscholar' | 'pasted' | 'generated';
 
 /** One BibTeX entry for a paper, tagged by where it came from. */
 export interface CitationVariant {
@@ -147,6 +149,8 @@ export interface CitationVariant {
   fetchedAt: string;
   /** What it was fetched by: the DOI, the arXiv id, dblp's key. */
   of?: string;
+  /** Where it was fetched from, as evidence: the address that answered. */
+  url?: string;
 }
 
 /**
@@ -688,9 +692,9 @@ export const CITATION_OPTIONS: { key: keyof CitationOptions; label: string; choi
     key: 'prefer',
     label: 'The entry a draft takes',
     choices: [
-      { id: 'official', label: 'The official one', note: 'The publisher’s record by DOI (Crossref), else the venue’s own (OpenReview), Semantic Scholar’s, dblp’s, arXiv’s; the one made here only when none was found.' },
+      { id: 'official', label: 'The official one', note: 'Fetched from the source that publishes it: the publisher’s record by DOI (Crossref), the ACL Anthology’s, OpenReview’s, dblp’s, arXiv’s own export, DataCite’s, Semantic Scholar’s — in that order. One is made here only for a paper no source had.' },
       { id: 'dblp', label: 'dblp first', note: 'dblp’s entry where it has one — the form most CS papers cite — then the official order.' },
-      { id: 'generated', label: 'Made from the record', note: 'Always the entry made here from the paper’s title, authors, year and venue. Nothing fetched.' },
+      { id: 'generated', label: 'Made from the record', note: 'Always the entry made here from the paper’s title, authors, year and venue, even when a source has one. For a bibliography you keep uniform by hand.' },
     ],
   },
   {
@@ -733,7 +737,7 @@ export const CITATION_OPTIONS: { key: keyof CitationOptions; label: string; choi
     key: 'fetch',
     label: 'Official entries',
     choices: [
-      { id: 'auto', label: 'Fetched as a paper is added', note: 'Crossref, Semantic Scholar, dblp and OpenReview are asked once, and the answers kept with the paper.' },
+      { id: 'auto', label: 'Fetched as a paper is added', note: 'arXiv, Crossref, the ACL Anthology, OpenReview, dblp, DataCite and Semantic Scholar are asked once, and every answer kept with the paper.' },
       { id: 'manual', label: 'Only when asked', note: 'Fetch official citations in the bibliography, or on the drawer.' },
     ],
   },

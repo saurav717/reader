@@ -1232,15 +1232,24 @@ paper keeps every entry found for it as a **variant**, by source:
 | Source | What it is |
 | --- | --- |
 | Crossref | the publisher's record by DOI, transformed to BibTeX |
+| ACL Anthology | the Anthology's own `.bib`, for an ACL, EMNLP or NAACL paper |
 | OpenReview | the venue's own entry, for a paper reviewed there |
+| dblp | the CS bibliography's `.bib`, under its own key (`DBLP:conf/nips/…`) |
+| arXiv | the preprint's own export, `arxiv.org/bibtex/<id>` |
+| DataCite | the DOI registry's record of the preprint (`10.48550/arXiv.<id>`) |
 | Semantic Scholar | its index's entry, and where the paper was published |
-| dblp | the CS bibliography's record, under its own key (`DBLP:conf/nips/…`) |
-| arXiv | the preprint's export form |
 | pasted | one put in by hand, from a venue's own Cite button |
-| made here | from the record: `@inproceedings` for a conference, `@article` for a journal, `@misc` with the eprint for a preprint |
+| made here | from the record: `@inproceedings` for a conference, `@article` for a journal, `@misc` with the eprint for a preprint — never kept as a variant, only what a draft falls back to while no source has answered |
 
-They are fetched once, as a paper is added (or on **Fetch official
-citations**), and kept with the paper in `library.json` and the Git mirror.
+Every variant records the address that answered, shown under it in the
+bibliography. Most of those hosts hand the entry to a server only, so the
+proxy has a `/cite` route that forwards to the sources in
+`server/citeSources.js` and to nothing else; where a host answers the page
+directly, the page asks it directly first.
+
+They are all asked at once, as a paper is added (or on **Fetch official
+citations**), and every answer is kept with the paper in `library.json` and
+the Git mirror.
 Which one a draft takes is a choice, never a fetch at the moment of citing:
 **Settings → Citations** for every paper, or per paper in the project's
 **Bibliography** card on its overview, where each variant can be seen and

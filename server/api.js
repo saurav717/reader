@@ -5,6 +5,7 @@
 
 import { disposition, FETCH_TIMEOUT_MS, fetchChecked, readPdf, rejectUrl, worded } from './fetchPdf.js';
 import { loopbackHost, privateReason, rateLimit, tokenRefusal, tokenRequired, validToken } from './guard.js';
+import { CITE_ACCEPT, citeContentType, citeSourceUrl } from './citeSources.js';
 import { fetchOpenReview, openReviewFiles } from './openreview.js';
 import { pmcFiles } from './pmc.js';
 import * as access from './access.js';
@@ -165,6 +166,25 @@ function send(res, status, body, headers = {}) {
 
 /** How a fetch to arXiv is made: named, and given up on after a while. */
 const upstreamInit = (extra = {}) => ({ headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), ...extra });
+
+/**
+ * A paper's BibTeX entry from the source that publishes it — arXiv, dblp,
+ * the ACL Anthology, Crossref, DataCite, PMLR, NeurIPS — fetched for the
+ * page, which those hosts will not answer directly. Only the sources in
+ * server/citeSources.js, only their BibTeX paths.
+ */
+async function citeSource(url, res) {
+  const target = citeSourceUrl(url.searchParams.get('url'));
+  if (!target) return send(res, 400, { error: 'not a citation source' });
+  const upstream = await fetch(target, upstreamInit({ headers: { 'User-Agent': UA, Accept: CITE_ACCEPT }, redirect: 'follow' }));
+  const text = await upstream.text();
+  res.writeHead(upstream.ok ? 200 : upstream.status, {
+    'Content-Type': citeContentType(upstream.headers.get('content-type')),
+    'Cache-Control': upstream.ok ? 'public, max-age=86400' : 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(text);
+}
 
 async function arxivQuery(url, res) {
   const params = new URLSearchParams();
@@ -824,6 +844,8 @@ export default async function apiRouter(req, res, next) {
     switch (url.pathname) {
       case '/arxiv/query':
         return await arxivQuery(url, res);
+      case '/cite':
+        return await citeSource(url, res);
       case '/arxiv/html':
         return await arxivHtml(url, res);
       case '/arxiv/pdf':

@@ -44,6 +44,7 @@ import { readBalance } from './deepseekBalance.js';
 import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
+import { CITE_ACCEPT, citeContentType, citeSourceUrl } from '../server/citeSources.js';
 import * as browserless from './browserless.js';
 
 // The Durable Object that holds the browser session open; the runtime needs
@@ -948,6 +949,17 @@ export default {
         const spent = usage && aiCounts({ provider: 'deepseek', model: PROFILE_MODEL, variant: `${PROFILE_MODEL}-fast`, ...usage });
         if (spent) tally(env, ctx, who, spent);
         return json({ configured: true, people, via: 'deepseek' }, 200, { ...headers, 'Cache-Control': 'private, max-age=86400' });
+      }
+
+      // A paper's BibTeX entry from the source that publishes it (server/citeSources.js lists them).
+      if (path === '/cite') {
+        const target = citeSourceUrl(url.searchParams.get('url'));
+        if (!target) return json({ error: 'not a citation source' }, 400, headers);
+        const upstream = await fetch(target, { headers: { 'User-Agent': UA, Accept: CITE_ACCEPT }, redirect: 'follow' });
+        return new Response(await upstream.text(), {
+          status: upstream.ok ? 200 : upstream.status,
+          headers: { ...headers, 'Content-Type': citeContentType(upstream.headers.get('content-type')), 'Cache-Control': upstream.ok ? 'public, max-age=86400' : 'no-store', 'X-Content-Type-Options': 'nosniff' },
+        });
       }
 
       if (path === '/arxiv/query') {

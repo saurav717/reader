@@ -1330,7 +1330,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               const paper = latest.current.papers.find((item) => item.id === id);
               if (!paper) continue;
               try {
-                const record = await lookupCitations(paper, latest.current.settings.citations);
+                const record = await lookupCitations(paper);
                 await setPaperCitation(id, (current) => ({ ...current, ...record, key: current.key, chosen: current.chosen }));
               } catch (error) {
                 await setPaperCitation(id, (current) => ({ ...current, lookedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) }));

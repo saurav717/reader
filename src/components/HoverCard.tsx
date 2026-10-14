@@ -726,7 +726,7 @@ function ReferenceCite({ paper }: { paper: PaperRef }) {
     let subject: Paper = known ?? asPaper(paper);
     if (!known) {
       say('Fetching…');
-      const record = await lookupCitations(subject, settings.citations).catch(() => null);
+      const record = await lookupCitations(subject).catch(() => null);
       if (record) subject = { ...subject, citation: record };
     }
     const ok = await copyText(bibtexOf(subject, settings.citations));
