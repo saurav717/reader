@@ -1156,6 +1156,13 @@ refused with the reason rather than mailed.
 
 ![The Invite someone dialog on the link way: the link, a QR code of it, Download the QR code, Copy the link](docs/live-invite-link.png)
 
+Each project's **overview** has a Collaborators panel — everyone in it with
+their role and where they are, the invitations waiting, and Share — and on
+the board each project's card stacks the people in it with how many are
+here now.
+
+![A project's overview with its Collaborators row: each person with their role and where they are, an invitation waiting, and Invite someone](docs/live-overview-collaborators.png)
+
 An invitation to a project needs no link in hand either: signed in, the
 projects you were invited to are cards on Home — who asked, what it is,
 your role — with **Join the project**. The ledger behind all of it

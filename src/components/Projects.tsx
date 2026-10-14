@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import PresenceBar from './PresenceBar';
+import { CollaboratorsPanel, CollaboratorsStack } from './Collaborators';
 import { adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
 import { atFrom, viewFor, type Tab } from '../lib/presence';
 import { currentAddress, placeFor } from '../lib/route';
@@ -451,6 +452,7 @@ function ProjectBoard({ projects, onEnter, onNew }: { projects: Project[]; onEnt
                   </ul>
                 </div>
               ) : null}
+              <CollaboratorsStack project={project} />
               {shared.length ? (
                 <div className="pj-card-part">
                   <span className="eyebrow">Shared with</span>
@@ -617,6 +619,7 @@ function ProjectOverview({
           </form>
         </section>
       </div>
+      <CollaboratorsPanel project={project} />
 
       <div className="pj-paper-row">
         <OverleafCard

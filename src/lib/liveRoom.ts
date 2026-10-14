@@ -279,6 +279,51 @@ export function refreshRoom(): void {
     .catch(() => undefined);
 }
 
+// ------------------------------------------------------- a room, read ----
+
+const snapshots = new Map<string, { state: RoomState | null; at: number; listeners: Set<() => void> }>();
+const SNAPSHOT_MS = 30_000;
+
+/**
+ * A room's state for the eye alone — the collaborators on a project's card or overview — read once and every
+ * thirty seconds while something shows it; the room open on this page, with its live places, is answered as it is.
+ */
+export function useRoomSnapshot(room: string | undefined): RoomState | null {
+  const open = useLive();
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (!room || open.room === room) return () => undefined;
+      let entry = snapshots.get(room);
+      if (!entry) {
+        entry = { state: null, at: 0, listeners: new Set() };
+        snapshots.set(room, entry);
+      }
+      entry.listeners.add(listener);
+      const ask = () => {
+        const here = snapshots.get(room);
+        if (!here || Date.now() - here.at < SNAPSHOT_MS) return;
+        here.at = Date.now();
+        void roomState(room)
+          .then((state) => {
+            here.state = state;
+            here.listeners.forEach((fn) => fn());
+          })
+          .catch(() => undefined);
+      };
+      ask();
+      const timer = window.setInterval(ask, SNAPSHOT_MS);
+      return () => {
+        window.clearInterval(timer);
+        entry!.listeners.delete(listener);
+      };
+    },
+    [room, open.room],
+  );
+  const snapshot = useSyncExternalStore(subscribe, () => (room ? snapshots.get(room)?.state ?? null : null), () => null);
+  if (room && open.room === room) return open.state;
+  return snapshot;
+}
+
 // ------------------------------------------------------------ my place ----
 
 let sendTimer: number | undefined;

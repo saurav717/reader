@@ -123,6 +123,20 @@ check('the bar counts the people here now', /3 here/.test(await page.locator('.p
 check('four avatars, the one gone dimmed', (await page.locator('.pj-avatars .pj-av').count()) === 4 && (await page.locator('.pj-avatars .pj-av.is-gone').count()) === 1);
 await shot('1-bar');
 
+console.log('the collaborators, on the overview and on the board');
+await page.locator('.pj-views').getByRole('button', { name: 'Overview' }).click();
+await page.locator('.pj-collab .pj-collab-list li').first().waitFor({ timeout: 10000 });
+const collab = await page.locator('.pj-collab').innerText();
+check('the overview lists everyone with their role and where they are', /collaborators · 4/i.test(collab) && /Priya Natarajan/.test(collab) && /can edit · here · Code · train\.py · line 42/.test(collab) && /Lin Zhao/.test(collab) && /last here/.test(collab) && /\(you\)\s*\n?\s*owner · here · Overview/.test(collab), collab.replace(/\n/g, ' | ').slice(0, 300));
+await shot('13-overview-collaborators');
+await page.locator('.pj-which-btn').click();
+await page.getByRole('menuitem', { name: 'All projects' }).click();
+await page.locator('.pj-card .pj-collab-stack').waitFor({ timeout: 10000 });
+check('the board card stacks them, with how many are here now', /4 people · \d here now/.test(await page.locator('.pj-card .pj-collab-count').first().innerText()), await page.locator('.pj-card .pj-collab-count').first().innerText());
+await shot('14-board-collaborators');
+await page.locator('.pj-card').first().getByRole('button', { name: 'Overview' }).click();
+await page.locator('.pj-people-btn').waitFor({ timeout: 10000 });
+
 console.log('a card on one of them');
 const priya = page.locator('.pj-avatars .pj-av[title^="Priya"]');
 await priya.hover();
@@ -250,9 +264,10 @@ if (await usageTab.isVisible().catch(() => false)) {
 console.log('a project that is not shared');
 await page.goto(`${BASE}/project/?id=p-plain`, { waitUntil: 'networkidle' });
 await pastWelcome();
-await page.getByRole('button', { name: 'Share' }).waitFor({ timeout: 10000 });
+await page.getByRole('button', { name: 'Share', exact: true }).waitFor({ timeout: 10000 });
 check('has the Share button, no people', (await page.locator('.pj-people-btn').count()) === 0);
-await page.getByRole('button', { name: 'Share' }).click();
+check('and the overview says it is just you', /Just you/.test(await page.locator('.pj-collab').innerText()));
+await page.getByRole('button', { name: 'Share', exact: true }).click();
 check('and the dialog offers to share it', /Share this project/.test(await page.locator('.pj-share').innerText()));
 await shot('7-share-first');
 
