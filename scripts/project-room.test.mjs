@@ -128,9 +128,9 @@ describe('sharing a project', () => {
       assert.equal(sent[0].url, 'https://api.resend.com/emails');
       assert.deepEqual(sent[0].body.to, ['dana@ethz.ch']);
       assert.equal(sent[0].body.reply_to, 'owner@x.org');
-      assert.equal(sent[0].body.subject, 'Owner One invited you to Sparse-gated MoE on Reader');
+      assert.equal(sent[0].body.subject, 'Owner One invited you to “Sparse-gated MoE” on Reader');
       assert.match(sent[0].body.text, new RegExp(link.replace(/[.?+]/g, '\\$&')));
-      assert.match(sent[0].body.text, /see the project, and where everyone/);
+      assert.match(sent[0].body.text, /As a viewer you can see the project, and where everyone/);
       // A link that is not this app's is never mailed: the invitation stands, the mail does not go.
       const elsewhere = await (await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'lin@x.org', role: 'editor', link: 'https://evil.example/x' } })).json();
       assert.equal(elsewhere.mailed, false);

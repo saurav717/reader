@@ -27,22 +27,28 @@ describe('which provider', () => {
 });
 
 describe('the invitation', () => {
-  it('names who asked, the project, the link, and that signing in is the account', () => {
+  it('names who asked, the project, the link, the steps, and that signing in is the account', () => {
     const mail = invitationMail({ to: 'dana@ethz.ch', inviter: 'Saurav C', inviterEmail: 's@x.org', project: 'Sparse-gated MoE', question: 'Why?', role: 'viewer', link: 'https://site/reader/project/?id=p&room=r' });
-    assert.equal(mail.subject, 'Saurav C invited you to Sparse-gated MoE on Reader');
-    assert.match(mail.text, /Saurav C invited you to work on “Sparse-gated MoE” in Reader: Why\?/);
-    assert.match(mail.text, /https:\/\/site\/reader\/project\/\?id=p&room=r/);
-    assert.match(mail.text, /Sign in with Google as dana@ethz\.ch/);
-    assert.match(mail.text, /haven’t used Reader before, signing in is all it takes/);
-    assert.match(mail.text, /see the project, and where everyone in it is/);
+    assert.equal(mail.subject, 'Saurav C invited you to “Sparse-gated MoE” on Reader');
+    assert.match(mail.text, /Saurav C has invited you to work together on “Sparse-gated MoE” in Reader/);
+    assert.match(mail.text, /The project's question: Why\?/);
+    assert.match(mail.text, /1\. Open the project: https:\/\/site\/reader\/project\/\?id=p&room=r/);
+    assert.match(mail.text, /2\. Sign in with Google as dana@ethz\.ch/);
+    assert.match(mail.text, /there is nothing to create/);
+    assert.match(mail.text, /As a viewer you can see the project, and where everyone in it is/);
+    assert.match(mail.text, /Just reply — it goes to Saurav C \(s@x\.org\)/);
+    assert.match(mail.text, /Not expecting this\?/);
     assert.match(mail.html, /<a href="https:\/\/site\/reader\/project\/\?id=p&amp;room=r"/);
     assert.match(mail.html, /<b>Sparse-gated MoE<\/b>/);
+    assert.match(mail.html, /<ol/);
   });
-  it('escapes what people typed, and does without a name', () => {
+  it('escapes what people typed, does without a name or a question, and tells an editor what they may do', () => {
     const mail = invitationMail({ to: 'a@b', inviterEmail: 'x@y', project: '<b>x</b>', role: 'editor', link: 'https://site/' });
-    assert.equal(mail.subject, 'x@y invited you to <b>x</b> on Reader');
+    assert.equal(mail.subject, 'x@y invited you to “<b>x</b>” on Reader');
     assert.match(mail.html, /&lt;b&gt;x&lt;\/b&gt;/);
-    assert.match(mail.text, /edit the project/);
+    assert.doesNotMatch(mail.text, /The project's question/);
+    assert.match(mail.text, /As an editor you can change the project/);
+    assert.match(mail.text, /it goes to x@y \(x@y\)/);
   });
 });
 
