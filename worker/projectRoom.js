@@ -223,7 +223,7 @@ export class ProjectRoom {
     // The owner stops sharing: everyone is let go, told so, and the room forgotten; the owner's copy is theirs alone again.
     if (path === '/close') {
       if (me.role !== 'owner') return json({ error: 'only the owner stops sharing' }, 403);
-      this.broadcast({ type: 'closed' }, null);
+      this.broadcast({ type: 'closed' }, who);
       for (const socket of this.sockets()) {
         try {
           socket.close(1000, 'the project is no longer shared');

@@ -304,18 +304,37 @@ if (await usageTab.isVisible().catch(() => false)) {
   console.log('  (the Usage page is not shown here: not the owner)');
 }
 
-console.log('taken out of a project: told so, and left with a copy');
-// Signed in with the pass again (the Usage page above used a plain token), so the room connects.
-await page.evaluate(({ PASS }) => localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), proxyToken: PASS })), { PASS });
+console.log('taken out of a project: told so, and the project gone');
+// Signed in with the pass again (the Usage page above used a plain token), so the room connects — and this time as an
+// editor in Priya's project, not its owner: the copy and the room both say so.
+state = { ...state, owner: 'priya@example.org', role: 'editor' };
+await page.evaluate(async ({ PASS }) => {
+  localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), proxyToken: PASS }));
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('reader', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('collections', 'readwrite');
+    const store = tx.objectStore('collections');
+    store.get('p-moe').onsuccess = (event) => {
+      const row = event.target.result;
+      store.put({ ...row, project: { ...row.project, shared: { ...row.project.shared, owner: 'priya@example.org', role: 'editor' } } });
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}, { PASS });
 await page.goto(`${BASE}/project/?id=p-moe`, { waitUntil: 'networkidle' });
 await pastWelcome();
 await page.locator('.pj-people-btn').waitFor({ timeout: 10000 });
 tell({ type: 'left', who: ME, gone: true });
 await page.locator('.pj-notice').waitFor({ timeout: 10000 });
 const told = await page.locator('.pj-notice').innerText();
-check('the page says the owner took me out, and that what is here is my own copy', /taken out of this project by its owner/.test(told) && /your own copy now/.test(told), told.replace(/\n/g, ' | '));
-await page.getByRole('button', { name: 'Share', exact: true }).waitFor({ timeout: 10000 });
-check('the bar is back to Share, with no people on it', (await page.locator('.pj-people-btn').count()) === 0);
+check('the board says the owner took me out, and that the project is gone from mine', /taken out of “Sparse-gated MoE” by its owner/.test(told) && /no longer in your projects/.test(told), told.replace(/\n/g, ' | '));
+await page.locator('.pj-card', { hasText: 'Reading list' }).waitFor({ timeout: 10000 });
+check('the board shows the other project, not that one', (await page.locator('.pj-card', { hasText: 'Sparse-gated MoE' }).count()) === 0 && (await page.locator('.pj-card', { hasText: 'Reading list' }).count()) === 1, (await page.locator('.pj-card').allInnerTexts()).join(' / ').replace(/\n/g, ' '));
 await shot('17-taken-out');
 await page.getByRole('button', { name: 'Got it' }).click();
 

@@ -1160,10 +1160,12 @@ Each project's **overview** has a Collaborators panel — everyone in it with
 their role and where they are, the invitations waiting, and Share — and on
 the board each project's card stacks the people in it with how many are
 here now. The owner has the say there: each person's role is a switch,
-**Remove** takes someone out (they are told, and their copy becomes a plain
-project of their own), **Withdraw** takes an invitation back, and **Stop
-sharing** takes everyone out and keeps the project to the owner. A member
-has **Leave the project**.
+**Remove** takes someone out, **Withdraw** takes an invitation back, and
+**Stop sharing** takes everyone out and keeps the project to the owner. A
+member has **Leave the project**. Someone taken out no longer has the
+project at all — it was the owner's, not theirs — and is told so once on
+the board; the papers it brought them stay in their library, as a deleted
+project's do.
 
 ![A project's overview with its Collaborators row: each person with their role and where they are, an invitation waiting, and Invite someone](docs/live-overview-collaborators.png)
 

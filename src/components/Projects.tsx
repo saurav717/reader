@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useStore } from '../lib/store';
 import PresenceBar from './PresenceBar';
 import { CollaboratorsPanel, CollaboratorsStack } from './Collaborators';
-import { adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
+import { accessLost, adoptJoined, closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, roomState, summarize, useJumps, useLive } from '../lib/liveRoom';
 import { atFrom, viewFor, type Tab } from '../lib/presence';
 import { currentAddress, placeFor } from '../lib/route';
 import { addressTag } from '../lib/invites';
@@ -77,6 +77,9 @@ export function projectView(id: string, opensOn: 'overview' | 'workspace'): View
 const LAST_PROJECT = 'reader.project.last';
 const NEW_PROJECT = 'reader.project.new';
 /** Asks the Projects page to open with the new-project dialog; the caller then goes there. */
+/** The rooms of shared projects asked, this session, whether this account is still in them (the board asks once each). */
+const checkedRooms = new Set<string>();
+
 export function askForNewProject() {
   try {
     sessionStorage.setItem(NEW_PROJECT, '1');
@@ -114,7 +117,7 @@ export default function ProjectsPage({
   /** The paper up in the workspace, for Explain to be about; null with none, or on leaving. */
   onReading?: (id: string | null) => void;
 }) {
-  const { collections, settings, user, papers, adoptCollection, updateCollection } = useStore();
+  const { collections, settings, user, papers, adoptCollection, updateCollection, deleteCollection } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
   // "New project…" from the rail's project menus: the page opens with the dialog up.
   const [creating, setCreating] = useState(() => {
@@ -167,16 +170,41 @@ export default function ProjectsPage({
   // A link into the project — `&at=` a place in it, `&room=` an invitation — read once, as the page opens.
   const asked = useRef(typeof window === 'undefined' ? null : placeFor(currentAddress()));
   const [joining, setJoining] = useState<string | null>(null);
-  // Taken out of the project, or its sharing stopped, while the page is open: the copy is a plain project again, and says so.
+  // Taken out of a project, or its sharing stopped: a member's copy goes — it was the owner's project, not theirs — and the
+  // board says so once. The owner's own copy only stops being shared. Told by the room while the page is open, or by its
+  // answer the next time the project is opened or the board is shown (src/lib/liveRoom.ts, `accessLost`).
   const [unshared, setUnshared] = useState<string | null>(null);
+  const putOut = useCallback(
+    (gone: Project, why: string) => {
+      if (gone.project.shared?.role === 'owner') {
+        const { shared: _was, ...info } = gone.project;
+        void updateCollection(gone.id, { project: info });
+        return;
+      }
+      void deleteCollection(gone.id);
+      setUnshared(`${why} It is no longer in your projects; its papers stay in your library.`);
+      if (view.kind === 'project' && view.id === gone.id) onView({ kind: 'projects' });
+    },
+    [updateCollection, deleteCollection, view, onView],
+  );
   useEffect(() => {
     if (!shared || !project || live.room !== shared.room || live.status !== 'error' || !live.error) return;
-    const why = /removed/i.test(live.error) ? 'You were taken out of this project by its owner.' : /no longer shared/i.test(live.error) ? 'Its owner stopped sharing this project.' : /not a member/i.test(live.error) ? 'You are no longer in this project.' : null;
-    if (!why) return;
-    const { shared: _gone, ...info } = project.project;
-    void updateCollection(project.id, { project: info });
-    setUnshared(`${why} What is here is your own copy now — its papers, your notes and highlights — and nobody else sees it.`);
-  }, [live.status, live.error, live.room, shared, project, updateCollection]);
+    const why = accessLost(live.error, project.name);
+    if (why) putOut(project, why);
+  }, [live.status, live.error, live.room, shared, project, putOut]);
+  useEffect(() => {
+    if (view.kind !== 'projects') return;
+    for (const item of projects) {
+      const room = item.project.shared?.room;
+      if (!room || item.project.shared?.role === 'owner' || checkedRooms.has(room)) continue;
+      checkedRooms.add(room);
+      roomState(room).catch((error: Error) => {
+        const why = accessLost(error.message, item.name);
+        if (why) putOut(item, why);
+        else checkedRooms.delete(room);
+      });
+    }
+  }, [view.kind, projects, putOut]);
   // An invitation opened by the wrong account — never told which address it was for — and whether this one is in the project anyway.
   const [wrongAccount, setWrongAccount] = useState<{ member: boolean } | null>(null);
   // Whoever is signed in, as the pass says even before the Google profile is here.
@@ -276,7 +304,7 @@ export default function ProjectsPage({
   return (
     <main className={`main pj-page${view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace') ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
-      {unshared && project ? (
+      {unshared ? (
         <div className="pj-notice" role="status">
           <span>{unshared}</span>
           <button type="button" className="btn sm" onClick={() => setUnshared(null)}>

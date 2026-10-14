@@ -107,6 +107,16 @@ export const createRoom = (project: SharedProject, me: GoogleUser | null, room?:
 
 export const roomState = (room: string) => apiFetch(`/rooms/${room}`).then((response) => answer<RoomState>(response));
 
+/**
+ * Why a project is no longer this account's to be in, from the room's answer (or the live socket's) — or null when the
+ * error is something else, such as the network. The words name the project, for the board.
+ */
+export function accessLost(error: string, project: string): string | null {
+  if (/removed|not a member/i.test(error)) return `You were taken out of “${project}” by its owner.`;
+  if (/no longer shared|no such room/i.test(error)) return `Its owner stopped sharing “${project}”.`;
+  return null;
+}
+
 /** An action on the room; an invitation also says whether its mail went (server/mail.js), and why not when it did not. */
 export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove' | 'close', body: Record<string, unknown>) =>
   apiFetch(`/rooms/${room}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => answer<RoomState & { mailed?: boolean; mailError?: string }>(response));
