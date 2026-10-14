@@ -559,7 +559,7 @@ export default {
           const sent = await sendMail(env, { to, ...mail, replyTo: who.email });
           return json({ ...state, mailed: sent.ok, ...(sent.ok ? {} : { mailError: sent.error }) }, 200, noStore);
         }
-        if (['join', 'project', 'uninvite', 'role', 'link', 'remove', 'leave'].includes(action)) {
+        if (['join', 'project', 'uninvite', 'role', 'link', 'remove', 'leave', 'close'].includes(action)) {
           if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
           const body = await request.json().catch(() => ({}));
           const answer = await roomOf(id).fetch(`https://room/${action}?email=${encodeURIComponent(who.email)}`, { method: 'POST', body: JSON.stringify(body) });

@@ -220,6 +220,24 @@ export class ProjectRoom {
       return json(await this.stateFor(who));
     }
 
+    // The owner stops sharing: everyone is let go, told so, and the room forgotten; the owner's copy is theirs alone again.
+    if (path === '/close') {
+      if (me.role !== 'owner') return json({ error: 'only the owner stops sharing' }, 403);
+      this.broadcast({ type: 'closed' }, null);
+      for (const socket of this.sockets()) {
+        try {
+          socket.close(1000, 'the project is no longer shared');
+        } catch {
+          // closed already
+        }
+      }
+      this.places.clear();
+      for (const prefix of ['member:', 'invite:', 'seen:']) for (const key of (await this.state.storage.list({ prefix })).keys()) await this.state.storage.delete(key);
+      await this.state.storage.delete('link');
+      await this.state.storage.delete('room');
+      return json({ ok: true });
+    }
+
     if (path === '/remove' || path === '/leave') {
       const target = path === '/leave' ? who : email(body.email);
       const member = await this.member(target);

@@ -167,6 +167,16 @@ export default function ProjectsPage({
   // A link into the project — `&at=` a place in it, `&room=` an invitation — read once, as the page opens.
   const asked = useRef(typeof window === 'undefined' ? null : placeFor(currentAddress()));
   const [joining, setJoining] = useState<string | null>(null);
+  // Taken out of the project, or its sharing stopped, while the page is open: the copy is a plain project again, and says so.
+  const [unshared, setUnshared] = useState<string | null>(null);
+  useEffect(() => {
+    if (!shared || !project || live.room !== shared.room || live.status !== 'error' || !live.error) return;
+    const why = /removed/i.test(live.error) ? 'You were taken out of this project by its owner.' : /no longer shared/i.test(live.error) ? 'Its owner stopped sharing this project.' : /not a member/i.test(live.error) ? 'You are no longer in this project.' : null;
+    if (!why) return;
+    const { shared: _gone, ...info } = project.project;
+    void updateCollection(project.id, { project: info });
+    setUnshared(`${why} What is here is your own copy now — its papers, your notes and highlights — and nobody else sees it.`);
+  }, [live.status, live.error, live.room, shared, project, updateCollection]);
   // An invitation opened by the wrong account — never told which address it was for — and whether this one is in the project anyway.
   const [wrongAccount, setWrongAccount] = useState<{ member: boolean } | null>(null);
   // Whoever is signed in, as the pass says even before the Google profile is here.
@@ -266,6 +276,14 @@ export default function ProjectsPage({
   return (
     <main className={`main pj-page${view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace') ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
+      {unshared && project ? (
+        <div className="pj-notice" role="status">
+          <span>{unshared}</span>
+          <button type="button" className="btn sm" onClick={() => setUnshared(null)}>
+            Got it
+          </button>
+        </div>
+      ) : null}
       {wrongAccount && project ? (
         <div className="pj-notice" role="status">
           <span>

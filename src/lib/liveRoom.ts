@@ -108,7 +108,7 @@ export const createRoom = (project: SharedProject, me: GoogleUser | null, room?:
 export const roomState = (room: string) => apiFetch(`/rooms/${room}`).then((response) => answer<RoomState>(response));
 
 /** An action on the room; an invitation also says whether its mail went (server/mail.js), and why not when it did not. */
-export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove', body: Record<string, unknown>) =>
+export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove' | 'close', body: Record<string, unknown>) =>
   apiFetch(`/rooms/${room}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => answer<RoomState & { mailed?: boolean; mailError?: string }>(response));
 
 export const joinRoom = (room: string, token: string | null, me: GoogleUser | null) => apiFetch(`/rooms/${room}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...whoAmI(me) }) }).then((response) => answer<RoomState>(response));
@@ -212,7 +212,7 @@ function connect(room: string) {
     }
     if (message.type === 'left' && message.who) {
       const members = message.gone ? state.members.filter((member) => member.email !== message.who) : state.members.map((member) => (member.email === message.who ? { ...member, place: null, lastSeen: Date.now(), lastPlace: member.place } : member));
-      if (message.gone && message.who === state.me) return closeRoom(), set({ status: 'error', error: 'You were removed from this project.' });
+      if (message.gone && message.who === state.me) return shutOut(state.room, 'You were removed from this project.');
       return set({ state: { ...state, members }, following: live.following === message.who ? null : live.following });
     }
     if (message.type === 'joined' && message.member) {
@@ -220,6 +220,7 @@ function connect(room: string) {
       return set({ state: { ...state, members }, events: [...live.events, { id: ++eventId, who: message.member.email, kind: 'joined' as const, place: null, at: Date.now() }].slice(-5) });
     }
     if (message.type === 'project' && message.project) return set({ state: { ...state, project: message.project } });
+    if (message.type === 'closed') return shutOut(state.room, 'This project is no longer shared.');
     if (message.type === 'members') void roomState(state.room).then((fresh) => live.room === fresh.room && set({ state: fresh })).catch(() => undefined);
   };
   const dropped = () => {
@@ -233,6 +234,12 @@ function connect(room: string) {
   };
   ws.onclose = dropped;
   ws.onerror = dropped;
+}
+
+/** Put out of a room by its owner: the socket is closed for good, and the page is told why, still under the room's name so it knows whose project this was. */
+function shutOut(room: string, error: string): void {
+  closeRoom();
+  set({ ...OFF, room, visible: readVisible(), status: 'error', error });
 }
 
 /** The room of the project whose page is showing. Opened once; a second call for the same room is nothing. */

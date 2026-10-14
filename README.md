@@ -1159,7 +1159,11 @@ refused with the reason rather than mailed.
 Each project's **overview** has a Collaborators panel — everyone in it with
 their role and where they are, the invitations waiting, and Share — and on
 the board each project's card stacks the people in it with how many are
-here now.
+here now. The owner has the say there: each person's role is a switch,
+**Remove** takes someone out (they are told, and their copy becomes a plain
+project of their own), **Withdraw** takes an invitation back, and **Stop
+sharing** takes everyone out and keeps the project to the owner. A member
+has **Leave the project**.
 
 ![A project's overview with its Collaborators row: each person with their role and where they are, an invitation waiting, and Invite someone](docs/live-overview-collaborators.png)
 
