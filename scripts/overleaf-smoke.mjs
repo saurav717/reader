@@ -235,7 +235,7 @@ await shot('overleaf-dock');
 
 console.log('settings: the four choices');
 await page.keyboard.press('Escape');
-await page.evaluate(() => window.dispatchEvent(new Event('reader:open-settings')));
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('reader:open-settings', { detail: { tab: 'writing' } })));
 const choice = page.getByRole('radiogroup', { name: /Where a project’s paper is written/ });
 await choice.waitFor({ timeout: 5000 }).catch(() => {});
 if (await choice.isVisible().catch(() => false)) {

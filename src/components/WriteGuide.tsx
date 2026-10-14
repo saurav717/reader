@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { openSettings } from '../lib/openSettings';
 
 export type GuideSection = 'start' | 'where' | 'begin' | 'accounts' | 'documents' | 'editor' | 'settings' | 'questions';
 
@@ -19,11 +20,10 @@ const SECTIONS: { id: GuideSection; title: string }[] = [
   { id: 'questions', title: 'Questions' },
 ];
 
-/** Settings, at its Overleaf accounts (the app listens for this event). */
+/** Settings, at its Overleaf accounts, in the Writing tab. */
 function toAccounts(close: () => void) {
   close();
-  window.dispatchEvent(new Event('reader:open-settings'));
-  window.setTimeout(() => document.getElementById('settings-overleaf-accounts')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
+  openSettings('writing', 'settings-overleaf-accounts');
 }
 
 /** A "Guide" link that opens the guide at `section`. */

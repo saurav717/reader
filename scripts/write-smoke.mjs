@@ -504,7 +504,7 @@ await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 
 console.log('Settings: the Write tab’s choices');
-await page.evaluate(() => window.dispatchEvent(new Event('reader:open-settings')));
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('reader:open-settings', { detail: { tab: 'writing' } })));
 const layout = page.getByRole('radiogroup', { name: 'The Write tab: The PDF' });
 await layout.waitFor({ timeout: 5000 });
 await layout.scrollIntoViewIfNeeded();

@@ -33,6 +33,7 @@ import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
+import type { SettingsPlace } from './lib/openSettings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import { isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
@@ -236,6 +237,8 @@ export default function App() {
   /** P's switcher, when Settings → Running playgrounds has it. */
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Where Settings opens: a tab and a place in it, when a page asked for one (lib/openSettings.ts). */
+  const [settingsAt, setSettingsAt] = useState<SettingsPlace>({});
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
   const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(currentAddress())?.usage));
@@ -572,7 +575,10 @@ export default function App() {
   }, [view, usageOpen, papers, collections]);
   // Settings asked for from a page that has no handle on it (a project's code, needing Colab set up).
   useEffect(() => {
-    const onSettings = () => setSettingsOpen(true);
+    const onSettings = (event: Event) => {
+      setSettingsAt((event as CustomEvent<SettingsPlace | undefined>).detail ?? {});
+      setSettingsOpen(true);
+    };
     window.addEventListener(OPEN_SETTINGS, onSettings);
     return () => window.removeEventListener(OPEN_SETTINGS, onSettings);
   }, []);
@@ -1528,7 +1534,7 @@ export default function App() {
         askingTabs && (needsSignIn || needsDrive) ? (
           <main className="main" aria-busy="true" />
         ) : (
-          <Welcome onDismiss={dismissWelcome} onOpenSettings={() => setSettingsOpen(true)} />
+          <Welcome onDismiss={dismissWelcome} />
         )
       ) : view.kind === 'paper' ? (
         <Reader
@@ -1554,7 +1560,7 @@ export default function App() {
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'calendar' ? (
-        <Calendar onOpenSettings={() => setSettingsOpen(true)} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
+        <Calendar onOpenSettings={() => (setSettingsAt({ tab: 'account' }), setSettingsOpen(true))} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
         <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} explaining={explainOpen} onToggleExplain={toggleExplain} onReading={setWorkspacePaper} />
       ) : view.kind === 'junk' ? (
@@ -1686,7 +1692,7 @@ export default function App() {
 
       {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 
-      {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
+      {settingsOpen ? <Settings at={settingsAt} onClose={() => (setSettingsOpen(false), setSettingsAt({}))} /> : null}
       {tourOpen && !showWelcome ? <Tour host={tourHost} onClose={() => setTourOpen(false)} /> : null}
       {showcaseOpen && !showWelcome ? <Showcase host={showcaseHost} onClose={() => setShowcaseOpen(false)} /> : null}
     </div>
