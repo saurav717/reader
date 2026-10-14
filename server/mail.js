@@ -2,13 +2,14 @@
  * Mail from the site: the invitation to a shared project (worker/index.js,
  * the /rooms/<id>/invite route), sent to the address invited whether or not
  * it has ever opened Reader. A Worker sends no mail itself, so it goes
- * through a transactional provider's API — Resend, SendGrid or Postmark,
- * whichever the key is for — from an address on a domain the provider has
- * verified. Three settings, the key a secret:
+ * through a transactional provider's API — Brevo, SendGrid, Postmark or
+ * Resend, whichever the key is for — from an address the provider has
+ * verified: a domain, or (Brevo, SendGrid, Postmark) one address of your
+ * own, which is what a personal email is. Three settings, the key a secret:
  *
  *     npx wrangler secret put MAIL_API_KEY       # the provider's API key
- *     MAIL_FROM = "Reader <noreply@example.org>"  # a var: the sender, on a verified domain
- *     MAIL_PROVIDER = "resend"                    # optional: resend, sendgrid or postmark; guessed from the key otherwise
+ *     MAIL_FROM = "Reader <noreply@example.org>"  # a var: the sender, as verified with the provider
+ *     MAIL_PROVIDER = "brevo"                     # optional: brevo, sendgrid, postmark or resend; guessed from the key otherwise
  *
  * With none of them set, nothing is sent and the share dialog says to send
  * the link by hand. Nothing here reads a request: it is given who to write
@@ -16,6 +17,11 @@
  */
 
 const PROVIDERS = {
+  brevo: {
+    url: 'https://api.brevo.com/v3/smtp/email',
+    headers: (key) => ({ 'api-key': key }),
+    body: ({ from, to, subject, text, html, replyTo }) => ({ sender: address(from), to: [{ email: to }], subject, textContent: text, ...(html ? { htmlContent: html } : {}), ...(replyTo ? { replyTo: address(replyTo) } : {}) }),
+  },
   resend: {
     url: 'https://api.resend.com/emails',
     headers: (key) => ({ Authorization: `Bearer ${key}` }),
@@ -50,6 +56,7 @@ export function mailProvider(env) {
   const named = String(env.MAIL_PROVIDER || '').trim().toLowerCase();
   if (PROVIDERS[named]) return named;
   const key = String(env.MAIL_API_KEY || '').trim();
+  if (key.startsWith('xkeysib-')) return 'brevo';
   if (key.startsWith('re_')) return 'resend';
   if (key.startsWith('SG.')) return 'sendgrid';
   if (/^[0-9a-f-]{36}$/i.test(key)) return 'postmark';

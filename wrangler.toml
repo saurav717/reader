@@ -60,15 +60,17 @@ new_sqlite_classes = ["ProjectRoom"]
 
 # Mail from the site (server/mail.js): the invitation to a shared project,
 # sent to the address invited — whether or not it has ever opened Reader —
-# with the project's link. Through Resend, SendGrid or Postmark, whichever
-# the key is for, from an address on a domain the provider has verified:
+# with the project's link. Through Brevo, SendGrid, Postmark or Resend,
+# whichever the key is for, from an address the provider has verified — a
+# domain, or with Brevo, SendGrid and Postmark one address of your own
+# (docs/deploy.md, "Optional: mail"):
 #
 #     npx wrangler secret put MAIL_API_KEY
 #
-# and the sender as a var below. Without them, nothing is sent and the
-# share dialog says to send the link by hand.
+# and the sender as a var below, exactly as verified. Without them, nothing
+# is sent and the share dialog says to send the link by hand.
 # MAIL_FROM = "Reader <noreply@example.org>"
-# MAIL_PROVIDER = "resend"       # optional: resend, sendgrid or postmark; told by the key's shape otherwise
+# MAIL_PROVIDER = "brevo"        # optional: brevo, sendgrid, postmark or resend; told by the key's shape otherwise
 
 # Anyone signed in with Google in the reader need paste nothing: the app
 # swaps the sign-in for a thirty-day pass signed with READER_TOKEN (see

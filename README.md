@@ -1125,15 +1125,17 @@ Without mail, the dialog gives you the link to send. Two roles, *edit* and
 *view*. A join link for anyone, off unless switched on, can be kept to a
 domain.
 
-The mail goes through a transactional provider — Resend, SendGrid or
-Postmark, whichever the key is for — from a sender on a domain that
-provider has verified, with the inviter as the reply-to address:
+The mail goes through a transactional provider — Brevo, SendGrid, Postmark
+or Resend, whichever the key is for — from a sender that provider has
+verified (a domain, or with Brevo, SendGrid and Postmark one address of your
+own, so a personal email does to start with), with the inviter as the
+reply-to address:
 
 ```bash
 npx wrangler secret put MAIL_API_KEY            # the provider's key
 # and in wrangler.toml, under [vars]:
 # MAIL_FROM = "Reader <noreply@example.org>"
-# MAIL_PROVIDER = "resend"                       # optional; told by the key's shape otherwise
+# MAIL_PROVIDER = "brevo"                        # optional; told by the key's shape otherwise
 ```
 
 Only a link to this site is ever mailed, only to the address invited, and

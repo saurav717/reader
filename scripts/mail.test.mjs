@@ -11,6 +11,7 @@ const { invitationMail, mailConfigured, mailProvider, sendMail } = await import(
 
 describe('which provider', () => {
   it('is told by the key, or named', () => {
+    assert.equal(mailProvider({ MAIL_API_KEY: 'xkeysib-abc' }), 'brevo');
     assert.equal(mailProvider({ MAIL_API_KEY: 're_abc' }), 'resend');
     assert.equal(mailProvider({ MAIL_API_KEY: 'SG.abc' }), 'sendgrid');
     assert.equal(mailProvider({ MAIL_API_KEY: '12345678-1234-1234-1234-123456789abc' }), 'postmark');
@@ -73,6 +74,16 @@ describe('sending', () => {
     assert.deepEqual(sendgrid.personalizations, [{ to: [{ email: 'dana@ethz.ch' }] }]);
     assert.deepEqual(sendgrid.reply_to, { email: 's@x.org' });
     assert.equal(sendgrid.content.length, 2);
+
+    assert.deepEqual(await sendMail({ MAIL_API_KEY: 'xkeysib-k', MAIL_FROM: 'Reader <me@gmail.com>' }, message, { fetchImpl }), { ok: true });
+    const brevo = JSON.parse(calls[2].init.body);
+    assert.equal(calls[2].url, 'https://api.brevo.com/v3/smtp/email');
+    assert.equal(calls[2].init.headers['api-key'], 'xkeysib-k');
+    assert.deepEqual(brevo.sender, { email: 'me@gmail.com', name: 'Reader' });
+    assert.deepEqual(brevo.to, [{ email: 'dana@ethz.ch' }]);
+    assert.deepEqual(brevo.replyTo, { email: 's@x.org' });
+    assert.equal(brevo.textContent, 'T');
+    calls.splice(2, 1);
 
     const postmark = await sendMail({ MAIL_API_KEY: 'k', MAIL_PROVIDER: 'postmark', MAIL_FROM: 'noreply@x.org' }, message, { fetchImpl });
     assert.equal(postmark.ok, false);
