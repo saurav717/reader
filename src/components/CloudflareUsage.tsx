@@ -39,7 +39,8 @@ function amount(value: number, unit: Meter['unit']) {
     const steps = ['B', 'KB', 'MB', 'GB'];
     let at = value;
     let step = 0;
-    while (at >= 1024 && step < steps.length - 1) {
+    // Up a unit from 1,000, so 1023.98 MB reads as 1 GB.
+    while (at >= 1000 && step < steps.length - 1) {
       at /= 1024;
       step += 1;
     }
@@ -203,17 +204,22 @@ function MeterRow({ meter, first }: { meter: Meter; first: boolean }) {
   );
 }
 
-/** The last days as small bars, the allowance as the top of the box; a day over 70% in its warning color. */
+/**
+ * The last days as small bars, scaled to the week's busiest day so their shape
+ * shows even far under the allowance; each colored by its share of the
+ * allowance, which its tooltip gives.
+ */
 function Week({ meter }: { meter: Meter }) {
   const width = 112;
   const height = 30;
   const slot = width / meter.daily.length;
+  const top = Math.max(...meter.daily.map((point) => point.n));
   return (
     <svg width={width} height={height} role="img" aria-label={`${meter.label}, last ${meter.daily.length} days`} style={{ display: 'block', flex: 'none' }}>
-      <line x1={0} x2={width} y1={0.5} y2={0.5} stroke="var(--border)" strokeDasharray="3 3" />
+      <line x1={0} x2={width} y1={height - 0.5} y2={height - 0.5} stroke="var(--border-soft)" />
       {meter.daily.map((point, index) => {
         const share = Math.min(1, point.n / meter.limit);
-        const tall = point.n > 0 ? Math.max(1.5, share * (height - 2)) : 0;
+        const tall = point.n > 0 && top > 0 ? Math.max(1.5, (point.n / top) * (height - 2)) : 0;
         return (
           <rect key={point.day} x={index * slot + slot * 0.2} y={height - tall} width={slot * 0.6} height={tall} rx={1} fill={toneOf(share)}>
             <title>
