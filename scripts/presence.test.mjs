@@ -90,6 +90,8 @@ describe('the project address', () => {
   it('reads a place and an invitation, and never writes them back', () => {
     const got = route.placeFor(`/project/?id=p1&view=workspace&at=${encodeURIComponent('src/train.py:42')}&room=${ROOM}&join=tok`, '/');
     assert.deepEqual(got, { view: { kind: 'project', id: 'p1', mode: 'workspace' }, at: 'src/train.py:42', join: { room: ROOM, token: 'tok' } });
+    assert.deepEqual(route.placeFor(`/project/?id=p1&room=${ROOM}&as=Dana%40ethz.ch`, '/').join, { room: ROOM, token: null, as: 'dana@ethz.ch' });
+    assert.equal(route.addressWith('/project/?id=p2', `?id=p1&room=${ROOM}&as=x%40y`), '/project/?id=p2');
     assert.deepEqual(route.placeFor('/project/?id=p1&room=nope', '/'), { view: { kind: 'project', id: 'p1' } });
     assert.equal(route.pathFor(got, '/'), '/project/?id=p1&view=workspace');
     assert.equal(route.addressWith('/project/?id=p2', `?id=p1&at=x&room=${ROOM}&join=t&code=keep`), '/project/?code=keep&id=p2');
