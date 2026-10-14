@@ -8374,7 +8374,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .settings-nav-foot { display: flex; align-items: center; gap: 6px; margin: 0; padding: 8px 6px 0; border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); }
 .settings-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .settings-head { display: flex; align-items: flex-start; gap: 16px; padding: 24px 40px 18px; border-bottom: 1px solid var(--border-soft); }
-.settings-head > div { flex: 1; min-width: 0; max-width: 820px; }
+.settings-head > div:first-child { flex: 1; min-width: 0; max-width: 820px; }
 .settings-head .eyebrow { margin-bottom: 4px; }
 .settings-head h3 { margin: 0 0 6px; font: 600 26px/1.2 var(--serif); color: var(--ink); }
 .settings-head p { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
@@ -8410,4 +8410,33 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
   .set-card { padding: 14px; }
   .set-two { grid-template-columns: minmax(0, 1fr); }
   .settings-page .write-choice { grid-template-columns: minmax(0, 1fr); }
+}
+/* Settings laid out as tabs: the groups, then the open group's sections, across the top. */
+.settings-layout { flex: none; width: fit-content; }
+.settings-layout button { display: inline-flex; align-items: center; gap: 5px; }
+.settings-head > .settings-layout { flex-shrink: 0; margin-top: 4px; }
+.sheet.settings-page.is-top { display: flex; flex-direction: column; grid-template-columns: none; }
+.settings-top { display: flex; align-items: center; gap: 14px; padding: 18px 28px 14px; }
+.settings-top h2 { margin: 0 8px 0 0; font: 600 22px/1.2 var(--serif); }
+.settings-top .settings-find { flex: 0 1 300px; margin-left: auto; }
+.settings-groups { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.settings-groups button { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--ink-2); font: 500 13.5px var(--sans); white-space: nowrap; cursor: pointer; }
+.settings-groups button:hover { color: var(--ink); }
+.settings-groups button.is-on { color: var(--ink); border-bottom-color: var(--accent); }
+.settings-tabs.is-row { flex: none; flex-direction: row; flex-wrap: wrap; gap: 6px; margin: 0; padding: 12px 28px; border-bottom: 1px solid var(--border-soft); background: var(--panel); overflow: visible; }
+.settings-tabs.is-row button { width: auto; padding: 6px 12px; border: 1px solid var(--border-soft); border-radius: 999px; white-space: nowrap; }
+.settings-tabs.is-row button.is-on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.settings-page.is-top .settings-main { flex: 1; }
+.settings-intro { max-width: 820px; padding: 20px 40px 0; }
+.settings-intro h3 { margin: 0 0 4px; font: 600 22px/1.2 var(--serif); color: var(--ink); }
+.settings-intro p { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.settings-page.is-top .settings-body { padding-top: 16px; }
+@media (max-width: 820px) {
+  .settings-layout { display: none; }
+  .settings-top { flex-wrap: wrap; padding: 14px 16px 10px; }
+  .settings-top .settings-find { order: 3; flex: 1 1 100%; margin-left: 0; }
+  .settings-top > .icon-btn { margin-left: auto; }
+  .settings-groups { padding: 0 16px; }
+  .settings-tabs.is-row { flex-wrap: nowrap; overflow-x: auto; padding: 10px 16px; }
+  .settings-intro { padding: 16px 16px 0; }
 }

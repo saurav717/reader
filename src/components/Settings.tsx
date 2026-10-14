@@ -1,9 +1,10 @@
 // Settings: a page of its own over the app, with a tab for each part of it —
 // the account and where the library is kept, the proxy, how the app looks and
 // reads, Ask AI, projects and their writing, citations, compute, updates and
-// the tour. The sidebar lists the tabs in four groups and finds a setting by
-// name; a page that asks for Settings can open it at a tab and a place in it
-// (lib/openSettings.ts). The tab last open is opened again next time.
+// the tour. The tabs are listed in four groups, down a sidebar or as two rows
+// of tabs across the top (the viewer's choice), with a box that finds a
+// setting by name; a page that asks for Settings can open it at a tab and a
+// place in it (lib/openSettings.ts). The tab and layout last used are kept.
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
@@ -32,6 +33,7 @@ import {
   GlobeIcon,
   GoogleMark,
   GridIcon,
+  ListIcon,
   OpenBookIcon,
   PanelLeftIcon,
   RestoreIcon,
@@ -244,6 +246,18 @@ const TABS: TabInfo[] = [
 ];
 
 const TAB_KEY = 'reader:settings-tab';
+const LAYOUT_KEY = 'reader:settings-layout';
+
+/** How the page is laid out: its sections down a sidebar, or as two rows of tabs across the top. */
+type SettingsLayout = 'side' | 'top';
+
+function rememberedLayout(): SettingsLayout {
+  try {
+    return window.localStorage.getItem(LAYOUT_KEY) === 'top' ? 'top' : 'side';
+  } catch {
+    return 'side';
+  }
+}
 
 function rememberedTab(): SettingsTab {
   try {
@@ -331,6 +345,15 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
   } = useStore();
   const [tab, setTab] = useState<SettingsTab>(() => at?.tab ?? rememberedTab());
   const [find, setFind] = useState('');
+  const [pageLayout, setPageLayoutState] = useState<SettingsLayout>(rememberedLayout);
+  const setPageLayout = (next: SettingsLayout) => {
+    setPageLayoutState(next);
+    try {
+      window.localStorage.setItem(LAYOUT_KEY, next);
+    } catch {
+      // Storage blocked: the layout holds until Settings closes.
+    }
+  };
   const [clientId, setClientId] = useState(settings.googleClientId);
   const [repo, setRepo] = useState(settings.githubRepo);
   const [branch, setBranch] = useState(settings.githubBranch);
@@ -381,6 +404,8 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
       // Storage blocked: the tab is not remembered.
     }
     body.current?.scrollTo({ top: 0 });
+    // A row of tabs (a phone's, or the Tabs layout's) brings the one open into view.
+    tabButtons.current[tab]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [tab]);
 
   useEffect(() => {
@@ -1326,6 +1351,116 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
     help: helpTab,
   };
 
+  const findBox = (
+    <label className="settings-find">
+      <SearchIcon size={14} />
+      <input
+        type="search"
+        value={find}
+        onChange={(event) => setFind(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && shown[0]) {
+            setTab(shown[0].id);
+            setFind('');
+          }
+        }}
+        placeholder="Find a setting"
+        aria-label="Find a setting"
+      />
+    </label>
+  );
+
+  const tabButton = (item: TabInfo) => (
+    <button
+      key={item.id}
+      ref={(element) => {
+        tabButtons.current[item.id] = element;
+      }}
+      type="button"
+      role="tab"
+      id={`settings-tab-${item.id}`}
+      aria-selected={tab === item.id}
+      aria-controls="settings-panel"
+      tabIndex={tab === item.id ? 0 : -1}
+      className={tab === item.id ? 'is-on' : ''}
+      onClick={() => setTab(item.id)}
+    >
+      <span className="settings-tab-icon">{item.icon}</span>
+      <span className="settings-tab-label">{item.label}</span>
+      {attention[item.id] ? <span className="settings-dot" title={attention[item.id]} aria-label={attention[item.id]} /> : null}
+    </button>
+  );
+
+  const none = !shown.length ? <p className="settings-none">Nothing called “{find.trim()}”.</p> : null;
+
+  const layoutSwitch = (
+    <div className="segmented sm settings-layout" role="group" aria-label="How Settings is laid out">
+      <button type="button" aria-pressed={pageLayout === 'side'} onClick={() => setPageLayout('side')} title="Sections down a sidebar">
+        <PanelLeftIcon size={13} /> Sidebar
+      </button>
+      <button type="button" aria-pressed={pageLayout === 'top'} onClick={() => setPageLayout('top')} title="Groups and sections as tabs across the top">
+        <ListIcon size={13} /> Tabs
+      </button>
+    </div>
+  );
+
+  const closeButton = (className: string) => (
+    <button type="button" className={`icon-btn sm ${className}`} onClick={onClose} aria-label="Close settings" title="Close (Esc)">
+      <CloseIcon size={18} />
+    </button>
+  );
+
+  const panel = (
+    <div className="settings-body" ref={body} role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${current.id}`}>
+      <div className="settings-content">{content[current.id]}</div>
+    </div>
+  );
+
+  if (pageLayout === 'top') {
+    // Two rows of tabs: the four groups, then the sections of the group open
+    // (or, while finding, every section that matches).
+    const groupTabs = [...new Set(TABS.map((item) => item.group))];
+    const sections = query ? shown : TABS.filter((item) => item.group === current.group);
+    return (
+      <>
+        <div className="scrim" onClick={onClose} role="presentation" />
+        <div className="sheet settings-page is-top" role="dialog" aria-modal="true" aria-label="Settings">
+          <header className="settings-top">
+            <h2>Settings</h2>
+            {findBox}
+            {layoutSwitch}
+            {closeButton('')}
+          </header>
+          {query ? null : (
+            <div className="settings-groups" role="group" aria-label="Settings groups">
+              {groupTabs.map((group) => {
+                const first = TABS.find((item) => item.group === group);
+                const flagged = TABS.some((item) => item.group === group && attention[item.id]);
+                return (
+                  <button key={group} type="button" aria-pressed={current.group === group} className={current.group === group ? 'is-on' : ''} onClick={() => first && setTab(first.id)}>
+                    {group}
+                    {flagged ? <span className="settings-dot" aria-label="Something here needs attention" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <nav className="settings-tabs is-row" role="tablist" aria-label="Settings sections" onKeyDown={onTabKey}>
+            {sections.map(tabButton)}
+            {none}
+          </nav>
+          <div className="settings-main">
+            <div className="settings-intro">
+              <h3>{current.label}</h3>
+              <p>{current.blurb}</p>
+            </div>
+            {panel}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="scrim" onClick={onClose} role="presentation" />
@@ -1333,9 +1468,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
         <aside className="settings-nav">
           <div className="settings-nav-head">
             <h2>Settings</h2>
-            <button type="button" className="icon-btn sm settings-close-narrow" onClick={onClose} aria-label="Close settings">
-              <CloseIcon size={18} />
-            </button>
+            {closeButton('settings-close-narrow')}
           </div>
 
           <button type="button" className="settings-who" onClick={() => setTab('account')}>
@@ -1358,22 +1491,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
             </span>
           </button>
 
-          <label className="settings-find">
-            <SearchIcon size={14} />
-            <input
-              type="search"
-              value={find}
-              onChange={(event) => setFind(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && shown[0]) {
-                  setTab(shown[0].id);
-                  setFind('');
-                }
-              }}
-              placeholder="Find a setting"
-              aria-label="Find a setting"
-            />
-          </label>
+          {findBox}
 
           <nav className="settings-tabs" role="tablist" aria-orientation="vertical" aria-label="Settings sections" onKeyDown={onTabKey}>
             {groups.map((group) => (
@@ -1381,31 +1499,10 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
                 <div className="settings-group-label" role="presentation">
                   {group}
                 </div>
-                {shown
-                  .filter((item) => item.group === group)
-                  .map((item) => (
-                    <button
-                      key={item.id}
-                      ref={(element) => {
-                        tabButtons.current[item.id] = element;
-                      }}
-                      type="button"
-                      role="tab"
-                      id={`settings-tab-${item.id}`}
-                      aria-selected={tab === item.id}
-                      aria-controls="settings-panel"
-                      tabIndex={tab === item.id ? 0 : -1}
-                      className={tab === item.id ? 'is-on' : ''}
-                      onClick={() => setTab(item.id)}
-                    >
-                      <span className="settings-tab-icon">{item.icon}</span>
-                      <span className="settings-tab-label">{item.label}</span>
-                      {attention[item.id] ? <span className="settings-dot" title={attention[item.id]} aria-label={attention[item.id]} /> : null}
-                    </button>
-                  ))}
+                {shown.filter((item) => item.group === group).map(tabButton)}
               </div>
             ))}
-            {!shown.length ? <p className="settings-none">Nothing called “{find.trim()}”.</p> : null}
+            {none}
           </nav>
 
           <p className="settings-nav-foot">
@@ -1420,13 +1517,10 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
               <h3>{current.label}</h3>
               <p>{current.blurb}</p>
             </div>
-            <button type="button" className="icon-btn sm settings-close-wide" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
-              <CloseIcon size={18} />
-            </button>
+            {layoutSwitch}
+            {closeButton('settings-close-wide')}
           </header>
-          <div className="settings-body" ref={body} role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${current.id}`}>
-            <div className="settings-content">{content[current.id]}</div>
-          </div>
+          {panel}
         </div>
       </div>
     </>
