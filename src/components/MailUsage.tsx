@@ -365,7 +365,7 @@ function SiteLog({ log }: { log: Overview['log'] }) {
         <p style={{ ...muted, padding: '12px 16px', margin: 0 }}>No mail sent yet. Each invitation by email shows here, and whether the provider took it.</p>
       ) : (
         <div style={{ overflowX: 'auto', maxHeight: 360 }}>
-          <table className="invites-table">
+          <table className="invites-table" style={{ minWidth: 640 }}>
             <thead>
               <tr>
                 <th>When</th>
@@ -414,7 +414,7 @@ function ProviderEvents({ events, name }: { events: Overview['events']; name: st
         <p style={{ ...muted, padding: '12px 16px', margin: 0 }}>No events in the last 30 days.</p>
       ) : (
         <div style={{ overflowX: 'auto', maxHeight: 320 }}>
-          <table className="invites-table">
+          <table className="invites-table" style={{ minWidth: 640 }}>
             <thead>
               <tr>
                 <th>When</th>
@@ -471,32 +471,34 @@ function Blocked({ blocked, name, onChanged }: { blocked: Overview['blocked']; n
       ) : (
         <>
           {error ? <p style={{ padding: '8px 16px 0', margin: 0, fontSize: 12.5, color: 'var(--danger)' }}>{error}</p> : null}
-          <table className="invites-table">
-            <thead>
-              <tr>
-                <th>Address</th>
-                <th>Why</th>
-                <th>Since</th>
-                {list.canUnblock ? <th /> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {list.contacts.map((contact) => (
-                <tr key={contact.email}>
-                  <td>{contact.email}</td>
-                  <td style={muted}>{contact.reason || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{when(contact.at)}</td>
-                  {list.canUnblock ? (
-                    <td className="n">
-                      <button type="button" className="btn sm" disabled={busy === contact.email} onClick={() => void unblock(contact.email)} title="Let the site's mail reach this address again">
-                        {busy === contact.email ? 'Unblocking…' : 'Unblock'}
-                      </button>
-                    </td>
-                  ) : null}
+          <div style={{ overflowX: 'auto' }}>
+            <table className="invites-table" style={{ minWidth: 640 }}>
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Why</th>
+                  <th>Since</th>
+                  {list.canUnblock ? <th /> : null}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {list.contacts.map((contact) => (
+                  <tr key={contact.email}>
+                    <td>{contact.email}</td>
+                    <td style={muted}>{contact.reason || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{when(contact.at)}</td>
+                    {list.canUnblock ? (
+                      <td className="n">
+                        <button type="button" className="btn sm" disabled={busy === contact.email} onClick={() => void unblock(contact.email)} title="Let the site's mail reach this address again">
+                          {busy === contact.email ? 'Unblocking…' : 'Unblock'}
+                        </button>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>
