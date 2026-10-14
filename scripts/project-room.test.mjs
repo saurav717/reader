@@ -212,6 +212,52 @@ describe('sharing a project', () => {
   });
 });
 
+describe('inviting someone to try Reader', () => {
+  const withMail = () => ({ ...env(), MAIL_API_KEY: 're_test', MAIL_FROM: 'Reader <noreply@reader.example>' });
+  const stub = () => {
+    const sent = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => (sent.push({ url: String(url), body: JSON.parse(init.body) }), new Response('{}', { status: 200 }));
+    return { sent, restore: () => (globalThis.fetch = real) };
+  };
+
+  it('mails the site, with the note and the sender as reply-to, only to a link of this app', async () => {
+    const { sent, restore } = stub();
+    try {
+      const e = withMail();
+      const pass = await issuePass('owner@x.org', SECRET);
+      const ok = await (await call(e, '/invite', { pass, body: { email: 'Colleague@Uni.edu', name: 'Owner One', note: 'Have a look?', link: 'https://saurav717.github.io/reader/' } })).json();
+      assert.deepEqual(ok, { ok: true, to: 'colleague@uni.edu' });
+      assert.equal(sent.length, 1);
+      assert.deepEqual(sent[0].body.to, ['colleague@uni.edu']);
+      assert.equal(sent[0].body.reply_to, 'owner@x.org');
+      assert.equal(sent[0].body.subject, "Owner One thinks you'd like Reader");
+      assert.match(sent[0].body.text, /Have a look\?/);
+      assert.equal((await call(e, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://evil.example/' } })).status, 400);
+      assert.equal((await call(e, '/invite', { pass, body: { email: 'not-an-address', link: 'https://saurav717.github.io/reader/' } })).status, 400);
+      assert.equal((await call(e, '/invite', { body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } })).status, 401);
+      assert.equal(sent.length, 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('says so when the site cannot send mail, or when the address could not sign in here', async () => {
+    const { sent, restore } = stub();
+    try {
+      const pass = await issuePass('owner@x.org', SECRET);
+      const none = await call(env(), '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } });
+      assert.equal(none.status, 501);
+      const limited = await call({ ...withMail(), READER_EMAILS: '@x.org' }, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } });
+      assert.equal(limited.status, 403);
+      assert.match((await limited.json()).error, /READER_EMAILS/);
+      assert.equal(sent.length, 0);
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe('where everyone is', () => {
   const setUp = async () => {
     const e = env();

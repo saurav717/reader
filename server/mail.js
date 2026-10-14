@@ -119,6 +119,44 @@ export function invitationMail({ to, inviter, inviterEmail, project, question, r
 }
 
 /**
+ * An invitation to try Reader, from someone who uses it to a colleague, a
+ * student, anyone they know, who may not: what it is in a few lines, a note of the sender's own, and the site's
+ * address. Nothing to accept: the link is the site, and signing in is the
+ * account.
+ */
+export function tryItMail({ to, inviter, inviterEmail, note, link }) {
+  const name = inviter || inviterEmail || 'Someone';
+  const said = String(note || '').trim().slice(0, 1000);
+  const subject = `${name} thinks you'd like Reader`;
+  const text = [
+    'Hi,',
+    '',
+    `${name} invited you to try Reader — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.`,
+    ...(said ? ['', `${name} says:`, '', ...said.split('\n').map((line) => `    ${line}`)] : []),
+    '',
+    `Try it: ${link}`,
+    '',
+    'Sign in with Google and your library is yours, in your own Drive — nothing to install, nothing to create.',
+    '',
+    ...(inviterEmail ? [`Questions? Just reply — it goes to ${name} (${inviterEmail}).`, ''] : []),
+    'Not expecting this? You can ignore it.',
+  ].join('\n');
+  const html = [
+    '<div style="font:15px/1.55 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a17;max-width:560px">',
+    '<p>Hi,</p>',
+    `<p><b>${escape(name)}</b> invited you to try <b>Reader</b> — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.</p>`,
+    ...(said ? [`<blockquote style="margin:16px 0;padding:10px 14px;border-left:3px solid #1f5e52;background:#f4f1e8;color:#1a1a17;white-space:pre-wrap">${escape(said)}</blockquote>`] : []),
+    `<p><a href="${escape(link)}" style="display:inline-block;margin:6px 0;padding:10px 16px;border-radius:8px;background:#1f5e52;color:#f6f4ec;text-decoration:none;font-weight:600">Try Reader</a></p>`,
+    '<p style="color:#55524a">Sign in with Google and your library is yours, in your own Drive — nothing to install, nothing to create.</p>',
+    ...(inviterEmail ? [`<p style="color:#55524a">Questions? Just reply — it goes to ${escape(name)} (${escape(inviterEmail)}).</p>`] : []),
+    '<p style="color:#6f6c63;font-size:13px">Not expecting this? You can ignore it.</p>',
+    `<p style="color:#6f6c63;font-size:12px">If the button does nothing, open this address: ${escape(link)}</p>`,
+    '</div>',
+  ].join('\n');
+  return { subject, text, html };
+}
+
+/**
  * One message, through the provider the key is for. Answers { ok } or
  * { ok: false, error } — a provider refusing is reported, never thrown, so
  * an invitation stands even when its mail does not go.

@@ -30,7 +30,7 @@ import {
 } from '../server/scholar.js';
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
-import { invitationMail, mailConfigured, sendMail } from '../server/mail.js';
+import { invitationMail, mailConfigured, sendMail, tryItMail } from '../server/mail.js';
 import { contributionsAsked, readContributions } from '../server/contributionReader.js';
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
@@ -77,6 +77,9 @@ function cors(origin) {
     'Access-Control-Max-Age': '86400',
   };
 }
+
+/** A string from a request body, cut to size; anything else is nothing. */
+const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
 
 const json = (body, status, headers) =>
   new Response(JSON.stringify(body), {
@@ -337,7 +340,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/invite' && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -426,6 +429,29 @@ export default {
           return json({ ...(await answer.json()), email: who.email }, answer.status, noStore);
         }
         return json({ error: 'not found' }, 404, headers);
+      }
+
+      // "Invite someone": a mail from someone signed in to a colleague or anyone who may never have opened Reader — what it
+      // is, a note of their own, and the site's address (server/mail.js). Only a link to this app is ever sent,
+      // under the same per-person limit as Scholar; where READER_EMAILS limits who may sign in, an address not on
+      // it is refused here with the reason, rather than mailed an invitation it cannot take up.
+      if (path === '/invite') {
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google to invite someone' }, 401, headers);
+        if (!mailConfigured(env)) return json({ error: 'this site cannot send mail: MAIL_API_KEY and MAIL_FROM are not set (wrangler.toml)' }, 501, headers);
+        const body = await request.json().catch(() => ({}));
+        const to = String(body.email || '').trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json({ error: 'an email address' }, 400, headers);
+        const link = String(body.link || '').trim();
+        if (!ALLOWED_ORIGINS.some((allowed) => link === allowed || link.startsWith(`${allowed}/`))) return json({ error: 'only a link to this site is sent' }, 400, headers);
+        const limited = String(env.READER_EMAILS || '').trim();
+        if (limited && !emailAllowed(to, limited)) return json({ error: `${to} could not sign in here: this site's sign-in is limited to certain addresses (READER_EMAILS). Add theirs there first.` }, 403, noStore);
+        if (await personOverLimit(env, who)) return json({ error: 'too many invitations at once; try again in a minute' }, 429, noStore);
+        const mail = tryItMail({ to, inviter: text(body.name, 200), inviterEmail: who.email, note: text(body.note, 1000), link });
+        const sent = await sendMail(env, { to, ...mail, replyTo: who.email });
+        return json(sent.ok ? { ok: true, to } : { ok: false, error: sent.error }, sent.ok ? 200 : 502, noStore);
       }
 
       // A project shared with the people you work with: worker/projectRoom.js.

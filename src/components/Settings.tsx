@@ -44,6 +44,7 @@ function OverleafTokenRow() {
 }
 import { overleafViewOf } from '../lib/overleaf';
 import OverleafAccounts from './OverleafAccounts';
+import InviteSomeone from './InviteSomeone';
 import { WriteGuideLink } from './WriteGuide';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
@@ -119,6 +120,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState(settings.contactEmail);
   const [proxy, setProxy] = useState(settings.proxyBase);
   const [proxyCheck, setProxyCheck] = useState<{ ok: boolean; message: string } | null>(null);
+  // "Invite someone": a mail from the site to a colleague or anyone who may never have opened it (components/InviteSomeone.tsx).
+  const [inviting, setInviting] = useState(false);
   const [checking, setChecking] = useState(false);
   /** Whether the proxy can open a sign-in window, asked once the sheet opens. */
   const [access, setAccess] = useState<AccessStatus | null>(null);
@@ -181,6 +184,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
 
           {user ? (
+            <>
             <div
               style={{
                 display: 'flex',
@@ -203,10 +207,15 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{user.name}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{user.email}</div>
               </div>
+              <button type="button" className="btn sm" onClick={() => setInviting(true)} title="Email someone what Reader is, with a note of your own and the site's address">
+                Invite someone
+              </button>
               <button type="button" className="btn sm" onClick={signOut}>
                 Sign out
               </button>
             </div>
+            {inviting ? <InviteSomeone onClose={() => setInviting(false)} /> : null}
+            </>
           ) : (
             <button
               type="button"

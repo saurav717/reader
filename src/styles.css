@@ -8247,3 +8247,11 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .pj-share-domain { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 11.5px var(--mono); width: 200px; }
 .pj-share-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
 @media (max-width: 720px) { .pj-share-gets { grid-template-columns: 1fr; } .pj-people-list, .pj-person { width: min(390px, calc(100vw - 32px)); } }
+
+/* Invite someone: an email about Reader, from Settings or the share dialog (components/InviteSomeone.tsx) */
+.invite-someone textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: 13px/1.5 var(--sans); resize: vertical; box-sizing: border-box; }
+.invite-someone-note { margin: 0 0 14px; padding: 10px 12px; border-radius: 9px; background: var(--panel); color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+.invite-someone-note code { font: 12px var(--mono); color: var(--accent-ink); word-break: break-all; }
+.invite-someone-sent { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.invite-someone-sent li.is-ok { color: var(--accent-ink); }
+.invite-someone-sent li.is-bad { color: var(--danger); }

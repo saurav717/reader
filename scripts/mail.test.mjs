@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { invitationMail, mailConfigured, mailProvider, sendMail } = await import('../server/mail.js');
+const { invitationMail, mailConfigured, mailProvider, sendMail, tryItMail } = await import('../server/mail.js');
 
 describe('which provider', () => {
   it('is told by the key, or named', () => {
@@ -49,6 +49,27 @@ describe('the invitation', () => {
     assert.doesNotMatch(mail.text, /The project's question/);
     assert.match(mail.text, /As an editor you can change the project/);
     assert.match(mail.text, /it goes to x@y \(x@y\)/);
+  });
+});
+
+describe('an invitation to try Reader', () => {
+  it('says what Reader is, quotes the note, and gives the site', () => {
+    const mail = tryItMail({ to: 'c@uni.edu', inviter: 'Saurav C', inviterEmail: 's@x.org', note: 'Have a look\nbefore Thursday?', link: 'https://site/reader/' });
+    assert.equal(mail.subject, "Saurav C thinks you'd like Reader");
+    assert.match(mail.text, /Saurav C invited you to try Reader — a reading room for research papers/);
+    assert.match(mail.text, /Saurav C says:\n\n    Have a look\n    before Thursday\?/);
+    assert.match(mail.text, /Try it: https:\/\/site\/reader\//);
+    assert.match(mail.text, /nothing to install, nothing to create/);
+    assert.match(mail.html, /<blockquote[^>]*>Have a look\nbefore Thursday\?<\/blockquote>/);
+    assert.match(mail.html, /<a href="https:\/\/site\/reader\/"/);
+  });
+  it('does without a note, and escapes one', () => {
+    const plain = tryItMail({ to: 'c@uni.edu', inviterEmail: 's@x.org', link: 'https://site/' });
+    assert.doesNotMatch(plain.text, /says:/);
+    assert.doesNotMatch(plain.html, /blockquote/);
+    const sharp = tryItMail({ to: 'c@uni.edu', inviter: 'S', inviterEmail: 's@x.org', note: '<script>x</script>', link: 'https://site/' });
+    assert.match(sharp.html, /&lt;script&gt;/);
+    assert.doesNotMatch(sharp.html, /<script>/);
   });
 });
 

@@ -1142,6 +1142,13 @@ Only a link to this site is ever mailed, only to the address invited, and
 only as fast as a person invites (the same per-person limit as Scholar). If
 `READER_EMAILS` limits who may sign in, add the address there too.
 
+With mail set up there is also **Invite someone**, under your Google account
+in Settings and at the foot of the share dialog: not a member for a project,
+just an email to a colleague or anyone you know saying what Reader is, with a
+note of your own and the site's address, from the site's sender with you as
+the reply-to. An address that could not sign in here (`READER_EMAILS`) is
+refused with the reason rather than mailed.
+
 The people in the project then sit at the right of the project bar, on every
 tab: a stack of avatars, a green dot for someone active, dimmed for someone
 away, and *3 here*. Hover one and a card says where they are in words —

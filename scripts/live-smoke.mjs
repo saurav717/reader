@@ -43,6 +43,11 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, dev
 page.on('pageerror', (error) => problems.push(`page error: ${error.message}`));
 page.on('console', (message) => message.type() === 'error' && console.log('  console:', message.text().slice(0, 300)));
 
+// The site can send mail, as far as the page asks (/health is read once per address): invitations are emailed.
+await page.route('**/api/health', async (route) => {
+  const real = await route.fetch();
+  route.fulfill({ json: { ...(await real.json().catch(() => ({}))), mail: true } });
+});
 // ---- the room, stood in for: its state, and a live socket with the others' moves on it
 await page.route(`**/api/rooms/${ROOM}**`, async (route) => {
   const url = new URL(route.request().url());
@@ -153,6 +158,20 @@ await page.locator('.pj-share-invite').getByRole('button', { name: 'Invite' }).c
 await page.locator('.pj-share-row.is-invited', { hasText: 'new@example.org' }).waitFor({ timeout: 5000 });
 check('an invitation is added, with a link to copy', (await page.locator('.pj-share-row.is-invited').count()) === 2);
 await shot('6-share');
+
+console.log('invite someone to try Reader');
+await page.route('**/api/invite', (route) => route.fulfill({ json: { ok: true, to: route.request().postDataJSON().email } }));
+await page.getByRole('button', { name: 'Just want to show someone Reader?' }).click();
+await page.locator('.invite-someone').waitFor({ timeout: 5000 });
+check('the dialog takes an address and a note', (await page.locator('.invite-someone input').count()) === 1 && (await page.locator('.invite-someone textarea').count()) === 1);
+await page.locator('.invite-someone input').fill('colleague@uni.edu, other@uni.edu');
+await page.locator('.invite-someone textarea').fill('Have a look before Thursday?');
+check('the button counts the addresses', /Send 2 invitations/.test(await page.locator('.invite-someone .btn.primary').innerText()));
+await shot('8-invite-someone');
+await page.locator('.invite-someone .btn.primary').click();
+await page.locator('.invite-someone-sent li').nth(1).waitFor({ timeout: 5000 });
+const sentRows = await page.locator('.invite-someone-sent li').allInnerTexts();
+check('each address is reported sent', sentRows.length === 2 && sentRows.every((row) => /sent/.test(row)), sentRows.join(' | '));
 await page.getByRole('button', { name: 'Done' }).click();
 
 console.log('a project that is not shared');

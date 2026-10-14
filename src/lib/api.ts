@@ -339,6 +339,7 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
               ai: { anthropic: Boolean(body.ai?.anthropic), deepseek: Boolean(body.ai?.deepseek), gemini: Boolean(body.ai?.gemini ?? body.gemini) },
               web: Boolean(body.web),
               googleClientId: typeof body.googleClientId === 'string' ? body.googleClientId.trim() : '',
+              mail: Boolean(body.mail),
             }
           : null,
       )

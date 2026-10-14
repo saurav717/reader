@@ -182,7 +182,8 @@ npx wrangler secret put MAIL_API_KEY     # xkeysib-… (Brevo), SG.… (SendGrid
 
 `MAIL_PROVIDER` names the provider when the key's shape does not. Without a
 key and a sender, nothing is sent and the dialog gives the owner the link to
-send.
+send. The same mail setting serves **Invite someone** (Settings, under the
+Google account): an email about Reader to anyone, with the site's address.
 
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 
