@@ -8,14 +8,14 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
 import { projectsOf } from '../lib/projects';
+import { openSettings } from '../lib/openSettings';
 import { WriteGuideLink } from './WriteGuide';
 import { overleafGitUrl } from '../lib/overleaf';
 import { connectOverleaf, forgetOverleafToken, onOverleafAccounts, overleafAccounts, type OverleafAccount } from '../lib/overleafCloud';
 
-/** Settings, at its Overleaf accounts (the app listens for this event: Projects.tsx's OPEN_SETTINGS). */
+/** Settings, at its Overleaf accounts, in the Writing tab. */
 export function openOverleafAccounts() {
-  window.dispatchEvent(new Event('reader:open-settings'));
-  window.setTimeout(() => document.getElementById('settings-overleaf-accounts')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
+  openSettings('writing', 'settings-overleaf-accounts');
 }
 
 /** Which Overleaf account a project syncs through, as its overview says it, with the way to the accounts. */

@@ -144,7 +144,7 @@ await shot('paper-window-bar');
 
 console.log('Settings → Compute');
 await seed(base, '/project/?id=p-tp');
-await page.evaluate(() => window.dispatchEvent(new Event('reader:open-settings')));
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('reader:open-settings', { detail: { tab: 'compute' } })));
 const list = page.locator('#settings-compute .cp-list');
 await list.waitFor({ timeout: 5000 });
 await list.scrollIntoViewIfNeeded();
