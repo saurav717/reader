@@ -22,8 +22,14 @@
 
 import type { View } from '../types.view';
 
-/** A destination: a view of the library or a paper, or the usage page. */
-export type Place = { view: View; usage?: boolean };
+/**
+ * A destination: a view of the library or a paper, or the usage page. A
+ * project's address may also carry `at` — a place in it, as `atFrom` in
+ * src/lib/presence.ts reads it — and `room` with `join`, an invitation to a
+ * shared project (docs/live-collaboration.md); both are read once and never
+ * written back.
+ */
+export type Place = { view: View; usage?: boolean; at?: string; join?: { room: string; token: string | null } };
 
 const LISTS = ['reading', 'unread', 'finished', 'unsorted', 'junk'] as const;
 
@@ -68,8 +74,7 @@ export const currentAddress = () => `${window.location.pathname}${window.locatio
 export function addressWith(path: string, search: string): string {
   const [pathname, own = ''] = path.split('?');
   const params = new URLSearchParams(search);
-  params.delete('id');
-  params.delete('view');
+  for (const key of ['id', 'view', 'at', 'room', 'join']) params.delete(key);
   new URLSearchParams(own).forEach((value, key) => params.set(key, value));
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -110,9 +115,12 @@ export function placeFor(address: string, base = basePath()): Place | null {
   if (head === 'projects' && !extra) return { view: { kind: 'projects' } };
   if (head === 'calendar' && !extra) return { view: { kind: 'calendar' } };
   if (head === 'project' && id) {
-    const asked = new URLSearchParams(query).get('view');
+    const params = new URLSearchParams(query);
+    const asked = params.get('view');
     const mode = asked === 'read' || asked === 'workspace' || asked === 'write' ? asked : undefined;
-    return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id } };
+    const at = params.get('at');
+    const room = params.get('room');
+    return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id }, ...(at ? { at } : {}), ...(room && /^[0-9a-f]{32}$/.test(room) ? { join: { room, token: params.get('join') } } : {}) };
   }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };
   return null;

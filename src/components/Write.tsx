@@ -23,7 +23,8 @@ import { thisComputer, type ThisComputer } from '../lib/thisComputer';
 import type { LatexLink, OverleafLink, Paper, PaperFolder, WriteOptions } from '../types';
 import { CITATION_DEFAULTS, WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
-import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
+import CodeEditor, { type CodeEditorHandle, type EditorPeer } from './CodeEditor';
+import { noteEdit, reportPlace, useJumps, usePeers } from '../lib/liveRoom';
 import CopyBlock from './CopyBlock';
 import { OpenOverleaf } from './Overleaf';
 import { readTexLog, type CompileFile } from '../lib/latexGithub';
@@ -2874,6 +2875,29 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     const line = asked ? asked.line : lineIn(project.id, placeDir, shown);
     window.setTimeout(() => (line > 1 || asked?.word ? editor.current?.goToLine(line, asked?.word) : editor.current?.focus()), 60);
   }, [shown, current, project.id, placeDir]);
+  // Where you are, to the others in a shared project (src/lib/liveRoom.ts): the file as it opens, the caret as it moves
+  // (`onCursor` below); their carets drawn in the editor, their names by the files; a jump from one of them opens their file at their line.
+  const peers = usePeers('write');
+  const peersIn = useMemo(() => {
+    const map = new Map<string, EditorPeer[]>();
+    for (const peer of peers) {
+      if (!peer.place.path) continue;
+      const list = map.get(peer.place.path) ?? [];
+      list.push({ id: peer.id, name: peer.name, color: peer.color, offset: peer.place.offset ?? 0, sel: peer.place.sel });
+      map.set(peer.place.path, list);
+    }
+    return map;
+  }, [peers]);
+  useEffect(() => {
+    if (shown) reportPlace({ tab: 'write', path: shown });
+  }, [shown]);
+  useJumps('write', project.id, (target) => {
+    if (!target.path || !texts.includes(target.path)) return;
+    if (target.path === shown && current && !looking) return void editor.current?.goToLine(target.line ?? 1);
+    jump.current = { file: target.path, line: target.line ?? 1 };
+    if (target.path === shown) placed.current = null;
+    setOpen(target.path);
+  });
 
   // ---- from the PDF to the source: a double-click, as in Overleaf, by the compile's SyncTeX
   const syncRead = useRef<{ of: Blob; map: Promise<SyncTex> } | null>(null);
@@ -2906,8 +2930,9 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     setOpen(place.file);
   };
   const onCursor = useCallback(
-    (cursor: { line: number; offset: number }) => {
+    (cursor: { line: number; col: number; offset: number; selected: number }) => {
       if (!shown) return;
+      reportPlace({ tab: 'write', path: shown, line: cursor.line, col: cursor.col, offset: cursor.offset, ...(cursor.selected ? { sel: [Math.max(0, cursor.offset - cursor.selected), cursor.offset] as [number, number] } : {}) });
       window.clearTimeout(placeTimer.current);
       placeTimer.current = window.setTimeout(() => rememberPlace(project.id, { dir: placeDir, file: [owner, shown].filter(Boolean).join('/'), line: cursor.line }), 400);
       caretRef.current = cursor.offset;
@@ -2984,7 +3009,9 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
             beforeKey={beforeKey}
             aside={helperAside}
             complete={/\.(tex|sty|cls)$/.test(shown) ? completeFor : undefined}
+            peers={peersIn.get(shown)}
             onChange={(next) => {
+              noteEdit();
               edit(shown, next);
               if (shown.endsWith('.tex') && next.includes('cite')) bibFor.current(next);
             }}
@@ -3483,6 +3510,13 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
                 {path.split('/').pop()}
                 {files[path] && files[path].text !== files[path].disk ? <i> ●</i> : null}
                 {path === (mainDoc ?? compiled?.main) ? <small> main</small> : null}
+                {peers
+                  .filter((peer) => peer.place.path === path)
+                  .map((peer) => (
+                    <i key={peer.id} className={`pj-peer-chip${peer.place.active ? '' : ' is-away'}`} style={{ background: peer.color }} title={`${peer.name} is in this file`}>
+                      {peer.name.split(' ')[0]}
+                    </i>
+                  ))}
               </button>
               <span className="wr-tree-ops">
                 <button type="button" onClick={() => rename(path)} aria-label={`Rename ${path}`} title="Rename or move">✎</button>

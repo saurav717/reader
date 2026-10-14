@@ -225,6 +225,18 @@ export interface ProjectInfo {
   codeRepo?: CodeRepo;
   /** The meetings tagged with this project on the Calendar page, by the key the page tags them under (lib/calendar.ts, `tagKeys`). */
   meetings?: Record<string, MeetingTag>;
+  /** Shared with the people you work with: the room on the Worker that holds its members and where each is (docs/live-collaboration.md). */
+  shared?: SharedWith;
+}
+
+/** A project's room, as each member's copy of the project points at it. */
+export interface SharedWith {
+  /** The room's id on the Worker (worker/projectRoom.js). */
+  room: string;
+  /** The owner's Google email: whose project it is. */
+  owner: string;
+  /** This account's part in it. */
+  role: 'owner' | 'editor' | 'viewer';
 }
 
 /** A meeting on the Calendar page tagged as a project's: its title when it was tagged, for the project's own record. */

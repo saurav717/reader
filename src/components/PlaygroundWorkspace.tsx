@@ -39,7 +39,8 @@ import CliAgent from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
 import KernelTerminal, { closeKernelTerminal } from './KernelTerminal';
 import CodeEditor from './CodeEditor';
-import type { CodeEditorHandle, Cursor } from './CodeEditor';
+import type { CodeEditorHandle, Cursor, EditorPeer } from './CodeEditor';
+import { noteEdit, reportPlace, useJumps, usePeers } from '../lib/liveRoom';
 import { ContextMenu, FolderPlusGlyph, keyLabel, OpenEditors, OutlineGlyph, OutlineView, PaletteGlyph, QuickPick, SplitGlyph, SymbolMark } from './Workbench';
 import { symbolPath, symbolsOf } from '../lib/editing';
 import { clearAgentChat } from '../lib/projectAgent';
@@ -1032,6 +1033,24 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const [command, setCommand] = useState(playground.pending ?? '');
   const [base, setBase] = useState<string | null>(null);
   const current = files.find((file) => `${file.where}:${file.path}` === active) ?? null;
+  // Where you are, to the others in a shared project (src/lib/liveRoom.ts): the file and the caret, as you move; their
+  // carets are drawn in the editor and their names in the tree; a jump from one of them opens their file at their line.
+  const peers = usePeers('code');
+  const peersByPath = useMemo(() => {
+    const map = new Map<string, EditorPeer[]>();
+    for (const peer of peers) {
+      if (!peer.place.path) continue;
+      const list = map.get(peer.place.path) ?? [];
+      list.push({ id: peer.id, name: peer.name, color: peer.color, offset: peer.place.offset ?? 0, sel: peer.place.sel });
+      map.set(peer.place.path, list);
+    }
+    return map;
+  }, [peers]);
+  useEffect(() => {
+    if (!current) return;
+    reportPlace({ tab: 'code', path: current.path, ...(cursor ? { line: cursor.line, col: cursor.col, offset: cursor.offset, ...(cursor.selected ? { sel: [Math.max(0, cursor.offset - cursor.selected), cursor.offset] as [number, number] } : {}) } : {}) });
+  }, [current?.path, cursor]); // eslint-disable-line react-hooks/exhaustive-deps
+  useJumps('code', undefined, (jump) => void (jump.path && open('home', jump.path, { line: jump.line })));
   // The file shown is read again from its folder every couple of seconds, and when the window comes back: an agent, a
   // terminal or another editor may have written it. Untouched here, it takes the new text; changed here too, the bar asks.
   // The panes' sizes and places, dragged and toggled; kept for every project.
@@ -1764,7 +1783,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               path={file.path}
               fontSize={settings.fontSize}
               minimap={settings.minimap}
-              onChange={(text) => setFiles((list) => list.map((f) => (f.where === file.where && f.path === file.path ? { ...f, text } : f)))}
+              onChange={(text) => (noteEdit(), setFiles((list) => list.map((f) => (f.where === file.where && f.path === file.path ? { ...f, text } : f))))}
+              peers={peersByPath.get(file.path)}
               onCursor={isFocused ? setCursor : undefined}
               onFocus={() => setFocus(index)}
             />
@@ -2355,6 +2375,8 @@ function MoveOutOfBrowser({ playground, machineName, onNote }: { playground: Pla
 }
 
 function Folder({ host, path, depth, onOpen, activePath, version, onContext }: { host: FileHost; path: string; depth: number; onOpen: (path: string) => void; activePath: string | null; version: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void }) {
+  // Who else is in a file, in a shared project: a chip in their colour by its name.
+  const peers = usePeers('code');
   const [entries, setEntries] = useState<RuntimeEntry[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
@@ -2401,6 +2423,13 @@ function Folder({ host, path, depth, onOpen, activePath, version, onContext }: {
             <button type="button" className={`pg-entry${activePath === entry.path ? ' is-on' : ''}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={() => onOpen(entry.path)} onContextMenu={(event) => onContext?.(event, { path: entry.path, dir: false })}>
               <FileIcon path={entry.path} />
               {entry.name}
+              {peers
+                .filter((peer) => peer.place.path === entry.path)
+                .map((peer) => (
+                  <i key={peer.id} className={`pj-peer-chip${peer.place.active ? '' : ' is-away'}`} style={{ background: peer.color }} title={`${peer.name} is in this file`}>
+                    {peer.name.split(' ')[0]}
+                  </i>
+                ))}
               {entry.size !== null ? <small>{entry.size < 1024 ? `${entry.size} B` : entry.size < 1048576 ? `${Math.round(entry.size / 1024)} KB` : `${(entry.size / 1048576).toFixed(1)} MB`}</small> : null}
             </button>
           )}

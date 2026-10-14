@@ -5,7 +5,7 @@
 // What is here reads that record and nothing else: no store, no React, so it
 // can be tested without a browser.
 
-import type { CodeRepo, Collection, MeetingTag, Paper, PaperRole, ProjectInfo, ProjectTodo } from '../types';
+import type { CodeRepo, Collection, MeetingTag, Paper, PaperRole, ProjectInfo, ProjectTodo, SharedWith } from '../types';
 import { overleafLinkOf } from './overleaf';
 
 export interface Project extends Collection {
@@ -60,7 +60,16 @@ export function projectInfo(collection: Collection | undefined): ProjectInfo | n
     ...(overleafLinkOf(raw.overleaf) ? { overleaf: overleafLinkOf(raw.overleaf) } : {}),
     ...(codeRepoOf(raw.codeRepo) ? { codeRepo: codeRepoOf(raw.codeRepo) } : {}),
     ...(Object.keys(meetings).length ? { meetings } : {}),
+    ...(sharedWithOf(raw.shared) ? { shared: sharedWithOf(raw.shared) } : {}),
   };
+}
+
+/** A project's room, as written by any version of the app: only a whole one is trusted. */
+export function sharedWithOf(raw: unknown): SharedWith | undefined {
+  const value = raw as Partial<SharedWith> | undefined;
+  if (!value || typeof value !== 'object' || typeof value.room !== 'string' || !/^[0-9a-f]{32}$/.test(value.room) || typeof value.owner !== 'string' || !value.owner) return undefined;
+  const role = value.role === 'owner' || value.role === 'editor' || value.role === 'viewer' ? value.role : 'editor';
+  return { room: value.room, owner: value.owner, role };
 }
 
 /**

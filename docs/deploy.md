@@ -141,6 +141,49 @@ Both sign-ins use PKCE and a one-time state bound to the person; the Worker
 keeps the tokens sealed with `SECRETS_KEY` (above), renews the GitHub App's,
 and on **Disconnect** revokes the person's grant with GitHub.
 
+## Optional: mail, for invitations to a shared project
+
+Sharing a project (README, *Working on a project together*) invites people
+by Google email. With mail set up, each invitation is also an email to that
+address with the project's link — so someone who has never opened Reader is
+told where to go and that signing in with Google is all it takes. The
+Worker sends through Brevo, SendGrid, Postmark or Resend (`server/mail.js`),
+from a sender the provider has verified.
+
+**With a personal email, no domain** (Brevo, SendGrid and Postmark verify one
+address of your own; Resend needs a domain). With Brevo, which has a free
+plan:
+
+1. Make an account at brevo.com. Under **Senders & IP → Senders**, add a
+   sender: the name *Reader* and your own address. Brevo mails that address
+   a confirmation; confirm it.
+2. Under **SMTP & API → API keys**, generate a key (it starts with
+   `xkeysib-`) and copy it.
+3. In the repository: `npx wrangler secret put MAIL_API_KEY`, and paste the
+   key.
+4. In `wrangler.toml` under `[vars]`: `MAIL_FROM = "Reader <you@gmail.com>"`,
+   the address exactly as you verified it.
+5. `npm run deploy:worker`. Open the Worker's `/health`: it answers
+   `"mail":true`.
+6. In the app, share a project and invite another address of yours: the
+   mail arrives from your address, *via Brevo*, with you as the reply-to.
+
+A mail sent "from" an address at a domain that is not yours is marked so by
+the receiver (Gmail shows *via brevo.com*), and a domain with a strict DMARC
+policy — many institutions' — may refuse it: a gmail.com address goes
+through; an institutional one may not. **With a domain of your own**, add it
+under the provider's Senders → Domains, put the DNS records it gives you on
+the domain, and set `MAIL_FROM = "Reader <noreply@your-domain>"`: no "via",
+and nothing a receiver can hold against it.
+
+```bash
+npx wrangler secret put MAIL_API_KEY     # xkeysib-… (Brevo), SG.… (SendGrid), a Postmark server token, or re_… (Resend)
+```
+
+`MAIL_PROVIDER` names the provider when the key's shape does not. Without a
+key and a sender, nothing is sent and the dialog gives the owner the link to
+send.
+
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,

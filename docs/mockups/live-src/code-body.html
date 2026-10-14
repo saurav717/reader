@@ -1,0 +1,49 @@
+<div class="ws">
+ <aside class="side"><h4>Files · this PC · moe-router<span class="sp"></span><i>+</i></h4>
+  <div class="tree"><div class="dir">results</div><div class="dir">data</div><div>main.py<span class="sz">1.2 KB</span></div><div>README.md<span class="pp m idle"><span class="d"></span>Marco</span></div><div class="on">train.py<span class="pp"><span class="d"></span>Priya</span></div><div>router.py<span class="sz">3.8 KB</span></div><div>requirements.txt<span class="sz">96 B</span></div></div>
+  <h4 style="margin-top:18px">On GPU box</h4>
+  <div class="tree"><div class="dir">results</div><div>main.py<span class="sz">1.2 KB</span></div><div>train.py<span class="sz">2.6 KB</span></div><div>router.py<span class="sz">3.8 KB</span></div></div>
+  <h4 style="margin-top:18px">Papers · 14<span class="sp"></span><i>All</i></h4>
+  <div class="tree" style="font-family:var(--sans)"><div>Aux-Loss-Free Balancing<span class="mt">p.4</span></div><div>Switch Transformers<span class="pp m idle"><span class="d"></span>Marco p.6</span></div><div>ST-MoE<span class="mt">✓</span></div><div>Expert Choice<span class="mt">—</span></div></div>
+ </aside>
+ <section class="center">
+  <div class="tabs"><span>README.md ×</span><span class="on">train.py ×</span><span>router.py ×</span><span class="sp"></span><span class="saved">Saved · live</span></div>
+  <div class="ed card"><div class="ln">31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+<span style="color:#8a3a6e;opacity:1;font-weight:600">42</span>
+43
+44
+45
+46
+47</div><pre><span class="k1">def</span> <span class="k2">balance_step</span>(router, loads, lr=<span class="k5">1e-2</span>):
+    <span class="k3">"""Loss-free balancing: nudge each expert's bias by its load error."""</span>
+    target = loads.<span class="k2">mean</span>()
+    router.bias -= lr * torch.<span class="k2">sign</span>(loads - target)
+
+<span class="k1">for</span> step, batch <span class="k1">in</span> <span class="k2">enumerate</span>(loader):
+    logits = model(batch.tokens)
+<span class="cur-line">    loss = F.<span class="k2">cross_entropy</span>(logits.<span class="k2">view</span>(-<span class="k5">1</span>, V), batch.labels.<span class="k2">view</span>(-<span class="k5">1</span>))<span class="me-caret"></span></span>    loss.<span class="k2">backward</span>()
+    opt.<span class="k2">step</span>(); opt.<span class="k2">zero_grad</span>()
+    <span class="k1">with</span> torch.no_grad():
+        <span class="k2">balance_step</span>(model.router, <span class="sel">model.router.last_loads</span><span class="caret" data-n="Priya"></span>)
+    <span class="k1">if</span> step % <span class="k5">50</span> == <span class="k5">0</span>:
+        <span class="k2">log</span>({<span class="k3">"step"</span>: step, <span class="k3">"loss"</span>: loss.<span class="k2">item</span>(), <span class="k3">"max_load"</span>: loads.<span class="k2">max</span>()})
+
+<span class="k4"># TODO(Priya): log the per-expert load histogram every 500 steps</span>
+torch.<span class="k2">save</span>(model.<span class="k2">state_dict</span>(), <span class="k3">"results/router.pt"</span>)</pre><div class="track"><i class="me" style="top:178px"></i><i style="top:266px"></i></div></div>
+  <div class="con"><div class="h">Console <span class="m">GPU box · ~/moe-router</span></div><pre><span class="p">$</span> python train.py
+step 50   loss=2.91  max_load=0.31
+step 100  loss=2.47  max_load=0.19
+step 150  loss=2.22  max_load=0.14</pre><div class="in"><span class="p" style="font-family:var(--mono)">$</span><span>A command, run in a shell on GPU box — python train.py, pip install …, nvidia-smi</span><span class="btn primary sm" style="flex:none">Copy &amp; run</span></div></div>
+  <div class="sbar"><span class="live"></span>Live · <b style="color:#8a3a6e;font-weight:500">Priya</b>&nbsp;in train.py:42&nbsp;·&nbsp;<b style="color:#b27414;font-weight:500">Marco</b>&nbsp;in README.md, away 4 min<span class="sp"></span>Synced to GPU box 8 s ago<span class="muted">·</span>Ln 38, Col 71</div>
+ </section>
+</div>

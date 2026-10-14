@@ -7,8 +7,12 @@
 // papers are the collection's, so adding one from a search is adding it to
 // that collection, and a paper can be in several projects at once.
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
+import PresenceBar from './PresenceBar';
+import { closeRoom, follow, fromSummary, joinRoom, liveNow, onFollow, openRoom, reportPlace, requestJump, roomAction, summarize, useJumps, useLive } from '../lib/liveRoom';
+import { atFrom, viewFor, type Tab } from '../lib/presence';
+import { currentAddress, placeFor } from '../lib/route';
 import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
 import { colabAvailable } from '../lib/colab';
 import { hasProxy } from '../lib/api';
@@ -108,7 +112,7 @@ export default function ProjectsPage({
   /** The paper up in the workspace, for Explain to be about; null with none, or on leaving. */
   onReading?: (id: string | null) => void;
 }) {
-  const { collections, settings } = useStore();
+  const { collections, settings, user, papers, adoptCollection, updateCollection } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
   // "New project…" from the rail's project menus: the page opens with the dialog up.
   const [creating, setCreating] = useState(() => {
@@ -122,6 +126,68 @@ export default function ProjectsPage({
   });
   const project = view.kind === 'project' ? projects.find((item) => item.id === view.id) : undefined;
   const opensOn = settings.projectOpensOn;
+  const live = useLive();
+  const shared = project?.project.shared;
+  const tab: Tab | null = view.kind !== 'project' ? null : view.mode === 'workspace' ? 'code' : view.mode === 'read' || view.mode === 'write' ? view.mode : 'overview';
+  // ---- a shared project: its room, while its page is showing (src/lib/liveRoom.ts)
+  useEffect(() => {
+    if (shared) openRoom(shared.room, user);
+    else closeRoom();
+  }, [shared?.room, user]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => closeRoom(), []);
+  // The tab, as the others see it. The pages inside say which file or paper; where none does (the overview, a Code tab with no code yet), the tab alone.
+  useEffect(() => {
+    if (!shared || !tab) return;
+    if (liveNow().mine?.tab !== tab) reportPlace({ tab });
+  }, [shared, tab]);
+  // Following someone: each move of theirs is a jump, taken by the tab it is on; Esc stops.
+  useEffect(() => onFollow((jump) => (requestJump(jump), onView(viewFor(jump)))), [onView]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => event.key === 'Escape' && liveNow().following && follow(null);
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  // The owner keeps the room's copy of the project current; a member's copy follows the room's.
+  useEffect(() => {
+    if (!shared || !project || shared.role !== 'owner') return;
+    const timer = window.setTimeout(() => void roomAction(shared.room, 'project', { project: summarize(project, papers) }).catch(() => undefined), 1500);
+    return () => window.clearTimeout(timer);
+  }, [shared, project, papers]);
+  useEffect(() => {
+    const state = live.state;
+    if (!shared || !project || shared.role === 'owner' || !state || state.room !== shared.room) return;
+    const next = fromSummary(state.project, { ...shared, role: state.role }, project.project);
+    // Compared field by field, in a fixed order: the record read back from the library has its keys in its own order.
+    const gist = (info: ProjectInfo, name: string, color: string) => JSON.stringify([name, color, info.question, info.startedAt, info.roles, info.todos, info.overleaf ?? null, info.codeRepo ?? null, info.shared?.role ?? null]);
+    if (gist(next, state.project.name, state.project.color) === gist(project.project, project.name, project.color)) return;
+    void updateCollection(project.id, { name: state.project.name, color: state.project.color, project: next });
+  }, [live.state, shared, project, updateCollection]);
+  // A link into the project — `&at=` a place in it, `&room=` an invitation — read once, as the page opens.
+  const asked = useRef(typeof window === 'undefined' ? null : placeFor(currentAddress()));
+  const [joining, setJoining] = useState<string | null>(null);
+  useEffect(() => {
+    const place = asked.current;
+    if (!place?.at || view.kind !== 'project' || !tab) return;
+    asked.current = { ...place, at: undefined };
+    const jump = atFrom(view.id, tab, place.at);
+    if (jump) requestJump(jump);
+  }, [view, tab]);
+  useEffect(() => {
+    const place = asked.current;
+    const join = place?.join;
+    if (!join || !user || view.kind !== 'project') return;
+    asked.current = { ...place!, join: undefined };
+    if (project?.project.shared?.room === join.room) return;
+    setJoining('Joining the project…');
+    void joinRoom(join.room, join.token, user)
+      .then(async (state) => {
+        const was = projects.find((item) => item.id === state.project.id);
+        await adoptCollection({ id: state.project.id, name: state.project.name, color: state.project.color, createdAt: was?.createdAt ?? state.project.startedAt ?? new Date().toISOString(), project: fromSummary(state.project, { room: state.room, owner: state.owner, role: state.role }, was?.project) });
+        setJoining(null);
+        onView({ kind: 'project', id: state.project.id });
+      })
+      .catch((error: Error) => setJoining(`This project couldn’t be joined: ${error.message}`));
+  }, [user, view, project, projects, adoptCollection, onView]);
   // Asked for while the page is already open: the page is not mounted afresh, so it is told.
   useEffect(() => {
     const ask = () => {
@@ -161,8 +227,8 @@ export default function ProjectsPage({
     body = (
       <div className="pj-scroll">
         <div className="pj-empty">
-          <h1>No project here</h1>
-          <p>It may have been deleted, or it was made by another account. Projects are kept with your library.</p>
+          <h1>{joining === 'Joining the project…' ? 'Joining…' : 'No project here'}</h1>
+          <p>{joining ?? (asked.current?.join && !user ? 'Sign in with Google to join the project you were invited to.' : 'It may have been deleted, or it was made by another account. Projects are kept with your library.')}</p>
           <button type="button" className="btn primary" onClick={() => onView({ kind: 'projects' })}>
             See your projects
           </button>
@@ -180,6 +246,16 @@ export default function ProjectsPage({
   return (
     <main className={`main pj-page${view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace') ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
+      {live.following && shared && live.state ? (
+        <div className="pj-following" style={{ '--who': live.state.members.find((member) => member.email === live.following)?.color ?? 'var(--accent)' } as CSSProperties}>
+          <span>
+            Following <b>{live.state.members.find((member) => member.email === live.following)?.name ?? live.following}</b> — the page goes where they go: tab, file, line. <kbd>Esc</kbd> or any edit stops.
+          </span>
+          <button type="button" className="btn sm" onClick={() => follow(null)}>
+            Stop following
+          </button>
+        </div>
+      ) : null}
       {body}
       {creating ? (
         <NewProjectDialog
@@ -287,6 +363,7 @@ function ProjectBar({
         </button>
       </div>
       <div style={{ flex: 1 }} />
+      {current ? <PresenceBar project={current} onView={onView} /> : null}
       <button type="button" className="btn sm" onClick={onNew}>
         <PlusIcon size={13} /> New project
       </button>
@@ -885,6 +962,16 @@ function ProjectWorkspace({
     rememberWorkspacePaper(project.id, id);
     setAdding(false);
   };
+  // Where you are, to the others in a shared project: the paper being read. A jump to a paper opens it here.
+  useEffect(() => {
+    if (focus !== 'read' || !shown) return;
+    reportPlace({ tab: 'read', paperId: shown.id, title: shown.title });
+  }, [focus, shown?.id, shown?.title]); // eslint-disable-line react-hooks/exhaustive-deps
+  useJumps(
+    'read',
+    project.id,
+    useCallback((jump) => void (jump.paperId && mine.some((paper) => paper.id === jump.paperId) && pick(jump.paperId)), [mine]), // eslint-disable-line react-hooks/exhaustive-deps
+  );
   // The search fills the paper pane while adding, and whenever there is nothing to read.
   const finding = adding || !shown;
   // The app is told which paper is up, so that Explain — a page of the app's, over everything — is about it.

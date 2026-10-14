@@ -1,0 +1,56 @@
+<div class="ws">
+ <aside class="side"><div class="back">← All LaTeX projects</div>
+  <h4>Files<span class="sp"></span><i>+ file</i><i>+ folder</i><i>upload</i></h4>
+  <div class="tree"><div>iclr2027_conference.sty</div><div>main.tex<span class="mt">main</span></div><div>refs.bib</div><div>sections/intro.tex</div><div class="on">sections/related.tex<span class="pp"><span class="d"></span>Priya</span></div><div>sections/method.tex</div><div>sections/results.tex</div></div>
+  <h4 style="margin-top:18px">Cite · 5<span class="sp"></span><i>▾</i></h4>
+  <div class="cite"><div class="c"><b>Auxiliary-Loss-Free Load Balancing Strategy for Mixture-of-Experts</b><small>wang2024auxiliary</small><div class="tags"><span class="chip acc" style="height:18px;font-size:10px">official · arXiv</span><span class="muted" style="font-size:10.5px">read, not cited</span></div></div><div class="c" style="background:var(--surface);border:1px solid var(--border)"><b>Switch Transformers: Scaling to Trillion Parameter Models</b><small>fedus2021switch</small><div class="tags"><span class="pp m idle" style="margin:0"><span class="d"></span>Marco is reading this · p.6</span></div></div><div class="c"><b>Mixture-of-Experts with Expert Choice Routing</b><small>zhou2022expert</small></div></div>
+  <div class="foot"><span style="text-decoration:underline">Overleaf …c3d4e5</span><span style="text-decoration:underline">Switch</span><span class="sp" style="flex:1"></span><span class="muted">Priya's MacBook</span></div>
+ </aside>
+ <section class="center">
+  <div class="fhdr">sections/related.tex<span class="sp"></span><span class="ico"><span class="on">▯</span><span>▭</span><span>▬</span></span><span class="muted">⇄</span><span class="muted">⤢</span></div>
+  <div class="ed"><div class="ln">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+<span style="color:#8a3a6e;opacity:1;font-weight:600">16</span>
+17
+18
+19
+20</div><pre><span class="cm">\section</span>{<span class="ar">Related work</span>}
+<span class="cm">\paragraph</span>{<span class="ar">Load balancing.</span>}
+Most MoE models keep experts busy with an auxiliary loss on
+the router~<span class="cm">\cite</span>{<span class="ky">fedus2021switch,zoph2022stmoe</span>}.
+Its weight trades balance against quality: too small and
+experts collapse, too large and the LM loss
+suffers~<span class="cm">\cite</span>{<span class="ky">zoph2022stmoe</span>}.
+Expert choice routing side-steps this by letting experts pick
+tokens.
+
+<span class="cm">\paragraph</span>{<span class="ar">Routing at scale.</span>}
+GShard~<span class="cm">\cite</span>{<span class="ky">lepikhin2020gshard</span>} trained a 600B-parameter MoE
+with top-2 gating.
+<span class="sel">Top-1 routing was later shown to be enough, and cheaper, at
+the same quality</span>~<span class="cm">\cite</span>{<span class="ky">fedus2021switch</span>}, and DeepSeek-V3 drops the
+auxiliary loss altogether<span class="caret" data-n="Priya"></span>
+
+<span class="cm">\paragraph</span>{<span class="ar">Bias-based balancing.</span>}
+<span class="cur-line">Closest to us, a per-expert bias used only for selection,<span class="me-caret"></span></span>updated from the load each batch, balances without a loss.
+</pre><div class="track"><i style="top:355px"></i><i class="me" style="top:421px"></i></div></div>
+  <div class="wfoot" style="border-top:1px solid var(--border-soft)"><span class="live"></span>Live · 3 here · <b style="color:#8a3a6e;font-weight:500">Priya</b>&nbsp;is typing in this file<span class="muted">·</span>Saved<span class="muted">·</span>Synced to Overleaf 4 s ago<span class="muted">·</span><a>1 claim without a citation</a><span class="sp"></span>Ln 19</div>
+ </section>
+ <aside class="pane"><div class="hd">PDF <span class="muted" style="font-weight:400">Compile on</span><span class="segm" style="padding:1px"><span class="on" style="padding:3px 8px;font-size:11px">This computer</span><span style="padding:3px 8px;font-size:11px">Cloud Run</span></span><span class="sp"></span><span class="btn sm primary" style="height:26px">Recompile</span></div>
+  <div class="pdfbg"><div class="page"><h5 style="margin-top:0">2&nbsp;&nbsp;Related work</h5><p><b>Load balancing.</b> Most MoE models keep experts busy with an auxiliary loss on the router <span class="ref">[9, 37]</span>. Its weight trades balance against quality: too small and experts collapse, too large and the LM loss suffers <span class="ref">[37]</span>. Expert choice routing side-steps this by letting experts pick tokens.</p><p><b>Routing at scale.</b> GShard <span class="ref">[18]</span> trained a 600B-parameter MoE with top-2 gating. <span class="theirs">Top-1 routing was later shown to be enough, and cheaper, at the same quality <span class="ref">[9]</span>, and DeepSeek-V3 drops the auxiliary loss altogether</span></p><p><b>Bias-based balancing.</b> <span class="new">Closest to us, a per-expert bias used only for selection, updated from the load each batch, balances without a loss.</span></p><p style="color:#999">…</p></div></div>
+  <div class="wfoot"><span class="live"></span>Compiled on this computer · 2.1 s<span class="sp"></span>0 errors · 1 warning</div>
+ </aside>
+</div>

@@ -316,6 +316,8 @@ export interface ProxyHealth {
   web: boolean;
   /** The Google OAuth client ID it checks sign-ins against (public, as client IDs are): the one this site signs in, and reaches Drive and Colab, with. */
   googleClientId: string;
+  /** Whether it can send mail: an invitation to a shared project goes to the address invited (server/mail.js). */
+  mail?: boolean;
 }
 
 const healthOf = new Map<string, Promise<ProxyHealth | null>>();

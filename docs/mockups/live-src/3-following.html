@@ -1,0 +1,59 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="live.css"><style>.pp .d{background:#fff}</style></head><body><div class="app"><!--RAIL--><main class="main"><!--TOP-->
+<div class="pjbar"><span class="which"><span class="mk">SG</span>Sparse-gated MoE <i>⌄</i></span><div class="segm"><span>Overview</span></div><div class="segm"><span>Read</span><span class="on">Code</span><span>Write</span></div><span class="sp"></span>
+ <div class="people"><span class="av p ring">P<span class="st"></span></span><span class="av m away">M<span class="st idle"></span></span><span class="av me">S<span class="st"></span></span><span class="n" style="color:#c98ab4">Following Priya</span></div>
+ <span class="btn sm"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0M17 8v6M14 11h6"/></svg>Share</span>
+ <span class="btn sm">+ New project</span></div>
+<div class="ws">
+ <aside class="side"><h4>Files · this PC · moe-router<span class="sp"></span><i>+</i></h4>
+  <div class="tree"><div class="dir">results</div><div class="dir">data</div><div>main.py<span class="sz">1.2 KB</span></div><div>README.md<span class="pp m idle"><span class="d"></span>Marco</span></div><div>train.py<span class="sz">2.6 KB</span></div><div class="on">router.py<span class="pp"><span class="d"></span>Priya</span></div><div>requirements.txt<span class="sz">96 B</span></div></div>
+  <h4 style="margin-top:18px">On GPU box</h4>
+  <div class="tree"><div class="dir">results</div><div>main.py<span class="sz">1.2 KB</span></div><div>train.py<span class="sz">2.6 KB</span></div><div>router.py<span class="sz">3.8 KB</span></div></div>
+ </aside>
+ <section class="center">
+  <div class="follow"><span class="av p" style="width:20px;height:20px;font-size:8px;margin:0;border:0">P</span>Following Priya — the editor goes where Priya goes: file, line, selection<span class="sp"></span><span class="k">Esc</span> or any edit stops<span class="btn">Stop following</span></div>
+  <div class="tabs"><span>README.md ×</span><span>train.py ×</span><span class="on">router.py × <span class="pp" style="margin:0"><span class="d"></span>Priya</span></span><span class="sp"></span><span class="saved">opened for you · Saved · live</span></div>
+  <div class="ed card" style="height:420px"><div class="ln">110
+111
+112
+113
+114
+115
+116
+117
+<span style="color:#c98ab4;opacity:1;font-weight:600">118</span>
+119
+120
+121
+122
+123
+124
+125
+126
+127</div><pre><span class="k1">class</span> <span class="k2">Router</span>(nn.Module):
+    <span class="k1">def</span> <span class="k2">__init__</span>(self, d_model, n_experts, k=<span class="k5">2</span>):
+        <span class="k2">super</span>().__init__()
+        self.gate = nn.Linear(d_model, n_experts, bias=<span class="k1">False</span>)
+        self.bias = nn.Parameter(torch.zeros(n_experts), requires_grad=<span class="k1">False</span>)
+        self.k = k
+
+    <span class="k1">def</span> <span class="k2">forward</span>(self, x):
+        scores = self.gate(x)                       <span class="sel"><span class="k4"># (tokens, experts)</span></span><span class="caret" data-n="Priya"></span>
+        <span class="k4"># The bias picks the experts; the gate value stays the raw score.</span>
+        top = torch.topk(scores + self.bias, self.k, dim=-<span class="k5">1</span>).indices
+        gate = torch.gather(scores.softmax(-<span class="k5">1</span>), -<span class="k5">1</span>, top)
+        self.last_loads = torch.bincount(top.flatten(), minlength=scores.shape[-<span class="k5">1</span>]).float()
+        self.last_loads /= self.last_loads.sum()
+        <span class="k1">return</span> top, gate
+
+    <span class="k1">def</span> <span class="k2">extra_repr</span>(self):
+        <span class="k1">return</span> <span class="k3">f"k={self.k}, experts={self.bias.numel()}"</span></pre><div class="track"><i style="top:200px"></i></div></div>
+  <div class="con"><div class="h">Console <span class="m">GPU box · ~/moe-router</span></div><pre><span class="p">$</span> python train.py
+step 150  loss=2.22  max_load=0.14</pre></div>
+  <div class="sbar"><span class="live"></span>Following <b style="color:#c98ab4;font-weight:500">Priya</b>&nbsp;· router.py:118<span class="sp"></span>Synced to GPU box 3 s ago</div>
+ </section>
+</div>
+</main></div>
+<span class="pin" style="left:330px;top:94px">1</span><span class="pin" style="left:1064px;top:50px">2</span><span class="pin" style="left:690px;top:131px">3</span><span class="pin" style="left:300px;top:308px">4</span>
+<div class="notes" style="left:340px;top:640px;width:1080px"><div class="callout" style="width:262px"><span class="n">1</span><b>Following</b> is a mode with a banner, in Priya's colour, so it cannot be mistaken for your own place. <b>Esc</b>, or typing anything, ends it.</div><div class="callout" style="width:262px"><span class="n">2</span>The bar says who you are following; Priya's avatar is ringed. (Priya is told nothing: following is yours alone to see.)</div><div class="callout" style="width:262px"><span class="n">3</span>Priya moved from train.py to router.py, so <b>the tab opened for you</b> and scrolled to line 118; the selection came with it.</div><div class="callout" style="width:262px"><span class="n">4</span>Dark theme, as the app has. The person's colour is lifted so the caret and name stay readable on the dark surface.</div></div>
+<div class="step">3 · Following someone (dark)</div>
+</body></html>
