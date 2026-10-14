@@ -348,6 +348,18 @@ await page.getByRole('button', { name: 'Share', exact: true }).click();
 check('and the dialog offers to share it', /Share this project/.test(await page.locator('.pj-share').innerText()));
 await shot('7-share-first');
 
+console.log('a copy of a project, from the board');
+await page.keyboard.press('Escape');
+await page.locator('.pj-which-btn').click();
+await page.getByRole('menuitem', { name: 'All projects' }).click();
+await page.locator('.pj-card', { hasText: 'Reading list' }).getByRole('button', { name: 'Make a copy' }).click();
+await page.locator('.pj-collab').waitFor({ timeout: 10000 });
+check('the copy opens, named as one', /Reading list \(copy\)/.test(await page.locator('.pj-page').innerText()));
+await page.locator('.pj-which-btn').click();
+await page.getByRole('menuitem', { name: 'All projects' }).click();
+check('and is on the board beside the original', (await page.locator('.pj-card', { hasText: 'Reading list (copy)' }).count()) === 1 && (await page.locator('.pj-card', { hasText: 'Reading list' }).count()) === 2);
+await shot('18-copy');
+
 await browser.close();
 if (problems.length) {
   console.log(`\n${problems.length} problem(s):\n  ${problems.join('\n  ')}`);

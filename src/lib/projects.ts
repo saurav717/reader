@@ -28,6 +28,28 @@ export function newProjectInfo(question = '', now = new Date()): ProjectInfo {
   return { question: question.trim(), startedAt: now.toISOString(), roles: {}, todos: [] };
 }
 
+/** The name a copy takes: "X (copy)", then "X (copy 2)" beside one already so named. */
+export function copyName(name: string, taken: Iterable<string>): string {
+  const have = new Set([...taken].map((item) => item.trim().toLowerCase()));
+  const first = `${name} (copy)`;
+  if (!have.has(first.toLowerCase())) return first;
+  for (let n = 2; ; n++) if (!have.has(`${name} (copy ${n})`.toLowerCase())) return `${name} (copy ${n})`;
+}
+
+/**
+ * A project of your own made from another: its question, its papers' roles and its to-do list (not yet done, with ids
+ * of their own), started now. What is not copied is what belongs to the original alone — its code, its Overleaf
+ * project, its GitHub repository, its meetings, and whoever it is shared with. The papers are the caller's to add.
+ */
+export function copyOf(project: Project, taken: Iterable<string>, now = new Date(), id: () => string = () => `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`): { name: string; color: string; project: ProjectInfo } {
+  const info = project.project;
+  return {
+    name: copyName(project.name, taken),
+    color: project.color,
+    project: { question: info.question, startedAt: now.toISOString(), roles: { ...info.roles }, todos: info.todos.map((todo) => ({ id: id(), text: todo.text, done: todo.done })) },
+  };
+}
+
 /**
  * A collection's project as it can be relied on, or null when it is not one.
  * What came from Drive was written by any version of the app, or by hand:

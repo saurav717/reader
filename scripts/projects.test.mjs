@@ -112,3 +112,17 @@ describe('a project’s mark', () => {
     assert.equal(pj.initialsOf('  '), '?');
   });
 });
+
+describe('a copy of a project', () => {
+  it('takes the question, the roles and the to-dos with ids of their own, starts now, and leaves the rest behind', () => {
+    const source = { ...collection('p', { ...pj.newProjectInfo('Why?', new Date('2026-01-01')), roles: { a: 'core' }, todos: [{ id: 't1', text: 'Read a', done: true }], playgroundId: 'pg', overleaf: { id: 'ov' }, codeRepo: { full: 'x/y' }, meetings: { m: { title: 'Sync', taggedAt: '2026-01-02' } }, shared: { room: 'r', owner: 'o@x', role: 'editor' } }), name: 'MoE', color: '#123' };
+    const copy = pj.copyOf(source, ['MoE'], new Date('2026-10-14T12:00:00Z'), () => 'fresh');
+    assert.deepEqual(copy, { name: 'MoE (copy)', color: '#123', project: { question: 'Why?', startedAt: '2026-10-14T12:00:00.000Z', roles: { a: 'core' }, todos: [{ id: 'fresh', text: 'Read a', done: true }] } });
+    assert.notEqual(copy.project.roles, source.project.roles, 'its own record');
+  });
+  it('is named beside the copies there already are', () => {
+    assert.equal(pj.copyName('MoE', ['MoE']), 'MoE (copy)');
+    assert.equal(pj.copyName('MoE', ['MoE', 'moe (copy)']), 'MoE (copy 2)');
+    assert.equal(pj.copyName('MoE', ['MoE', 'MoE (copy)', 'MoE (copy 2)']), 'MoE (copy 3)');
+  });
+});

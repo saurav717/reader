@@ -31,6 +31,7 @@ import {
   ROLES,
   byRole,
   continueWith,
+  copyOf,
   initialsOf,
   lastActive,
   newProjectInfo,
@@ -117,7 +118,7 @@ export default function ProjectsPage({
   /** The paper up in the workspace, for Explain to be about; null with none, or on leaving. */
   onReading?: (id: string | null) => void;
 }) {
-  const { collections, settings, user, papers, adoptCollection, updateCollection, deleteCollection } = useStore();
+  const { collections, settings, user, papers, adoptCollection, createCollection, updateCollection, deleteCollection, setPaperCollections } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
   // "New project…" from the rail's project menus: the page opens with the dialog up.
   const [creating, setCreating] = useState(() => {
@@ -186,6 +187,24 @@ export default function ProjectsPage({
       if (view.kind === 'project' && view.id === gone.id) onView({ kind: 'projects' });
     },
     [updateCollection, deleteCollection, view, onView],
+  );
+  // A copy of a project, as one of your own: a new collection with the same papers, question, roles and to-dos (src/lib/projects.ts, `copyOf`).
+  const [copying, setCopying] = useState<string | null>(null);
+  const copyProject = useCallback(
+    async (source: Project) => {
+      if (copying) return;
+      setCopying(source.id);
+      try {
+        const made = copyOf(source, collections.map((item) => item.name));
+        const collection = await createCollection(made.name);
+        await updateCollection(collection.id, { color: made.color, project: made.project });
+        for (const paper of papers) if (paper.collectionIds.includes(source.id)) await setPaperCollections(paper.id, [...paper.collectionIds, collection.id]);
+        onView({ kind: 'project', id: collection.id });
+      } finally {
+        setCopying(null);
+      }
+    },
+    [copying, collections, papers, createCollection, updateCollection, setPaperCollections, onView],
   );
   useEffect(() => {
     if (!shared || !project || live.room !== shared.room || live.status !== 'error' || !live.error) return;
@@ -276,7 +295,7 @@ export default function ProjectsPage({
 
   let body: ReactNode;
   if (view.kind === 'projects') {
-    body = <ProjectBoard projects={projects} onEnter={(id, mode) => onView(mode ? { kind: 'project', id, ...(mode === 'workspace' ? { mode } : {}) } : projectView(id, opensOn))} onNew={() => setCreating(true)} />;
+    body = <ProjectBoard projects={projects} onCopy={copyProject} copying={copying} onEnter={(id, mode) => onView(mode ? { kind: 'project', id, ...(mode === 'workspace' ? { mode } : {}) } : projectView(id, opensOn))} onNew={() => setCreating(true)} />;
   } else if (!project) {
     body = (
       <div className="pj-scroll">
@@ -298,7 +317,7 @@ export default function ProjectsPage({
   } else if (view.mode === 'read' || view.mode === 'workspace') {
     body = <ProjectWorkspace key={`${project.id}:${view.mode}`} project={project} focus={view.mode === 'read' ? 'read' : 'code'} onView={onView} onOpenPaper={onOpenPaper} explaining={explaining} onToggleExplain={onToggleExplain} onReading={onReading} />;
   } else {
-    body = <ProjectOverview key={project.id} project={project} projects={projects} onView={onView} onOpenPaper={onOpenPaper} onAddPapers={onAddPapers} />;
+    body = <ProjectOverview key={project.id} project={project} projects={projects} onView={onView} onOpenPaper={onOpenPaper} onAddPapers={onAddPapers} onCopy={copyProject} copying={copying === project.id} />;
   }
 
   return (
@@ -449,7 +468,7 @@ function ProjectBar({
 
 // ------------------------------------------------------------ the board --
 
-function ProjectBoard({ projects, onEnter, onNew }: { projects: Project[]; onEnter: (id: string, mode?: 'overview' | 'workspace') => void; onNew: () => void }) {
+function ProjectBoard({ projects, onEnter, onNew, onCopy, copying }: { projects: Project[]; onEnter: (id: string, mode?: 'overview' | 'workspace') => void; onNew: () => void; onCopy: (project: Project) => void; copying: string | null }) {
   const { papers } = useStore();
   const playgrounds = usePlaygrounds();
   useEffect(() => {
@@ -546,6 +565,9 @@ function ProjectBoard({ projects, onEnter, onNew }: { projects: Project[]; onEnt
                 <button type="button" className="btn sm" onClick={() => onEnter(project.id, 'workspace')}>
                   <CodeIcon size={13} /> Workspace
                 </button>
+                <button type="button" className="btn sm pj-card-copy" title="A project of your own with the same papers, question, roles and to-dos" disabled={copying !== null} onClick={() => onCopy(project)}>
+                  {copying === project.id ? 'Copying…' : 'Make a copy'}
+                </button>
               </div>
             </article>
           );
@@ -568,12 +590,16 @@ function ProjectOverview({
   onView,
   onOpenPaper,
   onAddPapers,
+  onCopy,
+  copying,
 }: {
   project: Project;
   projects: Project[];
   onView: (view: View) => void;
   onOpenPaper: (id: string) => void;
   onAddPapers: () => void;
+  onCopy: (project: Project) => void;
+  copying: boolean;
 }) {
   const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection } = useStore();
   const info = project.project;
@@ -769,6 +795,9 @@ function ProjectOverview({
               <Swatches value={project.color} onPick={(color) => void updateCollection(project.id, { color })} />
             </div>
             <div className="pj-row">
+              <button type="button" className="btn sm" title="A project of your own with the same papers, question, roles and to-dos — not its code, Overleaf project or sharing" disabled={copying} onClick={() => onCopy(project)}>
+                {copying ? 'Copying…' : 'Make a copy'}
+              </button>
               <button
                 type="button"
                 className="btn sm"

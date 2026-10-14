@@ -1165,7 +1165,10 @@ here now. The owner has the say there: each person's role is a switch,
 member has **Leave the project**. Someone taken out no longer has the
 project at all — it was the owner's, not theirs — and is told so once on
 the board; the papers it brought them stay in their library, as a deleted
-project's do.
+project's do. To keep a version of your own, shared or not, **Make a copy**
+on the board's card or in the project's settings makes a new project with
+the same papers, question, roles and to-dos — not its code, Overleaf
+project or sharing.
 
 ![A project's overview with its Collaborators row: each person with their role and where they are, an invitation waiting, and Invite someone](docs/live-overview-collaborators.png)
 
