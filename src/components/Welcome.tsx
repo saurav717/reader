@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { basePath, currentAddress, placeFor } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
-import { prepare as prepareGoogle, SIGN_IN_REQUIRED, suggestAccount } from '../lib/google';
+import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
 import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
 import { linkGreeting, pendingInvite, type Greeting } from '../lib/invites';
 import { initials } from '../lib/presence';
@@ -33,11 +33,8 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
   }, [signingIn]);
   const waitingOnCaptcha = signingIn && Boolean(siteKey) && !solved;
 
-  // Opened from a project's invitation (`?room=…&as=…`): the account it is for, which the sign-in offers first.
-  const [invitedAs] = useState(() => (typeof window === 'undefined' ? null : placeFor(currentAddress())?.join?.as ?? null));
-  useEffect(() => {
-    if (invitedAs && !user) suggestAccount(invitedAs);
-  }, [invitedAs, user]);
+  // Opened from a project's invitation (`?room=…&for=…`): for one account, which the link does not name.
+  const [invited] = useState(() => (typeof window === 'undefined' ? false : Boolean(placeFor(currentAddress())?.join)));
   // Opened from someone's invite link (`?invite=`): who asked, and their note, over the page everyone sees.
   const [greeting, setGreeting] = useState<Greeting | null>(null);
   useEffect(() => {
@@ -65,15 +62,15 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         <div className="brand" style={{ width: 44, height: 44, fontSize: 25, marginBottom: 18 }}>
           R
         </div>
-        {invitedAs && !user ? (
+        {invited && !user ? (
           <div className="welcome-greeting">
             <span className="pj-av is-lg" style={{ background: '#8a3a6e' }}>
-              {initials(invitedAs)}
+              ✉
             </span>
             <div>
               <b>You’re invited to a project</b>
               <p style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.5, color: 'var(--ink-2)' }}>
-                The invitation is for <b>{invitedAs}</b>. Sign in with Google as that account and the project opens; signed in as anyone else, the link says so and opens nothing.
+                Sign in with Google as the account the invitation was emailed to, and the project opens. Signed in as anyone else, the link says so and opens nothing.
               </p>
             </div>
           </div>

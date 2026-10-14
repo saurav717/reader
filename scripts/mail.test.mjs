@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { invitationMail, mailConfigured, mailProvider, sendMail, tryItMail } = await import('../server/mail.js');
+const { addressTag, invitationMail, mailConfigured, mailProvider, sendMail, tryItMail } = await import('../server/mail.js');
 
 describe('which provider', () => {
   it('is told by the key, or named', () => {
@@ -70,6 +70,15 @@ describe('an invitation to try Reader', () => {
     const sharp = tryItMail({ to: 'c@uni.edu', inviter: 'S', inviterEmail: 's@x.org', note: '<script>x</script>', link: 'https://site/' });
     assert.match(sharp.html, /&lt;script&gt;/);
     assert.doesNotMatch(sharp.html, /<script>/);
+  });
+});
+
+describe('the tag of an address', () => {
+  it('is twelve hex digits, the same for the same address however written, and tells nothing of it', async () => {
+    const tag = await addressTag('Dana@ethz.ch');
+    assert.match(tag, /^[0-9a-f]{12}$/);
+    assert.equal(tag, await addressTag(' dana@ethz.ch '));
+    assert.notEqual(tag, await addressTag('dana@ethz.de'));
   });
 });
 

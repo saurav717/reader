@@ -102,10 +102,10 @@ export default function ShareProject({ project, onClose }: { project: Project; o
     }
   };
 
-  const link = (token?: string | null, to?: string) => {
+  const link = (token?: string | null, tag?: string) => {
     if (!shared) return '';
     const path = pathFor({ view: { kind: 'project', id: project.id } }, basePath());
-    return `${window.location.origin}${path}&room=${shared.room}${token ? `&join=${token}` : ''}${to ? `&as=${encodeURIComponent(to)}` : ''}`;
+    return `${window.location.origin}${path}&room=${shared.room}${token ? `&join=${token}` : ''}${tag ? `&for=${tag}` : ''}`;
   };
   const copy = (what: string, text: string) => void navigator.clipboard?.writeText(text).then(() => (setCopied(what), window.setTimeout(() => setCopied(null), 1500)));
 
@@ -201,7 +201,7 @@ export default function ShareProject({ project, onClose }: { project: Project; o
                   </div>
                   <span className="pj-share-role">{invitation.role === 'editor' ? 'Can edit' : 'Can view'}</span>
                   <span className="pj-share-row-acts">
-                    <button type="button" className="link-btn" onClick={() => copy(invitation.email, link(undefined, invitation.email))}>
+                    <button type="button" className="link-btn" onClick={() => copy(invitation.email, link(undefined, invitation.tag))}>
                       {copied === invitation.email ? 'Copied' : 'Copy link'}
                     </button>
                     {mails && (owner || mine === 'editor') ? (

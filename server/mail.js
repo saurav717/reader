@@ -16,6 +16,16 @@
  * to and what about, and answers whether the provider took it.
  */
 
+/**
+ * An address as a link may carry it: the first twelve hex digits of its SHA-256, lower-cased. The page hashes the
+ * account signed in and compares, so a link says which account it is for without saying the address to anyone else.
+ */
+export async function addressTag(email) {
+  const bytes = new TextEncoder().encode(`reader-invite:${String(email || '').trim().toLowerCase()}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].slice(0, 6).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 const PROVIDERS = {
   brevo: {
     url: 'https://api.brevo.com/v3/smtp/email',

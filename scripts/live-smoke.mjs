@@ -109,10 +109,12 @@ check('it greets by the inviter’s name, with the note', /Priya Natarajan invit
 await shot('9-welcome-invited');
 
 console.log('a project invitation, signed out');
-await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&as=priya%40example.org`, { waitUntil: 'networkidle' });
-const projectGreeting = page.locator('.welcome-greeting', { hasText: 'invitation is for' });
+const { createHash } = await import('node:crypto');
+const tagOf = (email) => createHash('sha256').update(`reader-invite:${email.trim().toLowerCase()}`).digest('hex').slice(0, 12);
+await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&for=${tagOf('priya@example.org')}`, { waitUntil: 'networkidle' });
+const projectGreeting = page.locator('.welcome-greeting', { hasText: 'invited to a project' });
 await projectGreeting.waitFor({ timeout: 10000 });
-check('the welcome page names the account the invitation is for', /invitation is for priya@example\.org/.test(await projectGreeting.innerText()), await projectGreeting.innerText());
+check('the welcome page says the invitation is for one account, without naming it', /account the invitation was emailed to/.test(await projectGreeting.innerText()) && !/priya/.test(await projectGreeting.innerText()), await projectGreeting.innerText());
 await shot('9b-welcome-project-invite');
 
 console.log('the project bar: who is here');
@@ -131,11 +133,11 @@ check('four avatars, the one gone dimmed', (await page.locator('.pj-avatars .pj-
 await shot('1-bar');
 
 console.log('an invitation opened by the wrong account');
-await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&as=saurav.varaprasad%40gmail.com`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/project/?id=p-moe&room=${ROOM}&for=${tagOf('saurav.varaprasad@gmail.com')}`, { waitUntil: 'networkidle' });
 await pastWelcome();
 await page.locator('.pj-notice').waitFor({ timeout: 10000 });
 const notice = await page.locator('.pj-notice').innerText();
-check('the owner opening an invitee’s link is told whom it was for', /invitation for saurav\.varaprasad@gmail\.com, not for me@example\.org/.test(notice) && /opened your own copy of the project, as its owner/.test(notice), notice);
+check('the owner opening an invitee’s link is told it was for another account, which is not named', /invitation for another account, not for me@example\.org/.test(notice) && /opened your own copy of the project, as its owner/.test(notice) && !/varaprasad/.test(notice), notice);
 await shot('15-wrong-account');
 await page.locator('.pj-notice').getByRole('button', { name: 'Got it' }).click();
 

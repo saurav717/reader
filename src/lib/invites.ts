@@ -68,6 +68,13 @@ export const waitingInvitations = () => apiFetch('/invites/inbox').then((respons
 /** The owner's tally, asked as the Usage page asks its own routes (lib/owner.ts). */
 export const invitesReport = () => ownerFetch('/usage/invites').then((response) => answer<InvitesReport>(response));
 
+/** The tag a project's invitation link carries for an address (server/mail.js, `addressTag`): the same twelve hex digits here. */
+export async function addressTag(email: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`reader-invite:${email.trim().toLowerCase()}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].slice(0, 6).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ---- the link this visit came from, kept until the sign-in it leads to
 
 const INVITE_KEY = 'reader.invite';
