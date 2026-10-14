@@ -122,6 +122,7 @@ export const defaultDriver = {
   },
   sessions: (env) => puppeteer.sessions(env.BROWSER),
   limits: (env) => puppeteer.limits(env.BROWSER),
+  history: (env) => puppeteer.history(env.BROWSER),
 };
 
 /**

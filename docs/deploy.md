@@ -364,3 +364,38 @@ How Start and Stop work:
 **Recharge** opens the billing account's payment page in the Cloud console.
 Google takes payments, prepayments and added funds only there, never through
 an API. Payments you made are listed on the same page.
+
+## Cloudflare on the Usage page
+
+The **Cloudflare** tab of the Usage page shows how much of the Workers Free
+plan the account has used today, and the week before:
+
+- **Workers**: requests, of 100,000 a day;
+- **Durable Objects**: requests (100,000 a day), duration (13,000 GB-s a day),
+  rows read (5 million a day) and written (100,000 a day), and what is stored
+  (5 GB);
+- **KV**: reads (100,000 a day), writes, deletes and lists (1,000 a day each),
+  and what is stored (1 GB);
+- **Browser Rendering**: browser time (10 minutes a day), and how many
+  browsers are open now of the 3 allowed at once.
+
+The daily allowances start again at 00:00 UTC. Past one, Cloudflare refuses
+the rest of the day, so the tab marks a meter at 70% and again at 90%. The
+counts cover the whole account, every Worker on it.
+
+The browser's time needs nothing more: the Worker asks Browser Rendering for
+its own sessions. The rest comes from Cloudflare's GraphQL Analytics API
+(`worker/cloudflare.js`), which needs a token and the account's ID:
+
+1. Dashboard → My Profile → API Tokens → **Create Token** → Custom token, with
+   the one permission **Account → Account Analytics → Read**, for this account.
+2. Give it to the Worker:
+
+   ```sh
+   npx wrangler secret put CLOUDFLARE_API_TOKEN
+   ```
+
+3. Put the account ID (dashboard → Workers & Pages → Account details) in
+   `wrangler.toml` as `CLOUDFLARE_ACCOUNT_ID`, and deploy.
+
+Without them the tab shows the browser alone and says what to set.
