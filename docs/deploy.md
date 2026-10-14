@@ -183,7 +183,15 @@ npx wrangler secret put MAIL_API_KEY     # xkeysib-… (Brevo), SG.… (SendGrid
 `MAIL_PROVIDER` names the provider when the key's shape does not. Without a
 key and a sender, nothing is sent and the dialog gives the owner the link to
 send. The same mail setting serves **Invite someone** (Settings, under the
-Google account): an email about Reader to anyone, with the site's address.
+Google account): an email about Reader to anyone, with the site's address —
+which also offers a personal link with a QR code, and your own mail app,
+neither of which needs mail on the Worker.
+
+The invitations ledger — who invited whom, by project, mail or link, and
+whether it took — is a Durable Object bound as `INVITES` (`wrangler.toml`,
+migration v6); `npx wrangler deploy` makes it. It feeds the projects waiting
+for someone on Home, and the **Invitations** tab of the Usage page, which is
+the owner's (`READER_OWNERS`).
 
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 

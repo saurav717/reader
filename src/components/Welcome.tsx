@@ -4,6 +4,8 @@ import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
 import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
 import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
+import { linkGreeting, pendingInvite, type Greeting } from '../lib/invites';
+import { initials } from '../lib/presence';
 
 export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () => void; onOpenSettings: () => void }) {
   const { user, driveConnected, driveRemembered, connectDrive, settings, authError } = useStore();
@@ -31,6 +33,20 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
   }, [signingIn]);
   const waitingOnCaptcha = signingIn && Boolean(siteKey) && !solved;
 
+  // Opened from someone's invite link (`?invite=`): who asked, and their note, over the page everyone sees.
+  const [greeting, setGreeting] = useState<Greeting | null>(null);
+  useEffect(() => {
+    const token = pendingInvite();
+    if (!token) return;
+    let live = true;
+    void linkGreeting(token)
+      .then((said) => live && !said.expired && setGreeting(said))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
   // The script Google's popup needs, fetched while this page is being read
   // rather than inside the click — a popup opened after an awaited download
   // has lost the user gesture that allows it, and the browser blocks it.
@@ -44,6 +60,17 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         <div className="brand" style={{ width: 44, height: 44, fontSize: 25, marginBottom: 18 }}>
           R
         </div>
+        {greeting ? (
+          <div className="welcome-greeting">
+            <span className="pj-av is-lg" style={{ background: '#1f5e52' }}>
+              {initials(greeting.byName)}
+            </span>
+            <div>
+              <b>{greeting.byName} invited you to Reader</b>
+              {greeting.note ? <blockquote>{greeting.note}</blockquote> : null}
+            </div>
+          </div>
+        ) : null}
         <h1 style={{ margin: '0 0 8px', fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 600, letterSpacing: '-0.014em' }}>
           {returning ? 'Reconnect your Drive' : 'Read papers, keep what matters'}
         </h1>

@@ -1142,12 +1142,30 @@ Only a link to this site is ever mailed, only to the address invited, and
 only as fast as a person invites (the same per-person limit as Scholar). If
 `READER_EMAILS` limits who may sign in, add the address there too.
 
-With mail set up there is also **Invite someone**, under your Google account
-in Settings and at the foot of the share dialog: not a member for a project,
-just an email to a colleague or anyone you know saying what Reader is, with a
-note of your own and the site's address, from the site's sender with you as
-the reply-to. An address that could not sign in here (`READER_EMAILS`) is
+**Invite someone**, under your Google account in Settings and at the foot of
+the share dialog, is for a colleague or anyone you know who may never have
+opened Reader — not a member for a project, just what Reader is, a note of
+your own, and the site's address. Three ways, one message: **a link to
+share**, `?invite=<token>`, with a QR code of it for a slide or a lab
+meeting — the Worker keeps your name and note under it for thirty days, and
+whoever opens it sees them on the welcome page; **an email from the site**,
+from its sender with you as the reply-to, where mail is set up; or **from
+your own mail app**, a `mailto:` with the message filled in, which needs no
+setup at all. An address that could not sign in here (`READER_EMAILS`) is
 refused with the reason rather than mailed.
+
+![The Invite someone dialog on the link way: the link, a QR code of it, Download the QR code, Copy the link](docs/live-invite-link.png)
+
+An invitation to a project needs no link in hand either: signed in, the
+projects you were invited to are cards on Home — who asked, what it is,
+your role — with **Join the project**. The ledger behind all of it
+(`worker/invites.js`, bound as `INVITES`) is what the owner's Usage page
+shows under **Invitations**: for each person, how many invitations they
+sent or made — to a project, by email, by link — how many took, and who.
+
+![Home with a card: Priya Natarajan invited you to Sparse-gated MoE, Not now, Join the project](docs/live-home-invited.png)
+
+![The Usage page's Invitations tab: totals, a row per person with project, email and link counts, and the people who took one person's invitations opened under their row](docs/live-usage-invitations.png)
 
 The people in the project then sit at the right of the project bar, on every
 tab: a stack of avatars, a green dot for someone active, dimmed for someone

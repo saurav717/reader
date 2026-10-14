@@ -74,7 +74,7 @@ export const currentAddress = () => `${window.location.pathname}${window.locatio
 export function addressWith(path: string, search: string): string {
   const [pathname, own = ''] = path.split('?');
   const params = new URLSearchParams(search);
-  for (const key of ['id', 'view', 'at', 'room', 'join']) params.delete(key);
+  for (const key of ['id', 'view', 'at', 'room', 'join', 'invite']) params.delete(key);
   new URLSearchParams(own).forEach((value, key) => params.set(key, value));
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;

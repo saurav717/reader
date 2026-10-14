@@ -31,8 +31,11 @@ are static mock-ups in the app's own colours and type; their sources are in
 >   which the Worker reads as it would the Authorization header, rather
 >   than in the address.
 >
-> Step 2, editing one file together, and step 3, reading together, are not
-> built.
+> Of the invitations below, the card on Home, the link with its QR code, the
+> mail-app way and the welcome greeting are built; the ledger behind them is
+> `worker/invites.js`, and the owner's Usage page has an Invitations tab
+> from it. A paper shared by link is not. Step 2, editing one file
+> together, and step 3, reading together, are not built.
 
 ---
 

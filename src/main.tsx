@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { StoreProvider } from './lib/store';
 import { keepCompanionCompany } from './lib/appWindow';
+import { installInviteClaim } from './lib/invites';
+import { heldUser, restoredUser } from './lib/google';
 import './styles.css';
 
 // A deep link on a static host: the host's 404 page sent /reader/paper/<id>
@@ -13,6 +15,9 @@ if (route && route.startsWith(import.meta.env.BASE_URL)) window.history.replaceS
 
 // Opened by the Reader app: this window keeps the Companion running, and it shuts down with it.
 keepCompanionCompany();
+
+// Opened from someone's invite link (`?invite=`): kept for the welcome page, and taken up by the sign-in.
+installInviteClaim(() => (heldUser() ?? restoredUser())?.name);
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>

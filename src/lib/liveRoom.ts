@@ -113,6 +113,16 @@ export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvit
 
 export const joinRoom = (room: string, token: string | null, me: GoogleUser | null) => apiFetch(`/rooms/${room}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...whoAmI(me) }) }).then((response) => answer<RoomState>(response));
 
+/**
+ * A project joined, taken into this library under its owner's id — so links to it work for everyone — with
+ * whatever this copy already had kept. Answers the project's id.
+ */
+export async function adoptJoined(state: RoomState, projects: Project[], adoptCollection: (collection: { id: string; name: string; color: string; createdAt: string; project: ProjectInfo }) => Promise<void>): Promise<string> {
+  const was = projects.find((item) => item.id === state.project.id);
+  await adoptCollection({ id: state.project.id, name: state.project.name, color: state.project.color, createdAt: was?.createdAt ?? state.project.startedAt ?? new Date().toISOString(), project: fromSummary(state.project, { room: state.room, owner: state.owner, role: state.role }, was?.project) });
+  return state.project.id;
+}
+
 export const leaveRoom = (room: string) => apiFetch(`/rooms/${room}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((response) => answer<{ ok: true }>(response));
 
 // ----------------------------------------------------------- socket -------

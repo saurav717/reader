@@ -70,6 +70,7 @@ async function seed() {
   await page.evaluate(
     async ({ PASS, ROOM, ME }) => {
       localStorage.setItem('reader.welcomed', 'true');
+      localStorage.setItem('reader.tour', 'seen');
       localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), navStyle: 'labelled', googleClientId: '', proxyToken: PASS }));
       const db = await new Promise((resolve, reject) => {
         const request = indexedDB.open('reader', 1);
@@ -99,6 +100,13 @@ async function seed() {
   );
 }
 const shot = (name) => page.screenshot({ path: join(OUT, `live-${name}.png`) });
+
+console.log('the welcome page, opened from an invite link');
+await page.route('**/api/invites/link/abcdefghjk**', (route) => route.fulfill({ json: { byName: 'Priya Natarajan', note: 'Have a look before Thursday?', expired: false, expiresAt: Date.now() + 86400000 } }));
+await page.goto(`${BASE}/?invite=abcdefghjk`, { waitUntil: 'networkidle' });
+await page.locator('.welcome-greeting').waitFor({ timeout: 10000 });
+check('it greets by the inviter’s name, with the note', /Priya Natarajan invited you to Reader/.test(await page.locator('.welcome-greeting').innerText()) && /Have a look before Thursday\?/.test(await page.locator('.welcome-greeting').innerText()), await page.locator('.welcome-greeting').innerText());
+await shot('9-welcome-invited');
 
 console.log('the project bar: who is here');
 await seed();
@@ -163,6 +171,7 @@ console.log('invite someone to try Reader');
 await page.route('**/api/invite', (route) => route.fulfill({ json: { ok: true, to: route.request().postDataJSON().email } }));
 await page.getByRole('button', { name: 'Just want to show someone Reader?' }).click();
 await page.locator('.invite-someone').waitFor({ timeout: 5000 });
+await page.locator('.invite-way', { hasText: 'An email from the site' }).click();
 check('the dialog takes an address and a note', (await page.locator('.invite-someone input').count()) === 1 && (await page.locator('.invite-someone textarea').count()) === 1);
 await page.locator('.invite-someone input').fill('colleague@uni.edu, other@uni.edu');
 await page.locator('.invite-someone textarea').fill('Have a look before Thursday?');
@@ -173,6 +182,70 @@ await page.locator('.invite-someone-sent li').nth(1).waitFor({ timeout: 5000 });
 const sentRows = await page.locator('.invite-someone-sent li').allInnerTexts();
 check('each address is reported sent', sentRows.length === 2 && sentRows.every((row) => /sent/.test(row)), sentRows.join(' | '));
 await page.getByRole('button', { name: 'Done' }).click();
+
+console.log('a link to share, with a QR code');
+await page.route('**/api/invites/link', (route) => route.fulfill({ json: { token: 'abcdefghjk', url: `${BASE}/?invite=abcdefghjk`, expiresAt: Date.now() + 30 * 86400000 } }));
+await page.getByRole('button', { name: 'Share' }).click();
+await page.getByRole('button', { name: 'Just want to show someone Reader?' }).click();
+await page.locator('.invite-someone').waitFor({ timeout: 5000 });
+await page.locator('.invite-someone textarea').fill('Have a look before Thursday?');
+await page.getByRole('button', { name: 'Make the link' }).click();
+await page.locator('.invite-someone .qr svg').waitFor({ timeout: 5000 });
+check('the link is shown, with a QR code of it', /invite=abcdefghjk/.test(await page.locator('.invite-link-row code').innerText()) && (await page.locator('.invite-someone .qr svg rect').count()) > 100);
+await shot('10-invite-link');
+await page.locator('.invite-way', { hasText: 'From my own mail app' }).click();
+await page.locator('.invite-someone input').fill('colleague@uni.edu');
+const mailto = await page.locator('.invite-someone a.btn.primary').getAttribute('href');
+check('the mail-app way is a mailto with the message filled in', typeof mailto === 'string' && mailto.startsWith('mailto:colleague%40uni.edu') && /Try%20it/.test(mailto), String(mailto).slice(0, 80));
+await page.getByRole('button', { name: 'Done' }).click();
+
+console.log('the projects waiting for you, on Home');
+await page.route('**/api/invites/inbox', (route) => route.fulfill({ json: { invitations: [{ id: 'e1', room: ROOM, project: 'Sparse-gated MoE', role: 'editor', by: 'priya@example.org', byName: 'Priya Natarajan', at: Date.now() - 86400000 }] } }));
+await page.route(`**/api/rooms/${ROOM}/join`, (route) => route.fulfill({ json: { ...state, me: ME, role: 'editor' } }));
+await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+await pastWelcome();
+// The bare address goes on to the page this tab left; Home is the rail's.
+const homeItem = page.getByRole('button', { name: /^Home/ }).first();
+if (await homeItem.isVisible().catch(() => false)) await homeItem.click();
+await page.locator('.home-invite').waitFor({ timeout: 10000 });
+check('the card names who invited you, to what, and your role', /Priya Natarajan invited you to/.test(await page.locator('.home-invite').innerText()) && /edit the project/.test(await page.locator('.home-invite').innerText()));
+await shot('11-home-invited');
+await page.locator('.home-invite').getByRole('button', { name: 'Join the project' }).click();
+await page.locator('.pj-people-btn').waitFor({ timeout: 10000 });
+check('Join opens the project, with the people in its bar', (await page.locator('.pj-which-btn').innerText()).includes('Sparse-gated MoE'));
+
+console.log('the owner’s Invitations tab');
+await page.route('**/api/usage/invites', (route) => route.fulfill({ json: { at: Date.now(), totals: { sent: 9, converted: 5 }, people: [
+  { email: ME, name: 'Saurav C', sent: { project: 3, mail: 2, link: 2 }, converted: { project: 2, mail: 1, link: 1 }, last: Date.now() - 3600000, people: [
+    { email: 'priya@example.org', name: 'Priya Natarajan', how: 'project', project: 'Sparse-gated MoE', at: Date.now() - 86400000 },
+    { email: 'marco@example.org', name: 'Marco Ruiz', how: 'project', project: 'Sparse-gated MoE', at: Date.now() - 2 * 86400000 },
+    { email: 'dana@ethz.ch', name: 'Dana K', how: 'mail', at: Date.now() - 3 * 86400000 },
+    { email: 'lin@example.org', name: 'Lin Zhao', how: 'link', note: 'Have a look before Thursday?', at: Date.now() - 5 * 86400000 } ] },
+  { email: 'priya@example.org', name: 'Priya Natarajan', sent: { project: 1, mail: 0, link: 1 }, converted: { project: 1, mail: 0, link: 0 }, last: Date.now() - 7 * 86400000, people: [ { email: 'kai@example.org', name: '', how: 'project', project: 'Thesis ch. 3', at: Date.now() - 8 * 86400000 } ] } ] } }));
+// The owner is whoever /usage answers: a token that is not a pass, and the usage route stood in for.
+await page.route(/\/api\/usage\?days=/, (route) => route.fulfill({ json: { since: '2026-10-01', until: '2026-10-15', people: [], totals: {} } }));
+await page.evaluate(
+  ({ ME }) => {
+    localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), proxyToken: 'owner-token' }));
+    // A Google sign-in with Drive, as this tab keeps one: the page then counts itself signed in, and asks /usage.
+    sessionStorage.setItem('reader.google.session', JSON.stringify({ accessToken: 'ya29.test', expiresAt: Date.now() + 3600_000, scopes: ['https://www.googleapis.com/auth/drive.file', 'openid', 'email', 'profile'], user: { name: 'Saurav C', email: ME } }));
+  },
+  { ME },
+);
+await page.goto(`${BASE}/usage`, { waitUntil: 'networkidle' });
+await pastWelcome();
+await page.waitForTimeout(1500);
+const usageTab = page.getByRole('tab', { name: 'Invitations' });
+if (await usageTab.isVisible().catch(() => false)) {
+  await usageTab.click();
+  await page.locator('.invites-table').waitFor({ timeout: 10000 });
+  await page.locator('.invites-row').first().click();
+  await page.locator('.invites-detail').waitFor({ timeout: 5000 });
+  check('the tab tallies each person, and opens who took their invitations', (await page.locator('.invites-row').count()) === 2 && (await page.locator('.invites-detail li').count()) === 4);
+  await shot('12-usage-invitations');
+} else {
+  console.log('  (the Usage page is not shown here: not the owner)');
+}
 
 console.log('a project that is not shared');
 await page.goto(`${BASE}/project/?id=p-plain`, { waitUntil: 'networkidle' });

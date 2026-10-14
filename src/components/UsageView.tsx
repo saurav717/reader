@@ -1,3 +1,4 @@
+import InvitesReportView from './InvitesReport';
 import { ownerFetch } from '../lib/owner';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hasProxy } from '../lib/api';
@@ -140,12 +141,13 @@ const SERVICE_SORTS: SortOption<Person>[] = [
 export const REFRESH_MS = 30_000;
 
 /** The page's tabs: who used what, and the Google Cloud project. */
-type UsageTab = 'people' | 'cloud';
+type UsageTab = 'people' | 'cloud' | 'invites';
 const TAB_KEY = 'reader.usageTab';
 
 function rememberedTab(): UsageTab {
   try {
-    return window.localStorage.getItem(TAB_KEY) === 'cloud' ? 'cloud' : 'people';
+    const kept = window.localStorage.getItem(TAB_KEY);
+    return kept === 'cloud' || kept === 'invites' ? kept : 'people';
   } catch {
     return 'people';
   }
@@ -251,6 +253,7 @@ export default function UsageView() {
               [
                 ['people', 'People & services'],
                 ['cloud', 'Google Cloud'],
+                ['invites', 'Invitations'],
               ] as const
             ).map(([id, label]) => (
               <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}>
@@ -290,7 +293,9 @@ export default function UsageView() {
             </span>
           ) : null}
           <span>
-            {tab === 'cloud'
+            {tab === 'invites'
+              ? 'who invited whom — to a project, by email or by a link — and whether it took; only you see this'
+              : tab === 'cloud'
               ? 'your Google Cloud project: services, billing and transactions — only you see this'
               : 'what everyone signed in used on your accounts — only you see this'}
           </span>
@@ -298,7 +303,9 @@ export default function UsageView() {
       </div>
 
       <div className="scroll" style={{ padding: '18px 32px 32px' }}>
-        {tab === 'cloud' ? (
+        {tab === 'invites' ? (
+          <InvitesReportView />
+        ) : tab === 'cloud' ? (
           <CloudUsage report={report} refreshedAt={updatedAt} />
         ) : report === undefined ? (
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>

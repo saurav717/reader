@@ -10,6 +10,7 @@ import { FindPapers } from './HomeSearch';
 import { CollectionsBoard } from './HomeBoard';
 import { HOME_TABS, TAB_ABOUT, TAB_LABEL, openingTab, readHomePrefs, writeHomePrefs, type HomePrefs, type HomeTab } from '../lib/homeViews';
 import { CheckIcon, ClockIcon, GridIcon, InboxIcon, OpenBookIcon, SearchIcon, StackIcon } from './icons';
+import InvitationsCard from './Invitations';
 
 interface Props {
   /** The paper G, and the pill beside the greeting, go back to. */
@@ -56,7 +57,7 @@ function greeting(now: Date, name?: string): string {
  * you were last reading fills it, shown at the page you left it on, with what
  * else is in progress, your latest highlights and what is next beside it.
  */
-export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes }: Props) {
+export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes, onOpenProject }: Props & { onOpenProject?: (id: string) => void }) {
   const { papers, highlights, user } = useStore();
   const now = new Date();
   const [prefs, setPrefs] = useState<HomePrefs>(readHomePrefs);
@@ -145,6 +146,7 @@ export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpe
   return (
     <div className="main home">
       <div className="home-scroll">
+        {onOpenProject ? <InvitationsCard onOpenProject={onOpenProject} /> : null}
         <header className="home-bar">
           <div className="home-hello">
             <span className="home-eyebrow">{now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
