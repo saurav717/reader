@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Collection, GoogleUser, Highlight, HighlightColor, JunkEntry, Paper, PaperRef, Settings } from '../types';
-import { COLLECTION_COLORS, WRITE_DEFAULTS } from '../types';
+import { CITATION_DEFAULTS, COLLECTION_COLORS, WRITE_DEFAULTS } from '../types';
 import { forgetNotes } from './notes';
 import { db, switchDb } from './db';
 import {
@@ -32,6 +32,8 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
+import { lookupCitations, setCitationOptions } from './citeRecord';
+import type { CitationRecord } from '../types';
 import { isPass, passEmail, passExpires, passForGoogle, proxyHealth, setProxyBase, setProxyToken, SignInRefused } from './api';
 import * as google from './google';
 
@@ -104,6 +106,7 @@ const defaultSettings: Settings = {
   projectNav: 'switcher',
   overleafView: 'tab',
   write: WRITE_DEFAULTS,
+  citations: CITATION_DEFAULTS,
   computeControls: 'everywhere',
   computeOff: [],
   zenHaze: 'shadow',
@@ -137,6 +140,7 @@ function readSettings(): Settings {
     if (!saved.googleClientId) saved.googleClientId = defaultSettings.googleClientId;
     // Saved before a choice was added to it: the new choice starts at its default.
     saved.runningShows = { ...defaultSettings.runningShows, ...saved.runningShows };
+    saved.citations = { ...CITATION_DEFAULTS, ...(saved.citations ?? {}) };
     saved.awayShows = { ...defaultSettings.awayShows, ...saved.awayShows };
     // Settings from before the Write tab: Overleaf beside was only the default then, and the Write tab is now.
     if (!stored.write && stored.overleafView === 'beside') saved.overleafView = 'tab';
@@ -249,6 +253,16 @@ interface StoreValue {
    */
   setPaperDriveFile: (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => Promise<void>;
   setPaperAuthors: (id: string, authors: string[]) => Promise<void>;
+  /** Change how a paper is cited: its key, the variant chosen, an entry pasted in (src/lib/citeRecord.ts). */
+  setPaperCitation: (id: string, change: Partial<CitationRecord> | ((current: CitationRecord) => CitationRecord)) => Promise<void>;
+  /**
+   * Ask the indexes for the papers' official entries — Crossref, Semantic
+   * Scholar, dblp, OpenReview — and keep what they say with each paper.
+   * Resolves once every paper has been asked for.
+   */
+  lookupPaperCitations: (ids: string[]) => Promise<void>;
+  /** The papers whose entries are being looked for right now. */
+  citationsLooking: Set<string>;
 
   createCollection: (name: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
@@ -437,6 +451,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     root.style.setProperty('--light', String(settings.glassLight));
     root.dataset.wall = settings.glassWall;
     setContactEmail(settings.contactEmail);
+    setCitationOptions(settings.citations);
     setProxyBase(settings.proxyBase);
     setProxyToken(settings.proxyToken);
   }, [settings]);
@@ -1099,10 +1114,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (junkNow.current.some((item) => item.paper.id === paper.id)) keepJunk(junkNow.current.filter((item) => item.paper.id !== paper.id));
       if (options.sync !== false && settings.autoSync && driveConnected) syncPaper(paper.id);
       queueGitHub(paper.id);
+      // Its official entries, asked for once: what the drawer and the mirror's references.bib will cite it by.
+      if ((settings.citations ?? CITATION_DEFAULTS).fetch === 'auto' && !paper.citation?.lookedAt) void lookupLater.current(paper.id);
       return paper;
     },
-    [driveConnected, keepJunk, queueGitHub, savePaper, settings.autoSync, syncPaper],
+    [driveConnected, keepJunk, queueGitHub, savePaper, settings.autoSync, settings.citations, syncPaper],
   );
+  /** addPaper is defined before the lookup is; the ref lets it call ahead. */
+  const lookupLater = useRef<(id: string) => Promise<void>>(async () => undefined);
 
   const removePaper = useCallback(
     async (id: string, options: { junkInDrive?: boolean } = {}): Promise<RemoveOutcome> => {
@@ -1281,6 +1300,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [savePaper],
   );
+
+  const setPaperCitation = useCallback(
+    async (id: string, change: Partial<CitationRecord> | ((current: CitationRecord) => CitationRecord)) => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+      if (!paper) return;
+      const current: CitationRecord = paper.citation ?? { variants: [] };
+      const citation = typeof change === 'function' ? change(current) : { ...current, ...change };
+      const updated: Paper = { ...paper, citation };
+      await savePaper(updated);
+      latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+      queueGitHub(id);
+    },
+    [savePaper, queueGitHub],
+  );
+
+  const [citationsLooking, setCitationsLooking] = useState<Set<string>>(() => new Set());
+  const lookupPaperCitations = useCallback(
+    async (ids: string[]) => {
+      const wanted = ids.filter((id) => latest.current.papers.some((item) => item.id === id));
+      if (!wanted.length) return;
+      setCitationsLooking((now) => new Set([...now, ...wanted]));
+      try {
+        // Four at a time: the indexes are shared, and a project is rarely more than a few dozen papers.
+        const queue = wanted.slice();
+        await Promise.all(
+          Array.from({ length: Math.min(4, queue.length) }, async () => {
+            for (let id = queue.shift(); id; id = queue.shift()) {
+              const paper = latest.current.papers.find((item) => item.id === id);
+              if (!paper) continue;
+              try {
+                const record = await lookupCitations(paper, latest.current.settings.citations);
+                await setPaperCitation(id, (current) => ({ ...current, ...record, key: current.key, chosen: current.chosen }));
+              } catch (error) {
+                await setPaperCitation(id, (current) => ({ ...current, lookedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) }));
+              }
+            }
+          }),
+        );
+      } finally {
+        setCitationsLooking((now) => {
+          const next = new Set(now);
+          for (const id of wanted) next.delete(id);
+          return next;
+        });
+      }
+    },
+    [setPaperCitation],
+  );
+  lookupLater.current = (id: string) => lookupPaperCitations([id]);
 
   const setPaperDriveFile = useCallback(
     async (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => {
@@ -1519,6 +1587,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setPaperPdfChoice,
       setPaperDriveFile,
       setPaperAuthors,
+      setPaperCitation,
+      lookupPaperCitations,
+      citationsLooking,
       createCollection,
       renameCollection,
       updateCollection,
@@ -1541,7 +1612,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
-      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
+      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors, setPaperCitation, lookupPaperCitations, citationsLooking,
       createCollection, renameCollection, updateCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,

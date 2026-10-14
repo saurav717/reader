@@ -128,6 +128,47 @@ export interface Paper extends PaperRef {
   pdfChoice?: string;
   drive?: DriveRecord;
   github?: GitHubRecord;
+  /** How the paper is cited: its key, and the BibTeX entries found for it (src/lib/citeRecord.ts). */
+  citation?: CitationRecord;
+}
+
+/**
+ * Where a BibTeX entry for a paper came from. `crossref` is the publisher's
+ * record by DOI, `semanticscholar` its index's, `dblp` the CS bibliography's,
+ * `openreview` the venue's own, `arxiv` the preprint's, `pasted` one put in
+ * by hand, and `generated` the one made here from the paper's record.
+ */
+export type CitationSource = 'crossref' | 'semanticscholar' | 'dblp' | 'openreview' | 'arxiv' | 'pasted' | 'generated';
+
+/** One BibTeX entry for a paper, tagged by where it came from. */
+export interface CitationVariant {
+  source: CitationSource;
+  bibtex: string;
+  fetchedAt: string;
+  /** What it was fetched by: the DOI, the arXiv id, dblp's key. */
+  of?: string;
+}
+
+/**
+ * What the library keeps of how a paper is cited. The entries are kept as
+ * variants, each by source, so the one a draft takes is a choice — made
+ * per paper here, or by Settings → Citations for every paper — and never
+ * a fetch at the moment of citing.
+ */
+export interface CitationRecord {
+  /** The cite key the paper goes by in every project; absent, the key style in Settings makes one. */
+  key?: string;
+  /** The variant to use, by source; absent, the preference in Settings picks. */
+  chosen?: CitationSource;
+  variants: CitationVariant[];
+  /** The DOI of the published version of a preprint, where an index links them. */
+  publishedDoi?: string;
+  /** Where the published version is: `JMLR 23 (2022)`. */
+  publishedIn?: string;
+  /** When the indexes were last asked. */
+  lookedAt?: string;
+  /** What the last look said when it found nothing: a network error, say. */
+  error?: string;
 }
 
 /**
@@ -377,6 +418,8 @@ export interface Settings {
   overleafView: OverleafView;
   /** How the Write tab compiles, lays out, syncs and cites: WRITE_OPTIONS. */
   write: WriteOptions;
+  /** How papers are cited everywhere: which entry, which key, the Write tab's helper: CITATION_OPTIONS. */
+  citations: CitationOptions;
   /** What a project opens on from the rail and the board: its overview, or its workspace. */
   projectOpensOn: Exclude<ProjectView, 'board'>;
   /**
@@ -612,6 +655,99 @@ export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: {
     choices: [
       { id: 'drawer', label: 'A drawer of papers', note: 'The project’s papers on the left, under the files: click one to \\cite it, with its BibTeX added.' },
       { id: 'off', label: 'None', note: 'Just the files.' },
+    ],
+  },
+];
+
+/**
+ * How papers are cited, everywhere a citation is made: the mirror's
+ * references.bib, a draft's .bib, Copy citation, the Write tab's helper.
+ */
+export interface CitationOptions {
+  /** Which BibTeX entry a draft takes: the official one where there is one, dblp's, or the one made from the record. */
+  prefer: 'official' | 'dblp' | 'generated';
+  /** How a cite key is made: lecun2015deep, lecun:2015:deep, Lecun2015, or dblp's own key where there is one. */
+  keyStyle: 'scholar' | 'colon' | 'authorYear' | 'dblp';
+  /** The Write tab's helper: a card as the caret rests at a sentence end, only when asked (⌘⇧C, \cite{?}), or none. */
+  helper: 'auto' | 'ask' | 'off';
+  /** Sentences that read like claims with no \cite nearby: counted at the foot of the Write tab, or left alone. */
+  claims: 'count' | 'off';
+  /** A preprint whose published version an index knows: switch its entry as it is found, say so and wait, or keep the preprint. */
+  published: 'ask' | 'switch' | 'keep';
+  /** When the official entries are looked for: as a paper is added, or only when asked. */
+  fetch: 'auto' | 'manual';
+  /** What Copy citation copies with one click. */
+  copy: 'bibtex' | 'biblatex' | 'ris' | 'apa' | 'ieee' | 'chicago' | 'markdown';
+}
+
+export const CITATION_DEFAULTS: CitationOptions = { prefer: 'official', keyStyle: 'scholar', helper: 'auto', claims: 'count', published: 'ask', fetch: 'auto', copy: 'bibtex' };
+
+/** Each of the citation choices, the default first. */
+export const CITATION_OPTIONS: { key: keyof CitationOptions; label: string; choices: { id: string; label: string; note: string }[] }[] = [
+  {
+    key: 'prefer',
+    label: 'The entry a draft takes',
+    choices: [
+      { id: 'official', label: 'The official one', note: 'The publisher’s record by DOI (Crossref), else the venue’s own (OpenReview), Semantic Scholar’s, dblp’s, arXiv’s; the one made here only when none was found.' },
+      { id: 'dblp', label: 'dblp first', note: 'dblp’s entry where it has one — the form most CS papers cite — then the official order.' },
+      { id: 'generated', label: 'Made from the record', note: 'Always the entry made here from the paper’s title, authors, year and venue. Nothing fetched.' },
+    ],
+  },
+  {
+    key: 'keyStyle',
+    label: 'Cite keys',
+    choices: [
+      { id: 'scholar', label: 'lecun2015deep', note: 'Google Scholar’s: first author, year, first long word of the title.' },
+      { id: 'colon', label: 'lecun:2015:deep', note: 'The same three, with colons.' },
+      { id: 'authorYear', label: 'Lecun2015', note: 'Author and year, a letter added when two collide.' },
+      { id: 'dblp', label: 'dblp’s own', note: 'DBLP:conf/nips/Vaswani17 where dblp has the paper; Scholar’s otherwise.' },
+    ],
+  },
+  {
+    key: 'helper',
+    label: 'The Write tab’s helper',
+    choices: [
+      { id: 'auto', label: 'As you write', note: 'When the caret rests at the end of a sentence, a card names the project’s papers that fit it — your highlights first. ↵ cites one.' },
+      { id: 'ask', label: 'When asked', note: 'Only on ⌘⇧C, or inside \\cite{?}.' },
+      { id: 'off', label: 'None', note: 'Just \\cite{ completion.' },
+    ],
+  },
+  {
+    key: 'claims',
+    label: 'Claims without a citation',
+    choices: [
+      { id: 'count', label: 'Counted', note: 'Sentences that read like claims (“has been shown”, “state of the art”, a number) with no \\cite nearby, counted at the foot of the Write tab; click for each.' },
+      { id: 'off', label: 'Left alone', note: 'Nothing is counted.' },
+    ],
+  },
+  {
+    key: 'published',
+    label: 'A preprint since published',
+    choices: [
+      { id: 'ask', label: 'Say so', note: 'The drawer and the bibliography flag it, with Switch. The entry stays the preprint’s until you switch.' },
+      { id: 'switch', label: 'Switch to it', note: 'The published version’s entry is used as soon as it is found, under the same key.' },
+      { id: 'keep', label: 'Keep the preprint', note: 'Nothing is flagged.' },
+    ],
+  },
+  {
+    key: 'fetch',
+    label: 'Official entries',
+    choices: [
+      { id: 'auto', label: 'Fetched as a paper is added', note: 'Crossref, Semantic Scholar, dblp and OpenReview are asked once, and the answers kept with the paper.' },
+      { id: 'manual', label: 'Only when asked', note: 'Fetch official citations in the bibliography, or on the drawer.' },
+    ],
+  },
+  {
+    key: 'copy',
+    label: 'Copy citation copies',
+    choices: [
+      { id: 'bibtex', label: 'BibTeX', note: 'The entry a draft takes.' },
+      { id: 'biblatex', label: 'BibLaTeX', note: 'The same, as biblatex writes it.' },
+      { id: 'ris', label: 'RIS', note: 'For Zotero, Mendeley, EndNote.' },
+      { id: 'apa', label: 'APA 7', note: 'Text.' },
+      { id: 'ieee', label: 'IEEE', note: 'Text.' },
+      { id: 'chicago', label: 'Chicago', note: 'Text.' },
+      { id: 'markdown', label: 'Markdown link', note: 'For notes.' },
     ],
   },
 ];

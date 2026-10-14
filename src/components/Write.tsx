@@ -11,14 +11,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, REVEAL_VERSION, TEXLIVE_VERSION, revealPaper, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
-import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, latexLinkAt, latexOwner, latexSeparate, openInOverleaf, overleafGitUrl, withLatexLink, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
+import { besideFeatures, bibEntries, citationsIn, isBuildFile, isTextFile, keyFor, latexLinkAt, latexOwner, latexSeparate, openInOverleaf, overleafGitUrl, withLatexLink, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
+import { citationState, rekey } from '../lib/citeRecord';
+import { askedAt, atSentenceEnd, sentenceAt, suggestIndex, uncitedClaims, type Candidate, type Sentence } from '../lib/citeSuggest';
+import { applyAll, bibFit, entrySpan, type FitIssue } from '../lib/bibFit';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
 import { parseSyncTex, sourceAt, unzipSyncTex, type SyncTex } from '../lib/synctex';
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import { thisComputer, type ThisComputer } from '../lib/thisComputer';
-import type { LatexLink, OverleafLink, PaperFolder, WriteOptions } from '../types';
-import { WRITE_DEFAULTS } from '../types';
+import type { LatexLink, OverleafLink, Paper, PaperFolder, WriteOptions } from '../types';
+import { CITATION_DEFAULTS, WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import CopyBlock from './CopyBlock';
@@ -2205,7 +2208,8 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
 }
 
 function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '', onHome, onCompare, connectOverleaf = false }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; /** The paper's whole folder (Drive), where this LaTeX project's own Overleaf link is set from. */ rootStore?: PaperStore; /** The LaTeX project open: its files are the ones listed. */ scope?: PaperScope; /** The folder (in the paper's Drive folder) whose Overleaf link this goes by: `store` is rooted at it. */ owner?: string; onHome?: () => void; /** Compare it with its Overleaf project, file by file (a paper in Drive on Overleaf). */ onCompare?: () => void; /** Opened on linking this LaTeX project to Overleaf: what the paper card's Sync with Overleaf asks for. */ connectOverleaf?: boolean }) {
-  const { settings, papers, updateSettings } = useStore();
+  const { settings, papers, highlights, updateSettings, setPaperCitation, lookupPaperCitations, citationsLooking } = useStore();
+  const citeOpts = settings.citations ?? CITATION_DEFAULTS;
   const [desk, setDesk] = useDesk();
   const setLayout = (layout: WriteOptions['layout']) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
   const [big, setBig] = useState<'source' | 'pdf' | null>(null);
@@ -2649,6 +2653,191 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   };
 
   const current = shown ? files[shown] : undefined;
+
+  // ---- the citation helper: which of the project's papers the sentence at the caret is about (src/lib/citeSuggest.ts)
+  const suggestions = useMemo(() => suggestIndex(mine, highlights.filter((highlight) => mine.some((paper) => paper.id === highlight.paperId))), [mine, highlights]);
+  const [helper, setHelper] = useState<{ at: number; sentence: Sentence; candidates: Candidate[]; index: number; asked?: { from: number; to: number }; manual: boolean } | null>(null);
+  const helperRef = useRef(helper);
+  helperRef.current = helper;
+  const helperTimer = useRef<number>();
+  const caretRef = useRef(0);
+  const openHelper = useCallback(
+    (offset: number, manual: boolean) => {
+      const text = editor.current?.value() ?? '';
+      if (!shown || !/\.tex$/.test(shown)) return setHelper(null);
+      const asked = askedAt(text, offset);
+      if (!manual && citeOpts.helper === 'off') return setHelper(null);
+      if (!manual && citeOpts.helper === 'ask' && !asked) return setHelper(null);
+      if (!manual && !asked && !atSentenceEnd(text, offset)) return setHelper(null);
+      const sentence = sentenceAt(text, asked ? asked.from : offset);
+      if (!sentence) return setHelper(null);
+      const candidates = suggestions.rank(sentence.text, 4);
+      if (!candidates.length && !manual && !asked) return setHelper(null);
+      setHelper((now) => (now && now.at === offset && now.sentence.text === sentence.text && !manual ? now : { at: offset, sentence, candidates, index: 0, asked: asked ?? undefined, manual }));
+    },
+    [shown, citeOpts.helper, suggestions],
+  );
+  useEffect(() => () => window.clearTimeout(helperTimer.current), []);
+  useEffect(() => setHelper(null), [shown]);
+  /** The paper cited from the card: \cite before the sentence's full stop, or inside the \cite{} asked in; its entry added to the .bib. */
+  const citeFromHelper = (paper: Paper, how: 'cite' | 'citet' | 'bib') => {
+    const open = helperRef.current;
+    if (!open || !shown) return;
+    const key = keyFor(paper, entries);
+    if (how !== 'bib') {
+      if (open.asked) {
+        editor.current?.select(open.asked.from, open.asked.to);
+        editor.current?.insert(key);
+      } else {
+        const text = editor.current?.value() ?? '';
+        let at = open.at;
+        const tail = /[.!?]["'’”)]*$/.exec(text.slice(Math.max(0, at - 4), at));
+        if (tail) at -= tail[0].length;
+        editor.current?.select(at);
+        editor.current?.insert(`~\\${how}{${key}}`);
+      }
+    }
+    if (bibPath && bibText !== undefined) {
+      const added = withEntry(bibText, paper, entries);
+      if (added) edit(bibPath, added);
+    }
+    setHelper(null);
+  };
+  const beforeKey = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const open = helperRef.current;
+    if (!open) return false;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setHelper(null);
+      return true;
+    }
+    if (!open.candidates.length) return false;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const count = open.candidates.length;
+      setHelper({ ...open, index: (open.index + (event.key === 'ArrowDown' ? 1 : -1) + count) % count });
+      return true;
+    }
+    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      citeFromHelper(open.candidates[open.index].paper, event.shiftKey ? 'citet' : 'cite');
+      return true;
+    }
+    if (event.key === 'Tab' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      citeFromHelper(open.candidates[open.index].paper, 'bib');
+      return true;
+    }
+    return false;
+  };
+  const helperAside = helper
+    ? {
+        at: helper.at,
+        node: (
+          <div className="wr-helper" role="listbox" aria-label="Cite this sentence">
+            <div className="wr-helper-head">
+              <b>{helper.asked ? 'Cite here' : 'Cite this sentence'}</b>
+              <span className="wr-quiet">{helper.candidates.length ? 'from the project’s papers and your highlights' : 'none of the project’s papers fits it'}</span>
+              <span className="wr-sp" />
+              <button type="button" className="link-btn wr-quiet" onClick={() => setHelper(null)}>
+                Esc
+              </button>
+            </div>
+            {helper.candidates.map((candidate, index) => (
+              <button key={candidate.paper.id} type="button" role="option" aria-selected={index === helper.index} className={`wr-helper-item${index === helper.index ? ' is-on' : ''}`} onMouseEnter={() => setHelper((now) => (now ? { ...now, index } : now))} onClick={() => citeFromHelper(candidate.paper, 'cite')}>
+                <span className="wr-helper-n mono">{index + 1}</span>
+                <span className="wr-helper-body">
+                  <span className="wr-helper-title">{candidate.paper.title}</span>
+                  <span className="wr-helper-why">
+                    {candidate.via === 'highlight' && candidate.highlight ? (
+                      <>
+                        You highlighted: “{candidate.highlight.exact.length > 110 ? `${candidate.highlight.exact.slice(0, 110)}…` : candidate.highlight.exact}” ·{' '}
+                      </>
+                    ) : candidate.via === 'title' ? (
+                      'Its title · '
+                    ) : (
+                      'Its abstract · '
+                    )}
+                    {candidate.matched.slice(0, 6).map((word) => (
+                      <em key={word}>{word}</em>
+                    ))}
+                  </span>
+                </span>
+                <span className="wr-helper-key mono">{keyFor(candidate.paper, entries)}</span>
+              </button>
+            ))}
+            {helper.candidates.length ? (
+              <div className="wr-helper-foot wr-quiet">
+                <span>
+                  <kbd>↵</kbd> \cite
+                </span>
+                <span>
+                  <kbd>⇧↵</kbd> \citet
+                </span>
+                <span>
+                  <kbd>Tab</kbd> to the .bib only
+                </span>
+                <span>
+                  <kbd>↑↓</kbd> choose
+                </span>
+              </div>
+            ) : (
+              <div className="wr-helper-foot wr-quiet">
+                <span>
+                  The drawer on the left lists them all; <kbd>Esc</kbd> closes this.
+                </span>
+              </div>
+            )}
+          </div>
+        ),
+      }
+    : null;
+
+  // ---- the claims the draft makes with nothing cited, and the .bib fitted to the venue (src/lib/bibFit.ts)
+  const [tool, setTool] = useState<'claims' | 'fit' | null>(null);
+  const claims = useMemo(() => (citeOpts.claims === 'count' && shown && /\.tex$/.test(shown) && current ? uncitedClaims(current.text) : []), [citeOpts.claims, shown, current]);
+  const draftFiles = useMemo(
+    () =>
+      Object.entries(files)
+        .filter(([path]) => /\.(tex|bib|bst|sty|cls)$/i.test(path))
+        .map(([path, file]) => ({ path, text: file.text })),
+    [files],
+  );
+  const publishedOf = useCallback((paper: Paper, key: string) => {
+    const doi = paper.citation?.publishedDoi?.toLowerCase();
+    const variant = doi ? paper.citation?.variants.find((item) => item.of?.toLowerCase() === doi) : undefined;
+    return variant ? rekey(variant.bibtex, key) : null;
+  }, []);
+  const fit = useMemo(() => bibFit(draftFiles, mine, publishedOf), [draftFiles, mine, publishedOf]);
+  const applyFix = (issue: FitIssue) => {
+    if (!issue.fix) return;
+    for (const file of [...issue.fix.bib, ...(issue.fix.tex ?? [])]) if (files[file.path] && files[file.path].text !== file.text) edit(file.path, file.text);
+  };
+  const applyAllFixes = () => {
+    for (const file of applyAll(draftFiles, fit.issues, mine, publishedOf)) if (files[file.path] && files[file.path].text !== file.text) edit(file.path, file.text);
+  };
+  const citedCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const citation of citationsIn(draftFiles)) counts.set(citation.key, (counts.get(citation.key) ?? 0) + 1);
+    return counts;
+  }, [draftFiles]);
+  /** The published version in place of the preprint: chosen on the paper, and the draft's entry rewritten under its key. */
+  const switchPublished = async (paper: Paper) => {
+    const doi = paper.citation?.publishedDoi?.toLowerCase();
+    if (!doi) return;
+    let variant = paper.citation?.variants.find((item) => item.of?.toLowerCase() === doi);
+    if (!variant) {
+      await lookupPaperCitations([paper.id]);
+      variant = papers.find((item) => item.id === paper.id)?.citation?.variants.find((item) => item.of?.toLowerCase() === doi);
+    }
+    await setPaperCitation(paper.id, { chosen: variant?.source ?? 'crossref' });
+    if (variant && bibPath && bibText !== undefined) {
+      const key = keyFor(paper, entries);
+      const span = entrySpan(bibText, key);
+      if (span) edit(bibPath, `${bibText.slice(0, span.start)}${rekey(variant.bibtex, key)}${bibText.slice(span.end)}`);
+    }
+  };
+  const fetching = mine.some((paper) => citationsLooking.has(paper.id));
   // Where it was left: the caret's line in each file, put back as the file opens, kept as it moves.
   const placeDir = [owner, scope?.dir].filter(Boolean).join('/');
   const placed = useRef<string | null>(null);
@@ -2717,12 +2906,16 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     setOpen(place.file);
   };
   const onCursor = useCallback(
-    (cursor: { line: number }) => {
+    (cursor: { line: number; offset: number }) => {
       if (!shown) return;
       window.clearTimeout(placeTimer.current);
       placeTimer.current = window.setTimeout(() => rememberPlace(project.id, { dir: placeDir, file: [owner, shown].filter(Boolean).join('/'), line: cursor.line }), 400);
+      caretRef.current = cursor.offset;
+      window.clearTimeout(helperTimer.current);
+      // The card waits for the caret to rest; a card already open moves with it at once.
+      helperTimer.current = window.setTimeout(() => openHelper(cursor.offset, false), helperRef.current ? 60 : 450);
     },
-    [shown, project.id, placeDir, owner],
+    [shown, project.id, placeDir, owner, openHelper],
   );
   const dirtyCount = Object.values(files).filter((file) => file.text !== file.disk).length;
   const noTex = engines && !engines.latexmk && !engines.tectonic;
@@ -2788,6 +2981,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
             wrap
             minimap={false}
             onCursor={onCursor}
+            beforeKey={beforeKey}
+            aside={helperAside}
             complete={/\.(tex|sty|cls)$/.test(shown) ? completeFor : undefined}
             onChange={(next) => {
               edit(shown, next);
@@ -2801,6 +2996,11 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault();
                 recompile();
+              }
+              if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
+                event.preventDefault();
+                window.clearTimeout(helperTimer.current);
+                openHelper(caretRef.current, true);
               }
             }}
           />
@@ -3299,13 +3499,43 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
             </button>
             {drawer ? (
               <div className="wr-cites">
-                {mine.map((paper) => (
-                  <button key={paper.id} type="button" className="wr-cite" onMouseDown={(event) => event.preventDefault()} onClick={() => cite(paper.id)} title={`\\cite{${keyFor(paper, entries)}} at the cursor${bibPath ? `, its entry added to ${bibPath} if missing` : ''}`}>
-                    <span>{paper.title}</span>
-                    <small className="mono">{keyFor(paper, entries)}</small>
-                  </button>
-                ))}
+                {mine.map((paper) => {
+                  const state = citationState(paper, citeOpts);
+                  const key = keyFor(paper, entries);
+                  const cited = citedCount.get(key) ?? 0;
+                  return (
+                    <div key={paper.id} className={`wr-cite-row${state.published ? ' is-preprint' : ''}`}>
+                      <button type="button" className="wr-cite" onMouseDown={(event) => event.preventDefault()} onClick={() => cite(paper.id)} title={`\\cite{${key}} at the cursor${bibPath ? `, its entry added to ${bibPath} if missing` : ''}\n${state.summary || state.label}`}>
+                        <span>{paper.title}</span>
+                        <small className="mono">{key}</small>
+                      </button>
+                      <div className="wr-cite-state">
+                        <span className={`wr-cite-chip${state.official ? ' is-official' : ''}${state.published ? ' is-warn' : ''}`} title={state.summary}>
+                          {state.published ? 'preprint' : state.label}
+                        </span>
+                        {state.published ? (
+                          <>
+                            <span className="wr-quiet" title={`Published in ${state.published.in} · doi ${state.published.doi}`}>
+                              published · {state.published.in.length > 22 ? `${state.published.in.slice(0, 22)}…` : state.published.in}
+                            </span>
+                            <button type="button" className="link-btn wr-cite-switch" onClick={() => void switchPublished(paper)} title="Use the published version's entry, under the same key">
+                              Switch
+                            </button>
+                          </>
+                        ) : null}
+                        {cited ? <span className="wr-quiet">cited ×{cited}</span> : paper.progress > 0.01 || paper.lastOpenedAt ? <span className="wr-quiet">read, not cited</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
                 {!mine.length ? <p className="wr-quiet wr-pad">The project has no papers yet.</p> : null}
+                {mine.length ? (
+                  <div className="wr-cite-actions">
+                    <button type="button" className="btn sm" disabled={fetching} onClick={() => void lookupPaperCitations(mine.map((paper) => paper.id))} title="Ask Crossref, Semantic Scholar, dblp and OpenReview for each paper's own entry, and keep what they say">
+                      {fetching ? 'Looking…' : citeOpts.fetch === 'auto' ? 'Fetch official citations again' : 'Fetch official citations'}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -3358,6 +3588,93 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
           />
         ) : null}
       </div>
+      {tool === 'claims' && !showLog ? (
+        <div className="wr-log">
+          <Handle axis="y" className="wr-handle-log" onDrag={(dy) => setDesk((now) => ({ log: clamp(now.log - dy, 90, 640) }))} onReset={() => setDesk({ log: DESK.log })} label="Drag to make the panel taller or shorter" />
+          <div className="wr-tabs">
+            <b>
+              {claims.length} {claims.length === 1 ? 'claim' : 'claims'} without a citation
+            </b>
+            <span className="wr-quiet">in {shown}: sentences that lean on somebody's work and cite nothing</span>
+            <span className="wr-sp" />
+            <button type="button" className="link-btn" onClick={() => setTool(null)}>
+              Close
+            </button>
+          </div>
+          <div className="wr-log-body">
+            {claims.map((claim) => (
+              <button
+                key={claim.start}
+                type="button"
+                className="wr-problem is-claim"
+                onClick={() => {
+                  editor.current?.select(claim.end);
+                  window.setTimeout(() => openHelper(claim.end, true), 80);
+                }}
+                title="Go there, and see which of the project's papers fit it"
+              >
+                <b>{claim.because}</b>
+                <span>{claim.text}</span>
+                <small className="mono">line {claim.line}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {tool === 'fit' && !showLog ? (
+        <div className="wr-log wr-fit">
+          <Handle axis="y" className="wr-handle-log" onDrag={(dy) => setDesk((now) => ({ log: clamp(now.log - dy, 90, 640) }))} onReset={() => setDesk({ log: DESK.log })} label="Drag to make the panel taller or shorter" />
+          <div className="wr-tabs">
+            <b>Fit to {fit.style.name}</b>
+            <span className="wr-quiet">
+              {fit.style.bst ? `${fit.style.bst}.bst · ` : ''}
+              {fit.style.authorYear ? 'author–year' : fit.style.biblatex ? 'biblatex' : 'numeric'} · {fit.issues.length} of {fit.entries} entries to change
+            </span>
+            <span className="wr-sp" />
+            {fit.issues.some((issue) => issue.fix) ? (
+              <button type="button" className="btn sm primary" onClick={applyAllFixes}>
+                Fix all {fit.issues.filter((issue) => issue.fix).length}
+              </button>
+            ) : null}
+            <button type="button" className="link-btn" onClick={() => setTool(null)}>
+              Close
+            </button>
+          </div>
+          <div className="wr-fit-body">
+            <div className="wr-log-body">
+              {fit.issues.map((issue) => (
+                <div key={issue.id} className={`wr-problem wr-fit-issue is-${issue.severity}`}>
+                  <b>{issue.severity === 'bad' ? 'Fix' : issue.severity === 'warn' ? 'Check' : 'Tidy'}</b>
+                  <span>
+                    {issue.message}
+                    {issue.detail ? <small className="wr-fit-detail">{issue.detail}</small> : null}
+                  </span>
+                  {issue.fix ? (
+                    <button type="button" className="link-btn wr-fit-fix" onClick={() => applyFix(issue)}>
+                      {issue.fix.label}
+                    </button>
+                  ) : (
+                    <small className="mono">{issue.path}</small>
+                  )}
+                </div>
+              ))}
+              {!fit.issues.length ? <p className="wr-quiet wr-pad">Every entry fits.</p> : null}
+            </div>
+            <div className="wr-fit-wants">
+              <span className="wr-quiet">What {fit.style.name}'s style wants, read off the template</span>
+              {fit.style.wants.map((want) => (
+                <div key={want.rule} className={`wr-fit-want${want.ok ? ' is-ok' : ''}`}>
+                  <i>{want.ok ? '✓' : '!'}</i>
+                  <span>
+                    {want.rule}
+                    {want.failing ? <small> · {want.failing}</small> : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showLog && compiled ? (
         <div className="wr-log">
           <Handle axis="y" className="wr-handle-log" onDrag={(dy) => setDesk((now) => ({ log: clamp(now.log - dy, 90, 640) }))} onReset={() => setDesk({ log: DESK.log })} label="Drag to make the problems taller or shorter" />
@@ -3432,6 +3749,22 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         ) : (
           <span>{options.pdf === 'overleaf' ? 'Overleaf compiles it' : compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
+        {claims.length ? (
+          <>
+            <span className="wr-sep">·</span>
+            <button type="button" className={`link-btn wr-counts is-warn${tool === 'claims' ? ' is-open' : ''}`} onClick={() => (setShowLog(false), setTool(tool === 'claims' ? null : 'claims'))} title="Sentences that read like claims and cite nothing — Settings → Citations turns this off">
+              {claims.length} {claims.length === 1 ? 'claim' : 'claims'} without a citation
+            </button>
+          </>
+        ) : null}
+        {fit.entries && fit.issues.length ? (
+          <>
+            <span className="wr-sep">·</span>
+            <button type="button" className={`link-btn wr-counts${fit.issues.some((issue) => issue.severity === 'bad') ? ' is-warn' : ''}${tool === 'fit' ? ' is-open' : ''}`} onClick={() => (setShowLog(false), setTool(tool === 'fit' ? null : 'fit'))} title={`The .bib checked against ${fit.style.name}'s bibliography style`}>
+              Bibliography: {fit.issues.length} to fit to {fit.style.name}
+            </button>
+          </>
+        ) : null}
         <span className="wr-sp" />
         <WriteGuideLink section="editor" />
         <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">

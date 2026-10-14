@@ -3,7 +3,7 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS, WRITE_DEFAULTS, WRITE_OPTIONS } from '../types';
+import { CITATION_DEFAULTS, CITATION_OPTIONS, COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS, WRITE_DEFAULTS, WRITE_OPTIONS } from '../types';
 import { computeControlsOf } from '../lib/compute';
 import { ComputeList } from './Compute';
 import { PAPER_TEMPLATES_VERSION, forgetOverleafToken, tokenKnown } from '../lib/companion';
@@ -926,6 +926,44 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               </p>
             </>
           ) : null}
+        </section>
+
+        <section id="settings-citations" style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>
+            Citations
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+            Every paper in the library keeps the BibTeX entries found for it — the publisher’s by DOI, Semantic Scholar’s,
+            dblp’s, OpenReview’s, arXiv’s — and one made here from its record. These choices say which entry a draft and
+            the mirror’s references.bib take, how a cite key is made, and what the Write tab does while you write. Each
+            can be changed any time; a key already in a draft is never changed under it.
+          </p>
+          {CITATION_OPTIONS.map((group) => {
+            const value = (settings.citations ?? CITATION_DEFAULTS)[group.key] ?? CITATION_DEFAULTS[group.key];
+            return (
+              <div key={group.key} className="write-choice">
+                <span className="write-choice-label">{group.label}</span>
+                <div className="nav-choices is-text" role="radiogroup" aria-label={`Citations: ${group.label}`}>
+                  {group.choices.map((choice, index) => (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={value === choice.id}
+                      className={`nav-choice${value === choice.id ? ' is-on' : ''}`}
+                      onClick={() => updateSettings({ citations: { ...CITATION_DEFAULTS, ...(settings.citations ?? {}), [group.key]: choice.id } })}
+                    >
+                      <b>
+                        {choice.label}
+                        {index === 0 ? <small> · default</small> : null}
+                      </b>
+                      <span>{choice.note}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </section>
 
         <section id="settings-compute" style={{ marginBottom: 22 }}>

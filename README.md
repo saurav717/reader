@@ -1217,6 +1217,84 @@ and LaTeX project; **Change** there replaces the email or token, **Disconnect**
 removes it. The card's **Open in Overleaf** simply opens the project in this
 browser.
 
+### Citations
+
+![The Write tab: a card at the end of a sentence names the project's papers that fit it, the highlighted one first; the drawer says which entry each paper has](docs/citations-write-card.png)
+
+Every paper in the library keeps how it is cited, not just what it is.
+Search gives a paper's title, authors and venue; from those the reader
+can only make a passable BibTeX entry — `@article` with the venue as its
+journal. Venues want more: NeurIPS as `@inproceedings` with the proceedings
+named in full, a journal with its volume and pages, ICLR's style an author
+and a year on every entry — and each keeps its own form of the entry. So a
+paper keeps every entry found for it as a **variant**, by source:
+
+| Source | What it is |
+| --- | --- |
+| Crossref | the publisher's record by DOI, transformed to BibTeX |
+| OpenReview | the venue's own entry, for a paper reviewed there |
+| Semantic Scholar | its index's entry, and where the paper was published |
+| dblp | the CS bibliography's record, under its own key (`DBLP:conf/nips/…`) |
+| arXiv | the preprint's export form |
+| pasted | one put in by hand, from a venue's own Cite button |
+| made here | from the record: `@inproceedings` for a conference, `@article` for a journal, `@misc` with the eprint for a preprint |
+
+They are fetched once, as a paper is added (or on **Fetch official
+citations**), and kept with the paper in `library.json` and the Git mirror.
+Which one a draft takes is a choice, never a fetch at the moment of citing:
+**Settings → Citations** for every paper, or per paper in the project's
+**Bibliography** card on its overview, where each variant can be seen and
+one picked, an entry pasted in, and the key renamed. The key is separate
+from the entry — a variant is always written out under the paper's own key,
+the same in every project — so switching entries never changes a `\cite`.
+
+A preprint whose published version an index knows is flagged, in the Write
+tab's drawer and on the bibliography, with **Switch**: the published
+version's entry goes in under the same key. Settings can switch as it is
+found, or keep the preprint.
+
+![The project's Bibliography card: each paper's key and entry, a preprint's variants with the published version to pick, and Copy citation](docs/citations-bibliography.png)
+
+**Copy citation** is on the paper being read (the top bar's **Cite ▾**), on
+the bibliography, and on the card over a cited reference inside a paper: BibTeX
+as the draft takes it, BibLaTeX, RIS, APA 7, IEEE, Chicago, a Markdown link,
+and the bare `\cite{key}`. One click copies the form Settings picks.
+
+**While you write**, in the Write tab:
+
+- **Cite this sentence.** When the caret rests at the end of a sentence
+  (or inside an empty `\cite{}`, or on `\cite{?}`, or on ⌘⇧C), a card names
+  the project's papers that fit it — ranked over their titles, abstracts
+  and what you highlighted and noted in them, in the browser, no model
+  asked. A passage you marked that says what the sentence says is the paper
+  you mean, and comes first, with the words that met. ↵ puts `\cite` before
+  the full stop and the entry in the .bib; ⇧↵ `\citet`; Tab the entry only.
+- **The drawer** says, for each paper, which entry it has (official, from
+  where, or made here), whether it is cited and how often, read but not
+  cited, or a preprint since published.
+- **Claims without a citation**: sentences that lean on somebody's work
+  ("has been shown", "prior work", "state of the art", a percentage) and
+  cite nothing, counted at the foot of the page; each opens the card there.
+- **Fit to the venue**: the .bib checked against the template's style —
+  read off its `.bst` and packages: ICLR and ACL author–year, IEEE and
+  NeurIPS numeric, biblatex — and each entry that fails it offered as a fix:
+  a conference paper as `@article` made `@inproceedings`, an author and a
+  year filled in from the paper's record, an eprint dropped from a published
+  paper, the preprint switched for its published version, two entries that
+  are one paper merged with every `\cite` rewritten. **Fix all** applies
+  them in order. See `src/lib/bibFit.ts`, pinned by `scripts/bib-fit.test.mjs`.
+
+![Fit to ICLR: the .bib's entries that fail the template's style, each with its fix, and what the style wants](docs/citations-write-fit.png)
+
+Every choice above is in **Settings → Citations**, the default marked on
+each, and can be changed any time ([settings](docs/citations-settings.png),
+[the claims](docs/citations-write-claims.png), [Cite ▾ in the
+reader](docs/citations-reader-menu.png)). `scripts/citations-smoke.mjs`
+walks the whole of it in the built app and takes these screenshots.
+
+The records are in `src/lib/citeRecord.ts` (`scripts/cite-record.test.mjs`)
+and the helper in `src/lib/citeSuggest.ts` (`scripts/cite-suggest.test.mjs`).
+
 ### Removing a paper
 
 A removed paper waits in **Junk**, at the bottom of the side pane, with its
@@ -1317,7 +1395,7 @@ Drive holds the PDFs. A repository holds everything that is text:
 collections/<collection>/<paper>.json    the W3C annotation sidecar
 collections/<collection>/<paper>.md      the paper and your highlights, readable
 library.json                             the index
-references.bib                           BibTeX for everything you have added
+references.bib                           BibTeX for everything you have added, each paper's chosen entry under its key
 ```
 
 The split is on purpose, and it is the whole reason both exist. A PDF is a binary

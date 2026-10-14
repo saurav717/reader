@@ -69,17 +69,20 @@ describe('the bibliography it generates', () => {
     assert.equal(citeKey(paper()), 'li2020fourier');
   });
 
-  it('writes a preprint as @misc and a published paper as @article', () => {
+  it('writes a preprint as @misc, a conference paper as @inproceedings and a journal paper as @article', () => {
     assert.match(toBibtex(paper()), /^@misc\{li2020fourier,/);
-    assert.match(toBibtex(paper({ venue: 'ICLR' })), /^@article\{li2020fourier,/);
+    assert.match(toBibtex(paper({ venue: 'ICLR' })), /^@inproceedings\{li2020fourier,/);
+    assert.match(toBibtex(paper({ venue: 'Journal of Computational Physics' })), /^@article\{li2020fourier,/);
   });
 
-  it('carries the identifiers a bibliography style needs', () => {
+  it('carries the identifiers a bibliography style needs, and the chosen entry where the paper keeps one', () => {
     const entry = toBibtex(paper({ doi: '10.1/x', venue: 'ICLR' }));
-    assert.match(entry, /doi = \{10\.1\/x\}/);
-    assert.match(entry, /journal = \{ICLR\}/);
-    assert.match(entry, /archivePrefix = \{arXiv\}/);
-    assert.match(entry, /author = \{Zongyi Li and Anima Anandkumar\}/);
+    assert.match(entry, /doi\s+= \{10\.1\/x\}/);
+    assert.match(entry, /booktitle\s+= \{ICLR\}/);
+    assert.match(entry, /author\s+= \{Zongyi Li and Anima Anandkumar\}/);
+    assert.match(toBibtex(paper()), /archiveprefix\s+= \{arXiv\}/);
+    const kept = toBibtex(paper({ citation: { variants: [{ source: 'dblp', bibtex: '@inproceedings{DBLP:conf/iclr/Li20,\n  title = {Fourier Neural Operator},\n  booktitle = {ICLR}\n}', fetchedAt: 'x' }] } }));
+    assert.match(kept, /^@inproceedings\{li2020fourier,\n  title = \{Fourier Neural Operator\}/);
   });
 
   it('strips the braces that would otherwise break the entry', () => {
