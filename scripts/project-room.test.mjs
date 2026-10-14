@@ -79,10 +79,11 @@ describe('sharing a project', () => {
     assert.equal(made.project.name, 'Sparse-gated MoE');
     assert.deepEqual(made.invitations, []);
     assert.equal(made.link.on, false);
-    // Shared again (the owner's page keeps the room's copy current): the same room, the project as sent.
+    // Shared again: the same room, and its list kept — the room is the record, not the copy sent.
     const again = await (await call(e, '/rooms', { pass: owner, body: { project: { ...project, question: 'How?' }, room: made.room } })).json();
     assert.equal(again.room, made.room);
-    assert.equal(again.project.question, 'How?');
+    assert.equal(again.project.question, 'Why?');
+    assert.equal(again.version, 1);
     assert.equal((await call(e, '/rooms', { body: { project } })).status, 401);
     assert.equal((await call(e, '/rooms', { pass: owner, method: 'GET' })).status, 405);
   });
@@ -179,10 +180,45 @@ describe('sharing a project', () => {
     const { room } = await (await call(e, '/rooms', { pass: owner, body: { project } })).json();
     await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'priya@x.org' } });
     await call(e, `/rooms/${room}/join`, { pass: priya, body: {} });
-    const changed = await (await call(e, `/rooms/${room}/project`, { pass: priya, body: { project: { ...project, id: 'other', todos: [] } } })).json();
+    assert.equal((await (await call(e, `/rooms/${room}`, { pass: owner })).json()).version, 1, 'a new room’s list is version 1');
+    const changed = await (await call(e, `/rooms/${room}/project`, { pass: priya, body: { project: { ...project, id: 'other', todos: [{ id: 't', text: 'Read', done: false }] }, version: 1 } })).json();
     assert.equal(changed.project.id, 'proj-1', 'the id is the room’s to keep');
-    assert.deepEqual(changed.project.todos, []);
-    assert.deepEqual((await (await call(e, `/rooms/${room}`, { pass: owner })).json()).project.todos, []);
+    assert.equal(changed.version, 2, 'and up by one');
+    assert.deepEqual(changed.project.todos, [{ id: 't', text: 'Read', done: false }]);
+    assert.deepEqual((await (await call(e, `/rooms/${room}`, { pass: owner })).json()).project.todos, [{ id: 't', text: 'Read', done: false }]);
+    // Built on the old list: refused, and answered with the room's own, version and all.
+    const stale = await call(e, `/rooms/${room}/project`, { pass: owner, body: { project: { ...project, todos: [] }, version: 1 } });
+    assert.equal(stale.status, 409);
+    const refused = await stale.json();
+    assert.match(refused.error, /changed since/);
+    assert.equal(refused.version, 2);
+    assert.deepEqual(refused.project.todos, [{ id: 't', text: 'Read', done: false }], 'nothing of the stale list taken');
+    // Sharing again keeps the room's list, not the copy sent.
+    const again = await (await call(e, '/rooms', { pass: owner, body: { project: { ...project, todos: [] }, room } })).json();
+    assert.equal(again.version, 2);
+    assert.equal(again.project.todos.length, 1);
+    // What the list keeps of a paper, for a member's library to take in.
+    const withPaper = await (await call(e, `/rooms/${room}/project`, { pass: owner, body: { project: { ...project, papers: [{ id: 'arxiv:1', title: 'One', role: 'core', source: 'arxiv', authors: ['A', 'B'], published: '2026', arxivId: '1', doi: '10.1/x', pdfUrl: 'https://arxiv.org/pdf/1', abstract: 'never kept' }] }, version: 2 } })).json();
+    assert.deepEqual(withPaper.project.papers, [{ id: 'arxiv:1', title: 'One', role: 'core', source: 'arxiv', authors: ['A', 'B'], published: '2026', doi: '10.1/x', arxivId: '1', pdfUrl: 'https://arxiv.org/pdf/1' }]);
+  });
+
+  it('lets the owner hand the project over: they own it, the old owner stays as an editor', async () => {
+    const e = env();
+    const owner = await issuePass('owner@x.org', SECRET);
+    const priya = await issuePass('priya@x.org', SECRET);
+    const { room } = await (await call(e, '/rooms', { pass: owner, body: { project } })).json();
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'priya@x.org' } });
+    await call(e, `/rooms/${room}/join`, { pass: priya, body: {} });
+    assert.equal((await call(e, `/rooms/${room}/role`, { pass: priya, body: { email: 'owner@x.org', role: 'owner' } })).status, 403, 'only the owner hands it over');
+    const handed = await (await call(e, `/rooms/${room}/role`, { pass: owner, body: { email: 'priya@x.org', role: 'owner' } })).json();
+    assert.equal(handed.owner, 'priya@x.org');
+    assert.equal(handed.role, 'editor');
+    assert.deepEqual(handed.members.map((m) => [m.email, m.role]), [['owner@x.org', 'editor'], ['priya@x.org', 'owner']]);
+    const hers = await (await call(e, `/rooms/${room}`, { pass: priya })).json();
+    assert.equal(hers.role, 'owner');
+    assert.ok(hers.link, 'the link is the new owner’s to see');
+    assert.equal((await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).status, 403, 'the old owner no longer closes it');
+    assert.equal((await call(e, `/rooms/${room}/remove`, { pass: priya, body: { email: 'owner@x.org' } })).status, 200, 'the new one may remove them');
   });
 
   it('lets a member leave and the owner remove one, never the owner', async () => {
@@ -214,7 +250,7 @@ describe('sharing a project', () => {
     const socket = fakeSocket('priya@x.org');
     object.state.acceptWebSocket(socket);
     assert.equal((await call(e, `/rooms/${room}/close`, { pass: priya, body: {} })).status, 403, 'only the owner');
-    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true });
+    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true, members: ['owner@x.org', 'priya@x.org'] });
     assert.deepEqual(socket.sent.at(-1), { type: 'closed' });
     assert.deepEqual(socket.closed, { code: 1000, reason: 'the project is no longer shared' });
     assert.equal((await call(e, `/rooms/${room}`, { pass: priya })).status, 404);

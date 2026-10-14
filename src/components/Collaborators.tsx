@@ -52,8 +52,13 @@ export function CollaboratorsPanel({ project }: { project: Project }) {
       setBusy(null);
     }
   };
-  const remove = (email: string, name: string) => window.confirm(`Take ${name} out of ${project.name}? They lose the project and where everyone is; their own papers, notes and highlights stay theirs.`) && void act(email, 'remove', { email });
-  const stop = () => window.confirm(`Stop sharing ${project.name}? Everyone else is taken out and the project is yours alone again. Their copies stay with them as plain projects.`) && void act('close', 'close', {});
+  const remove = (email: string, name: string) => window.confirm(`Take ${name} out of ${project.name}? They lose the project; their own papers, notes and highlights stay theirs.`) && void act(email, 'remove', { email });
+  const stop = () => window.confirm(`Stop sharing ${project.name}? Everyone else is taken out and loses the project; it is yours alone again. Their own papers, notes and highlights stay theirs.`) && void act('close', 'close', {});
+  // The project handed to someone: they own it, and you stay as an editor.
+  const setRole = (member: Member, role: string) => {
+    if (role === 'owner' && !window.confirm(`Make ${member.name || member.email} the owner of ${project.name}? Only the owner can take people out, stop sharing, or hand it on; you stay in it as an editor.`)) return;
+    void act(member.email, 'role', { email: member.email, role });
+  };
   const leave = async () => {
     if (!shared || !window.confirm(`Leave ${project.name}? The project stays with its owner; your copy of it is taken off your library.`)) return;
     setBusy('leave');
@@ -102,9 +107,10 @@ export function CollaboratorsPanel({ project }: { project: Project }) {
                     </b>
                     <small>
                       {owner && !me ? (
-                        <select className="pj-collab-role" value={member.role} disabled={busy === member.email} onChange={(event) => void act(member.email, 'role', { email: member.email, role: event.target.value })} aria-label={`${member.name}'s role`}>
+                        <select className="pj-collab-role" value={member.role} disabled={busy === member.email} onChange={(event) => setRole(member, event.target.value)} aria-label={`${member.name}'s role`}>
                           <option value="editor">can edit</option>
                           <option value="viewer">can view</option>
+                          <option value="owner">owner — hand it over</option>
                         </select>
                       ) : (
                         ROLE[member.role]

@@ -36,7 +36,7 @@ const members = [
   { email: 'lin@example.org', role: 'viewer', name: 'Lin Zhao', color: '#1f8a70', joinedAt: '2026-10-04T00:00:00.000Z', place: null, lastSeen: Date.now() - 26 * 3600_000, lastPlace: place({ tab: 'write', path: 'sections/results.tex', line: 12 }) },
 ];
 const project = { id: 'p-moe', name: 'Sparse-gated MoE', color: '#1f5e52', question: 'Can a router balance experts with no auxiliary loss?', startedAt: '2026-10-01T00:00:00.000Z', papers: [{ id: 'arxiv:2101.03961', title: 'Switch Transformers', role: 'baseline' }], todos: [] };
-let state = { room: ROOM, owner: ME, project, me: ME, role: 'owner', members, invitations: [{ email: 'dana@ethz.ch', role: 'viewer', by: ME, at: '2026-10-13T00:00:00.000Z' }], link: { token: 'tok', on: false, domain: '' } };
+let state = { room: ROOM, owner: ME, version: 1, project, me: ME, role: 'owner', members, invitations: [{ email: 'dana@ethz.ch', role: 'viewer', by: ME, at: '2026-10-13T00:00:00.000Z' }], link: { token: 'tok', on: false, domain: '' } };
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -55,8 +55,16 @@ await page.route(`**/api/rooms/${ROOM}**`, async (route) => {
     const body = route.request().postDataJSON();
     state = { ...state, invitations: [...state.invitations, { email: body.email, role: body.role, by: ME, at: new Date().toISOString() }] };
   }
+  // The list sent back: the room keeps it, a version up — or refuses one built on an older version, with its own.
+  if (url.pathname.endsWith('/project')) {
+    const body = route.request().postDataJSON();
+    if (body.version !== state.version) return route.fulfill({ status: 409, json: { error: 'the project changed since this page read it', ...state } });
+    state = { ...state, project: { ...state.project, ...body.project, id: state.project.id }, version: state.version + 1 };
+  }
   await route.fulfill({ json: state });
 });
+// The rooms this account is in, as the server has them: none to put back, until the step that tries it.
+await page.route('**/api/rooms/mine', (route) => route.fulfill({ json: { rooms: [] } }));
 let socket = null;
 await page.routeWebSocket(`**/api/rooms/${ROOM}/live`, (ws) => {
   socket = ws;
@@ -155,7 +163,7 @@ await page.route(`**/api/rooms/${ROOM}/remove`, (route) => {
   route.fulfill({ json: state });
 });
 const priyaRow = page.locator('.pj-collab-list li', { hasText: 'Priya Natarajan' });
-check('the owner can change a role, and remove someone', (await priyaRow.locator('select.pj-collab-role').count()) === 1 && (await priyaRow.getByRole('button', { name: 'Remove' }).count()) === 1 && (await page.locator('.pj-collab-list li', { hasText: '(you)' }).getByRole('button', { name: 'Remove' }).count()) === 0);
+check('the owner can change a role, hand the project over, and remove someone', (await priyaRow.locator('select.pj-collab-role').count()) === 1 && (await priyaRow.locator('select.pj-collab-role option[value="owner"]').count()) === 1 && (await priyaRow.getByRole('button', { name: 'Remove' }).count()) === 1 && (await page.locator('.pj-collab-list li', { hasText: '(you)' }).getByRole('button', { name: 'Remove' }).count()) === 0);
 await priyaRow.getByRole('button', { name: 'Remove' }).click();
 await page.locator('.pj-collab-list li', { hasText: 'Priya Natarajan' }).waitFor({ state: 'detached', timeout: 10000 });
 check('removed, the row is gone', /collaborators · 3/i.test(await page.locator('.pj-collab').innerText()));
@@ -337,6 +345,18 @@ await page.locator('.pj-card', { hasText: 'Reading list' }).waitFor({ timeout: 1
 check('the board shows the other project, not that one', (await page.locator('.pj-card', { hasText: 'Sparse-gated MoE' }).count()) === 0 && (await page.locator('.pj-card', { hasText: 'Reading list' }).count()) === 1, (await page.locator('.pj-card').allInnerTexts()).join(' / ').replace(/\n/g, ' '));
 await shot('17-taken-out');
 await page.getByRole('button', { name: 'Got it' }).click();
+
+console.log('a record the library lost, put back from the server');
+// The server still has this account in the room (as an editor): the board asks, and the project comes back with its papers.
+await page.route('**/api/rooms/mine', (route) => route.fulfill({ json: { rooms: [{ room: ROOM, role: 'editor', project: 'Sparse-gated MoE', at: Date.now() }] } }));
+await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.pj-card', { hasText: 'Sparse-gated MoE' }).waitFor({ timeout: 10000 });
+await page.locator('.pj-card', { hasText: 'Sparse-gated MoE' }).locator('.pj-collab-stack').waitFor({ timeout: 10000 });
+const back = await page.locator('.pj-card', { hasText: 'Sparse-gated MoE' }).innerText();
+check('the project is on the board again, shared, with its paper', /1\s+papers?/.test(back) && /4 people/.test(back), back.replace(/\n/g, ' | '));
+await shot('19-put-back');
+await page.route('**/api/rooms/mine', (route) => route.fulfill({ json: { rooms: [] } }));
 
 console.log('a project that is not shared');
 await page.goto(`${BASE}/project/?id=p-plain`, { waitUntil: 'networkidle' });

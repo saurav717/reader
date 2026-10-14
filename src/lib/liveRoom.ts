@@ -71,19 +71,31 @@ export function summarize(project: Project, papers: Paper[]): SharedProject {
     color: project.color,
     question: info.question,
     startedAt: info.startedAt,
-    papers: papersIn(project.id, papers).map((paper) => ({ id: paper.id, title: paper.title, role: info.roles[paper.id] ?? null })),
+    papers: papersIn(project.id, papers).map((paper) => ({
+      id: paper.id,
+      title: paper.title,
+      role: info.roles[paper.id] ?? null,
+      source: paper.source,
+      authors: paper.authors.slice(0, 12),
+      ...(paper.published ? { published: paper.published } : {}),
+      ...(paper.doi ? { doi: paper.doi } : {}),
+      ...(paper.arxivId ? { arxivId: paper.arxivId } : {}),
+      ...(paper.pdfUrl ? { pdfUrl: paper.pdfUrl } : {}),
+    })),
     todos: info.todos,
     ...(info.overleaf ? { overleaf: info.overleaf } : {}),
     ...(info.codeRepo ? { codeRepo: info.codeRepo } : {}),
   };
 }
 
-/** A member's project record, from the room's summary: the owner's question, roles and to-do list, on top of what this copy already keeps (its playground, say). */
+/** A copy's project record, from the room's list: its question, roles, to-do list and links, on top of what this copy alone keeps (its playground, its meetings). */
 export function fromSummary(summary: SharedProject, shared: SharedWith, had?: ProjectInfo): ProjectInfo {
   const roles: ProjectInfo['roles'] = {};
   for (const paper of summary.papers) if (paper.role && ROLES.some((role) => role.id === paper.role)) roles[paper.id] = paper.role as ProjectInfo['roles'][string];
+  // A link the list no longer has is gone here too: the list is the record of it.
+  const { overleaf: _overleaf, codeRepo: _codeRepo, ...kept } = had ?? { question: '', startedAt: summary.startedAt || new Date().toISOString(), roles: {}, todos: [] };
   return {
-    ...(had ?? { question: '', startedAt: summary.startedAt || new Date().toISOString(), roles: {}, todos: [] }),
+    ...kept,
     question: summary.question,
     startedAt: summary.startedAt || had?.startedAt || new Date().toISOString(),
     roles,
@@ -116,6 +128,24 @@ export function accessLost(error: string, project: string): string | null {
   if (/no longer shared|no such room/i.test(error)) return `Its owner stopped sharing “${project}”.`;
   return null;
 }
+
+/**
+ * The list sent to the room, naming the version it was built on. The room's answer, with the new version, is
+ * taken as this page's state. Built on an older list than the room's, the room refuses and answers its own,
+ * which is taken instead — the change this page made is let go, and the page follows the newer list. Answers
+ * the state either way, or null when the room could not be reached.
+ */
+export async function pushProject(room: string, project: SharedProject, version: number): Promise<RoomState | null> {
+  const response = await apiFetch(`/rooms/${room}/project`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, version }) }).catch(() => null);
+  if (!response) return null;
+  const body = (await response.json().catch(() => ({}))) as RoomState & { error?: string };
+  if (!response.ok && !(response.status === 409 && body.room)) return null;
+  if (live.room === room) set({ state: body });
+  return body;
+}
+
+/** The rooms this account is in, as the server has them: to put back a project record the library lost. */
+export const roomsOfMine = () => apiFetch('/rooms/mine').then((response) => answer<{ rooms: { room: string; role: string; project: string; at: number }[] }>(response)).then((body) => body.rooms);
 
 /** An action on the room; an invitation also says whether its mail went (server/mail.js), and why not when it did not. */
 export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove' | 'close', body: Record<string, unknown>) =>
@@ -203,7 +233,7 @@ function connect(room: string) {
   };
   ws.onmessage = (event) => {
     if (socket !== ws) return;
-    let message: { type: string; state?: RoomState; who?: string; place?: Place; member?: Member; project?: SharedProject; gone?: boolean };
+    let message: { type: string; state?: RoomState; who?: string; place?: Place; member?: Member; project?: SharedProject; version?: number; gone?: boolean };
     try {
       message = JSON.parse(String(event.data));
     } catch {
@@ -229,7 +259,7 @@ function connect(room: string) {
       const members = state.members.some((member) => member.email === message.member!.email) ? state.members : [...state.members, { ...message.member, place: null, lastSeen: null, lastPlace: null }];
       return set({ state: { ...state, members }, events: [...live.events, { id: ++eventId, who: message.member.email, kind: 'joined' as const, place: null, at: Date.now() }].slice(-5) });
     }
-    if (message.type === 'project' && message.project) return set({ state: { ...state, project: message.project } });
+    if (message.type === 'project' && message.project) return set({ state: { ...state, project: message.project, version: message.version ?? state.version } });
     if (message.type === 'closed') return shutOut(state.room, 'This project is no longer shared.');
     if (message.type === 'members') void roomState(state.room).then((fresh) => live.room === fresh.room && set({ state: fresh })).catch(() => undefined);
   };

@@ -13,6 +13,11 @@
  *   note, good for thirty days. Opened by anyone; converted by each person
  *   who signs in from it.
  *
+ * It also keeps, by account, which shared projects that account is in
+ * (`rooms:<email>`): told by the Worker as people share, join, leave, are
+ * removed, or a room closes. A page asks for it to put back a project record
+ * its library lost — the room is the record, the library a mirror.
+ *
  * The owner's dashboard (/usage/invites) reads the whole ledger by inviter:
  * how many each person sent or made, how many took, and who. Nothing here
  * reads a pass: the Worker checks it and hands the email in.
@@ -92,11 +97,39 @@ export class Invites {
     if (!list.includes(id)) await this.state.storage.put(`to:${who}`, [...list, id].slice(-200));
   }
 
+  async roomsOf(who) {
+    return (await this.state.storage.get(`rooms:${who}`)) || [];
+  }
+  /** Someone in a room, with their role — or out of it (`gone`). */
+  async setRoom(who, room, patch, gone) {
+    const list = (await this.roomsOf(who)).filter((item) => item.room !== room);
+    if (!gone) list.push({ room, role: text(patch.role, 10) || 'editor', project: text(patch.project, 200), at: Date.now() });
+    if (list.length) await this.state.storage.put(`rooms:${who}`, list.slice(-200));
+    else await this.state.storage.delete(`rooms:${who}`);
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     const now = Date.now();
+
+    // Someone's part in a room: in it with a role, or out of it.
+    if (path === '/member' && request.method === 'POST') {
+      const who = email(body.email);
+      const room = text(body.room, 64);
+      if (!who || !room) return json({ error: 'email and room' }, 400);
+      await this.setRoom(who, room, body, Boolean(body.gone));
+      return json({ ok: true });
+    }
+    // A room closed: out of it, everyone who was in.
+    if (path === '/room-closed' && request.method === 'POST') {
+      const room = text(body.room, 64);
+      for (const who of Array.isArray(body.emails) ? body.emails.map(email).filter(Boolean) : []) await this.setRoom(who, room, {}, true);
+      return json({ ok: true });
+    }
+    // The rooms an account is in.
+    if (path === '/rooms') return json({ rooms: await this.roomsOf(email(url.searchParams.get('email'))) });
 
     // An invitation sent: to a project, or by mail.
     if (path === '/event' && request.method === 'POST') {
