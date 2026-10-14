@@ -106,6 +106,43 @@ own row says what the others see, with **Appear away** beside it. People who
 were here earlier are listed with when and where they left off; *Open there*
 goes to that file anyway.
 
+### Invitations that need no link in hand
+
+Sharing works today by email and by link. Four more pictures for the ways
+in that are still to build, so an invitation works whether the person reads
+the email, has a link, or just signs in — and so inviting works whether or
+not the site can send mail.
+
+![Home with two invitation cards: Priya invited you to Sparse-gated MoE, with what the project is and your role, and Join the project](mockups/live-6-invited-home.png)
+
+**An invitation waits on Home.** The room keeps, per email, which projects
+that address was invited to; signed in, the app asks and shows a card with
+the project's size, who is in it and your role. No link needed: the email
+can say "sign in at Reader", and someone who already uses Reader sees it on
+their next visit. *Not now* keeps it under Settings → Invitations.
+
+![The Invite someone dialog with three ways: a link to share with a QR code, an email from the site, and Send from my own mail app](mockups/live-7-invite-link.png)
+
+**Invite someone, three ways.** A personal link, `?invite=<id>`, with a QR
+code, that the Worker keeps your name and note under for thirty days —
+paste it in Slack, a slide, a group chat. The email from the site, as built.
+And *Send from my own mail app*: `mailto:` with the message filled in, from
+your real address, which works on a deployment with no mail key at all.
+
+![The welcome page opened from an invitation: Saurav invited you to Reader and to the project, the note quoted, Sign in with Google as the invited address](mockups/live-8-welcome-invited.png)
+
+**The welcome page knows who asked.** Opened from either kind of link, it
+greets the invitee by the inviter's name, quotes the note, names the project
+waiting, and preselects the invited Google account (`login_hint`). Where
+`READER_EMAILS` limits sign-in, an invited address is let through.
+
+![A paper opened from a share link without signing in: the PDF with the sharer's highlights, their notes beside it, and Sign in to keep your own](mockups/live-9-shared-paper.png)
+
+**A paper shared by link, read-only (later).** The strongest reason to try
+Reader is seeing something of a colleague's: the PDF with their highlights
+and notes, readable without signing in; sign in and it goes to your library
+with their highlights kept apart from your own.
+
 ---
 
 ## How it works
