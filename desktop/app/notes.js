@@ -13,7 +13,7 @@
 // the page gets from the Worker (worker/meetings.js) with the site's Recall key:
 // the key is never in the app.
 
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain, shell } = require('electron');
 
 const SUPPORTED = process.platform === 'darwin' || process.platform === 'win32';
 /** The SDK's API address: one of Recall's regions, on https, nothing else. */
@@ -21,6 +21,14 @@ const RECALL_URL = /^https:\/\/[\w.-]+\.recall\.ai$/;
 /** The SDK's ids for meetings and audio sources, as they come back from it. */
 const WINDOW_ID = /^[\w.:-]{1,200}$/;
 const PERMISSIONS = new Set(['accessibility', 'screen-capture', 'microphone', 'system-audio', 'full-disk-access']);
+/** Where each permission's switch is in System Settings → Privacy & Security, on macOS. */
+const SETTINGS_PANES = {
+  microphone: 'Privacy_Microphone',
+  'screen-capture': 'Privacy_ScreenCapture',
+  'system-audio': 'Privacy_ScreenCapture',
+  accessibility: 'Privacy_Accessibility',
+  'full-disk-access': 'Privacy_AllFiles',
+};
 
 let sdk = null;
 let enabled = null;
@@ -151,9 +159,12 @@ function setUpNotes({ siteOrigin }) {
   });
 
   handle('notes:permission', async (permission) => {
-    if (!sdk) return { ok: false, error: 'The recorder is not started.' };
     if (!PERMISSIONS.has(permission)) return { ok: false, error: 'which permission?' };
-    await sdk.requestPermission(permission);
+    if (sdk) await sdk.requestPermission(permission).catch(() => undefined);
+    // macOS asks an app once; after that — granted or turned down — asking again shows nothing at all. So the page
+    // with the switch opens too, a moment later so a first-time prompt is not hidden behind it.
+    const pane = SETTINGS_PANES[permission];
+    if (process.platform === 'darwin' && pane) setTimeout(() => void shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`), 700);
     return { ok: true };
   });
 }

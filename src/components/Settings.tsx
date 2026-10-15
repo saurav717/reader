@@ -339,12 +339,13 @@ function RecorderSettings() {
           {PERMISSIONS.map(([permission, label]) => {
             const status = notes.permissions[permission];
             return (
-              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} disabled={status === 'granted'}>
+              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} title="Ask for it, and open its page in System Settings: switch Reader on there">
                 {status === 'granted' ? '✓ ' : ''}
                 {label}
               </button>
             );
           })}
+          <small className="set-permissions-note">Each opens its page in System Settings → Privacy &amp; Security: switch <b>Reader</b> on there (add it with + if it is not listed), then quit and reopen Reader. macOS asks only once, so a button that seems to do nothing has asked already; the switch in System Settings is what counts.</small>
         </div>
       ) : null}
     </div>

@@ -8722,4 +8722,5 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .set-recorder > small { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
 .set-recorder .setting-row { margin-bottom: 8px; font-size: 12.5px; }
 .set-permissions { display: flex; flex-wrap: wrap; gap: 6px; }
+.set-permissions-note { flex-basis: 100%; margin-top: 4px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
 .set-permissions .is-granted { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
