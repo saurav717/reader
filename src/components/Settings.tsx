@@ -357,7 +357,10 @@ function RecorderSettings() {
           <small className={`set-permissions-state${PERMISSIONS.every(([permission]) => notes.permissions[permission] === 'granted') ? ' is-ok' : ''}`}>
             {PERMISSIONS.every(([permission]) => notes.permissions[permission] === 'granted')
               ? '✓ All three granted: Reader can record meetings on this computer.'
-              : `The recorder says — ${PERMISSIONS.map(([permission, label]) => `${label.replace(/ \(.*\)$/, '')}: ${(notes.permissions[permission] ?? 'not reported yet').replace(/_/g, ' ')}`).join(' · ')}.`}
+              : `The recorder says — ${PERMISSIONS.map(([permission, label]) => `${label.replace(/ \(.*\)$/, '')}: ${(notes.permissions[permission] ?? 'not reported yet').replace(/_/g, ' ')}`).join(' · ')}.`}{' '}
+            <button type="button" className="link-btn" onClick={() => PERMISSIONS.forEach(([permission]) => notes.permissions[permission] !== 'granted' && void bridge.requestPermission(permission))} title="Ask the recorder again for the state of each permission not yet granted (macOS may prompt for one not asked yet)">
+              Check again
+            </button>
           </small>
           <small className="set-permissions-note">
             Each asks macOS, then opens its page in System Settings → Privacy &amp; Security: answer the prompt if one comes, or switch <b>Reader</b> on there (add it with + if it is not listed), then quit and reopen Reader. A ✓ shows once it is granted. After an
