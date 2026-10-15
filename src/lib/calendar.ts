@@ -58,6 +58,9 @@ export interface CalendarEvent {
   /** The calendar's colour, or the event's own when it was given one. */
   color: string;
   organizer?: string;
+  organizerEmail?: string;
+  /** Whether the person is the meeting's host: its organizer, or it is on a calendar of theirs with no other. Only the host records a meeting for a project. */
+  host: boolean;
   /** For one meeting of a repeating series: the series' id, so a tag can be put on every one of them. */
   seriesId?: string;
 }
@@ -431,6 +434,8 @@ export function parseEvent(item: GoogleEvent, calendar: CalendarInfo): CalendarE
     status: item.status === 'tentative' ? 'tentative' : 'confirmed',
     color: (item.colorId && EVENT_COLORS[item.colorId]) || calendar.color,
     organizer: item.organizer?.displayName || item.organizer?.email,
+    ...(item.organizer?.email ? { organizerEmail: item.organizer.email.toLowerCase() } : {}),
+    host: item.organizer ? Boolean(item.organizer.self) : true,
     ...(item.recurringEventId ? { seriesId: item.recurringEventId } : {}),
   };
 }

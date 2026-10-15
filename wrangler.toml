@@ -188,6 +188,16 @@ AI_FOR = "everyone"
 # A Google sign-in is only taken for a pass when Google says it was made for
 # this client; a sign-in some other site obtained is not one to this app.
 GOOGLE_CLIENT_ID = "308274983351-s52d0ustml5bneg91ju6of40tmitnaoa.apps.googleusercontent.com"
+# The Reader desktop app staying signed in (worker/googleDesktop.js): the
+# app signs in through the browser by the code flow and keeps a refresh
+# token on the computer; this Worker exchanges and renews with the same
+# OAuth client's secret, keeping nothing. On the client in the Google Cloud
+# Console: Authorised redirect URIs → https://<this worker>/google/desktop/callback;
+# then its secret here:
+#
+#     npx wrangler secret put GOOGLE_CLIENT_SECRET
+#
+# Unset, the app signs in the way the site does, an hour at a time.
 # A captcha in front of Google sign-in: Cloudflare Turnstile, free. Make a
 # widget in the Cloudflare dashboard (Turnstile → Add widget, hostname
 # saurav717.github.io and localhost), put its site key here — it is public,

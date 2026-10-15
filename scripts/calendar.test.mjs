@@ -134,7 +134,15 @@ describe("Google's events", () => {
     assert.equal(event.response, 'accepted');
     assert.equal(event.attendees.length, 2, 'rooms are not guests');
     assert.equal(event.organizer, 'Advisor');
+    assert.equal(event.organizerEmail, 'advisor@example.org');
+    assert.equal(event.host, false, 'the advisor’s meeting: not this person’s to record');
     assert.equal(event.color, '#1f5e52');
+  });
+  it('knows whose meeting it is: the organizer’s, or the person’s own on their calendar', () => {
+    const mine = cal.parseEvent({ id: 'm', summary: 'Mine', start: { dateTime: '2026-10-13T10:00:00+05:30' }, end: { dateTime: '2026-10-13T11:00:00+05:30' }, organizer: { email: 'me@example.org', self: true } }, calendar);
+    assert.equal(mine.host, true);
+    const own = cal.parseEvent({ id: 'o', summary: 'No organizer', start: { dateTime: '2026-10-13T10:00:00+05:30' }, end: { dateTime: '2026-10-13T11:00:00+05:30' } }, calendar);
+    assert.equal(own.host, true);
   });
   it('one meeting of a series knows its series, and is tagged under either key', () => {
     const one = cal.parseEvent({ id: 'abc_20261013T043000Z', recurringEventId: 'abc', summary: 'Group meeting', start: { dateTime: '2026-10-13T10:00:00+05:30' }, end: { dateTime: '2026-10-13T11:00:00+05:30' } }, calendar);

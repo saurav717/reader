@@ -34,6 +34,7 @@
  * and awaiting a script download in between spends it. So the script is
  * fetched ahead of time (see `prepare`) and the request itself never awaits.
  */
+import { apiBase } from './api';
 import { replaying, SHOWCASE_TOKEN } from './replayFlag';
 import type { GoogleUser } from '../types';
 
@@ -360,13 +361,30 @@ export function suggestAccount(email: string | null): void {
   suggested = email?.trim().toLowerCase() || null;
 }
 
+/** The Reader app's sign-in, when the page is in the app (desktop/app/google.js): it signs in through the browser, and keeps the grant. */
+const appSignIn = () => (typeof window !== 'undefined' ? window.readerDesktop?.google : undefined);
+/** The client the last sign-in here was for: what a sign-out tells the app to forget. */
+let lastClientId = '';
+
+/**
+ * Whether the Reader app keeps a sign-in for this client, from an earlier
+ * visit: then the page signs in by itself as it opens, with no click and no
+ * window — the app renews the token from the grant it kept. Null in a browser.
+ */
+export async function keptSignIn(clientId: string): Promise<{ email: string } | null> {
+  const viaApp = appSignIn();
+  if (!viaApp?.kept || !clientId) return null;
+  return viaApp.kept({ clientId, hint: '' }).catch(() => null);
+}
+
 function requestToken(clientId: string, scope: string, prompt: string): Promise<Grant> {
   const account = whose?.email || suggested;
   // In the Reader app Google refuses to sign in ("This browser or app may not be secure"): the app asks
-  // in the browser instead (public/app-sign-in/), and answers with the same token.
-  const viaApp = typeof window !== 'undefined' ? window.readerDesktop?.google : undefined;
+  // in the browser instead — and keeps the grant, so it answers the next ask itself (desktop/app/google.js).
+  const viaApp = appSignIn();
   if (viaApp) {
-    return viaApp.token({ clientId, scope, prompt, hint: account || '' }).then((response) => {
+    lastClientId = clientId;
+    return viaApp.token({ clientId, scope, prompt, hint: account || '', proxy: apiBase() ?? '' }).then((response) => {
       if (response.error || !response.access_token) throw new Error(describe(undefined, response.error, response.error_description));
       return {
         accessToken: response.access_token,
@@ -599,7 +617,8 @@ async function afterRenewal(pending: Promise<StoredToken>, clientId: string, sco
  */
 function renewQuietly(clientId: string, scopes: string[]): Promise<StoredToken> {
   if (renewing) return covers(renewingFor, scopes) ? renewing : afterRenewal(renewing, clientId, scopes);
-  if (inGesture()) return renewOnce(clientId, scopes.join(' '));
+  // In the Reader app a renewal opens no window — the app renews from the grant it keeps — so it needs no click.
+  if (inGesture() || appSignIn()) return renewOnce(clientId, scopes.join(' '));
   if (!waiting) {
     let resolve!: (granted: StoredToken) => void;
     let reject!: (error: Error) => void;
@@ -760,12 +779,15 @@ export function signOut(): void {
     tellRenewal();
     held.reject(new Error('Signed out.'));
   }
+  const email = whose?.email ?? '';
   forgetToken();
   whose = null;
   signOuts += 1;
   // Every tab signs out with this one: the token is about to be revoked, and a tab left signed in would show an account that is gone.
   tabs?.postMessage({ type: 'signout' } satisfies TabMessage);
   if (active) window.google?.accounts.oauth2.revoke(active);
+  // The Reader app forgets the grant it kept, and gives it back to Google.
+  void appSignIn()?.signOut?.({ clientId: lastClientId, email, proxy: apiBase() ?? '' }).catch(() => undefined);
 }
 
 // ------------------------------------------------------------------ Drive ---

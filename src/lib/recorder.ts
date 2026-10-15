@@ -68,13 +68,16 @@ declare global {
       companion?: { release(id: string): Promise<{ ok: boolean; error?: string }> };
       /** Google sign-in in the browser, for an app Google won't sign in inside (src/lib/google.ts). */
       google?: {
-        token(request: { clientId: string; scope: string; prompt: string; hint: string }): Promise<{
+        token(request: { clientId: string; scope: string; prompt: string; hint: string; proxy: string }): Promise<{
           access_token?: string;
           expires_in?: number;
           scope?: string;
           error?: string;
           error_description?: string;
         }>;
+        /** Whether the app keeps a sign-in for this client, so the page signs in with no click (desktop/app/google.js). */
+        kept?(request: { clientId: string; hint: string }): Promise<{ email: string } | null>;
+        signOut?(request: { clientId: string; email: string; proxy: string }): Promise<{ ok: boolean }>;
       };
     };
   }

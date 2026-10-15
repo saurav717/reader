@@ -318,6 +318,8 @@ export interface ProxyHealth {
   googleClientId: string;
   /** Whether it can send mail: an invitation to a shared project goes to the address invited (server/mail.js). */
   mail?: boolean;
+  /** Whether it signs the Reader app in to Google for keeps (worker/googleDesktop.js): the app then stays signed in. */
+  googleDesktop?: boolean;
   /** Whether it can make Zoom meetings itself (a Server-to-Server app's credentials, worker/zoom.js); without, a Zoom link is pasted. */
   zoom?: boolean;
   /** Whether it can give the desktop app what it records a meeting with (a Recall.ai key, worker/meetings.js), and the region the app's SDK talks to. */

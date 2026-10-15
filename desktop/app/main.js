@@ -16,13 +16,13 @@
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
 const { setUpNotes, stopNotes } = require('./notes');
+const { setUpGoogle, openedSignInLink, showMain } = require('./google');
 const { setUpUpdates, checkForUpdates, installOnQuit, cancelUpdates, RELEASES } = require('./updates');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { randomBytes } = require('node:crypto');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
@@ -337,34 +337,10 @@ async function showSite(win, url) {
 // ------------------------------------------------------- Google sign-in ----
 
 // Google turns sign-in down inside an app's own window ("This browser or app may not be secure"), whatever it
-// is called. So the site's sign-in (src/lib/google.ts) asks here, and the browser signs in: the site's
-// app-sign-in page there, Google's usual popup, then a reader-app://google-token link back with the token
-// and the `state` it was opened with. One sign-in waits at a time; a newer one is the one answered.
+// is called. So the site's sign-in (src/lib/google.ts) asks the app, and the browser signs in; the app keeps
+// the grant and signs in by itself from then on: desktop/app/google.js. The browser's answer comes back as a
+// reader-app:// link (open-url on macOS; a second instance's argv elsewhere, below).
 const PROTOCOL = 'reader-app';
-let signingIn = null; // { state, resolve, timer }
-
-function endSignIn(answer) {
-  if (!signingIn) return;
-  clearTimeout(signingIn.timer);
-  signingIn.resolve(answer);
-  signingIn = null;
-}
-
-ipcMain.handle('google:token', (event, request) => {
-  const from = event.senderFrame?.url || '';
-  if (!from.startsWith(SITE_ORIGIN + '/')) return { error: 'access_denied', error_description: 'Not the Reader site.' };
-  const { clientId = '', scope = '', prompt = '', hint = '' } = request ?? {};
-  endSignIn({ error: 'popup_closed' });
-  const state = randomBytes(24).toString('base64url');
-  const page = new URL('app-sign-in/', SITE);
-  for (const [key, value] of Object.entries({ state, client_id: String(clientId), scope: String(scope), prompt: String(prompt), hint: String(hint) })) {
-    if (value) page.searchParams.set(key, value);
-  }
-  return new Promise((resolve) => {
-    signingIn = { state, resolve, timer: setTimeout(() => endSignIn({ error: 'popup_closed' }), 10 * 60_000) };
-    void shell.openExternal(page.href);
-  });
-});
 
 // A Companion connected to another Google account pairs only with a page signed in as it: the account
 // that first paired it on this computer, maybe long ago, through the site. The person at this computer can
@@ -380,7 +356,7 @@ ipcMain.handle('companion:release', async (event, id) => {
   return code === 0 ? { ok: true } : { ok: false, error: said.filter(Boolean).pop() || 'The Companion didn’t let go of the account.' };
 });
 
-/** A reader-app:// link the browser opened: the sign-in's answer, when its state is the one waiting. */
+/** A reader-app:// link the browser opened: a sign-in's answer (desktop/app/google.js), and the app back in front. */
 function openedLink(link) {
   let url;
   try {
@@ -388,21 +364,7 @@ function openedLink(link) {
   } catch {
     return;
   }
-  if (url.protocol !== `${PROTOCOL}:` || url.hostname !== 'google-token' || !signingIn) return;
-  const values = url.searchParams;
-  if (values.get('state') !== signingIn.state) return;
-  const expires = Number.parseInt(values.get('expires_in') || '', 10);
-  endSignIn(
-    values.get('access_token')
-      ? { access_token: values.get('access_token'), expires_in: Number.isFinite(expires) ? expires : 3600, scope: values.get('scope') || '' }
-      : { error: values.get('error') || 'access_denied', error_description: values.get('error_description') || '' },
-  );
-  const win = main ?? BrowserWindow.getAllWindows()[0];
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-  }
+  if (openedSignInLink(url)) showMain();
 }
 
 // macOS hands the link to the running app; Windows and Linux start a second one with it (second-instance below).
@@ -671,6 +633,8 @@ if (!app.requestSingleInstanceLock()) {
     integrateAppImage();
     // Meeting notes on this computer (notes.js): for the site's pages only.
     setUpNotes({ siteOrigin: SITE_ORIGIN });
+    // Google sign-in, kept (google.js): for the site's pages only.
+    setUpGoogle({ siteUrl: SITE });
     // Updates (updates.js): checked a while after opening and every few hours; not when only uninstalling.
     if (!uninstallOnly) setUpUpdates({ site: SITE_ORIGIN });
     if (uninstallOnly) openUninstall();

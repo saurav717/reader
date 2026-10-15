@@ -823,7 +823,10 @@ origin the app is served from — scheme and host, no path, no trailing slash:
 `https://yourname.github.io/reader/` is **not** an origin — the path is not part
 of one, and pasting it is the most common reason sign-in fails with
 `redirect_uri_mismatch` or a popup that closes instantly. **Authorised redirect
-URIs** can be left empty: this app uses the token flow, which has no redirect.
+URIs** can be left empty for the site, which uses the token flow and has no
+redirect; the [desktop app](docs/desktop-app.md#staying-signed-in) stays
+signed in through one, `https://<your worker>/google/desktop/callback`, with
+the client's secret on the Worker (`GOOGLE_CLIENT_SECRET`).
 
 Changes to a client can take a few minutes to propagate.
 
@@ -4971,7 +4974,11 @@ everyone in the project reads them, and the meeting's card says where:
   a notification says the same over the call's own window. A meeting set to
   Reader notes starts by itself when it opens; any other meeting is offered,
   with the project to file it in; and **Record a meeting now**, on the
-  logbook, records one round a table. A card
+  logbook, records one round a table. A meeting for a project is recorded by
+  its **host** alone — the organizer, or whoever made it on their own
+  calendar — so one meeting makes one set of notes; on anyone else's
+  computer the card says whose it is, and the notes reach them through the
+  project all the same. A card
   in the corner shows it all the while — how long, the last thing said, the
   project, **Stop**. When it ends, the transcript is written up by your Ask AI
   model (summary, decisions, action items, open questions) and filed with the
