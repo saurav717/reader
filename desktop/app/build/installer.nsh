@@ -3,7 +3,7 @@
 ;
 ; Installing: an "Uninstall Reader" shortcut beside Reader's in the Start menu. The
 ; Companion itself is set up by the app the first time it opens (main.js), with
-; the uv and the wheel inside it, so this installer needs no network and no Python.
+; the uv, the wheel and the Python inside it, so this installer needs no network and no Python.
 ;
 ; Uninstalling (Settings -> Apps -> Reader -> Uninstall, the Start menu's Uninstall
 ; Reader, or Help -> Uninstall Reader... in the app, which runs this silently after
