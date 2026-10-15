@@ -334,6 +334,15 @@ function RecorderSettings() {
         <input type="checkbox" checked={settings.notesOffer} onChange={(change) => updateSettings({ notesOffer: change.target.checked })} />
         <span>Offer to take notes of any other meeting</span>
       </label>
+      <div className="segmented sm set-notes-source" role="radiogroup" aria-label="How a meeting joined from the calendar is recorded">
+        <button type="button" role="radio" aria-checked={settings.notesSource !== 'computer'} onClick={() => updateSettings({ notesSource: 'app' })} title="Zoom, Google Meet in Chrome, Teams or Slack: the recorder finds the call and knows who spoke. The computer’s sound is recorded instead if the call is not found in half a minute.">
+          Find the meeting app
+        </button>
+        <button type="button" role="radio" aria-checked={settings.notesSource === 'computer'} onClick={() => updateSettings({ notesSource: 'computer' })} title="Whatever app or browser the call is in — Safari, FaceTime, anything: the computer’s sound and the microphone, from the moment you join. Speakers are not named.">
+          Record the computer’s sound
+        </button>
+      </div>
+      <small>{settings.notesSource === 'computer' ? 'Any app or browser: the computer’s sound and your microphone are recorded from the moment you press Join. Who spoke is not known, so the transcript says Speaker 1, 2…' : 'The recorder finds the call in Zoom, Google Meet (in Chrome), Teams or Slack and names who spoke; a call it does not find within half a minute is recorded from the computer’s sound instead.'}</small>
       {bridge && mac ? (
         <div className="set-permissions">
           {PERMISSIONS.map(([permission, label]) => {

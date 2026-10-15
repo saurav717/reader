@@ -79,6 +79,8 @@ export interface NotetakerContext {
   auto: () => boolean;
   /** Offer to take notes of any other meeting found. */
   offer: () => boolean;
+  /** How a meeting joined from the calendar is recorded: its app's window found, or the computer's sound from the start. */
+  source: () => 'app' | 'computer';
   /** Writes the meeting up: the page's model, given the prompt; the Markdown it answered. */
   write: (prompt: { system: string; user: string }) => Promise<string>;
 }
@@ -147,6 +149,8 @@ const hostOnly = (event: CalendarEvent | undefined, projectId: string | null | u
 
 /** How long after Join a meeting is waited for before the offer goes away. */
 const JOIN_WAIT = 15 * 60_000;
+/** How long after Join the meeting's window is waited for before the computer's sound is recorded instead. */
+const JOIN_FALLBACK = 25_000;
 const joinId = (event: CalendarEvent) => `join:${event.id}`;
 
 /**
@@ -165,6 +169,14 @@ export function joinMeeting(event: CalendarEvent, projectId: string | null): boo
   window.setTimeout(() => {
     if (sessionOf(windowId)?.status === 'joining') dismiss(windowId);
   }, JOIN_WAIT);
+  // Said yes to: the computer's sound is recorded from the start when that is the way chosen, else once the meeting's
+  // window has not been found in time — a call in Safari, FaceTime, anything the recorder does not know.
+  const fallback = () => {
+    const session = sessionOf(windowId);
+    if (session?.status === 'joining' && session.armed) void recordHere(session.projectId, event.title, event);
+  };
+  if (armed && context?.source() === 'computer') void fallback();
+  else window.setTimeout(fallback, JOIN_FALLBACK);
   if (!hostOnly(event, projectId)) notice(windowId, event.title, armed ? 'armed' : 'offer', projectName(projectId));
   return true;
 }
@@ -242,6 +254,8 @@ async function hear(event: RecorderEvent): Promise<void> {
     set({ sessions: [...state.sessions.filter((item) => item.windowId !== found.id && item.windowId !== joining?.windowId), session] });
     // A meeting for a project is its host's to record: on anyone else's computer it is neither started nor offered.
     if (hostOnly(match, session.projectId)) return dismiss(found.id);
+    // One recording at a time: the computer's sound already being recorded for this (or any) meeting takes this one in.
+    if (!had && state.sessions.some((item) => item.windowId !== found.id && (item.status === 'recording' || item.status === 'starting'))) return dismiss(found.id);
     // Joined from the calendar with notes said yes to: it starts. Set to Reader notes on the calendar, for a project: it starts by itself.
     if (joining) {
       if (joining.armed) void startRecording(found.id, session.projectId, false);
@@ -299,12 +313,19 @@ export async function startRecording(windowId: string, projectId: string | null,
   }
 }
 
-/** A recording with no meeting app found: the computer's sound and its microphone — an in-person meeting, or a call the app missed. */
-export async function recordHere(projectId: string | null, title = 'Meeting'): Promise<void> {
+/**
+ * A recording with no meeting app found: the computer's sound and its
+ * microphone — an in-person meeting, a call in an app or browser the recorder
+ * does not know, or one it has not found yet. For a calendar event when it is
+ * one (joined from the calendar): the notes are that meeting's.
+ */
+export async function recordHere(projectId: string | null, title = 'Meeting', event?: CalendarEvent): Promise<void> {
   if (!bridge) return;
+  if (state.sessions.some((item) => item.status === 'recording' || item.status === 'starting')) return;
   const prepared = await bridge.prepareAudio().catch((error: Error) => ({ ok: false, error: error.message }) as { ok: boolean; windowId?: string; error?: string });
   if (!prepared.ok || !prepared.windowId) return set({ reason: prepared.error ?? 'The recorder could not listen to this computer.' });
-  set({ sessions: [...state.sessions, { windowId: prepared.windowId, found: { id: prepared.windowId, title }, projectId, status: 'found', auto: false, turns: [] }] });
+  const joining = event ? joinId(event) : undefined;
+  set({ sessions: [...state.sessions.filter((item) => item.windowId !== joining), { windowId: prepared.windowId, found: { id: prepared.windowId, title, ...(event?.meet ? { url: event.meet } : {}) }, ...(event ? { event } : {}), projectId, status: 'found', auto: false, turns: [] }] });
   await startRecording(prepared.windowId, projectId);
 }
 

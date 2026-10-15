@@ -101,6 +101,15 @@ opens, while its lobby is up:
   The offer goes by itself after fifteen minutes with no meeting.
 - Once filed, the event's card says so, with **Open notes**, whether or not
   the event was set to notes beforehand.
+- The call need not be in an app the recorder knows. Said yes to, a meeting
+  whose window is not found within 25 s is recorded from the computer's
+  sound and the microphone (`recordHere`, the SDK's desktop audio recording)
+  under the same event and project — a call in Safari, FaceTime, anything.
+  Settings → Meetings → **Record the computer's sound** makes that the way
+  from the start, for every Join; the card offers it at once too. One
+  recording at a time: a meeting window found while the computer's sound is
+  being recorded is not started or offered on top. What is lost that way is
+  who spoke: the transcript numbers the speakers.
 
 - The transcript comes back to the app over the SDK's `desktop_sdk_callback`
   realtime endpoint, so the Worker needs no webhook and keeps nothing.

@@ -8726,3 +8726,4 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .set-permissions .is-granted { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 .nt-card.is-joining { border-left-color: var(--pj); }
 .nt-card.is-joining .nt-head-text small { color: var(--accent-ink); font-weight: 600; }
+.set-recorder .set-notes-source { margin: 2px 0 6px; }

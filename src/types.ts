@@ -479,6 +479,12 @@ export interface Settings {
   notesAuto: boolean;
   /** In the Reader app: offer to take notes of any other meeting found on the computer. */
   notesOffer: boolean;
+  /**
+   * In the Reader app, how a meeting joined from the calendar is recorded: `app` finds the meeting's window (Zoom, Meet in
+   * Chrome, Teams, Slack) and knows who spoke, falling back to the computer's sound when none is found; `computer` records the
+   * computer's sound and the microphone from the start, whatever app or browser the call is in.
+   */
+  notesSource: 'app' | 'computer';
 }
 
 /**
