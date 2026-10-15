@@ -158,6 +158,15 @@ MAIL_FROM = "Reader <es16btech11007@gmail.com>"
 # profile exactly — every work, citations, h-index; "serply" is cheaper, and
 # takes the searches, people and versions while SerpApi keeps the profiles.
 SCHOLAR_FIRST = "serpapi"
+# Reader's meeting notes, recorded on the person's own computer by the Reader
+# app with Recall.ai's Desktop Recording SDK (worker/meetings.js, /notes/upload):
+# the region the Recall workspace is in. Its key is a secret:
+#
+#     npx wrangler secret put RECALL_API_KEY
+#
+# Transcription is Recall's own (recallai_streaming) unless RECALL_TRANSCRIPT
+# names a provider set up in the Recall dashboard.
+RECALL_API_URL = "https://us-west-2.recall.ai"
 # Ask AI and Explain on this Worker's own keys — the site's keys, used by
 # anyone who has not pasted one of their own under Settings (server/aiRelay.js,
 # server/geminiRelay.js). Each a secret, and each optional:
