@@ -17,7 +17,9 @@ module.exports = {
   directories: { output: 'dist', buildResources: 'build' },
   // Released by the desktop app workflow (gh release), not by electron-builder: no update feeds.
   publish: [],
-  files: ['main.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
+  files: ['main.js', 'notes.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
+  // The meeting recorder's native program (notes.js) runs from outside the archive: the SDK looks for it in app.asar.unpacked.
+  asarUnpack: ['node_modules/@recallai/desktop-sdk/**'],
   extraResources: [{ from: 'companion', to: 'companion' }],
   mac: {
     category: 'public.app-category.education',
@@ -26,8 +28,23 @@ module.exports = {
     hardenedRuntime: true,
     gatekeeperAssess: false,
     notarize,
-    // uv is already both architectures (lipo, in prepare-companion.mjs): the same file in both halves.
-    x64ArchFiles: 'Contents/Resources/companion/uv',
+    // What recording a meeting needs, and what macOS says when it asks (notes.js).
+    entitlements: 'build/entitlements.mac.plist',
+    entitlementsInherit: 'build/entitlements.mac.plist',
+    extendInfo: {
+      NSMicrophoneUsageDescription: 'Reader records the meetings you choose, to write up their notes for your project.',
+      NSAudioCaptureUsageDescription: 'Reader records the sound of the meetings you choose, to write up their notes for your project.',
+      NSScreenCaptureUsageDescription: 'Reader records the meetings you choose, to write up their notes for your project.',
+      NSAppleEventsUsageDescription: 'Reader finds the meeting you are in, to take its notes.',
+    },
+    // Files already built for both architectures, the same in both halves of the universal app: uv (lipo, in
+    // prepare-companion.mjs), and the meeting recorder's native program and its GStreamer libraries, which
+    // Recall.ai ships universal (notes.js).
+    x64ArchFiles: 'Contents/Resources/{companion/uv,app.asar.unpacked/node_modules/@recallai/desktop-sdk/**}',
+    // The two halves' app.asar are the same (the app's own JavaScript), so neither is merged into the other file by
+    // file: merging (electron-builder's default) fails on the symlinks in the recorder's GStreamer framework, unpacked
+    // beside it. @electron/universal then checks the two are identical and keeps one.
+    mergeASARs: false,
   },
   dmg: {
     title: 'Reader ${version}',

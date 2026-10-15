@@ -250,7 +250,7 @@ describe('sharing a project', () => {
     const socket = fakeSocket('priya@x.org');
     object.state.acceptWebSocket(socket);
     assert.equal((await call(e, `/rooms/${room}/close`, { pass: priya, body: {} })).status, 403, 'only the owner');
-    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true, members: ['owner@x.org', 'priya@x.org'] });
+    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true, members: ['owner@x.org', 'priya@x.org'], log: { notes: [], links: [], strokes: [], pad: { text: '', version: 0 } } });
     assert.deepEqual(socket.sent.at(-1), { type: 'closed' });
     assert.deepEqual(socket.closed, { code: 1000, reason: 'the project is no longer shared' });
     assert.equal((await call(e, `/rooms/${room}`, { pass: priya })).status, 404);
@@ -391,5 +391,189 @@ describe('what the room keeps of a project and a place', () => {
   it('takes only what a place is', () => {
     assert.deepEqual(cleanPlace({ tab: 'nope', line: -1, sel: [1], page: 2, title: 'T', paperId: 'x' }, 5), { tab: 'overview', active: true, at: 5, paperId: 'x', title: 'T', page: 2 });
     assert.equal(cleanPlace('x'), null);
+  });
+});
+
+describe('the logbook a shared project keeps (worker/logbook.js)', () => {
+  const setUp = async () => {
+    const e = env();
+    const owner = await issuePass('owner@x.org', SECRET);
+    const priya = await issuePass('priya@x.org', SECRET);
+    const lin = await issuePass('lin@x.org', SECRET);
+    const stranger = await issuePass('nobody@x.org', SECRET);
+    const { room } = await (await call(e, '/rooms', { pass: owner, body: { project } })).json();
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'priya@x.org', role: 'editor' } });
+    await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'lin@x.org', role: 'viewer' } });
+    await call(e, `/rooms/${room}/join`, { pass: priya, body: {} });
+    await call(e, `/rooms/${room}/join`, { pass: lin, body: {} });
+    return { e, room, owner, priya, lin, stranger };
+  };
+
+  it('is read by every member, empty to start, and by nobody else', async () => {
+    const { e, room, lin, stranger } = await setUp();
+    const log = await (await call(e, `/rooms/${room}/log`, { pass: lin })).json();
+    assert.deepEqual(log, { notes: [], links: [], strokes: [], pad: { text: '', version: 0 } });
+    assert.equal((await call(e, `/rooms/${room}/log`, { pass: stranger })).status, 403);
+    assert.equal((await call(e, `/rooms/${room}/log`)).status, 401);
+  });
+
+  it('keeps a meeting’s notes once per meeting, cleaned, and tells the others', async () => {
+    const { e, room, owner, priya, lin } = await setUp();
+    const object = [...e.ROOMS.objects.values()][0];
+    const priyaSocket = { sent: [], attachment: { email: 'priya@x.org' }, deserializeAttachment() { return this.attachment; }, send(data) { this.sent.push(JSON.parse(data)); } };
+    object.state.sockets.push(priyaSocket);
+    const note = { id: 'granola:not_1', meeting: 'lab@g:abc', title: 'Group meeting', start: '2026-10-14T03:30:00.000Z', source: 'granola', url: 'https://notes.granola.ai/d/1', attendees: ['Priya'], markdown: '## Action items\n- Run the ablation', by: 'forged@x.org' };
+    const kept = await (await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'note', note } })).json();
+    assert.equal(kept.note.by, 'owner@x.org', 'filed under the pass’s email, not the one sent');
+    assert.equal(priyaSocket.sent.at(-1).type, 'log');
+    assert.equal(priyaSocket.sent.at(-1).op, 'note');
+    // The same meeting from Granola again: in place of the first, not beside it.
+    await call(e, `/rooms/${room}/log`, { pass: priya, body: { op: 'note', note: { ...note, id: 'granola:not_2', markdown: 'v2' } } });
+    const log = await (await call(e, `/rooms/${room}/log`, { pass: lin })).json();
+    assert.deepEqual(log.notes.map((n) => [n.id, n.markdown]), [['granola:not_2', 'v2']]);
+    // A viewer reads but does not write; a link must be http(s).
+    assert.equal((await call(e, `/rooms/${room}/log`, { pass: lin, body: { op: 'note', note } })).status, 403);
+    assert.equal((await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'link', link: { id: 'l1', url: 'javascript:alert(1)' } } })).status, 400);
+    assert.equal((await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'unnote', ids: ['granola:not_2'] } })).status, 200);
+    assert.deepEqual((await (await call(e, `/rooms/${room}/log`, { pass: lin })).json()).notes, []);
+  });
+
+  it('keeps links pinned first, and strokes added and erased whole', async () => {
+    const { e, room, owner, priya } = await setUp();
+    await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'link', link: { id: 'a', url: 'https://github.com/x/y', title: 'Code', at: '2026-10-01T00:00:00Z' } } });
+    await call(e, `/rooms/${room}/log`, { pass: priya, body: { op: 'link', link: { id: 'b', url: 'https://docs.google.com/document/d/1', title: 'Draft', pinned: true, at: '2026-09-01T00:00:00Z' } } });
+    const stroke = (id) => ({ id, color: '#2d64a0', width: 4, tool: 'pen', points: [10, 10, 0.5, 20, 20, 0.6, 30, 25, 0.7, 99] });
+    const drawn = await (await call(e, `/rooms/${room}/log`, { pass: priya, body: { op: 'stroke', strokes: [stroke('s1'), stroke('s2'), { id: 's3', color: 'red', points: [1, 2, 0.5] }] } })).json();
+    assert.equal(drawn.strokes.length, 3);
+    assert.equal(drawn.strokes[0].points.length, 9, 'whole points only');
+    assert.equal(drawn.strokes[2].color, '#1a1a17', 'a colour that is not #rrggbb is ink');
+    await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'unstroke', ids: ['s1'] } });
+    let log = await (await call(e, `/rooms/${room}/log`, { pass: owner })).json();
+    assert.deepEqual(log.links.map((l) => l.id), ['b', 'a']);
+    assert.deepEqual(log.strokes.map((s) => s.id).sort(), ['s2', 's3']);
+    await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'clear' } });
+    log = await (await call(e, `/rooms/${room}/log`, { pass: owner })).json();
+    assert.deepEqual(log.strokes, []);
+  });
+
+  it('takes a notepad change made on the version it has, and refuses an older one with its own', async () => {
+    const { e, room, owner, priya } = await setUp();
+    const first = await (await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'pad', text: 'Agenda', version: 0 } })).json();
+    assert.equal(first.pad.version, 1);
+    const stale = await call(e, `/rooms/${room}/log`, { pass: priya, body: { op: 'pad', text: 'Mine', version: 0 } });
+    assert.equal(stale.status, 409);
+    assert.deepEqual((await stale.json()).pad.text, 'Agenda');
+    const next = await (await call(e, `/rooms/${room}/log`, { pass: priya, body: { op: 'pad', text: 'Agenda\nMine', version: 1 } })).json();
+    assert.equal(next.pad.version, 2);
+    assert.equal(next.pad.by, 'priya@x.org');
+  });
+
+  it('hands the logbook back to the owner when sharing stops, and forgets it', async () => {
+    const { e, room, owner } = await setUp();
+    await call(e, `/rooms/${room}/log`, { pass: owner, body: { op: 'link', link: { id: 'a', url: 'https://example.org/x' } } });
+    const closed = await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json();
+    assert.deepEqual(closed.log.links.map((l) => l.url), ['https://example.org/x']);
+    const object = [...e.ROOMS.objects.values()][0];
+    assert.equal(await object.state.storage.get('weblink:a'), undefined);
+  });
+
+  it('passes a stroke being drawn on to the others, from an editor only', async () => {
+    const { e } = await setUp();
+    const object = [...e.ROOMS.objects.values()][0];
+    const sockets = ['owner@x.org', 'priya@x.org', 'lin@x.org'].map((email) => ({ sent: [], attachment: { email }, deserializeAttachment() { return this.attachment; }, send(data) { this.sent.push(JSON.parse(data)); } }));
+    object.state.sockets.push(...sockets);
+    const ink = JSON.stringify({ type: 'ink', stroke: { id: 'live', points: [1, 1, 0.5, 2, 2, 0.5] } });
+    await object.webSocketMessage(sockets[1], ink);
+    assert.equal(sockets[0].sent.at(-1).type, 'ink');
+    assert.equal(sockets[0].sent.at(-1).who, 'priya@x.org');
+    assert.equal(sockets[1].sent.length, 0, 'not back to who drew it');
+    const before = sockets[0].sent.length;
+    await object.webSocketMessage(sockets[2], ink);
+    assert.equal(sockets[0].sent.length, before, 'a viewer draws nothing');
+  });
+});
+
+const { zoomRequest, granolaPath } = await import('../worker/meetings.js');
+
+describe('Zoom and Granola through the Worker (worker/meetings.js)', () => {
+  it('asks Zoom for a scheduled meeting at the time, or one with no set time', () => {
+    const at = zoomRequest({ topic: ' Group meeting ', start: '2026-10-14T03:30:00.000Z', minutes: 45, timezone: 'Asia/Kolkata' });
+    assert.deepEqual([at.topic, at.type, at.start_time, at.duration, at.timezone], ['Group meeting', 2, '2026-10-14T03:30:00Z', 45, 'Asia/Kolkata']);
+    const loose = zoomRequest({ minutes: 5, timezone: 'bad zone; drop' });
+    assert.deepEqual([loose.type, loose.duration, loose.timezone, loose.topic], [3, 15, 'UTC', 'Meeting']);
+  });
+  it('passes only Granola’s reads through, with only the query it reads', () => {
+    assert.equal(granolaPath('/granola/notes', '?created_after=2026-10-01T00:00:00Z&evil=1&page_size=30'), '/notes?created_after=2026-10-01T00%3A00%3A00Z&page_size=30');
+    assert.equal(granolaPath('/granola/notes/not_abc123', ''), '/notes/not_abc123');
+    assert.equal(granolaPath('/granola/notes/../users', ''), null);
+    assert.equal(granolaPath('/granola/folders', ''), null);
+  });
+  it('wants a sign-in, a key for Granola, and Zoom’s credentials to make a meeting', async () => {
+    const e = env();
+    const me = await issuePass('owner@x.org', SECRET);
+    assert.equal((await call(e, '/granola/notes')).status, 401);
+    assert.equal((await call(e, '/granola/notes', { pass: me })).status, 400);
+    assert.equal((await call(e, '/zoom/meetings', { pass: me, body: { topic: 'x' } })).status, 501);
+    const health = await (await call({ ...e, ZOOM_ACCOUNT_ID: 'a', ZOOM_CLIENT_ID: 'b', ZOOM_CLIENT_SECRET: 'c' }, '/health')).json();
+    assert.equal(health.zoom, true);
+  });
+  it('makes the meeting with the site’s app, and reads Granola with the person’s key', async () => {
+    const realFetch = globalThis.fetch;
+    const asked = [];
+    globalThis.fetch = async (url, init = {}) => {
+      asked.push({ url: String(url), auth: new Headers(init.headers).get('Authorization') });
+      if (String(url).startsWith('https://zoom.us/oauth/token')) return Response.json({ access_token: 'zt', expires_in: 3600 });
+      if (String(url).startsWith('https://api.zoom.us/v2/users/')) return Response.json({ join_url: 'https://us02web.zoom.us/j/123?pwd=x', id: 123, password: 'x' });
+      if (String(url).startsWith('https://public-api.granola.ai/v1/notes')) return Response.json({ notes: [{ id: 'not_1', title: 'Group meeting' }] });
+      return new Response('{}', { status: 404 });
+    };
+    try {
+      const e = { ...env(), ZOOM_ACCOUNT_ID: 'acc', ZOOM_CLIENT_ID: 'id', ZOOM_CLIENT_SECRET: 'secret', ZOOM_USER: 'lab@x.org' };
+      const me = await issuePass('owner@x.org', SECRET);
+      const made = await (await call(e, '/zoom/meetings', { pass: me, body: { topic: 'Group meeting', start: '2026-10-14T03:30:00Z', minutes: 60 } })).json();
+      assert.deepEqual(made, { url: 'https://us02web.zoom.us/j/123?pwd=x', id: '123', passcode: 'x' });
+      assert.equal(asked[0].auth, `Basic ${btoa('id:secret')}`);
+      assert.match(asked[1].url, /\/users\/lab%40x\.org\/meetings$/);
+      const notes = await worker.fetch(new Request('https://proxy.example/granola/notes?created_after=2026-10-01', { headers: { Authorization: `Bearer ${me}`, 'X-Granola-Key': 'grn_abcdefghijkl' } }), e, { waitUntil() {} });
+      assert.equal(notes.status, 200);
+      assert.equal(asked.at(-1).auth, 'Bearer grn_abcdefghijkl');
+      assert.equal(asked.at(-1).url, 'https://public-api.granola.ai/v1/notes?created_after=2026-10-01');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe('the recorder’s upload token (worker/meetings.js)', () => {
+  it('sets a recording up to be transcribed as it goes, back to the app', async () => {
+    const { uploadRequest, recallApiUrl } = await import('../worker/meetings.js');
+    const asked = uploadRequest({});
+    assert.deepEqual(Object.keys(asked.recording_config.transcript.provider), ['recallai_streaming']);
+    assert.deepEqual(asked.recording_config.realtime_endpoints, [{ type: 'desktop_sdk_callback', events: ['transcript.data', 'participant_events.join'] }]);
+    assert.deepEqual(Object.keys(uploadRequest({ RECALL_TRANSCRIPT: 'assembly_ai_v3_streaming' }).recording_config.transcript.provider), ['assembly_ai_v3_streaming']);
+    assert.equal(recallApiUrl({ RECALL_API_URL: 'https://eu-central-1.recall.ai/' }), 'https://eu-central-1.recall.ai');
+    assert.equal(recallApiUrl({ RECALL_API_URL: 'https://evil.example' }), 'https://us-west-2.recall.ai');
+  });
+  it('makes one with the site’s key, for someone signed in, and says so in /health', async () => {
+    const realFetch = globalThis.fetch;
+    const asked = [];
+    globalThis.fetch = async (url, init = {}) => {
+      asked.push({ url: String(url), auth: new Headers(init.headers).get('Authorization'), body: init.body && JSON.parse(init.body) });
+      return Response.json({ id: 'up_1', upload_token: 'tok_abc' });
+    };
+    try {
+      const e = { ...env(), RECALL_API_KEY: 'rk_secret', RECALL_API_URL: 'https://eu-central-1.recall.ai' };
+      const me = await issuePass('owner@x.org', SECRET);
+      assert.equal((await call(env(), '/notes/upload', { pass: me, body: {} })).status, 501, 'no key on the Worker');
+      assert.equal((await call(e, '/notes/upload', { body: {} })).status, 401);
+      const made = await (await call(e, '/notes/upload', { pass: me, body: {} })).json();
+      assert.deepEqual(made, { uploadToken: 'tok_abc', id: 'up_1', apiUrl: 'https://eu-central-1.recall.ai' });
+      assert.equal(asked[0].url, 'https://eu-central-1.recall.ai/api/v1/sdk_upload/');
+      assert.equal(asked[0].auth, 'Token rk_secret');
+      assert.deepEqual((await (await call(e, '/health')).json()).notes, { recall: 'https://eu-central-1.recall.ai' });
+      assert.equal((await (await call(env(), '/health')).json()).notes, false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

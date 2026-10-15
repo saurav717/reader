@@ -15,4 +15,4 @@ export type View =
   /** The signed-in account's Google Calendar, by day, week or month, at /calendar. */
   | { kind: 'calendar' }
   /** One project: its overview, its papers to read, its workspace — a paper beside the project's code — or its paper, being written. */
-  | { kind: 'project'; id: string; mode?: 'overview' | 'read' | 'workspace' | 'write' };
+  | { kind: 'project'; id: string; mode?: 'overview' | 'read' | 'workspace' | 'write' | 'logbook'; /** On the Logbook: which of its tabs (src/lib/logbook.ts, LOGBOOK_TABS). */ section?: string };

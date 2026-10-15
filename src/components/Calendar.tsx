@@ -5,11 +5,12 @@
 // on the grid — is in lib/calendar.ts; reading the calendar is a scope asked
 // for on its own the first time, as Colab's is (lib/google.ts).
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import * as google from '../lib/google';
 import { basePath } from '../lib/route';
 import {
+  CALL_NAMES,
   CalendarRequestError,
   MINUTES_IN_DAY,
   VIEWS,
@@ -50,6 +51,7 @@ import {
   whenLabel,
   withEvent,
   withoutEvent,
+  zoomLink,
   type CalendarEvent,
   type CalendarInfo,
   type CalendarView,
@@ -58,6 +60,14 @@ import {
   type Span,
 } from '../lib/calendar';
 import { initialsOf, meetingProject, projectInfo, projectsOf, withMeeting, type Project } from '../lib/projects';
+import { canMakeZoom, makeZoomMeeting } from '../lib/zoom';
+import { fileGranolaNotes } from '../lib/meetingNotes';
+import { useLogbook } from '../lib/logbookStore';
+import { inDesktopApp, recorderBridge } from '../lib/recorder';
+import { knowEvents } from '../lib/notetaker';
+
+/** Where the Reader app for Mac, Windows and Linux is published (docs/desktop-app.md). */
+const DESKTOP_RELEASES = 'https://github.com/saurav717/reader/releases/latest';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, PlusIcon, RestoreIcon, TrashIcon, VideoIcon } from './icons';
 
 const VIEW_KEY = 'reader.calendar.view';
@@ -201,7 +211,7 @@ interface Picked {
   anchor: DOMRect;
 }
 
-export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSettings: () => void; onOpenProject?: (id: string) => void }) {
+export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSettings: () => void; /** A project, on its overview — or on a tab of its logbook. */ onOpenProject?: (id: string, section?: string) => void }) {
   const { user, settings, collections, updateCollection } = useStore();
   const clientId = settings.googleClientId.trim();
   const connected = useCalendarAccess();
@@ -216,8 +226,8 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
-  /** The editor: a new event being drafted, or an existing one (`of`) being changed. */
-  const [editing, setEditing] = useState<{ draft: EventDraft; of?: CalendarEvent } | null>(null);
+  /** The editor: a new event being drafted, or an existing one (`of`) being changed — and the project it is for. */
+  const [editing, setEditing] = useState<{ draft: EventDraft; of?: CalendarEvent; projectId: string | null } | null>(null);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   /** An answer to an invitation on its way to Google. */
@@ -393,6 +403,29 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
     }
   };
 
+  // Granola's notes of the meetings that have ended, filed in their projects' logbooks as the calendar is read (lib/meetingNotes.ts).
+  const granolaKey = settings.granolaKey.trim();
+  const [noteNews, setNoteNews] = useState<string | null>(null);
+  useEffect(() => {
+    if (!granolaKey || !shown || !email) return;
+    let gone = false;
+    void fileGranolaNotes(granolaKey, shown.events, projects, email).then((result) => {
+      if (gone) return;
+      if (result.error) setNoteNews(`Granola’s notes could not be read: ${result.error}`);
+      else if (result.filed) setNoteNews(`${result.filed === 1 ? 'A meeting’s notes were' : `${result.filed} meetings’ notes were`} filed from Granola in ${result.filed === 1 ? 'its project' : 'their projects'}.`);
+    });
+    return () => {
+      gone = true;
+    };
+    // Each time the calendar is read (`shown.at`), not each time a project changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [granolaKey, shown?.at, email]);
+
+  // The notetaker matches a meeting found on the computer to its event: it has the week on screen without asking again.
+  useEffect(() => {
+    if (shown) knowEvents(shown.events);
+  }, [shown]);
+
   const pick = (event: CalendarEvent, target: HTMLElement) => setPicked({ event, anchor: target.getBoundingClientRect() });
 
   // ---- making, changing, deleting and answering: each goes to Google, then into what is on screen.
@@ -425,7 +458,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
     }
     setPicked(null);
     setEditError(null);
-    setEditing({ draft: emptyDraft((writable.find((calendar) => calendar.primary) ?? writable[0]).id, start, allDay) });
+    setEditing({ draft: emptyDraft((writable.find((calendar) => calendar.primary) ?? writable[0]).id, start, allDay), projectId: null });
   };
   /** New from the head: the next half hour of today when today is on screen, else nine in the morning of the day shown. */
   const startNewNow = () => {
@@ -435,7 +468,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   const startEdit = (event: CalendarEvent) => {
     setPicked(null);
     setEditError(null);
-    setEditing({ draft: draftOf(event), of: event });
+    setEditing({ draft: draftOf(event), of: event, projectId: tags.get(event.id)?.id ?? null });
   };
   const save = async () => {
     if (!editing) return;
@@ -453,6 +486,9 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
       const next = editing.of ? await updateEvent(token, list, editing.of, editing.draft) : await createEvent(token, list.find((calendar) => calendar.id === editing.draft.calendarId)!, editing.draft);
       const before = editing.of?.id;
       patchEvents((events) => withEvent(before ? withoutEvent(events, before) : events, next));
+      // The project picked in the editor: the meeting tagged with it (this one; a series keeps its own tag unless changed).
+      const had = editing.of ? tags.get(editing.of.id)?.id ?? null : null;
+      if (editing.projectId !== had || (editing.of && editing.of.id !== next.id && editing.projectId)) tag(next, editing.projectId, false);
       setEditing(null);
     } catch (failure) {
       setEditError(said(failure));
@@ -614,6 +650,14 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
           {error}
         </p>
       ) : null}
+      {noteNews ? (
+        <p className="banner cal-news" role="status" style={{ margin: '0 32px 12px' }}>
+          {noteNews}
+          <button type="button" className="link-btn" onClick={() => setNoteNews(null)}>
+            Dismiss
+          </button>
+        </p>
+      ) : null}
       {view === 'month' ? (
         <MonthGrid days={days} date={date} events={events} today={now} tags={tags} onDay={openDay} onEvent={pick} picked={picked?.event.id} onSlot={(day) => startNew(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9))} />
       ) : (
@@ -632,6 +676,8 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
           onDelete={() => void remove(picked.event)}
           onRespond={(response) => void respond(picked.event, response)}
           responding={responding}
+          granolaKey={Boolean(granolaKey)}
+          onOpenSettings={onOpenSettings}
           onClose={() => setPicked(null)}
         />
       ) : null}
@@ -639,6 +685,9 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
         <EventEditor
           editing={editing}
           calendars={writable}
+          projects={projects}
+          zoomRoom={settings.zoomRoom}
+          onProject={(projectId) => setEditing({ ...editing, projectId })}
           busy={saving}
           error={editError}
           onChange={(draft) => setEditing({ ...editing, draft })}
@@ -936,6 +985,8 @@ function EventCard({
   onDelete,
   onRespond,
   responding,
+  granolaKey,
+  onOpenSettings,
   onClose,
 }: {
   picked: Picked;
@@ -949,6 +1000,9 @@ function EventCard({
   onDelete: () => void;
   onRespond: (response: Rsvp) => void;
   responding: boolean;
+  /** Whether a Granola key is set, to read the notes back with. */
+  granolaKey: boolean;
+  onOpenSettings: () => void;
   onClose: () => void;
 }) {
   const { event, anchor } = picked;
@@ -969,7 +1023,7 @@ function EventCard({
     };
   }, [onClose]);
   const WIDTH = 340;
-  const HEIGHT = 440;
+  const HEIGHT = 480;
   const room = typeof window === 'undefined' ? { w: 1200, h: 800 } : { w: window.innerWidth, h: window.innerHeight };
   const left = anchor.right + WIDTH + 12 < room.w ? anchor.right + 8 : Math.max(8, anchor.left - WIDTH - 8);
   const top = Math.max(8, Math.min(anchor.top, room.h - HEIGHT - 8));
@@ -1008,7 +1062,8 @@ function EventCard({
           {event.response ? ` · ${RESPONSES[event.response]}` : ''}
         </span>
       </p>
-      {event.description ? <p className="cal-card-desc">{event.description.replace(/<[^>]+>/g, '').slice(0, 400)}</p> : null}
+      {/* The "Join Zoom:" line this page writes is the Join button's, not something to read twice. */}
+      {event.description?.replace(/^Join Zoom: \S+\s*/, '').trim() ? <p className="cal-card-desc">{event.description.replace(/^Join Zoom: \S+\s*/, '').replace(/<[^>]+>/g, '').slice(0, 400)}</p> : null}
       {event.response && writable ? (
         <div className="cal-card-rsvp">
           <span className="cal-card-rsvp-cap">Going?</span>
@@ -1097,11 +1152,12 @@ function EventCard({
           </div>
         ) : null}
       </div>
+      {event.notetaker ? <NotesLine event={event} project={project} hasKey={granolaKey} onOpenProject={onOpenProject} onOpenSettings={onOpenSettings} /> : null}
       <div className="cal-card-actions">
         {event.meet ? (
-          <a className="btn primary sm" href={event.meet} target="_blank" rel="noreferrer" onClick={stop}>
+          <a className="btn primary sm" href={event.meet} target="_blank" rel="noreferrer" onClick={stop} title={`Join the ${CALL_NAMES[event.callKind ?? 'video']} call`}>
             <VideoIcon size={14} />
-            Join
+            {event.callKind && event.callKind !== 'video' ? `Join ${CALL_NAMES[event.callKind].replace('Google ', '')}` : 'Join'}
           </a>
         ) : null}
         {event.link ? (
@@ -1126,10 +1182,63 @@ function EventCard({
   );
 }
 
+const NotesIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 3h9l3 3v15H6zM9 9h6M9 13h6M9 17h4" />
+  </svg>
+);
+
+/**
+ * What becomes of a meeting's notes, on its card: Granola taking them, and
+ * where they go — or, once the meeting is over, that they are filed, with the
+ * way to them; or what is missing for them to be.
+ */
+function NotesLine({ event, project, hasKey, onOpenProject, onOpenSettings }: { event: CalendarEvent; project?: Project; hasKey: boolean; onOpenProject?: (id: string, section?: string) => void; onOpenSettings: () => void }) {
+  const { log, status } = useLogbook(project);
+  const filed = project && status === 'ready' ? log.notes.find((note) => note.meeting === event.id) : undefined;
+  const over = event.end.getTime() < Date.now();
+  const reader = event.notetaker === 'reader';
+  const app = inDesktopApp();
+  const recorder = Boolean(recorderBridge());
+  let said: ReactNode;
+  if (filed) said = <>Notes filed in <b>{project!.name}</b>{filed.source === 'granola' ? ' from Granola' : filed.source === 'reader' ? ', recorded by Reader' : ''}.</>;
+  else if (reader && !project) said = <>Reader takes notes on your computer. Tag a project below and they are filed in its logbook.</>;
+  else if (reader && over) said = <>No notes were filed for this meeting: Reader records it only while the Reader app is open on a computer in the call.</>;
+  else if (reader && !app) said = <>Reader takes notes in the <b>Reader app</b> on your Mac or PC — no bot joins — and files them in <b>{project!.name}</b>. Have it open when the meeting starts.</>;
+  else if (reader && !recorder) said = <>Reader’s notes need the Reader app on a Mac or a Windows PC; this computer cannot record meetings.</>;
+  else if (reader) said = <>Reader will take notes on this computer when the meeting opens — no bot joins — and file them in <b>{project!.name}</b>.</>;
+  else if (!project) said = <>Granola is taking notes. Tag a project below and they are filed in its logbook when the meeting ends.</>;
+  else if (!hasKey) said = <>Granola is taking notes. Add your Granola key in Settings and they are filed in <b>{project.name}</b> when it ends.</>;
+  else if (over) said = <>Waiting for Granola’s notes; they are filed in <b>{project.name}</b> as soon as Granola has them.</>;
+  else said = <>Granola will take notes, filed in <b>{project.name}</b> when it ends — for everyone in the project.</>;
+  return (
+    <div className={`cal-card-notes${filed ? ' is-filed' : ''}`}>
+      {reader ? <span className="cal-reader-mark" aria-hidden="true">R</span> : <span className="cal-granola" aria-hidden="true">G</span>}
+      <span className="cal-card-notes-text">{said}</span>
+      {filed && project && onOpenProject ? (
+        <button type="button" className="link-btn" onClick={() => onOpenProject(project.id, 'meetings')}>
+          Open notes
+        </button>
+      ) : reader && !app && project ? (
+        <a className="link-btn" href={DESKTOP_RELEASES} target="_blank" rel="noreferrer">
+          Get the app
+        </a>
+      ) : !reader && !hasKey && project ? (
+        <button type="button" className="link-btn" onClick={onOpenSettings}>
+          Settings
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 /** The editor: a new event, or one being changed. Saves to Google; the page shows the result. */
 function EventEditor({
   editing,
   calendars,
+  projects,
+  zoomRoom,
+  onProject,
   busy,
   error,
   onChange,
@@ -1137,9 +1246,13 @@ function EventEditor({
   onDelete,
   onCancel,
 }: {
-  editing: { draft: EventDraft; of?: CalendarEvent };
+  editing: { draft: EventDraft; of?: CalendarEvent; projectId: string | null };
   /** The calendars it may go on: the writable ones. */
   calendars: CalendarInfo[];
+  /** The projects it may be for, and the person's own Zoom room. */
+  projects: Project[];
+  zoomRoom: string;
+  onProject: (projectId: string | null) => void;
   busy: boolean;
   error: string | null;
   onChange: (draft: EventDraft) => void;
@@ -1149,6 +1262,23 @@ function EventEditor({
 }) {
   const { draft, of } = editing;
   const set = (change: Partial<EventDraft>) => onChange({ ...draft, ...change });
+  // A Zoom meeting made by the Worker, when it has Zoom's credentials (lib/zoom.ts).
+  const [zoomMaker, setZoomMaker] = useState(false);
+  const [making, setMaking] = useState<string | null>(null);
+  useEffect(() => {
+    void canMakeZoom().then(setZoomMaker);
+  }, []);
+  const makeZoom = async () => {
+    setMaking('Making a Zoom meeting…');
+    try {
+      const made = await makeZoomMeeting(draft);
+      set({ call: 'zoom', zoom: made.url });
+      setMaking(made.passcode ? `Made. Passcode ${made.passcode} — it is in the link.` : null);
+    } catch (failure) {
+      setMaking(failure instanceof Error ? failure.message : String(failure));
+    }
+  };
+  const project = projects.find((item) => item.id === editing.projectId);
   const minutes = (draft.end.getTime() - draft.start.getTime()) / 60_000;
   /** All day shows an inclusive last day; the draft's end stays exclusive. */
   const lastDay = addDays(draft.end, -1);
@@ -1211,11 +1341,90 @@ function EventEditor({
           <input placeholder="Where" value={draft.location} onChange={(change) => set({ location: change.target.value })} aria-label="Where" />
         </div>
         <textarea placeholder="Notes" rows={3} value={draft.description} onChange={(change) => set({ description: change.target.value })} aria-label="Notes" />
-        {!of ? (
-          <label className="cal-editor-meet">
-            <input type="checkbox" checked={draft.meet} onChange={(change) => set({ meet: change.target.checked })} />
-            Add a Google Meet call
-          </label>
+        <div className="cal-editor-call">
+          <span className="cal-editor-cap">
+            <VideoIcon size={14} />
+            Video call
+          </span>
+          <div className="segmented sm" role="radiogroup" aria-label="Video call">
+            {(
+              [
+                ['none', 'None'],
+                ['meet', 'Google Meet'],
+                ['zoom', 'Zoom'],
+              ] as const
+            ).map(([call, label]) => (
+              <button key={call} type="button" role="radio" aria-checked={draft.call === call} onClick={() => set({ call, ...(call === 'zoom' && !draft.zoom && zoomRoom ? { zoom: zoomRoom } : {}) })}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {draft.call === 'meet' && of?.callKind !== 'meet' ? <p className="cal-editor-note">Google makes the Meet call when you save, and its link goes on the event.</p> : null}
+        {draft.call === 'zoom' ? (
+          <div className="cal-editor-zoom">
+            <input placeholder="Zoom link — zoom.us/j/… or zoom.us/my/…" value={draft.zoom} onChange={(change) => set({ zoom: change.target.value })} aria-label="Zoom link" aria-invalid={Boolean(draft.zoom.trim()) && !zoomLink(draft.zoom)} />
+            {zoomRoom && draft.zoom !== zoomRoom ? (
+              <button type="button" className="btn sm" onClick={() => set({ zoom: zoomRoom })} title={zoomRoom}>
+                Use my room
+              </button>
+            ) : null}
+            {zoomMaker ? (
+              <button type="button" className="btn sm" onClick={() => void makeZoom()} disabled={making === 'Making a Zoom meeting…'} title="A new Zoom meeting at this time, made by the site’s Zoom account">
+                Make one
+              </button>
+            ) : null}
+            {making ? <small className="cal-editor-note">{making}</small> : null}
+          </div>
+        ) : null}
+        <div className="cal-editor-call">
+          <span className="cal-editor-cap">
+            <NotesIcon />
+            Notes
+          </span>
+          <div className="segmented sm" role="radiogroup" aria-label="Notes">
+            {(
+              [
+                ['none', 'Off', 'Nobody takes notes'],
+                ['reader', 'Reader', 'Reader’s desktop app records the meeting on your computer — no bot joins the call — and writes the notes up'],
+                ['granola', 'Granola', 'Granola, on your computer, takes the notes; Reader reads them back with your Granola key'],
+              ] as const
+            ).map(([notes, label, title]) => (
+              <button key={notes} type="button" role="radio" aria-checked={draft.notes === notes} onClick={() => set({ notes })} title={title}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="cal-editor-call">
+          <span className="cal-editor-cap">
+            <span className="pj-mark sm" style={{ background: project?.color ?? 'var(--border)' }} aria-hidden="true" />
+            Project
+          </span>
+          <select className="cal-editor-project" value={editing.projectId ?? ''} onChange={(change) => onProject(change.target.value || null)} aria-label="Project">
+            <option value="">No project</option>
+            {projects.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {draft.notes !== 'none' ? (
+          <p className="cal-editor-note">
+            {draft.notes === 'reader' ? (
+              <>Reader records it on your computer when it starts — in the Reader app for Mac or Windows, with no bot in the call — and writes it up. </>
+            ) : (
+              <>Granola takes the notes on your computer; Reader reads them back when it ends. </>
+            )}
+            {project ? (
+              <>
+                The notes are filed in <b>{project.name}</b> → Logbook → Meetings{project.project.shared ? ', for everyone in the project' : ''}.
+              </>
+            ) : (
+              'Pick the project it is for, and the notes are filed there.'
+            )}
+          </p>
         ) : null}
         {of?.seriesId ? <p className="cal-editor-note">This is one meeting of a series: the change is to this one only, and the rest of the series stays as it is.</p> : null}
         {error ? <p className="banner error">{error}</p> : null}

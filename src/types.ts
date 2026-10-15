@@ -467,6 +467,18 @@ export interface Settings {
    */
   githubToken: string;
   githubSync: boolean;
+  /** The person's own Zoom room (zoom.us/my/…, or a standing meeting's link): "Use my room" in the Calendar's editor. */
+  zoomRoom: string;
+  /**
+   * A Granola API key (Granola → Settings → API): what reads back the notes of
+   * meetings Granola took, to file them with their project (src/lib/granola.ts).
+   * Held in this browser, sent only to the proxy, which passes it to Granola.
+   */
+  granolaKey: string;
+  /** In the Reader app: start taking notes by itself when a meeting set to Reader notes opens (src/lib/notetaker.ts). */
+  notesAuto: boolean;
+  /** In the Reader app: offer to take notes of any other meeting found on the computer. */
+  notesOffer: boolean;
 }
 
 /**

@@ -5,13 +5,13 @@
 
 import type { View } from '../types.view';
 
-export type Tab = 'overview' | 'read' | 'code' | 'write';
+export type Tab = 'overview' | 'read' | 'code' | 'write' | 'logbook';
 export type Role = 'owner' | 'editor' | 'viewer';
 
 /** Where someone is in a project: which tab, and what in it. */
 export interface Place {
   tab: Tab;
-  /** The file open, on the Code or Write tab. */
+  /** The file open, on the Code or Write tab; on the Logbook, which of its tabs (meetings, links, notepad, board). */
   path?: string;
   line?: number;
   col?: number;
@@ -92,7 +92,9 @@ export const PALETTE = ['#8a3a6e', '#b27414', '#2d64a0', '#1f8a70', '#a0462d', '
 /** How long after the last key or click someone is still "here now" rather than away. */
 export const AWAY_MS = 60_000;
 
-export const TAB_LABEL: Record<Tab, string> = { overview: 'Overview', read: 'Read', code: 'Code', write: 'Write' };
+export const TAB_LABEL: Record<Tab, string> = { overview: 'Overview', read: 'Read', code: 'Code', write: 'Write', logbook: 'Logbook' };
+
+const SECTION_LABEL: Record<string, string> = { meetings: 'Meetings', links: 'Links', notepad: 'Notepad', board: 'Whiteboard' };
 
 const fileName = (path: string) => path.split('/').pop() || path;
 
@@ -100,7 +102,8 @@ const fileName = (path: string) => path.split('/').pop() || path;
 export function describePlace(place: Place | null | undefined): string {
   if (!place) return 'not here';
   const parts = [TAB_LABEL[place.tab]];
-  if ((place.tab === 'code' || place.tab === 'write') && place.path) {
+  if (place.tab === 'logbook' && place.path && SECTION_LABEL[place.path]) parts.push(SECTION_LABEL[place.path]);
+  else if ((place.tab === 'code' || place.tab === 'write') && place.path) {
     parts.push(fileName(place.path));
     if (place.line) parts.push(`line ${place.line}`);
   } else if (place.paperId) {
@@ -113,6 +116,7 @@ export function describePlace(place: Place | null | undefined): string {
 /** The same, shorter, for a chip: the file, or the paper's title. */
 export function shortPlace(place: Place | null | undefined): string {
   if (!place) return '';
+  if (place.tab === 'logbook') return place.path && SECTION_LABEL[place.path] ? SECTION_LABEL[place.path] : TAB_LABEL.logbook;
   if ((place.tab === 'code' || place.tab === 'write') && place.path) return `${fileName(place.path)}${place.line ? `:${place.line}` : ''}`;
   if (place.paperId) return `${place.title || 'a paper'}${place.page ? `, p. ${place.page}` : ''}`;
   return TAB_LABEL[place.tab];
@@ -174,8 +178,9 @@ export function jumpFor(projectId: string, place: Place): Jump {
 }
 
 /** The view a jump opens: the project on the tab the place is on. */
-export function viewFor(jump: Pick<Jump, 'projectId' | 'tab'>): View {
+export function viewFor(jump: Pick<Jump, 'projectId' | 'tab' | 'path'>): View {
   if (jump.tab === 'overview') return { kind: 'project', id: jump.projectId };
+  if (jump.tab === 'logbook') return { kind: 'project', id: jump.projectId, mode: 'logbook', ...(jump.path ? { section: jump.path } : {}) };
   return { kind: 'project', id: jump.projectId, mode: jump.tab === 'code' ? 'workspace' : jump.tab };
 }
 

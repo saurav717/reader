@@ -15,6 +15,7 @@
 // or the system's own uninstaller on Windows, build/installer.nsh) takes it all away again.
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
+const { setUpNotes, stopNotes } = require('./notes');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -565,12 +566,23 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((_contents, _permission, origin) => trusted(origin));
     buildMenu();
     integrateAppImage();
+    // Meeting notes on this computer (notes.js): for the site's pages only.
+    setUpNotes({ siteOrigin: SITE_ORIGIN });
     if (uninstallOnly) openUninstall();
     else void openReader();
   });
 
   app.on('activate', () => {
     if (!uninstallWindow && BrowserWindow.getAllWindows().length === 0) void openReader();
+  });
+
+  // A recording on is stopped, so it is uploaded whole, and the recorder's own process ends with the app.
+  let quitting = false;
+  app.on('before-quit', (event) => {
+    if (quitting) return;
+    quitting = true;
+    event.preventDefault();
+    void stopNotes().finally(() => app.quit());
   });
 
   app.on('window-all-closed', () => {

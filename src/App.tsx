@@ -49,6 +49,7 @@ import { FINISHED_AT } from './lib/status';
 import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
 import Calendar from './components/Calendar';
+import Notetaker from './components/Notetaker';
 import { OPEN_PLAYGROUND } from './lib/playground';
 import { watchPlaygroundRuns } from './lib/playgroundRuns';
 import { startJobWatch } from './lib/jobWatch';
@@ -1560,7 +1561,7 @@ export default function App() {
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'calendar' ? (
-        <Calendar onOpenSettings={() => (setSettingsAt({ tab: 'account' }), setSettingsOpen(true))} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
+        <Calendar onOpenSettings={() => (setSettingsAt({ tab: 'account' }), setSettingsOpen(true))} onOpenProject={(id, section) => (setUsageOpen(false), setView(section ? { kind: 'project', id, mode: 'logbook', section } : projectView(id, settings.projectOpensOn)))} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
         <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} explaining={explainOpen} onToggleExplain={toggleExplain} onReading={setWorkspacePaper} />
       ) : view.kind === 'junk' ? (
@@ -1647,6 +1648,8 @@ export default function App() {
       {view.kind === 'paper' && !showWelcome && !onUsage ? <PlaygroundPeek paperId={view.id} enabled={shows.peek} onOpen={goToPlayground} /> : null}
       {switcherOpen ? <RunSwitcher onOpen={goToPlayground} onHome={() => goToPlayground()} onClose={() => setSwitcherOpen(false)} onPeek={view.kind === 'paper' ? peekPlayground : undefined} /> : null}
       {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
+      {/* A meeting's notes, taken on this computer in the Reader app (src/lib/notetaker.ts): on every page. */}
+      {!showWelcome ? <Notetaker onView={(next) => (setUsageOpen(false), setView(next))} /> : null}
       {paletteOpen ? (
         <CommandPalette
           onClose={() => setPaletteOpen(false)}

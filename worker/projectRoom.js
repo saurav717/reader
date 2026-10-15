@@ -9,6 +9,8 @@
  *   member's copy, the owner's too, takes it from here, and the owner or an
  *   editor sends a change back naming the version it was built on — a
  *   stale one is refused, so nobody's page overwrites a newer list;
+ * - its logbook — meeting notes, links, notepad, whiteboard (worker/logbook.js),
+ *   which every member reads and the owner and editors write;
  * - where each member is right now (in memory, re-sent by their page when
  *   this object wakes), and when each was last here (in storage).
  *
@@ -21,6 +23,8 @@
  */
 
 /** Members' colours, by join order, so a person is the same colour on everyone's screen. */
+import { changeLog, cleanStroke, logKeys, readLog } from './logbook.js';
+
 export const PALETTE = ['#8a3a6e', '#b27414', '#2d64a0', '#1f8a70', '#a0462d', '#5a3ea8'];
 
 /** How long without a word before a member's place is dropped by a page that reads it. */
@@ -61,7 +65,7 @@ const SOURCES = new Set(['arxiv', 'openalex', 'semanticscholar', 'crossref', 'sc
 /** A place as a page sends it, with anything else left out: what every other member's page is handed. */
 export function cleanPlace(raw, now = Date.now()) {
   if (!raw || typeof raw !== 'object') return null;
-  const tab = ['overview', 'read', 'code', 'write'].includes(raw.tab) ? raw.tab : 'overview';
+  const tab = ['overview', 'read', 'code', 'write', 'logbook'].includes(raw.tab) ? raw.tab : 'overview';
   const place = { tab, active: raw.active !== false, at: now };
   if (typeof raw.path === 'string' && raw.path) place.path = raw.path.slice(0, 500);
   if (Number.isFinite(raw.line) && raw.line > 0) place.line = Math.floor(raw.line);
@@ -173,6 +177,15 @@ export class ProjectRoom {
 
     if (path === '/state') return json(await this.stateFor(who));
 
+    // The logbook: read by every member, changed by the owner and editors, each change sent on to the others' pages.
+    if (path === '/log') {
+      if (request.method !== 'POST') return json(await readLog(this.state.storage));
+      if (!manages) return json({ error: 'only the owner or an editor writes in the logbook' }, 403);
+      const change = await changeLog(this.state.storage, who, body);
+      if (change.broadcast) this.broadcast({ ...change.broadcast, by: who }, who);
+      return json(change.body, change.status);
+    }
+
     if (path === '/live') {
       if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket' || typeof WebSocketPair === 'undefined') return json({ error: 'a WebSocket upgrade' }, 426);
       const pair = new WebSocketPair();
@@ -259,11 +272,14 @@ export class ProjectRoom {
         }
       }
       this.places.clear();
+      // The logbook goes back with the owner: their copy keeps it, as it keeps the list.
+      const log = await readLog(this.state.storage);
+      for (const key of await logKeys(this.state.storage)) await this.state.storage.delete(key);
       const members = (await this.members()).map((member) => member.email);
       for (const prefix of ['member:', 'invite:', 'seen:']) for (const key of (await this.state.storage.list({ prefix })).keys()) await this.state.storage.delete(key);
       await this.state.storage.delete('link');
       await this.state.storage.delete('room');
-      return json({ ok: true, members });
+      return json({ ok: true, members, log });
     }
 
     if (path === '/remove' || path === '/leave') {
@@ -338,6 +354,12 @@ export class ProjectRoom {
         await this.state.storage.put(`member:${who}`, { ...member, name: name || member.name, picture: picture || member.picture });
         this.broadcast({ type: 'members' }, null);
       }
+    } else if (message.type === 'ink') {
+      // A stroke being drawn, sent on to the others as it grows, kept by nobody: the finished stroke is POSTed to the logbook.
+      const member = await this.member(who);
+      if (!member || member.role === 'viewer') return;
+      const stroke = cleanStroke(message.stroke, who);
+      if (stroke) this.broadcast({ type: 'ink', who, stroke }, who);
     } else if (message.type === 'ping') {
       try {
         socket.send(JSON.stringify({ type: 'pong' }));

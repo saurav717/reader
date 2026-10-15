@@ -119,6 +119,10 @@ const defaultSettings: Settings = {
   githubBranch: 'main',
   githubToken: '',
   githubSync: false,
+  zoomRoom: '',
+  granolaKey: '',
+  notesAuto: true,
+  notesOffer: true,
 };
 
 /**

@@ -38,8 +38,15 @@ export interface CalendarEvent {
   end: Date;
   allDay: boolean;
   location?: string;
-  /** A Google Meet (or other conferencing) link, when the meeting has one. */
+  /** The meeting's video call — Google Meet, Zoom, Teams or another — when it has one: the link Join opens. */
   meet?: string;
+  /** Which service `meet` is on, for the Join button's name. */
+  callKind?: CallKind;
+  /**
+   * Who takes the notes of this meeting, as the editor asked: Reader's desktop app, recording it on this computer with no
+   * bot in the call (src/lib/recorder.ts), or Granola (src/lib/granola.ts). Either way they are filed with its project.
+   */
+  notetaker?: Notetaker;
   /** The event in Google Calendar. */
   link?: string;
   description?: string;
@@ -65,6 +72,65 @@ export const tagKeys = (event: CalendarEvent): string[] => {
 };
 
 export type Response = 'accepted' | 'declined' | 'tentative' | 'needsAction';
+
+export type Notetaker = 'reader' | 'granola';
+
+// ----------------------------------------------------------------- calls ---
+
+export type CallKind = 'meet' | 'zoom' | 'teams' | 'webex' | 'video';
+
+export const CALL_NAMES: Record<CallKind, string> = { meet: 'Google Meet', zoom: 'Zoom', teams: 'Teams', webex: 'Webex', video: 'Video call' };
+
+/** The service a meeting link is on, from its host; null for a link that is not a call. */
+export function callKindOf(url: string): CallKind | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (host === 'meet.google.com') return 'meet';
+  if (host === 'zoom.us' || host.endsWith('.zoom.us') || host === 'zoomgov.com' || host.endsWith('.zoomgov.com')) return 'zoom';
+  if (host === 'teams.microsoft.com' || host === 'teams.live.com') return 'teams';
+  if (host.endsWith('.webex.com')) return 'webex';
+  return null;
+}
+
+/**
+ * A Zoom meeting's address as pasted — a meeting (`/j/123…`), a personal room
+ * (`/my/name`) or a webinar (`/w/…`), on zoom.us or a company's own subdomain
+ * of it — tidied to https; null for anything else.
+ */
+export function zoomLink(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return null;
+  }
+  if (callKindOf(url.toString()) !== 'zoom') return null;
+  if (!/^\/(j|my|w|s|wc\/join)\/[\w.-]+/i.test(url.pathname)) return null;
+  url.protocol = 'https:';
+  return url.toString();
+}
+
+const LINK_IN_TEXT = /https?:\/\/[^\s<>"')\]]+/gi;
+
+/** The first call link in some text — a location, or a description Google may have written as HTML. */
+export function callIn(text: string | undefined): { url: string; kind: CallKind } | null {
+  if (!text) return null;
+  for (const match of text.replace(/&amp;/g, '&').matchAll(LINK_IN_TEXT)) {
+    const url = match[0].replace(/[.,;]+$/, '');
+    const kind = callKindOf(url);
+    if (kind) return { url, kind };
+  }
+  return null;
+}
+
+/** The line the editor writes into a description for a Zoom call, so every calendar shows it, not just this page. */
+export const zoomLine = (url: string) => `Join Zoom: ${url}`;
 
 /** A timed event placed on a day's column: minutes from midnight, and which of the overlapping columns it takes. */
 export interface Placed {
@@ -296,6 +362,8 @@ export interface GoogleEvent {
   attendees?: GoogleAttendee[];
   organizer?: { email?: string; displayName?: string; self?: boolean };
   conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+  /** What this page keeps on an event for itself: which call it was given, and whether notes are being taken. */
+  extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
   eventType?: string;
   recurringEventId?: string;
 }
@@ -332,7 +400,14 @@ export function parseEvent(item: GoogleEvent, calendar: CalendarInfo): CalendarE
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   const people = (item.attendees ?? []).filter((attendee) => !attendee.resource);
   const self = people.find((attendee) => attendee.self);
-  const meet = item.hangoutLink || item.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri;
+  // The call: Google's own conference first (Meet, or Zoom's add-on), then the Zoom link this page put on it, then any call link in where or what.
+  const own = item.extendedProperties?.private ?? {};
+  const conference = item.hangoutLink || item.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri;
+  const call = conference
+    ? { url: conference, kind: callKindOf(conference) ?? 'video' }
+    : own.readerZoom && zoomLink(own.readerZoom)
+      ? { url: zoomLink(own.readerZoom)!, kind: 'zoom' as const }
+      : callIn(item.location) ?? callIn(item.description);
   return {
     id: `${calendar.id}:${item.id}`,
     eventId: item.id,
@@ -342,7 +417,8 @@ export function parseEvent(item: GoogleEvent, calendar: CalendarInfo): CalendarE
     end: end > start ? end : allDay ? addDays(start, 1) : new Date(start.getTime() + 30 * 60_000),
     allDay,
     location: item.location?.trim() || undefined,
-    meet: meet || undefined,
+    ...(call ? { meet: call.url, callKind: call.kind } : {}),
+    ...(own.readerNotes === 'granola' || own.readerNotes === 'reader' ? { notetaker: own.readerNotes } : {}),
     link: item.htmlLink,
     description: item.description?.trim() || undefined,
     attendees: people.map((attendee) => ({
@@ -381,8 +457,15 @@ export interface EventDraft {
   end: Date;
   location: string;
   description: string;
-  /** For a new event: ask Google for a Meet call with it. */
-  meet: boolean;
+  /**
+   * The video call: none, a Google Meet Google makes for a new event, or a
+   * Zoom meeting by its link (`zoom`) — pasted, the person's own room, or one
+   * the Worker made (src/lib/meetings.ts).
+   */
+  call: 'none' | 'meet' | 'zoom';
+  zoom: string;
+  /** Who takes its notes, filed with its project once it ends: Reader on this computer, Granola, or nobody. */
+  notes: Notetaker | 'none';
 }
 
 /** The time zone the person is in, named for Google, so a time means the same there. */
@@ -426,7 +509,7 @@ export const toHalfHour = (date: Date): Date => new Date(date.getFullYear(), dat
 /** A fresh draft starting at `start`: an hour long, or the day when all-day. */
 export function emptyDraft(calendarId: string, start: Date, allDay = false): EventDraft {
   const from = allDay ? startOfDay(start) : start;
-  return { calendarId, title: '', allDay, start: from, end: allDay ? addDays(from, 1) : new Date(from.getTime() + 60 * 60_000), location: '', description: '', meet: false };
+  return { calendarId, title: '', allDay, start: from, end: allDay ? addDays(from, 1) : new Date(from.getTime() + 60 * 60_000), location: '', description: '', call: 'none', zoom: '', notes: 'none' };
 }
 
 /** An event as a draft, to edit it. */
@@ -437,15 +520,26 @@ export const draftOf = (event: CalendarEvent): EventDraft => ({
   start: event.start,
   end: event.end,
   location: event.location ?? '',
-  description: event.description ?? '',
-  meet: false,
+  // The Zoom line the editor wrote is the call's, not the person's: it is written again on Save.
+  description: stripZoomLine(event.description ?? ''),
+  call: event.callKind === 'zoom' ? 'zoom' : event.callKind === 'meet' ? 'meet' : 'none',
+  zoom: event.callKind === 'zoom' ? event.meet ?? '' : '',
+  notes: event.notetaker ?? 'none',
 });
+
+const stripZoomLine = (text: string) =>
+  text
+    .split('\n')
+    .filter((line) => !/^Join Zoom: https?:\/\//.test(line.trim()))
+    .join('\n')
+    .trim();
 
 /** What stops a draft being saved, said; null when nothing does. */
 export function draftProblem(draft: EventDraft): string | null {
   if (!draft.calendarId) return 'Pick a calendar to put it on.';
   if (Number.isNaN(draft.start.getTime()) || Number.isNaN(draft.end.getTime())) return 'The date or time is not one.';
   if (draft.end <= draft.start) return draft.allDay ? 'It ends before it starts.' : 'It ends before it starts: the end time has to be after the start.';
+  if (draft.call === 'zoom' && !zoomLink(draft.zoom)) return draft.zoom.trim() ? 'That is not a Zoom meeting’s link: it looks like zoom.us/j/123… or zoom.us/my/name.' : 'Paste the Zoom meeting’s link, use your own room, or make one.';
   return null;
 }
 
@@ -462,14 +556,20 @@ export function atKeys(day: string, time = '00:00'): Date {
 /** The draft as Google's event body: dates for an all-day event, times with the zone otherwise. */
 export function toGoogleEvent(draft: EventDraft): Record<string, unknown> {
   const zone = timeZone();
+  // A Zoom call goes where every calendar app shows it — the description's first line, and the place when none is given —
+  // and on the event's private properties, where this page reads it back from whatever else the description says.
+  const zoom = draft.call === 'zoom' ? zoomLink(draft.zoom) : null;
+  const notes = stripZoomLine(draft.description);
   const body: Record<string, unknown> = {
     summary: draft.title.trim(),
-    location: draft.location.trim(),
-    description: draft.description.trim(),
+    location: draft.location.trim() || zoom || '',
+    description: zoom ? `${zoomLine(zoom)}${notes ? `\n\n${notes}` : ''}` : notes,
     start: draft.allDay ? { date: dayKey(draft.start) } : { dateTime: draft.start.toISOString(), timeZone: zone },
     end: draft.allDay ? { date: dayKey(draft.end) } : { dateTime: draft.end.toISOString(), timeZone: zone },
+    // Always both keys: a PATCH that leaves one out would leave the old value standing.
+    extendedProperties: { private: { readerZoom: zoom ?? '', readerNotes: draft.notes === 'none' ? '' : draft.notes } },
   };
-  if (draft.meet) body.conferenceData = { createRequest: { requestId: `reader-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, conferenceSolutionKey: { type: 'hangoutsMeet' } } };
+  if (draft.call === 'meet') body.conferenceData = { createRequest: { requestId: `reader-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, conferenceSolutionKey: { type: 'hangoutsMeet' } } };
   return body;
 }
 
@@ -559,9 +659,12 @@ export async function updateEvent(token: string, calendars: CalendarInfo[], even
     eventId = moved.id;
   }
   if (!calendar) throw new CalendarRequestError(404, 'That calendar is not one of yours');
-  const { conferenceData: _unchanged, ...body } = toGoogleEvent({ ...draft, meet: false });
-  void _unchanged;
-  const changed = await send<GoogleEvent>(token, 'PATCH', eventUrl(calendar.id, eventId), body);
+  // A Meet for an event that has none is asked for; one it has already is left as it is; one given up for Zoom or nothing is taken off.
+  const asksMeet = draft.call === 'meet' && event.callKind !== 'meet';
+  const dropsMeet = draft.call !== 'meet' && event.callKind === 'meet';
+  const { conferenceData, ...rest } = toGoogleEvent(draft);
+  const body = asksMeet ? { ...rest, conferenceData } : dropsMeet ? { ...rest, conferenceData: null } : rest;
+  const changed = await send<GoogleEvent>(token, 'PATCH', `${eventUrl(calendar.id, eventId)}${asksMeet || dropsMeet ? '?conferenceDataVersion=1' : ''}`, body);
   const next = parseEvent(changed, calendar);
   if (!next) throw new CalendarRequestError(500, 'Google changed the event but sent back one the page cannot read');
   return next;

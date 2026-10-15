@@ -52,6 +52,7 @@ import { authorLine } from '../lib/libraryLook';
 import { COLLECTION_COLORS, type Collection, type Paper, type PaperRef, type PaperRole, type ProjectInfo } from '../types';
 import type { View } from '../types.view';
 import Playground, { ComputeTag, WhereDialog } from './Playground';
+import Logbook from './Logbook';
 import PaperWindow from './PaperWindow';
 import Reader from './Reader';
 import Discover from './Discover';
@@ -140,7 +141,7 @@ export default function ProjectsPage({
   const shared = project?.project.shared;
   // Whoever is signed in, as the pass says even before the Google profile is here.
   const who = user?.email?.trim().toLowerCase() ?? currentAccount();
-  const tab: Tab | null = view.kind !== 'project' ? null : view.mode === 'workspace' ? 'code' : view.mode === 'read' || view.mode === 'write' ? view.mode : 'overview';
+  const tab: Tab | null = view.kind !== 'project' ? null : view.mode === 'workspace' ? 'code' : view.mode === 'read' || view.mode === 'write' || view.mode === 'logbook' ? view.mode : 'overview';
   // ---- a shared project: its room, while its page is showing (src/lib/liveRoom.ts)
   useEffect(() => {
     if (shared) openRoom(shared.room, user);
@@ -340,7 +341,7 @@ export default function ProjectsPage({
     <ProjectBar
       projects={projects}
       current={project}
-      mode={view.kind === 'projects' ? 'board' : view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' ? view.mode : 'overview'}
+      mode={view.kind === 'projects' ? 'board' : view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' || view.mode === 'logbook' ? view.mode : 'overview'}
       onView={onView}
       onNew={() => setCreating(true)}
     />
@@ -365,6 +366,8 @@ export default function ProjectsPage({
         </div>
       </div>
     );
+  } else if (view.mode === 'logbook') {
+    body = <Logbook key={project.id} project={project} section={view.section} onView={onView} />;
   } else if (view.mode === 'write') {
     body = <WritePage key={project.id} project={project} onView={onView} />;
   } else if (view.mode === 'read' || view.mode === 'workspace') {
@@ -428,13 +431,13 @@ function ProjectBar({
 }: {
   projects: Project[];
   current: Project | undefined;
-  mode: 'board' | 'overview' | 'read' | 'workspace' | 'write';
+  mode: 'board' | 'overview' | 'read' | 'workspace' | 'write' | 'logbook';
   onView: (view: View) => void;
   onNew: () => void;
 }) {
   const [picking, setPicking] = useState(false);
   // From the board, a view asks which project rather than guessing one: the one picked opens on it.
-  const [pickFor, setPickFor] = useState<'overview' | 'read' | 'workspace' | 'write' | null>(null);
+  const [pickFor, setPickFor] = useState<'overview' | 'read' | 'workspace' | 'write' | 'logbook' | null>(null);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!picking) return;
@@ -444,7 +447,7 @@ function ProjectBar({
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [picking]);
-  const open = (next: 'overview' | 'read' | 'workspace' | 'write') => {
+  const open = (next: 'overview' | 'read' | 'workspace' | 'write' | 'logbook') => {
     if (!current) {
       setPickFor(next);
       setPicking(true);
@@ -479,7 +482,7 @@ function ProjectBar({
                 onClick={() => {
                   setPicking(false);
                   const next = pickFor ?? mode;
-                  onView(next === 'read' || next === 'workspace' || next === 'write' ? { kind: 'project', id: project.id, mode: next } : { kind: 'project', id: project.id });
+                  onView(next === 'read' || next === 'workspace' || next === 'write' || next === 'logbook' ? { kind: 'project', id: project.id, mode: next } : { kind: 'project', id: project.id });
                 }}
               >
                 <span className="pj-dot" style={{ background: project.color }} />
@@ -508,6 +511,12 @@ function ProjectBar({
         </button>
         <button type="button" aria-pressed={mode === 'write'} disabled={none} onClick={() => open('write')} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
           Write
+        </button>
+      </div>
+      {/* The project's logistics, apart from the work: its meetings' notes, its links, a notepad and a whiteboard. */}
+      <div className="segmented pj-views" role="group" aria-label="Project logbook">
+        <button type="button" aria-pressed={mode === 'logbook'} disabled={none} onClick={() => open('logbook')} title="The logbook: meeting notes, links, a notepad and a whiteboard, for everyone in the project">
+          Logbook
         </button>
       </div>
       <div style={{ flex: 1 }} />

@@ -148,8 +148,19 @@ export async function pushProject(room: string, project: SharedProject, version:
 export const roomsOfMine = () => apiFetch('/rooms/mine').then((response) => answer<{ rooms: { room: string; role: string; project: string; at: number }[] }>(response)).then((body) => body.rooms);
 
 /** An action on the room; an invitation also says whether its mail went (server/mail.js), and why not when it did not. */
-export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove' | 'close', body: Record<string, unknown>) =>
-  apiFetch(`/rooms/${room}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => answer<RoomState & { mailed?: boolean; mailError?: string }>(response));
+export const roomAction = (room: string, action: 'project' | 'invite' | 'uninvite' | 'role' | 'link' | 'remove' | 'close', body: Record<string, unknown>) => {
+  const projectId = live.room === room ? live.state?.project.id : undefined;
+  return apiFetch(`/rooms/${room}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then((response) => answer<RoomState & { mailed?: boolean; mailError?: string; log?: unknown }>(response))
+    .then((state) => {
+      // Sharing stopped: the room hands back the project's logbook, for the owner's copy to keep (src/lib/logbookStore.ts).
+      if (action === 'close' && state.log && projectId) window.dispatchEvent(new CustomEvent(ROOM_CLOSED_LOG, { detail: { projectId, log: state.log } }));
+      return state;
+    });
+};
+
+/** Told, with the logbook, when the owner stops sharing a project. */
+export const ROOM_CLOSED_LOG = 'reader:room-closed-log';
 
 export const joinRoom = (room: string, token: string | null, me: GoogleUser | null) => apiFetch(`/rooms/${room}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...whoAmI(me) }) }).then((response) => answer<RoomState>(response));
 
@@ -239,6 +250,11 @@ function connect(room: string) {
     } catch {
       return;
     }
+    // The logbook's changes, and strokes being drawn: for whoever shows the logbook (src/lib/logbookStore.ts).
+    if (message.type === 'log' || message.type === 'ink') {
+      roomListeners.forEach((listener) => listener(room, message as unknown as RoomMessage));
+      return;
+    }
     const state = live.state;
     if (message.type === 'here' && message.state) return set({ state: message.state });
     if (!state) return;
@@ -274,6 +290,28 @@ function connect(room: string) {
   };
   ws.onclose = dropped;
   ws.onerror = dropped;
+}
+
+/** A message the room sent that is not about who is where: a change to the logbook, or a stroke being drawn. */
+export type RoomMessage = { type: 'log' | 'ink'; [key: string]: unknown };
+type RoomListener = (room: string, message: RoomMessage) => void;
+const roomListeners = new Set<RoomListener>();
+
+/** Hears the room's logbook messages; answers the way to stop. */
+export function onRoomMessage(listener: RoomListener): () => void {
+  roomListeners.add(listener);
+  return () => roomListeners.delete(listener);
+}
+
+/** A message to the room over the open socket, when there is one: false when there is not. */
+export function sendToRoom(room: string, message: Record<string, unknown>): boolean {
+  if (live.room !== room || !socket || socket.readyState !== WebSocket.OPEN) return false;
+  try {
+    socket.send(JSON.stringify(message));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Put out of a room by its owner: the socket is closed for good, and the page is told why, still under the room's name so it knows whose project this was. */
