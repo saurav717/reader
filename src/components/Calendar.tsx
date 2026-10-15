@@ -63,6 +63,11 @@ import { initialsOf, meetingProject, projectInfo, projectsOf, withMeeting, type 
 import { canMakeZoom, makeZoomMeeting } from '../lib/zoom';
 import { fileGranolaNotes } from '../lib/meetingNotes';
 import { useLogbook } from '../lib/logbookStore';
+import { inDesktopApp, recorderBridge } from '../lib/recorder';
+import { knowEvents } from '../lib/notetaker';
+
+/** Where the Reader app for Mac, Windows and Linux is published (docs/desktop-app.md). */
+const DESKTOP_RELEASES = 'https://github.com/saurav717/reader/releases/latest';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, PlusIcon, RestoreIcon, TrashIcon, VideoIcon } from './icons';
 
 const VIEW_KEY = 'reader.calendar.view';
@@ -415,6 +420,11 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
     // Each time the calendar is read (`shown.at`), not each time a project changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [granolaKey, shown?.at, email]);
+
+  // The notetaker matches a meeting found on the computer to its event: it has the week on screen without asking again.
+  useEffect(() => {
+    if (shown) knowEvents(shown.events);
+  }, [shown]);
 
   const pick = (event: CalendarEvent, target: HTMLElement) => setPicked({ event, anchor: target.getBoundingClientRect() });
 
@@ -1142,7 +1152,7 @@ function EventCard({
           </div>
         ) : null}
       </div>
-      {event.notetaker === 'granola' ? <NotesLine event={event} project={project} hasKey={granolaKey} onOpenProject={onOpenProject} onOpenSettings={onOpenSettings} /> : null}
+      {event.notetaker ? <NotesLine event={event} project={project} hasKey={granolaKey} onOpenProject={onOpenProject} onOpenSettings={onOpenSettings} /> : null}
       <div className="cal-card-actions">
         {event.meet ? (
           <a className="btn primary sm" href={event.meet} target="_blank" rel="noreferrer" onClick={stop} title={`Join the ${CALL_NAMES[event.callKind ?? 'video']} call`}>
@@ -1172,6 +1182,12 @@ function EventCard({
   );
 }
 
+const NotesIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 3h9l3 3v15H6zM9 9h6M9 13h6M9 17h4" />
+  </svg>
+);
+
 /**
  * What becomes of a meeting's notes, on its card: Granola taking them, and
  * where they go — or, once the meeting is over, that they are filed, with the
@@ -1181,21 +1197,33 @@ function NotesLine({ event, project, hasKey, onOpenProject, onOpenSettings }: { 
   const { log, status } = useLogbook(project);
   const filed = project && status === 'ready' ? log.notes.find((note) => note.meeting === event.id) : undefined;
   const over = event.end.getTime() < Date.now();
+  const reader = event.notetaker === 'reader';
+  const app = inDesktopApp();
+  const recorder = Boolean(recorderBridge());
   let said: ReactNode;
-  if (filed) said = <>Notes filed in <b>{project!.name}</b>{filed.source === 'granola' ? ' from Granola' : ''}.</>;
+  if (filed) said = <>Notes filed in <b>{project!.name}</b>{filed.source === 'granola' ? ' from Granola' : filed.source === 'reader' ? ', recorded by Reader' : ''}.</>;
+  else if (reader && !project) said = <>Reader takes notes on your computer. Tag a project below and they are filed in its logbook.</>;
+  else if (reader && over) said = <>No notes were filed for this meeting: Reader records it only while the Reader app is open on a computer in the call.</>;
+  else if (reader && !app) said = <>Reader takes notes in the <b>Reader app</b> on your Mac or PC — no bot joins — and files them in <b>{project!.name}</b>. Have it open when the meeting starts.</>;
+  else if (reader && !recorder) said = <>Reader’s notes need the Reader app on a Mac or a Windows PC; this computer cannot record meetings.</>;
+  else if (reader) said = <>Reader will take notes on this computer when the meeting opens — no bot joins — and file them in <b>{project!.name}</b>.</>;
   else if (!project) said = <>Granola is taking notes. Tag a project below and they are filed in its logbook when the meeting ends.</>;
   else if (!hasKey) said = <>Granola is taking notes. Add your Granola key in Settings and they are filed in <b>{project.name}</b> when it ends.</>;
   else if (over) said = <>Waiting for Granola’s notes; they are filed in <b>{project.name}</b> as soon as Granola has them.</>;
   else said = <>Granola will take notes, filed in <b>{project.name}</b> when it ends — for everyone in the project.</>;
   return (
     <div className={`cal-card-notes${filed ? ' is-filed' : ''}`}>
-      <span className="cal-granola" aria-hidden="true">G</span>
+      {reader ? <span className="cal-reader-mark" aria-hidden="true">R</span> : <span className="cal-granola" aria-hidden="true">G</span>}
       <span className="cal-card-notes-text">{said}</span>
       {filed && project && onOpenProject ? (
         <button type="button" className="link-btn" onClick={() => onOpenProject(project.id, 'meetings')}>
           Open notes
         </button>
-      ) : !hasKey && project ? (
+      ) : reader && !app && project ? (
+        <a className="link-btn" href={DESKTOP_RELEASES} target="_blank" rel="noreferrer">
+          Get the app
+        </a>
+      ) : !reader && !hasKey && project ? (
         <button type="button" className="link-btn" onClick={onOpenSettings}>
           Settings
         </button>
@@ -1349,13 +1377,31 @@ function EventEditor({
             {making ? <small className="cal-editor-note">{making}</small> : null}
           </div>
         ) : null}
-        <div className="cal-editor-row cal-editor-pj">
-          <label className="cal-editor-granola" title="Granola, on your computer, takes the notes of this meeting from the same calendar; once it ends they are filed in the project">
-            <input type="checkbox" checked={draft.granola} onChange={(change) => set({ granola: change.target.checked })} />
-            <span className="cal-granola" aria-hidden="true">G</span>
-            Take notes with Granola
-          </label>
-          <select value={editing.projectId ?? ''} onChange={(change) => onProject(change.target.value || null)} aria-label="Project">
+        <div className="cal-editor-call">
+          <span className="cal-editor-cap">
+            <NotesIcon />
+            Notes
+          </span>
+          <div className="segmented sm" role="radiogroup" aria-label="Notes">
+            {(
+              [
+                ['none', 'Off', 'Nobody takes notes'],
+                ['reader', 'Reader', 'Reader’s desktop app records the meeting on your computer — no bot joins the call — and writes the notes up'],
+                ['granola', 'Granola', 'Granola, on your computer, takes the notes; Reader reads them back with your Granola key'],
+              ] as const
+            ).map(([notes, label, title]) => (
+              <button key={notes} type="button" role="radio" aria-checked={draft.notes === notes} onClick={() => set({ notes })} title={title}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="cal-editor-call">
+          <span className="cal-editor-cap">
+            <span className="pj-mark sm" style={{ background: project?.color ?? 'var(--border)' }} aria-hidden="true" />
+            Project
+          </span>
+          <select className="cal-editor-project" value={editing.projectId ?? ''} onChange={(change) => onProject(change.target.value || null)} aria-label="Project">
             <option value="">No project</option>
             {projects.map((item) => (
               <option key={item.id} value={item.id}>
@@ -1364,14 +1410,19 @@ function EventEditor({
             ))}
           </select>
         </div>
-        {draft.granola ? (
+        {draft.notes !== 'none' ? (
           <p className="cal-editor-note">
+            {draft.notes === 'reader' ? (
+              <>Reader records it on your computer when it starts — in the Reader app for Mac or Windows, with no bot in the call — and writes it up. </>
+            ) : (
+              <>Granola takes the notes on your computer; Reader reads them back when it ends. </>
+            )}
             {project ? (
               <>
-                The notes are filed in <b>{project.name}</b> → Logbook → Meetings when it ends{project.project.shared ? ', for everyone in the project' : ''}.
+                The notes are filed in <b>{project.name}</b> → Logbook → Meetings{project.project.shared ? ', for everyone in the project' : ''}.
               </>
             ) : (
-              'Pick the project it is for, and its notes are filed there when it ends.'
+              'Pick the project it is for, and the notes are filed there.'
             )}
           </p>
         ) : null}

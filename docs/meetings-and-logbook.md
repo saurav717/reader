@@ -54,6 +54,44 @@ title written during or just after the meeting (`src/lib/granola.ts`,
 `noteFor`). A meeting is filed once; filing again replaces, never duplicates.
 2 is the natural next step and would POST into the same room route.
 
+## Notes: Reader's own, with no bot
+
+Granola's API is for its Business and Enterprise plans, and a bot in the call
+was ruled out. Reader records meetings itself instead, the way Granola and
+Cluely do: on the person's computer, from the computer's sound and the
+microphone, with nothing joining the call. Recall.ai's Desktop Recording SDK
+does the hard part — finding the meeting window (Zoom, Meet in a browser,
+Teams, Slack), capturing its audio and video, and transcribing as it goes — and
+runs in the Reader app (Electron), which already wraps the site.
+
+```
+ Reader app (desktop/app/notes.js)          the page (src/lib/notetaker.ts)            Worker
+ ────────────────────────────────          ─────────────────────────────────          ──────
+ SDK: meeting-detected ───────────────────▶ match it to the calendar event
+                                            (its call, else title, else the one on now)
+                                            set to Reader notes? start : offer
+                                            POST /notes/upload ──────────────────────▶ Recall: sdk_upload
+                                            ◀─────────────────────────────────────── upload token
+ ◀──────────────────────────── start(windowId, token)
+ SDK: recording-started, transcript.data ─▶ turns, kept in IndexedDB as they come
+ SDK: recording-ended ────────────────────▶ the Ask AI model writes it up
+                                            note + transcript → the project's logbook (the room)
+```
+
+- The transcript comes back to the app over the SDK's `desktop_sdk_callback`
+  realtime endpoint, so the Worker needs no webhook and keeps nothing.
+- The page can only ask: the app checks every call comes from the site's
+  origin, and the preload exposes five calls, nothing else.
+- A page reloaded mid-meeting takes the recording up again with what it had
+  heard; one closed has its transcript written up the next time it opens.
+- Consent: the card is on screen the whole time, says so when a recording
+  started by itself, and the README says what the law may ask.
+
+What needs a real machine to finish: the SDK's native recorder is only on
+macOS and Windows, so the build (asarUnpack, the macOS entitlements and usage
+strings in electron-builder.config.cjs) is untested here; the page side is
+tested with the app stood in for (scripts/logbook-smoke.mjs).
+
 ## Where the logbook is kept
 
 A shared project already has a room on the Worker (a Durable Object) that is

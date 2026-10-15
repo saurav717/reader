@@ -4944,18 +4944,53 @@ Meet* (made by Google when you save) or *Zoom*: paste a meeting's link,
 one** — a Zoom meeting at the event's time, made by the site's Zoom account
 when the Worker has one (below). The Zoom link goes on the event where every
 calendar app shows it, as its place and the first line of its description.
-**Take notes with Granola** and the event's **project** sit under it. Granola
-— the AI notepad, on your own computer — reads the same Google Calendar and
-takes the meeting's notes; once the meeting has ended, Reader reads them back
-with your Granola API key and files them in the project's
+**Notes** — *Off*, *Reader* or *Granola* — and the event's **project** sit
+under it; the notes are filed in the project's
 [logbook](#the-logbook-meeting-notes-links-a-notepad-and-a-whiteboard), where
-everyone in the project reads them. The meeting's card says which: *Granola
-will take notes, filed in …*, then *Notes filed in … · Open notes*. Join reads
+everyone in the project reads them, and the meeting's card says where:
+*Reader will take notes …*, then *Notes filed in … · Open notes*.
+
+- **Reader** takes the notes itself, on your computer, with **no bot in the
+  call**: in the [Reader app](docs/desktop-app.md) on macOS or Windows,
+  [Recall.ai's Desktop Recording SDK](https://recall.ai/product/desktop-recording-sdk)
+  finds the Zoom, Meet, Teams or Slack meeting open on the computer and records
+  its sound — the call and your microphone — sending back what is said, and by
+  whom, as it is said. A meeting set to Reader notes starts by itself when it
+  opens; any other meeting is offered, with the project to file it in; and
+  **Record a meeting now**, on the logbook, records one round a table. A card
+  in the corner shows it all the while — how long, the last thing said, the
+  project, **Stop**. When it ends, the transcript is written up by your Ask AI
+  model (summary, decisions, action items, open questions) and filed with the
+  transcript. Settings → Account → Meetings turns the starting by itself and
+  the offering off, and on a Mac asks for the microphone, screen and
+  accessibility permissions the recorder needs.
+- **Granola** — the AI notepad, also on your own computer — reads the same
+  Google Calendar and takes the meeting's notes; once the meeting has ended,
+  Reader reads them back with your Granola API key. Join reads
 **Join Zoom**, **Join Meet** or **Join Teams** for the call it is.
 
 ![a new event with a Zoom meeting made for it, Granola taking notes, and the project picked](docs/meetings-editor.png)
 
 ![this morning's meeting: Join Zoom, and its notes filed in the project from Granola](docs/meetings-card-filed.png)
+
+![a meeting in progress, recorded by Reader on this computer: how long, the last thing said, the project, Stop](docs/notes-recording.png)
+
+![the meeting written up in the logbook, Recorded by Reader, with its transcript](docs/notes-logbook.png)
+
+Recording needs a [Recall.ai](https://www.recall.ai) key on the Worker, which
+makes each recording's upload token (`/notes/upload`); the key never reaches
+the app or the page:
+
+```bash
+npx wrangler secret put RECALL_API_KEY
+# and in wrangler.toml, under [vars]:
+# RECALL_API_URL = "https://us-west-2.recall.ai"    # the region your Recall workspace is in
+# RECALL_TRANSCRIPT = "recallai_streaming"          # the transcription provider set up in Recall
+```
+
+Everyone in the call should know it is being recorded: the card says so when
+a recording starts by itself, and in some places the law asks for everyone's
+consent.
 
 Making Zoom meetings is the Worker's, as a Zoom *Server-to-Server OAuth*
 app (scope `meeting:write:meeting:admin`); without it, links are pasted:
@@ -5017,6 +5052,10 @@ src/lib/logbook.ts      a project's logbook: meeting notes, links, notepad,
                         whiteboard strokes, and the links meetings bring up
 src/lib/logbookStore.ts where it is kept: the shared project's room, or here
 src/lib/granola.ts      Granola's notes read back and matched to meetings
+src/lib/recorder.ts     Reader's own notes: a meeting found on the computer
+                        matched to its event, the transcript, the write-up
+src/lib/notetaker.ts    the recording as the page runs it, and its filing
+desktop/app/notes.js    the Reader app's recorder: Recall's Desktop SDK
 src/lib/zoom.ts         a Zoom meeting made by the Worker for an event
 worker/logbook.js       the room's side of the logbook
 worker/meetings.js      Zoom's Server-to-Server app, and Granola passed through
@@ -5111,7 +5150,7 @@ node scripts/pdf-assistant-smoke.mjs # every author off the PDF's first page; As
 node scripts/library-smoke.mjs  # the list and cards, selecting, moving, marking, Junk and back
 node scripts/live-smoke.mjs     # the people in a shared project's bar, the card, the list, following, the share dialog
 node scripts/calendar-smoke.mjs # the Calendar page: connecting, the week, the day, the month, a meeting's card
-node scripts/logbook-smoke.mjs  # a meeting with Zoom and Granola, its notes filed, and a shared project's logbook
+node scripts/logbook-smoke.mjs  # a meeting with Zoom and Granola, Reader recording one, its notes filed, and a shared project's logbook
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs

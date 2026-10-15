@@ -28,6 +28,13 @@ newest site with no app update.
 - If the Companion can't start, the window says why and offers **Try again**
   or **Open Reader without it**. Only running code on this computer needs it.
 
+**Meeting notes.** On macOS and Windows the app also carries Recall.ai's
+Desktop Recording SDK ([`desktop/app/notes.js`](../desktop/app/notes.js)): it
+finds a Zoom, Meet, Teams or Slack meeting open on the computer and records it
+for Reader's notes when the site asks — no bot joins the call (see the README's
+Calendar section). macOS asks once for the microphone, screen recording and
+accessibility; Settings → Account → Meetings has a button for each.
+
 Links to other sites open in your browser. Google's sign-in and the
 Companion's own pages (Jupyter, VS Code) stay in the app.
 

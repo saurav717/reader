@@ -9,6 +9,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { zoomLink } from '../lib/calendar';
+import { inDesktopApp, recorderBridge } from '../lib/recorder';
+import { useNotetaker } from '../lib/notetaker';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
@@ -138,7 +140,7 @@ const TABS: TabInfo[] = [
     label: 'Account',
     icon: <GoogleMark size={16} />,
     blurb: 'The Google account your library belongs to, the pass it gives the proxy, its calendar, and the OAuth client the sign-in uses.',
-    finds: 'google sign in sign out invite someone proxy pass calendar meetings zoom granola notes privacy terms oauth client id console',
+    finds: 'google sign in sign out invite someone proxy pass calendar meetings zoom granola notes recording recorder transcript privacy terms oauth client id console',
   },
   {
     id: 'library',
@@ -288,6 +290,7 @@ function MeetingsCard() {
         <input type="url" value={room} onChange={(event) => setRoom(event.target.value)} onBlur={() => roomOk && updateSettings({ zoomRoom: zoomLink(room) ?? '' })} placeholder="https://zoom.us/my/your-name" aria-invalid={!roomOk} />
         <small>{roomOk ? '“Use my room” in a new event puts this link on it. Your personal meeting room, or a standing meeting you reuse.' : 'That is not a Zoom meeting’s link: it looks like zoom.us/my/name or zoom.us/j/123….'}</small>
       </label>
+      <RecorderSettings />
       <label className="setting">
         <span>Granola API key</span>
         <input type="password" value={key} onChange={(event) => setKey(event.target.value)} onBlur={() => updateSettings({ granolaKey: key.trim() })} placeholder="grn_…" autoComplete="off" />
@@ -297,6 +300,54 @@ function MeetingsCard() {
         </small>
       </label>
     </Card>
+  );
+}
+
+/** Reader's own notes, in the Reader app: whether this computer records, when it starts by itself, and macOS's permissions. */
+function RecorderSettings() {
+  const { settings, updateSettings } = useStore();
+  const notes = useNotetaker();
+  const bridge = recorderBridge();
+  const mac = typeof window !== 'undefined' && window.readerDesktop?.platform === 'darwin';
+  const PERMISSIONS: [string, string][] = [
+    ['microphone', 'Microphone'],
+    ['screen-capture', 'Screen & system audio'],
+    ['accessibility', 'Accessibility (to find the meeting)'],
+  ];
+  return (
+    <div className="setting set-recorder">
+      <span>Reader’s notes, on this computer</span>
+      <small>
+        {!inDesktopApp()
+          ? 'In the Reader app for Mac or Windows, Reader records a meeting from your own computer — no bot joins the call — writes it up with your Ask AI model, and files it in the meeting’s project.'
+          : !bridge
+            ? 'This computer cannot record meetings: Reader’s notes need macOS or Windows.'
+            : notes.availability === 'ready'
+              ? 'Ready: Zoom, Google Meet, Teams and Slack huddles are found as they open.'
+              : notes.reason ?? 'Starting the recorder…'}
+      </small>
+      <label className="setting-row">
+        <input type="checkbox" checked={settings.notesAuto} onChange={(change) => updateSettings({ notesAuto: change.target.checked })} />
+        <span>Start by itself when a meeting set to Reader notes opens</span>
+      </label>
+      <label className="setting-row">
+        <input type="checkbox" checked={settings.notesOffer} onChange={(change) => updateSettings({ notesOffer: change.target.checked })} />
+        <span>Offer to take notes of any other meeting</span>
+      </label>
+      {bridge && mac ? (
+        <div className="set-permissions">
+          {PERMISSIONS.map(([permission, label]) => {
+            const status = notes.permissions[permission];
+            return (
+              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} disabled={status === 'granted'}>
+                {status === 'granted' ? '✓ ' : ''}
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

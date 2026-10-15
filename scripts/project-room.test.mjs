@@ -543,3 +543,37 @@ describe('Zoom and Granola through the Worker (worker/meetings.js)', () => {
     }
   });
 });
+
+describe('the recorder’s upload token (worker/meetings.js)', () => {
+  it('sets a recording up to be transcribed as it goes, back to the app', async () => {
+    const { uploadRequest, recallApiUrl } = await import('../worker/meetings.js');
+    const asked = uploadRequest({});
+    assert.deepEqual(Object.keys(asked.recording_config.transcript.provider), ['recallai_streaming']);
+    assert.deepEqual(asked.recording_config.realtime_endpoints, [{ type: 'desktop_sdk_callback', events: ['transcript.data', 'participant_events.join'] }]);
+    assert.deepEqual(Object.keys(uploadRequest({ RECALL_TRANSCRIPT: 'assembly_ai_v3_streaming' }).recording_config.transcript.provider), ['assembly_ai_v3_streaming']);
+    assert.equal(recallApiUrl({ RECALL_API_URL: 'https://eu-central-1.recall.ai/' }), 'https://eu-central-1.recall.ai');
+    assert.equal(recallApiUrl({ RECALL_API_URL: 'https://evil.example' }), 'https://us-west-2.recall.ai');
+  });
+  it('makes one with the site’s key, for someone signed in, and says so in /health', async () => {
+    const realFetch = globalThis.fetch;
+    const asked = [];
+    globalThis.fetch = async (url, init = {}) => {
+      asked.push({ url: String(url), auth: new Headers(init.headers).get('Authorization'), body: init.body && JSON.parse(init.body) });
+      return Response.json({ id: 'up_1', upload_token: 'tok_abc' });
+    };
+    try {
+      const e = { ...env(), RECALL_API_KEY: 'rk_secret', RECALL_API_URL: 'https://eu-central-1.recall.ai' };
+      const me = await issuePass('owner@x.org', SECRET);
+      assert.equal((await call(env(), '/notes/upload', { pass: me, body: {} })).status, 501, 'no key on the Worker');
+      assert.equal((await call(e, '/notes/upload', { body: {} })).status, 401);
+      const made = await (await call(e, '/notes/upload', { pass: me, body: {} })).json();
+      assert.deepEqual(made, { uploadToken: 'tok_abc', id: 'up_1', apiUrl: 'https://eu-central-1.recall.ai' });
+      assert.equal(asked[0].url, 'https://eu-central-1.recall.ai/api/v1/sdk_upload/');
+      assert.equal(asked[0].auth, 'Token rk_secret');
+      assert.deepEqual((await (await call(e, '/health')).json()).notes, { recall: 'https://eu-central-1.recall.ai' });
+      assert.equal((await (await call(env(), '/health')).json()).notes, false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

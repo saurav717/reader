@@ -47,7 +47,7 @@ import { cloudflareOverview } from './cloudflare.js';
 import { mailOverview, unblockAddress } from './mailUsage.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
-import { askGranola, granolaKeyOf, granolaPath, makeZoomMeeting, zoomConfigured } from './meetings.js';
+import { askGranola, granolaKeyOf, granolaPath, makeUpload, makeZoomMeeting, recallApiUrl, recallConfigured, zoomConfigured } from './meetings.js';
 import { CITE_ACCEPT, citeContentType, citeSourceUrl } from '../server/citeSources.js';
 import * as browserless from './browserless.js';
 
@@ -362,14 +362,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), notes: recallConfigured(env) ? { recall: recallApiUrl(env) } : false, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
           200,
           headers,
         );
@@ -515,7 +515,7 @@ export default {
 
       // A meeting's Zoom call, made by the site's Zoom app, and its notes read back from Granola with the person's own key
       // (worker/meetings.js). Both for someone signed in, so the Worker is nobody's open relay.
-      if (path === '/zoom/meetings' || path === '/granola' || path.startsWith('/granola/')) {
+      if (path === '/zoom/meetings' || path === '/notes/upload' || path === '/granola' || path.startsWith('/granola/')) {
         const who = await authorized(request, env);
         if (!who) return json({ error: 'sign in with Google first' }, 401, headers);
         const noStore = { ...headers, 'Cache-Control': 'no-store' };
@@ -524,6 +524,17 @@ export default {
           if (!zoomConfigured(env)) return json({ error: 'this site has no Zoom app set up — paste the meeting’s link instead' }, 501, headers);
           try {
             return json(await makeZoomMeeting(env, await request.json().catch(() => ({}))), 200, noStore);
+          } catch (error) {
+            return json({ error: error.message }, error.status || 502, headers);
+          }
+        }
+        // A recording of a meeting on the person's own computer (desktop/app/main.js): the token it uploads with.
+        if (path === '/notes/upload') {
+          if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+          if (!recallConfigured(env)) return json({ error: 'this site has no Recall.ai key set up, so meetings cannot be recorded here' }, 501, headers);
+          if (await personOverLimit(env, who)) return json({ error: 'too many recordings at once; try again in a minute' }, 429, headers);
+          try {
+            return json({ ...(await makeUpload(env)), apiUrl: recallApiUrl(env) }, 200, noStore);
           } catch (error) {
             return json({ error: error.message }, error.status || 502, headers);
           }

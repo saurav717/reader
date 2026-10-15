@@ -42,8 +42,11 @@ export interface CalendarEvent {
   meet?: string;
   /** Which service `meet` is on, for the Join button's name. */
   callKind?: CallKind;
-  /** Notes are being taken of this meeting by an AI notetaker (Granola), as the editor asked: they are filed with its project once it ends (src/lib/granola.ts). */
-  notetaker?: 'granola';
+  /**
+   * Who takes the notes of this meeting, as the editor asked: Reader's desktop app, recording it on this computer with no
+   * bot in the call (src/lib/recorder.ts), or Granola (src/lib/granola.ts). Either way they are filed with its project.
+   */
+  notetaker?: Notetaker;
   /** The event in Google Calendar. */
   link?: string;
   description?: string;
@@ -69,6 +72,8 @@ export const tagKeys = (event: CalendarEvent): string[] => {
 };
 
 export type Response = 'accepted' | 'declined' | 'tentative' | 'needsAction';
+
+export type Notetaker = 'reader' | 'granola';
 
 // ----------------------------------------------------------------- calls ---
 
@@ -413,7 +418,7 @@ export function parseEvent(item: GoogleEvent, calendar: CalendarInfo): CalendarE
     allDay,
     location: item.location?.trim() || undefined,
     ...(call ? { meet: call.url, callKind: call.kind } : {}),
-    ...(own.readerNotes === 'granola' ? { notetaker: 'granola' as const } : {}),
+    ...(own.readerNotes === 'granola' || own.readerNotes === 'reader' ? { notetaker: own.readerNotes } : {}),
     link: item.htmlLink,
     description: item.description?.trim() || undefined,
     attendees: people.map((attendee) => ({
@@ -459,8 +464,8 @@ export interface EventDraft {
    */
   call: 'none' | 'meet' | 'zoom';
   zoom: string;
-  /** Take notes of it with Granola, and file them with its project once it ends. */
-  granola: boolean;
+  /** Who takes its notes, filed with its project once it ends: Reader on this computer, Granola, or nobody. */
+  notes: Notetaker | 'none';
 }
 
 /** The time zone the person is in, named for Google, so a time means the same there. */
@@ -504,7 +509,7 @@ export const toHalfHour = (date: Date): Date => new Date(date.getFullYear(), dat
 /** A fresh draft starting at `start`: an hour long, or the day when all-day. */
 export function emptyDraft(calendarId: string, start: Date, allDay = false): EventDraft {
   const from = allDay ? startOfDay(start) : start;
-  return { calendarId, title: '', allDay, start: from, end: allDay ? addDays(from, 1) : new Date(from.getTime() + 60 * 60_000), location: '', description: '', call: 'none', zoom: '', granola: false };
+  return { calendarId, title: '', allDay, start: from, end: allDay ? addDays(from, 1) : new Date(from.getTime() + 60 * 60_000), location: '', description: '', call: 'none', zoom: '', notes: 'none' };
 }
 
 /** An event as a draft, to edit it. */
@@ -519,7 +524,7 @@ export const draftOf = (event: CalendarEvent): EventDraft => ({
   description: stripZoomLine(event.description ?? ''),
   call: event.callKind === 'zoom' ? 'zoom' : event.callKind === 'meet' ? 'meet' : 'none',
   zoom: event.callKind === 'zoom' ? event.meet ?? '' : '',
-  granola: event.notetaker === 'granola',
+  notes: event.notetaker ?? 'none',
 });
 
 const stripZoomLine = (text: string) =>
@@ -562,7 +567,7 @@ export function toGoogleEvent(draft: EventDraft): Record<string, unknown> {
     start: draft.allDay ? { date: dayKey(draft.start) } : { dateTime: draft.start.toISOString(), timeZone: zone },
     end: draft.allDay ? { date: dayKey(draft.end) } : { dateTime: draft.end.toISOString(), timeZone: zone },
     // Always both keys: a PATCH that leaves one out would leave the old value standing.
-    extendedProperties: { private: { readerZoom: zoom ?? '', readerNotes: draft.granola ? 'granola' : '' } },
+    extendedProperties: { private: { readerZoom: zoom ?? '', readerNotes: draft.notes === 'none' ? '' : draft.notes } },
   };
   if (draft.call === 'meet') body.conferenceData = { createRequest: { requestId: `reader-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, conferenceSolutionKey: { type: 'hangoutsMeet' } } };
   return body;

@@ -44,6 +44,8 @@ import {
 } from '../lib/logbook';
 import { addStrokes, clearBoard, removeLink, removeNote, removeStrokes, saveLink, saveNote, savePad, sendInk, useLogbook, type LogbookView } from '../lib/logbookStore';
 import { projectsOf, whenSaid, type Project } from '../lib/projects';
+import { inDesktopApp, recorderBridge } from '../lib/recorder';
+import { recordHere, stopRecording, useNotetaker } from '../lib/notetaker';
 import type { View } from '../types.view';
 import { CheckIcon, CloseIcon, CopyIcon, DownloadIcon, ExternalIcon, PlusIcon, TrashIcon, VideoIcon } from './icons';
 
@@ -216,7 +218,7 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
                     <b>{event.title}</b>
                     <small>
                       {timeOf(event.start.toISOString())}
-                      {event.notetaker === 'granola' ? <span className="cal-granola sm" title="Granola takes the notes">G</span> : null}
+                      {event.notetaker === 'granola' ? <span className="cal-granola sm" title="Granola takes the notes">G</span> : event.notetaker === 'reader' ? <span className="cal-reader-mark sm" title="Reader takes the notes, on the computer in the call">R</span> : null}
                     </small>
                   </span>
                   {event.meet ? (
@@ -241,7 +243,7 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
                   <span className="lb-coming-what">
                     <b>{event.title}</b>
                     <small>
-                      {dayLabel(event.start.toISOString())} · {event.notetaker === 'granola' ? 'waiting for Granola' : 'no notetaker'}
+                      {dayLabel(event.start.toISOString())} · {event.notetaker === 'granola' ? 'waiting for Granola' : event.notetaker === 'reader' ? 'not recorded' : 'no notetaker'}
                     </small>
                   </span>
                 </li>
@@ -249,6 +251,7 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
             </ul>
           </section>
         ) : null}
+        <RecorderPanel project={project} writable={book.writable} />
         <section className="lb-granola">
           <h3>
             <span className="cal-granola">G</span> Granola
@@ -302,11 +305,14 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
                       {note.attendees.length ? ` · ${note.attendees.length} ${note.attendees.length === 1 ? 'person' : 'people'}` : ''}
                     </small>
                   </span>
-                  <span className={`lb-src is-${note.source}`}>{note.source === 'granola' ? 'Granola' : 'Written here'}</span>
+                  <span className={`lb-src is-${note.source}`}>{note.source === 'granola' ? 'Granola' : note.source === 'reader' ? 'Recorded by Reader' : 'Written here'}</span>
                 </button>
                 {expanded ? (
                   <div className="lb-note-body">
-                    <div className="lb-note-text md" dangerouslySetInnerHTML={{ __html: rendered(note.markdown) }} />
+                    <div className="lb-note-text">
+                      <div className="md" dangerouslySetInnerHTML={{ __html: rendered(note.markdown) }} />
+                      {note.transcript ? <Transcript text={note.transcript} /> : null}
+                    </div>
                     <aside className="lb-note-aside">
                       {note.attendees.length ? (
                         <div>
@@ -396,6 +402,86 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
       </div>
       {writing ? <NoteWriter note={writing === 'new' ? null : writing} onClose={() => setWriting(null)} onSave={(note) => (void saveNote(project, { ...note, by: me }), setOpen(note.id), setWriting(null))} /> : null}
     </div>
+  );
+}
+
+/** What was said, folded under the notes: open to read it, with a search that marks what it finds. */
+function Transcript({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [find, setFind] = useState('');
+  const lines = text.split('\n');
+  const shown = find.trim() ? lines.filter((line) => line.toLowerCase().includes(find.trim().toLowerCase())) : lines;
+  return (
+    <details className="lb-transcript" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
+      <summary>
+        Transcript <small>{lines.length} turns</small>
+      </summary>
+      {open ? (
+        <>
+          <input className="lb-search" value={find} onChange={(change) => setFind(change.target.value)} placeholder="Find in the transcript" aria-label="Find in the transcript" />
+          <ol className="lb-transcript-lines">
+            {shown.map((line, index) => {
+              const match = /^\[([\d:]+)\] ([^:]+): (.*)$/.exec(line);
+              return match ? (
+                <li key={index}>
+                  <time>{match[1]}</time>
+                  <b>{match[2]}</b>
+                  <span>{match[3]}</span>
+                </li>
+              ) : (
+                <li key={index}>
+                  <span>{line}</span>
+                </li>
+              );
+            })}
+          </ol>
+        </>
+      ) : null}
+    </details>
+  );
+}
+
+/**
+ * Reader's own notes, on the computer in the call: whether this computer can
+ * take them, the recording on now, and a button to record a meeting the app
+ * did not find — an in-person one, round a table.
+ */
+function RecorderPanel({ project, writable }: { project: Project; writable: boolean }) {
+  const notes = useNotetaker();
+  const bridge = recorderBridge();
+  const active = notes.sessions.find((session) => session.status === 'recording' || session.status === 'starting');
+  const here = active?.projectId === project.id;
+  return (
+    <section className="lb-granola lb-recorder">
+      <h3>
+        <span className="cal-reader-mark">R</span> Reader’s notes
+      </h3>
+      {!inDesktopApp() ? (
+        <p className="lb-quiet">
+          In the Reader app for Mac or Windows, Reader records a meeting on your computer — Zoom, Meet, Teams or Slack, with no bot in the call — and files its notes here.{' '}
+          <a href="https://github.com/saurav717/reader/releases/latest" target="_blank" rel="noreferrer">
+            Get the app
+          </a>
+        </p>
+      ) : !bridge ? (
+        <p className="lb-quiet">This computer cannot record meetings: Reader’s notes need macOS or Windows.</p>
+      ) : notes.availability !== 'ready' ? (
+        <p className="lb-quiet">{notes.availability === 'checking' ? 'Starting the recorder…' : notes.reason ?? 'The recorder is not ready.'}</p>
+      ) : (
+        <>
+          <p className="lb-quiet">Meetings set to Reader notes are recorded on this computer as they open, and any other is offered. No bot joins.</p>
+          {active ? (
+            <button type="button" className="btn sm nt-stop" onClick={() => void stopRecording(active.windowId)}>
+              <i aria-hidden="true" /> Stop {here ? 'this recording' : 'the recording on now'}
+            </button>
+          ) : writable ? (
+            <button type="button" className="btn sm" onClick={() => void recordHere(project.id, `${project.name} meeting`)} title="Record the computer’s microphone and sound now: a meeting in the room, or a call Reader did not find">
+              <span className="nt-rec sm" aria-hidden="true" /> Record a meeting now
+            </button>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }
 

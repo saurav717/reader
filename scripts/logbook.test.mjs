@@ -189,7 +189,7 @@ describe('a meeting’s call', () => {
     assert.equal(cal.parseEvent(base, calendar).meet, undefined);
   });
   it('writes a Zoom call and Granola onto Google’s event, and reads them back', () => {
-    const draft = { ...cal.emptyDraft('primary', new Date('2026-10-13T10:00:00Z')), title: 'Sync', description: 'Bring numbers', call: 'zoom', zoom: 'zoom.us/j/42', granola: true };
+    const draft = { ...cal.emptyDraft('primary', new Date('2026-10-13T10:00:00Z')), title: 'Sync', description: 'Bring numbers', call: 'zoom', zoom: 'zoom.us/j/42', notes: 'granola' };
     assert.equal(cal.draftProblem(draft), null);
     const body = cal.toGoogleEvent(draft);
     assert.equal(body.location, 'https://zoom.us/j/42');
@@ -200,10 +200,12 @@ describe('a meeting’s call', () => {
     assert.deepEqual([event.callKind, event.meet, event.notetaker], ['zoom', 'https://zoom.us/j/42', 'granola']);
     // Edited: the Zoom line is the call's, not the person's, and is not doubled.
     const again = cal.draftOf(event);
-    assert.deepEqual([again.call, again.zoom, again.granola, again.description], ['zoom', 'https://zoom.us/j/42', true, 'Bring numbers']);
+    assert.deepEqual([again.call, again.zoom, again.notes, again.description], ['zoom', 'https://zoom.us/j/42', 'granola', 'Bring numbers']);
+    assert.equal(cal.parseEvent({ ...base, extendedProperties: { private: { readerNotes: 'reader' } } }, calendar).notetaker, 'reader');
+    assert.equal(cal.parseEvent({ ...base, extendedProperties: { private: { readerNotes: 'someone-else' } } }, calendar).notetaker, undefined);
     assert.equal(cal.toGoogleEvent(again).description, body.description);
     // Taken off: both kept keys emptied, so a PATCH clears them.
-    assert.deepEqual(cal.toGoogleEvent({ ...again, call: 'none', granola: false }).extendedProperties.private, { readerZoom: '', readerNotes: '' });
+    assert.deepEqual(cal.toGoogleEvent({ ...again, call: 'none', notes: 'none' }).extendedProperties.private, { readerZoom: '', readerNotes: '' });
   });
   it('wants a Zoom link that is one before it saves', () => {
     const draft = { ...cal.emptyDraft('primary', new Date('2026-10-13T10:00:00Z')), call: 'zoom', zoom: '' };
@@ -219,5 +221,69 @@ describe('the logbook’s address', () => {
     assert.deepEqual(route.placeFor('/reader/project/?id=p1&view=logbook&section=board', '/reader/').view, view);
     assert.deepEqual(route.placeFor('/reader/project/?id=p1&view=logbook', '/reader/').view, { kind: 'project', id: 'p1', mode: 'logbook' });
     assert.deepEqual(route.placeFor('/reader/project/?id=p1&view=write&section=board', '/reader/').view, { kind: 'project', id: 'p1', mode: 'write' });
+  });
+});
+
+describe('Reader’s own notes (src/lib/recorder.ts)', async () => {
+  const rec = await load('src/lib/recorder.ts');
+  const at = (h, m = 0) => new Date(`2026-10-15T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00Z`);
+  const ev = (over) => ({ id: over.id, eventId: over.id, calendarId: 'c', title: 'Meeting', start: at(9), end: at(10), allDay: false, attendees: [], status: 'confirmed', color: '#000', ...over });
+
+  it('knows one call by its link, whatever else the link carries', () => {
+    assert.equal(rec.callKey('https://iith.zoom.us/j/8123456789?pwd=abc'), rec.callKey('https://zoom.us/j/8123456789'));
+    assert.equal(rec.callKey('https://zoom.us/wc/8123456789/join?fromPWA=1'), 'zoom:8123456789');
+    assert.equal(rec.callKey('https://zoom.us/my/Saurav'), 'zoom:my:saurav');
+    assert.equal(rec.callKey('https://meet.google.com/ABC-defg-hij?authuser=1'), 'meet:abc-defg-hij');
+    assert.equal(rec.callKey('https://teams.microsoft.com/l/meetup-join/19%3ameeting_NjQ%40thread.v2/0?context=x'), 'teams:19:meeting_njq@thread.v2');
+    assert.equal(rec.callKey('https://example.org/j/123456789'), null);
+    assert.equal(rec.callKey(undefined), null);
+  });
+
+  it('finds the calendar event of a meeting on the computer: its call, else its title, else the one call on now', () => {
+    const weekly = ev({ id: 'w', title: 'MoE weekly', meet: 'https://iith.zoom.us/j/8123456789' });
+    const lastWeek = ev({ id: 'w0', title: 'MoE weekly', meet: 'https://iith.zoom.us/j/8123456789', start: new Date(at(9).getTime() - 7 * 86_400_000), end: new Date(at(10).getTime() - 7 * 86_400_000) });
+    const lunch = ev({ id: 'l', title: 'Lunch', start: at(9), end: at(10) });
+    const now = at(9, 5);
+    assert.equal(rec.eventFor({ id: '1', url: 'https://zoom.us/j/8123456789?pwd=x' }, [lastWeek, lunch, weekly], now).id, 'w');
+    assert.equal(rec.eventFor({ id: '2', title: 'MoE Weekly' }, [lunch, weekly], now).id, 'w');
+    assert.equal(rec.eventFor({ id: '3', title: 'Zoom' }, [lunch, weekly], now).id, 'w', 'the one meeting with a call on now');
+    assert.equal(rec.eventFor({ id: '4', url: 'https://meet.google.com/xyz-abcd-efg' }, [lunch, weekly], now), undefined, 'another call is not this one');
+    assert.equal(rec.eventFor({ id: '5', url: 'https://zoom.us/j/8123456789' }, [weekly], at(13)), undefined, 'not on now');
+  });
+
+  it('puts what is said together, a turn per speaker', () => {
+    let turns = [];
+    turns = rec.withSpeech(turns, { words: [{ text: 'So' }, { text: 'the' }, { text: 'router' }, { text: 'collapses' }, { text: '.' }], participant: { name: 'Priya Natarajan' } });
+    turns = rec.withSpeech(turns, { words: [{ text: 'After', start_timestamp: { relative: 12 } }, { text: '40k' }, { text: 'steps' }], participant: { name: 'Priya Natarajan' } });
+    turns = rec.withSpeech(turns, { words: [{ text: 'With', start_timestamp: { relative: 75 } }, { text: 'z-loss' }, { text: '?' }], participant: { id: 2, name: null } });
+    turns = rec.withSpeech(turns, { words: [], participant: { name: 'Nobody' } });
+    assert.deepEqual(turns.map((turn) => [turn.speaker, turn.text]), [['Priya Natarajan', 'So the router collapses. After 40k steps'], ['Speaker 2', 'With z-loss?']]);
+    assert.equal(rec.transcriptText(turns), '[0:00] Priya Natarajan: So the router collapses. After 40k steps\n[1:15] Speaker 2: With z-loss?');
+    assert.equal(rec.wordCount(turns), 9);
+  });
+
+  it('asks for the write-up in the shape the logbook reads, with the project and the transcript', () => {
+    const turns = [{ speaker: 'Priya', text: 'I will rerun it.', at: 0 }];
+    const prompt = rec.summaryPrompt({ title: 'MoE weekly', start: at(9), project: 'Sparse-gated MoE', question: 'No aux loss?', attendees: ['Priya'] }, turns);
+    assert.match(prompt.system, /### Action items/);
+    assert.match(prompt.system, /Do not invent/);
+    assert.match(prompt.user, /Project: Sparse-gated MoE — No aux loss\?/);
+    assert.match(prompt.user, /<transcript>\n\[0:00\] Priya: I will rerun it\.\n<\/transcript>/);
+    const long = rec.summaryPrompt({ title: 'x', start: at(9), attendees: [] }, [{ speaker: 'A', text: 'w '.repeat(80_000), at: 0 }]);
+    assert.match(long.user, /the start of the meeting is left out/);
+  });
+
+  it('files the notes under the meeting, with the transcript and who spoke', () => {
+    const weekly = ev({ id: 'c:w', title: 'MoE weekly', meet: 'https://zoom.us/j/1', attendees: [{ name: 'Priya Natarajan', email: 'p@x.org', response: 'accepted', self: false }] });
+    const turns = [{ speaker: 'Marco Ruiz', text: 'Merged.', at: 3 }, { speaker: 'Speaker 4', text: 'Hi.', at: 9 }];
+    const note = rec.recordedNote({ event: weekly, found: { id: 'win' }, started: at(9), ended: at(10), turns, markdown: '### Summary\n- Merged', by: 'me@x.org', now: at(10) });
+    assert.equal(note.source, 'reader');
+    assert.equal(note.meeting, 'c:w');
+    assert.equal(note.call, 'https://zoom.us/j/1');
+    assert.deepEqual(note.attendees, ['Priya Natarajan', 'Marco Ruiz']);
+    assert.match(note.transcript, /^\[0:03\] Marco Ruiz: Merged\./);
+    const bare = rec.recordedNote({ found: { id: 'win', title: 'Huddle', url: 'https://meet.google.com/a' }, started: at(9), ended: at(9, 20), turns: [], markdown: '', by: 'me' });
+    assert.deepEqual([bare.title, bare.meeting, bare.call, bare.end], ['Huddle', undefined, 'https://meet.google.com/a', at(9, 20).toISOString()]);
+    assert.match(bare.markdown, /too little said/);
   });
 });

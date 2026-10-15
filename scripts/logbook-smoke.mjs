@@ -53,7 +53,8 @@ const EVENTS = [
   weekly(plus(-7)),
   weekly(plus(0)),
   weekly(plus(7)),
-  timed(LAB, 'Router ablations sync', at(plus(0), 15), at(plus(0), 15, 45), { attendees: [me, ...people('Priya Natarajan')], ...zoom('8555123456') }),
+  // Reader takes this one's notes, on this computer (src/lib/notetaker.ts).
+  timed(LAB, 'Router ablations sync', at(plus(0), 15), at(plus(0), 15, 45), { attendees: [me, ...people('Priya Natarajan')], ...zoom('8555123456'), extendedProperties: { private: { readerZoom: 'https://iith.zoom.us/j/8555123456', readerNotes: 'reader' } } }),
   timed(ME, 'Reading group: Expert Choice routing', at(plus(1), 11), at(plus(1), 12), { attendees: [me, ...team], hangoutLink: 'https://meet.google.com/abc-moe-read', conferenceData: { entryPoints: [{ entryPointType: 'video', uri: 'https://meet.google.com/abc-moe-read' }] } }),
   timed(ME, '1:1 with Prof. Rao', at(plus(2), 16), at(plus(2), 16, 30)),
   timed(ME, 'Lunch', at(plus(0), 13), at(plus(0), 14), { location: 'Canteen' }),
@@ -245,6 +246,35 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IN', timezoneId: TZ, deviceScaleFactor: 2 });
 await context.route(/^https?:\/\/(?!localhost|127\.0\.0\.1|fonts\.)/, (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
 await installGoogle(context, { pdf: makePdf(['A paper']), settings: settingsScript({ navStyle: 'labelled', granolaKey: 'grn_test_key_123456', zoomRoom: 'https://iith.zoom.us/my/saurav', proxyToken: PASS }) });
+// The Reader desktop app, stood in for: its recorder (desktop/app/notes.js) as preload-site.js puts it on the page,
+// with the SDK's events sent by the test (window.__recorder.emit). The model that writes notes up is DeepSeek, on the site's key.
+await context.addInitScript(() => {
+  const listeners = new Set();
+  const emit = (event) => listeners.forEach((listener) => listener(event));
+  const record = { emit, enabled: null, started: [], stopped: [], meetings: {} };
+  window.__recorder = record;
+  window.readerDesktop = {
+    app: true,
+    platform: 'darwin',
+    notes: {
+      enable: async (apiUrl) => ((record.enabled = apiUrl), { ok: true }),
+      start: async (windowId, uploadToken) => {
+        record.started.push([windowId, uploadToken]);
+        setTimeout(() => emit({ type: 'recording-started', window: record.meetings[windowId] ?? { id: windowId } }), 50);
+        return { ok: true };
+      },
+      stop: async (windowId) => {
+        record.stopped.push(windowId);
+        setTimeout(() => emit({ type: 'recording-ended', window: record.meetings[windowId] ?? { id: windowId } }), 50);
+        return { ok: true };
+      },
+      prepareAudio: async () => ({ ok: true, windowId: 'audio-1' }),
+      requestPermission: async (permission) => (emit({ type: 'permission', permission, granted: true, status: 'granted' }), { ok: true }),
+      onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    },
+  };
+  localStorage.setItem('reader.assistant.v1', JSON.stringify({ model: 'deepseek-flash-fast' }));
+});
 await context.addInitScript(() => {
   localStorage.setItem('reader.tour', 'seen');
   window.google.accounts.oauth2.initTokenClient = (config) => ({
@@ -277,10 +307,38 @@ await context.route('**/www.googleapis.com/calendar/v3/**', (route) => {
 });
 
 // ---- the Worker, stood in for: /health says it can make Zoom meetings; Zoom, Granola and the room answer.
-const asked = { zoom: [], granola: [], log: [] };
+const asked = { zoom: [], granola: [], log: [], uploads: 0, model: [] };
 await context.route('**/api/health', async (route) => {
   const real = await route.fetch();
-  route.fulfill({ json: { ...(await real.json().catch(() => ({}))), zoom: true, auth: true } });
+  const body = await real.json().catch(() => ({}));
+  route.fulfill({ json: { ...body, zoom: true, auth: true, notes: { recall: 'https://us-west-2.recall.ai' }, ai: { ...(body.ai ?? {}), deepseek: true } } });
+});
+// A recording's upload token, from the site's Recall key (worker/meetings.js).
+await context.route('**/api/notes/upload', (route) => {
+  asked.uploads += 1;
+  route.fulfill({ json: { uploadToken: `upload-token-${asked.uploads}`, id: `up_${asked.uploads}`, apiUrl: 'https://us-west-2.recall.ai' } });
+});
+// The model writing the meeting up: DeepSeek's stream, as the proxy passes it on.
+const WRITE_UP = [
+  '### Summary',
+  '- Expert-choice with z-loss **holds past 40k steps** at 350M; the collapse is gone.',
+  '- Capacity factor 1.25 is the sweet spot: 2.0 costs 18% more compute for 0.004 loss.',
+  '- Load is still uneven on expert 3 — about 2× the others in the last 5k steps.',
+  '',
+  '### Decisions',
+  '- Go to 1.3B with capacity factor 1.25 and z-loss 1e-3.',
+  '',
+  '### Action items',
+  '- **Priya**: launch the 1.3B run tonight on the booked H100s',
+  '- **Saurav**: add the capacity-factor plot to §4 by Friday',
+  '',
+  '### Open questions',
+  '- Is expert 3’s extra load a data effect or the router?',
+].join('\n');
+await context.route('**/api/ai/deepseek**', (route) => {
+  asked.model.push(route.request().postDataJSON());
+  const chunks = WRITE_UP.match(/[\s\S]{1,60}/g).map((piece) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: piece } }] })}\n\n`);
+  route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: `${chunks.join('')}data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 900, completion_tokens: 200 } })}\n\ndata: [DONE]\n\n` });
 });
 await context.route('**/api/zoom/meetings', (route) => {
   asked.zoom.push(route.request().postDataJSON());
@@ -382,8 +440,7 @@ await shot('meetings-card-filed');
 await page.keyboard.press('Escape');
 await page.locator('.cal-ev.is-block', { hasText: 'Router ablations sync' }).click();
 await page.locator('.cal-card-notes').waitFor();
-check('a meeting still to come says Granola will take its notes, and where they go', /Granola will take notes, filed in Sparse-gated MoE when it ends/.test(await page.locator('.cal-card-notes').innerText()));
-await shot('meetings-card-upcoming');
+check('a meeting still to come says who takes its notes, and where they go', /Reader will take notes on this computer.*Sparse-gated MoE/.test(await page.locator('.cal-card-notes').innerText()), await page.locator('.cal-card-notes').innerText());
 await page.keyboard.press('Escape');
 
 console.log('\n== a new meeting: a Zoom call made for it, Granola, the project ==');
@@ -395,13 +452,13 @@ check('Zoom starts with the person’s own room', (await editor.getByLabel('Zoom
 await editor.getByRole('button', { name: 'Make one' }).click();
 await page.waitForFunction(() => document.querySelector('.cal-editor [aria-label="Zoom link"]')?.value.includes('8299001122'));
 check('the Worker was asked for a meeting at the event’s time', asked.zoom.length === 1 && asked.zoom[0].topic === 'Paper planning: §4 and the appendix' && asked.zoom[0].minutes === 60, JSON.stringify(asked.zoom));
-await editor.getByLabel(/Take notes with Granola/).check();
+await editor.getByRole('radio', { name: 'Reader' }).click();
 await editor.getByLabel('Project').selectOption(PROJECT);
 await shot('meetings-editor');
 await editor.getByRole('button', { name: 'Save' }).click();
 await page.waitForTimeout(600);
 const made = calendarWrites.at(-1);
-check('Google was sent the Zoom link, in the place and the description, and Granola asked', made?.location === 'https://iith.zoom.us/j/8299001122?pwd=Rk9x' && /^Join Zoom: https:\/\/iith\.zoom\.us\/j\/8299001122/.test(made.description) && made.extendedProperties.private.readerNotes === 'granola', JSON.stringify(made));
+check('Google was sent the Zoom link, in the place and the description, and Reader to take the notes', made?.location === 'https://iith.zoom.us/j/8299001122?pwd=Rk9x' && /^Join Zoom: https:\/\/iith\.zoom\.us\/j\/8299001122/.test(made.description) && made.extendedProperties.private.readerNotes === 'reader', JSON.stringify(made));
 const tagged = await page.evaluate(async (PROJECT) => {
   const name = (await indexedDB.databases()).map((item) => item.name).find((item) => item.includes('reader@example.org'));
   const db = await new Promise((resolve) => (indexedDB.open(name, 1).onsuccess = (event) => resolve(event.target.result)));
@@ -480,6 +537,70 @@ await page.locator('.lb-tab', { hasText: 'Notepad' }).click();
 await page.locator('.lb-tab', { hasText: 'Whiteboard' }).click();
 await page.waitForTimeout(400);
 await shot('logbook-board-dark');
+
+console.log('\n== Reader’s own notes: a meeting recorded on this computer, no bot ==');
+await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+await page.goto(`${BASE}/calendar`);
+await page.waitForSelector('.cal-time', { timeout: 8000 });
+check('the desktop app’s recorder was started, in the Worker’s Recall region', (await page.evaluate(() => window.__recorder.enabled)) === 'https://us-west-2.recall.ai');
+await page.locator('.cal-ev.is-block', { hasText: 'Router ablations sync' }).click();
+await page.locator('.cal-card-notes').waitFor();
+check('a meeting set to Reader notes says Reader will record it here, with no bot', /Reader will take notes on this computer when the meeting opens — no bot joins — and file them in Sparse-gated MoE/.test(await page.locator('.cal-card-notes').innerText()), await page.locator('.cal-card-notes').innerText());
+await shot('notes-card');
+await page.keyboard.press('Escape');
+// A meeting the calendar knows nothing of: offered, not recorded.
+await page.evaluate(() => {
+  const window_ = { id: 'zoom-other', title: 'Zoom Meeting', url: 'https://zoom.us/j/99887766554', platform: 'zoom' };
+  window.__recorder.meetings[window_.id] = window_;
+  window.__recorder.emit({ type: 'meeting-detected', window: window_ });
+});
+await page.locator('.nt-card.is-found').waitFor({ timeout: 5000 });
+check('a meeting not on the calendar is offered, with a project to pick, and not recorded', /Zoom meeting on this computer/.test(await page.locator('.nt-card').innerText()) && (await page.evaluate(() => window.__recorder.started.length)) === 0);
+await shot('notes-offer');
+await page.locator('.nt-card').getByRole('button', { name: 'Close' }).click();
+// 3:02 pm: the ablations sync opens in Zoom, and Reader starts by itself.
+await page.clock.setFixedTime(new Date(`${todayKey}T15:02:00${OFFSET}`));
+await page.evaluate(() => {
+  const window_ = { id: 'zoom-ablations', title: 'Zoom Meeting', url: 'https://iith.zoom.us/j/8555123456?pwd=Zx1', platform: 'zoom' };
+  window.__recorder.meetings[window_.id] = window_;
+  window.__recorder.emit({ type: 'meeting-detected', window: window_ });
+});
+await page.locator('.nt-card.is-recording').waitFor({ timeout: 5000 });
+check('it matched the calendar event by its Zoom link and started by itself, with a fresh upload token', asked.uploads === 1 && JSON.stringify(await page.evaluate(() => window.__recorder.started)) === JSON.stringify([['zoom-ablations', 'upload-token-1']]));
+const SAID = [
+  ['Priya Natarajan', 0, 'Okay so the expert choice run with z-loss is past forty thousand steps now and it has not collapsed.'],
+  ['Saurav C', 14, 'That is the 350M one? What capacity factor?'],
+  ['Priya Natarajan', 19, 'One point two five. I tried two point oh as well, it costs eighteen percent more compute for about point zero zero four in loss.'],
+  ['Saurav C', 41, 'Then 1.25. Can you launch 1.3B tonight on the H100s Lin booked? I will put the capacity factor plot into section four by Friday.'],
+  ['Priya Natarajan', 63, 'Yes. One thing — expert three is getting roughly twice the load of the others in the last five thousand steps. Not sure if it is the data or the router.'],
+];
+for (const [name, t, text] of SAID) await page.evaluate(([name, t, text]) => window.__recorder.emit({ type: 'transcript', window: { id: 'zoom-ablations' }, data: { words: text.split(' ').map((word, i) => ({ text: word, start_timestamp: { relative: t + i * 0.3 } })), participant: { name } } }), [name, t, text]);
+await page.clock.setFixedTime(new Date(`${todayKey}T15:14:37${OFFSET}`));
+await page.waitForTimeout(1200);
+const live = await page.locator('.nt-card').innerText();
+check('the card shows it recording, for the project, with the last thing said', /Taking notes · 12:3\d/.test(live) && /Router ablations sync/.test(live) && /Sparse-gated MoE/.test(live) && /Priya Natarajan:.*expert three/.test(live), live.replace(/\n/g, ' | '));
+// To the project's logbook within the app (a reload would start the page afresh; the app's own window never does).
+await page.locator('.cal-ev.is-block', { hasText: 'Router ablations sync' }).click();
+await page.locator('.cal-card').getByRole('button', { name: 'Open project' }).click();
+await page.locator('.pj-views').getByRole('button', { name: 'Logbook' }).click();
+await page.locator('.lb-note').first().waitFor({ timeout: 8000 });
+await page.locator('.nt-card.is-recording').waitFor({ timeout: 8000 });
+await page.waitForTimeout(600);
+await shot('notes-recording');
+await page.locator('.nt-card').getByRole('button', { name: 'Stop' }).click();
+await page.locator('.nt-card.is-filed').waitFor({ timeout: 10000 });
+const written = asked.model.at(-1);
+check('the transcript went to the model to be written up, with the project', written && /Project: Sparse-gated MoE/.test(JSON.stringify(written)) && /expert three is getting roughly twice/.test(JSON.stringify(written)));
+const recorded = asked.log.filter((item) => item.op === 'note').at(-1)?.note;
+check('the notes and the transcript are filed in the project’s logbook, under the meeting', recorded?.source === 'reader' && recorded.meeting === `${LAB}:${ablations.id}` && /### Action items/.test(recorded.markdown) && /\[0:19\] Priya Natarajan: One point two five/.test(recorded.transcript), JSON.stringify(recorded).slice(0, 300));
+await shot('notes-filed');
+await page.locator('.nt-card').getByRole('button', { name: 'Open notes' }).click();
+await page.locator('.lb-note.is-open', { hasText: 'Router ablations sync' }).waitFor({ timeout: 8000 });
+await page.locator('.lb-note.is-open .lb-transcript summary').click();
+await page.waitForTimeout(300);
+const filedNote = await page.locator('.lb-note.is-open').innerText();
+check('in the logbook: Recorded by Reader, the write-up, its action items, and the transcript', /Recorded by Reader/.test(filedNote) && /holds past 40k steps/.test(filedNote) && /Priya: launch the 1\.3B run/.test(filedNote) && /One point two five/.test(filedNote), filedNote.replace(/\n/g, ' | ').slice(0, 300));
+await shot('notes-logbook');
 
 console.log('\n== on a phone ==');
 await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));

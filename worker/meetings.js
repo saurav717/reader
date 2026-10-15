@@ -89,3 +89,49 @@ export const granolaKeyOf = (request) => {
   const key = (request.headers.get('X-Granola-Key') || '').trim();
   return /^[\w.-]{10,300}$/.test(key) ? key : null;
 };
+
+// ------------------------------------------------- notes on this computer --
+//
+// Reader's desktop app records a meeting with Recall.ai's Desktop Recording
+// SDK (desktop/app/main.js): no bot joins. Each recording needs an upload
+// token, made here with the site's Recall key, which never leaves the Worker:
+//
+//   npx wrangler secret put RECALL_API_KEY
+//   # and in wrangler.toml, under [vars]:
+//   # RECALL_API_URL = "https://us-west-2.recall.ai"   # the region the workspace is in
+//   # RECALL_TRANSCRIPT = "recallai_streaming"         # the transcription provider set up in Recall
+//
+// The transcript comes back to the desktop app as it is spoken (a
+// `desktop_sdk_callback` realtime endpoint), not to the Worker: the page
+// writes it up and files it, and nothing of the meeting is kept here.
+
+export const recallConfigured = (env = {}) => Boolean(String(env.RECALL_API_KEY || '').trim());
+
+/** The region's address, for the desktop app's SDK and for the token; Recall's US region when none is set. */
+export function recallApiUrl(env = {}) {
+  const url = String(env.RECALL_API_URL || '').trim().replace(/\/+$/, '');
+  return /^https:\/\/[\w.-]+\.recall\.ai$/.test(url) ? url : 'https://us-west-2.recall.ai';
+}
+
+/** What a recording is set up with: transcribed as it goes, the words and who joined sent back to the app. */
+export function uploadRequest(env = {}) {
+  const provider = /^[a-z0-9_]{3,60}$/.test(String(env.RECALL_TRANSCRIPT || '')) ? env.RECALL_TRANSCRIPT : 'recallai_streaming';
+  return {
+    recording_config: {
+      transcript: { provider: { [provider]: {} } },
+      realtime_endpoints: [{ type: 'desktop_sdk_callback', events: ['transcript.data', 'participant_events.join'] }],
+    },
+  };
+}
+
+/** A Desktop SDK upload: its token, for the app to record one meeting with. */
+export async function makeUpload(env, doFetch = globalThis.fetch) {
+  const answer = await doFetch(`${recallApiUrl(env)}/api/v1/sdk_upload/`, {
+    method: 'POST',
+    headers: { Authorization: `Token ${String(env.RECALL_API_KEY).trim()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(uploadRequest(env)),
+  });
+  const body = await answer.json().catch(() => ({}));
+  if (!answer.ok || !body.upload_token) throw Object.assign(new Error(`Recall did not take the recording: ${body.detail || body.message || answer.status}`), { status: answer.status === 429 ? 429 : 502 });
+  return { uploadToken: body.upload_token, id: String(body.id ?? '') };
+}

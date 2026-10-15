@@ -28,7 +28,8 @@ const http = (value) => {
   }
 };
 
-export const LIMITS = { notes: 500, links: 500, strokes: 5000, markdown: 100_000, pad: 100_000, points: 6000 };
+/** A note and its transcript together stay under a Durable Object value's 128 KiB. */
+export const LIMITS = { notes: 500, links: 500, strokes: 5000, markdown: 40_000, transcript: 80_000, pad: 100_000, points: 6000 };
 
 export function cleanNote(raw, who) {
   if (!raw || typeof raw !== 'object' || !id(raw.id)) return null;
@@ -38,11 +39,12 @@ export function cleanNote(raw, who) {
     title: text(raw.title, 300) || 'Meeting',
     start: iso(raw.start),
     ...(raw.end ? { end: iso(raw.end) } : {}),
-    source: raw.source === 'granola' ? 'granola' : 'manual',
+    source: raw.source === 'granola' || raw.source === 'reader' ? raw.source : 'manual',
     ...(http(raw.url) ? { url: http(raw.url) } : {}),
     ...(http(raw.call) ? { call: http(raw.call) } : {}),
     attendees: Array.isArray(raw.attendees) ? raw.attendees.filter((a) => typeof a === 'string').slice(0, 40).map((a) => a.slice(0, 200)) : [],
     markdown: text(raw.markdown, LIMITS.markdown),
+    ...(typeof raw.transcript === 'string' && raw.transcript ? { transcript: text(raw.transcript, LIMITS.transcript) } : {}),
     by: who,
     at: new Date().toISOString(),
   };

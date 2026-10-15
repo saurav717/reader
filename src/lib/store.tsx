@@ -121,6 +121,8 @@ const defaultSettings: Settings = {
   githubSync: false,
   zoomRoom: '',
   granolaKey: '',
+  notesAuto: true,
+  notesOffer: true,
 };
 
 /**

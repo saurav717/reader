@@ -18,7 +18,8 @@ export interface MeetingNote {
   /** When the meeting was, ISO. */
   start: string;
   end?: string;
-  source: 'granola' | 'manual';
+  /** Who wrote them: Reader's desktop app from its recording, Granola, or someone by hand. */
+  source: 'reader' | 'granola' | 'manual';
   /** The notes in Granola's web app. */
   url?: string;
   /** The meeting's call, for "Join" on the next one of a series. */
@@ -26,6 +27,8 @@ export interface MeetingNote {
   attendees: string[];
   /** The notes, as Markdown. */
   markdown: string;
+  /** What was said, speaker by speaker, when Reader recorded the meeting itself: "Name: words" a line. */
+  transcript?: string;
   /** Who filed them, and when. */
   by: string;
   at: string;
