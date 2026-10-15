@@ -20,6 +20,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
@@ -85,6 +86,11 @@ function companionEnv() {
   // (~/Reader/.venv is made from it: it goes only with your files.)
   env.UV_PYTHON_INSTALL_DIR = path.join(COMPANION_HOME, 'python');
   env.UV = path.join(COMPANION_HOME, 'bin', UV_EXE);
+  // …installed from the copy inside the app (scripts/prepare-companion.mjs), not downloaded from GitHub.
+  if (INFO.python) env.UV_PYTHON_INSTALL_MIRROR = pathToFileURL(path.join(RESOURCES, INFO.python)).href;
+  // The Companion's packages still come from PyPI: uv gives up on a download that goes quiet for 30 seconds,
+  // too soon on a slow or busy connection.
+  env.UV_HTTP_TIMEOUT ||= '300';
   env.READER_APP = appLocation();
   env.PYTHONIOENCODING = 'utf-8';
   env.PYTHONUNBUFFERED = '1';
@@ -170,7 +176,7 @@ async function companionAddress(say) {
 async function setUp(say) {
   say({ status: INFO.version ? `Setting up Reader (Companion ${INFO.version})…` : 'Setting up Reader…', setup: true });
   say({ line: 'Reader runs your code on this computer: a Jupyter server in the background, your files in ~/Reader.' });
-  say({ line: 'The first time takes a minute or two: it downloads its own Python.\n' });
+  say({ line: 'The first time takes a minute or two: it installs its own Python and the Companion’s packages.\n' });
   // Our own copy of uv, outside the app: it stays put when the app is moved or updated, and on a Mac
   // it doesn't carry the "downloaded from the internet" mark, which would stop it on its own.
   const uv = path.join(COMPANION_HOME, 'bin', UV_EXE);
@@ -179,11 +185,20 @@ async function setUp(say) {
   if (!IS_WIN) fs.chmodSync(uv, 0o755);
   if (IS_MAC) spawnSync('xattr', ['-c', uv]);
 
-  say({ line: 'Installing the Reader Companion…' });
-  const wheel = path.join(RESOURCES, INFO.wheel || '');
+  // Python, from inside the app; then the Companion, whose packages come from PyPI: tried again when a download drops.
   // 3.12: a brand-new Python may not have every wheel the Companion needs yet (pywinpty, on Windows).
-  if ((await run(uv, ['tool', 'install', '--force', '--python', '3.12', '--from', wheel, 'reader-companion'], (line) => say({ line }))) !== 0) {
-    throw new Error('Installing the Reader Companion didn’t finish.');
+  const wheel = path.join(RESOURCES, INFO.wheel || '');
+  const steps = [
+    ['Installing Python…', ['python', 'install', '3.12'], 'Installing Python didn’t finish.'],
+    ['Installing the Reader Companion…', ['tool', 'install', '--force', '--python', '3.12', '--from', wheel, 'reader-companion'], 'Installing the Reader Companion didn’t finish.'],
+  ];
+  for (const [line, args, failed] of steps) {
+    say({ line });
+    for (let attempt = 1; ; attempt += 1) {
+      if ((await run(uv, args, (text) => say({ line: text }))) === 0) break;
+      if (attempt === 3) throw new Error(`${failed} Check your connection (a VPN, proxy or firewall can stop it), then try again.`);
+      say({ line: '\nThat didn’t finish. Trying again…' });
+    }
   }
   const bin = spawnSync(uv, ['tool', 'dir', '--bin'], { encoding: 'utf8', env: companionEnv(), windowsHide: true }).stdout?.trim();
   const exe = bin ? path.join(bin, COMPANION_EXE) : companionPath();

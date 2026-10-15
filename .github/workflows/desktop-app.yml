@@ -137,7 +137,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./companion/info.json').version")"
           dpkg-deb -I "out/reader_${VERSION}_amd64.deb"
-          dpkg-deb -c "out/reader_${VERSION}_amd64.deb" | grep -E 'resources/companion/(uv|info.json|reader_companion-.*\.whl)'
+          dpkg-deb -c "out/reader_${VERSION}_amd64.deb" | grep -E 'resources/companion/(uv|info.json|reader_companion-.*\.whl|python/.*x86_64-unknown-linux-gnu.*\.tar\.gz)'
           rpm -qip "out/reader-$VERSION.x86_64.rpm"
 
       - name: Check the app on macOS
@@ -148,6 +148,7 @@ jobs:
           lipo -archs "$APP/Contents/MacOS/Reader"
           lipo -archs "$APP/Contents/Resources/companion/uv"
           "$APP/Contents/Resources/companion/uv" --version
+          ls "$APP"/Contents/Resources/companion/python/*/ | grep -c 'apple-darwin' | grep -qx 2 # Python for both Apple silicon and Intel
           plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString'
 
       - name: Check Safari's certificate on a real Mac
