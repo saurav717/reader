@@ -221,3 +221,33 @@ describe('the address', () => {
     assert.equal(route.placeFor('/reader/calendar/extra', '/reader/'), null);
   });
 });
+
+describe('preferences kept per account', () => {
+  const storage = () => {
+    const kept = new Map();
+    return { kept, getItem: (key) => (kept.has(key) ? kept.get(key) : null), setItem: (key, value) => kept.set(key, String(value)), removeItem: (key) => kept.delete(key) };
+  };
+  it('keys a preference by the account, whatever the case of its address', () => {
+    assert.equal(cal.accountKey('reader.calendar.connected', ' A@Example.com '), 'reader.calendar.connected:a@example.com');
+  });
+  it('gives one account nothing another set', () => {
+    const store = storage();
+    store.setItem(cal.accountKey('reader.calendar.connected', 'a@example.com'), 'true');
+    assert.equal(cal.readAccountPref(store, 'reader.calendar.connected', 'a@example.com'), 'true');
+    assert.equal(cal.readAccountPref(store, 'reader.calendar.connected', 'b@example.com'), null);
+  });
+  it('moves a preference from before accounts had their own to the first account that reads it, and only that one', () => {
+    const store = storage();
+    store.setItem('reader.calendar.hidden', '["work"]');
+    assert.equal(cal.readAccountPref(store, 'reader.calendar.hidden', 'a@example.com'), '["work"]');
+    assert.equal(store.getItem('reader.calendar.hidden'), null);
+    assert.equal(cal.readAccountPref(store, 'reader.calendar.hidden', 'a@example.com'), '["work"]');
+    assert.equal(cal.readAccountPref(store, 'reader.calendar.hidden', 'b@example.com'), null);
+  });
+  it('has no preference for nobody, and leaves the old one for whoever signs in', () => {
+    const store = storage();
+    store.setItem('reader.calendar.connected', 'true');
+    assert.equal(cal.readAccountPref(store, 'reader.calendar.connected', undefined), null);
+    assert.equal(store.getItem('reader.calendar.connected'), 'true');
+  });
+});

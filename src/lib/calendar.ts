@@ -394,6 +394,32 @@ export const timeZone = (): string => {
   }
 };
 
+/**
+ * A Calendar preference's key for one account. The browser's storage is
+ * shared by every account signed in to it in turn, and what one connected or
+ * hid is not the next one's: so each account keeps its own.
+ */
+export const accountKey = (key: string, email: string): string => `${key}:${email.trim().toLowerCase()}`;
+
+type PrefStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+/**
+ * An account's own copy of a preference. One kept before preferences were per
+ * account (under the bare key) is the first reader's: it moves to them, so the
+ * person who set it keeps it and nobody else inherits it after. No account, no
+ * preference.
+ */
+export function readAccountPref(storage: PrefStorage, key: string, email: string | null | undefined): string | null {
+  if (!email?.trim()) return null;
+  const own = storage.getItem(accountKey(key, email));
+  if (own !== null) return own;
+  const before = storage.getItem(key);
+  if (before === null) return null;
+  storage.setItem(accountKey(key, email), before);
+  storage.removeItem(key);
+  return before;
+}
+
 /** A quarter past, half past: the nearest half hour at or before `date`, for a click on the grid. */
 export const toHalfHour = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes() < 30 ? 0 : 30);
 
