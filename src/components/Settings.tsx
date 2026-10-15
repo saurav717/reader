@@ -345,7 +345,10 @@ function RecorderSettings() {
               </button>
             );
           })}
-          <small className="set-permissions-note">Each opens its page in System Settings → Privacy &amp; Security: switch <b>Reader</b> on there (add it with + if it is not listed), then quit and reopen Reader. macOS asks only once, so a button that seems to do nothing has asked already; the switch in System Settings is what counts.</small>
+          <small className="set-permissions-note">
+            Each asks macOS, then opens its page in System Settings → Privacy &amp; Security: answer the prompt if one comes, or switch <b>Reader</b> on there (add it with + if it is not listed), then quit and reopen Reader. A ✓ shows once it is granted. After an
+            update, an unsigned Reader is a new app to macOS: it asks again, and a Reader already listed there is the version before — remove it with − and switch the new one on.
+          </small>
         </div>
       ) : null}
     </div>

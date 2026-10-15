@@ -14,6 +14,7 @@
 // the key is never in the app.
 
 const { BrowserWindow, ipcMain, shell } = require('electron');
+const { spawn } = require('node:child_process');
 
 const SUPPORTED = process.platform === 'darwin' || process.platform === 'win32';
 /** The SDK's API address: one of Recall's regions, on https, nothing else. */
@@ -29,6 +30,18 @@ const SETTINGS_PANES = {
   accessibility: 'Privacy_Accessibility',
   'full-disk-access': 'Privacy_AllFiles',
 };
+
+/** System Settings → Privacy & Security, at one of its pages (SETTINGS_PANES); `open` when Electron can't. */
+function openSettings(pane) {
+  const url = `x-apple.systempreferences:com.apple.preference.security?${pane}`;
+  shell.openExternal(url).catch(() => {
+    try {
+      spawn('/usr/bin/open', [url], { detached: true, stdio: 'ignore' }).unref();
+    } catch {
+      // nowhere else to turn
+    }
+  });
+}
 
 let sdk = null;
 let enabled = null;
@@ -160,11 +173,12 @@ function setUpNotes({ siteOrigin }) {
 
   handle('notes:permission', async (permission) => {
     if (!PERMISSIONS.has(permission)) return { ok: false, error: 'which permission?' };
-    if (sdk) await sdk.requestPermission(permission).catch(() => undefined);
     // macOS asks an app once; after that — granted or turned down — asking again shows nothing at all. So the page
-    // with the switch opens too, a moment later so a first-time prompt is not hidden behind it.
+    // with the switch opens too, a moment later so a first-time prompt is not hidden behind it. The SDK's answer is
+    // not waited for: it comes only once its own process has dealt with the prompt, which can be a long time or never.
     const pane = SETTINGS_PANES[permission];
-    if (process.platform === 'darwin' && pane) setTimeout(() => void shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`), 700);
+    if (process.platform === 'darwin' && pane) setTimeout(() => openSettings(pane), 1000);
+    if (sdk) sdk.requestPermission(permission).catch(() => undefined);
     return { ok: true };
   });
 }
