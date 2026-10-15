@@ -16,9 +16,9 @@ import { addDays, fetchAllEvents, fetchCalendars, startOfDay, tagKeys, type Cale
 import { db } from './db';
 import { saveNote } from './logbookStore';
 import { meetingProject, type Project } from './projects';
-import { eventFor, recordedNote, recorderBridge, summaryPrompt, transcriptText, wordCount, withSpeech, type DetectedMeeting, type RecorderBridge, type RecorderEvent, type Turn } from './recorder';
+import { callKey, eventFor, recordedNote, recorderBridge, summaryPrompt, transcriptText, wordCount, withSpeech, type DetectedMeeting, type RecorderBridge, type RecorderEvent, type Turn } from './recorder';
 
-export type SessionStatus = 'found' | 'starting' | 'recording' | 'writing' | 'filed' | 'failed';
+export type SessionStatus = 'joining' | 'found' | 'starting' | 'recording' | 'writing' | 'filed' | 'failed';
 
 export interface Session {
   /** The SDK's id for the meeting (or the audio source, for one it did not find). */
@@ -31,6 +31,8 @@ export interface Session {
   status: SessionStatus;
   /** Started by itself (a meeting set to Reader notes), rather than by a click. */
   auto: boolean;
+  /** While joining: whether notes are to be taken once the meeting opens. */
+  armed?: boolean;
   started?: number;
   ended?: number;
   turns: Turn[];
@@ -128,6 +130,69 @@ export function knowEvents(list: CalendarEvent[]): void {
   eventsAt = Math.max(eventsAt, Date.now() - 5 * 60_000);
 }
 
+// --------------------------------------------------------------- joining --
+
+/** How long after Join a meeting is waited for before the offer goes away. */
+const JOIN_WAIT = 15 * 60_000;
+const joinId = (event: CalendarEvent) => `join:${event.id}`;
+
+/**
+ * Join pressed on a calendar event, in the app: while the call opens, the
+ * corner offers to take its notes — already on when the event is set to
+ * Reader notes for a project — and the meeting, once the recorder sees it
+ * open, is this one. Answers whether the offer was made (not in a browser).
+ */
+export function joinMeeting(event: CalendarEvent, projectId: string | null): boolean {
+  if (!bridge || state.availability !== 'ready') return false;
+  const armed = event.notetaker === 'reader' && Boolean(projectId) && (context?.auto() ?? true);
+  const windowId = joinId(event);
+  // The meeting already open on this computer (joined a second time): nothing to wait for.
+  if (state.sessions.some((session) => session.event?.id === event.id && session.status !== 'joining' && session.status !== 'filed' && session.status !== 'failed')) return true;
+  set({ sessions: [...state.sessions.filter((session) => session.windowId !== windowId), { windowId, found: { id: windowId, title: event.title, url: event.meet, platform: event.callKind }, event, projectId, status: 'joining', auto: false, armed, turns: [] }] });
+  window.setTimeout(() => {
+    if (sessionOf(windowId)?.status === 'joining') dismiss(windowId);
+  }, JOIN_WAIT);
+  notice(windowId, event.title, armed ? 'armed' : 'offer', projectName(projectId));
+  return true;
+}
+
+const projectName = (projectId: string | null | undefined) => context?.projects().find((item) => item.id === projectId)?.name;
+
+/** Take notes, or not, once the meeting joined opens. */
+export const armJoin = (windowId: string, armed: boolean) => patchSession(windowId, { armed });
+
+/**
+ * A word over the call's own window, which is in front by now (the app lets
+ * the site notify): what Reader is about to do, or the offer, and that Reader
+ * is where to answer. Clicking it brings Reader to the front.
+ */
+function notice(tag: string, title: string, kind: 'armed' | 'offer' | 'recording', project?: string): void {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try {
+    const shown = new Notification(kind === 'offer' ? `Take notes of ${title}?` : kind === 'armed' ? `Reader will take notes of ${title}` : `Reader is taking notes of ${title}`, {
+      body:
+        kind === 'offer'
+          ? 'Reader can take them on this computer, with no bot in the call. Open Reader to say yes.'
+          : `No bot joins. They are filed in ${project ?? 'the project'} → Logbook, for everyone in it. Open Reader to ${kind === 'armed' ? 'change that' : 'stop'}.`,
+      tag,
+      silent: true,
+    });
+    shown.onclick = () => window.focus();
+  } catch {
+    // no notifications here
+  }
+}
+
+/** The joining session a meeting found is: the one for its event; else, for a meeting the calendar does not know, the only one joined — unless its link says it is another call. */
+function joiningFor(found: DetectedMeeting, match: CalendarEvent | undefined): Session | undefined {
+  const joining = state.sessions.filter((session) => session.status === 'joining');
+  if (match) return joining.find((session) => session.event?.id === match.id);
+  const only = joining.length === 1 ? joining[0] : undefined;
+  const seen = callKey(found.url);
+  const joined = callKey(only?.event?.meet);
+  return seen && joined && seen !== joined ? undefined : only;
+}
+
 // ---------------------------------------------------------- what is heard --
 
 const saveTimers = new Map<string, number>();
@@ -156,13 +221,20 @@ async function hear(event: RecorderEvent): Promise<void> {
   if (event.type === 'meeting-detected' || event.type === 'meeting-updated') {
     const had = sessionOf(found.id);
     if (had && had.status !== 'found') return patchSession(found.id, { found: { ...had.found, ...found } });
-    const match = eventFor(found, await currentEvents());
+    const matched = eventFor(found, await currentEvents());
+    const joining = had ? undefined : joiningFor(found, matched);
+    const match = matched ?? joining?.event;
     const project = match ? meetingProject(context?.projects() ?? [], tagKeys(match)) : undefined;
-    const session: Session = { windowId: found.id, found: { ...had?.found, ...found }, ...(match ? { event: match } : {}), projectId: had?.projectId ?? project?.id ?? null, status: 'found', auto: false, turns: [] };
-    set({ sessions: [...state.sessions.filter((item) => item.windowId !== found.id), session] });
-    // Set to Reader notes on the calendar, for a project: it starts by itself.
-    if (!had && match?.notetaker === 'reader' && project && context?.auto()) void startRecording(found.id, project.id, true);
-    else if (!had && !context?.offer() && !(match?.notetaker === 'reader')) dismiss(found.id);
+    const session: Session = { windowId: found.id, found: { ...had?.found, ...found }, ...(match ? { event: match } : {}), projectId: had?.projectId ?? joining?.projectId ?? project?.id ?? null, status: 'found', auto: false, turns: [] };
+    set({ sessions: [...state.sessions.filter((item) => item.windowId !== found.id && item.windowId !== joining?.windowId), session] });
+    // Joined from the calendar with notes said yes to: it starts. Set to Reader notes on the calendar, for a project: it starts by itself.
+    if (joining) {
+      if (joining.armed) void startRecording(found.id, session.projectId, false);
+    } else if (!had && match?.notetaker === 'reader' && project && context?.auto()) {
+      void startRecording(found.id, project.id, true);
+      notice(found.id, match.title, 'recording', project.name);
+    } else if (!had && !context?.offer() && !(match?.notetaker === 'reader')) dismiss(found.id);
+    else if (!had) notice(found.id, match?.title || found.title || 'this meeting', 'offer');
     return;
   }
   if (event.type === 'meeting-closed') {

@@ -4964,9 +4964,14 @@ everyone in the project reads them, and the meeting's card says where:
   [Recall.ai's Desktop Recording SDK](https://recall.ai/product/desktop-recording-sdk)
   finds the Zoom, Meet, Teams or Slack meeting open on the computer and records
   its sound — the call and your microphone — sending back what is said, and by
-  whom, as it is said. A meeting set to Reader notes starts by itself when it
-  opens; any other meeting is offered, with the project to file it in; and
-  **Record a meeting now**, on the logbook, records one round a table. A card
+  whom, as it is said. Press **Join** on the calendar and the offer is in
+  Reader's corner at once, while the call's lobby is up — *Reader will take
+  its notes once the meeting opens → the project*, with **Not this time**, or
+  **Take notes** with the project to pick for an event not set to notes — and
+  a notification says the same over the call's own window. A meeting set to
+  Reader notes starts by itself when it opens; any other meeting is offered,
+  with the project to file it in; and **Record a meeting now**, on the
+  logbook, records one round a table. A card
   in the corner shows it all the while — how long, the last thing said, the
   project, **Stop**. When it ends, the transcript is written up by your Ask AI
   model (summary, decisions, action items, open questions) and filed with the
@@ -4981,6 +4986,8 @@ everyone in the project reads them, and the meeting's card says where:
 ![a new event with a Zoom meeting made for it, Granola taking notes, and the project picked](docs/meetings-editor.png)
 
 ![this morning's meeting: Join Zoom, and its notes filed in the project from Granola](docs/meetings-card-filed.png)
+
+![Join pressed on the calendar: in the corner, Reader will take its notes once the meeting opens, for the project, with Not this time](docs/notes-join.png)
 
 ![a meeting in progress, recorded by Reader on this computer: how long, the last thing said, the project, Stop](docs/notes-recording.png)
 

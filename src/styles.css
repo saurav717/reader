@@ -8724,3 +8724,5 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .set-permissions { display: flex; flex-wrap: wrap; gap: 6px; }
 .set-permissions-note { flex-basis: 100%; margin-top: 4px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
 .set-permissions .is-granted { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
+.nt-card.is-joining { border-left-color: var(--pj); }
+.nt-card.is-joining .nt-head-text small { color: var(--accent-ink); font-weight: 600; }
