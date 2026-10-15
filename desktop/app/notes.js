@@ -48,6 +48,8 @@ let enabled = null;
 /** Meetings found and not yet closed: a page opened after they were found is told of them too. */
 const meetings = new Map();
 const recording = new Set();
+/** Each permission's state as the SDK last said it: a page opened later (the site reloads after a sign-in) is told too. */
+const permissions = new Map();
 
 /**
  * Wires the recorder to the app: `siteOrigin` is the only origin whose pages
@@ -118,7 +120,10 @@ function setUpNotes({ siteOrigin }) {
         },
       });
     });
-    sdk.addEventListener('permission-status', ({ permission, granted, status }) => tell({ type: 'permission', permission, granted, status }));
+    sdk.addEventListener('permission-status', ({ permission, granted, status }) => {
+      permissions.set(permission, { type: 'permission', permission, granted, status });
+      tell(permissions.get(permission));
+    });
     sdk.addEventListener('error', ({ window, type, message }) => tell({ type: 'error', ...(window ? { window: windowOf(window) } : {}), message: `${message || type}` }));
     sdk.addEventListener('shutdown', ({ code }) => {
       // The SDK restarts itself; a recording that was on has ended.
@@ -147,6 +152,7 @@ function setUpNotes({ siteOrigin }) {
     // then of the meetings open.
     for (const id of recording) tell({ type: 'recording-started', window: meetings.get(id) ?? { id } });
     for (const window of meetings.values()) if (!recording.has(window.id)) tell({ type: 'meeting-detected', window });
+    for (const said of permissions.values()) tell(said);
     return { ok: true };
   });
 
