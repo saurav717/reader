@@ -348,12 +348,17 @@ function RecorderSettings() {
           {PERMISSIONS.map(([permission, label]) => {
             const status = notes.permissions[permission];
             return (
-              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} title="Ask for it, and open its page in System Settings: switch Reader on there">
+              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} title={`${status ? `The recorder says: ${status.replace(/_/g, ' ')}. ` : 'The recorder has not said yet. '}Ask for it, and open its page in System Settings: switch Reader on there`}>
                 {status === 'granted' ? '✓ ' : ''}
                 {label}
               </button>
             );
           })}
+          <small className={`set-permissions-state${PERMISSIONS.every(([permission]) => notes.permissions[permission] === 'granted') ? ' is-ok' : ''}`}>
+            {PERMISSIONS.every(([permission]) => notes.permissions[permission] === 'granted')
+              ? '✓ All three granted: Reader can record meetings on this computer.'
+              : `The recorder says — ${PERMISSIONS.map(([permission, label]) => `${label.replace(/ \(.*\)$/, '')}: ${(notes.permissions[permission] ?? 'not reported yet').replace(/_/g, ' ')}`).join(' · ')}.`}
+          </small>
           <small className="set-permissions-note">
             Each asks macOS, then opens its page in System Settings → Privacy &amp; Security: answer the prompt if one comes, or switch <b>Reader</b> on there (add it with + if it is not listed), then quit and reopen Reader. A ✓ shows once it is granted. After an
             update, an unsigned Reader is a new app to macOS: it asks again, and a Reader already listed there is the version before — remove it with − and switch the new one on.
