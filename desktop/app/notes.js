@@ -153,6 +153,11 @@ function setUpNotes({ siteOrigin }) {
     for (const id of recording) tell({ type: 'recording-started', window: meetings.get(id) ?? { id } });
     for (const window of meetings.values()) if (!recording.has(window.id)) tell({ type: 'meeting-detected', window });
     for (const said of permissions.values()) tell(said);
+    // The state of each permission the recorder needs, asked for outright (a check, when granted; the system's prompt,
+    // when not yet asked): the page shows a ✓ for each, from the permission-status the SDK answers with.
+    for (const permission of ['microphone', 'screen-capture', 'accessibility']) {
+      if (permissions.get(permission)?.status !== 'granted') sdk.requestPermission(permission).catch(() => undefined);
+    }
     return { ok: true };
   });
 
