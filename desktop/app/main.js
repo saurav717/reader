@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { randomBytes } = require('node:crypto');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
@@ -332,6 +333,69 @@ async function showSite(win, url) {
   win.destroy();
 }
 
+// ------------------------------------------------------- Google sign-in ----
+
+// Google turns sign-in down inside an app's own window ("This browser or app may not be secure"), whatever it
+// is called. So the site's sign-in (src/lib/google.ts) asks here, and the browser signs in: the site's
+// app-sign-in page there, Google's usual popup, then a reader-app://google-token link back with the token
+// and the `state` it was opened with. One sign-in waits at a time; a newer one is the one answered.
+const PROTOCOL = 'reader-app';
+let signingIn = null; // { state, resolve, timer }
+
+function endSignIn(answer) {
+  if (!signingIn) return;
+  clearTimeout(signingIn.timer);
+  signingIn.resolve(answer);
+  signingIn = null;
+}
+
+ipcMain.handle('google:token', (event, request) => {
+  const from = event.senderFrame?.url || '';
+  if (!from.startsWith(SITE_ORIGIN + '/')) return { error: 'access_denied', error_description: 'Not the Reader site.' };
+  const { clientId = '', scope = '', prompt = '', hint = '' } = request ?? {};
+  endSignIn({ error: 'popup_closed' });
+  const state = randomBytes(24).toString('base64url');
+  const page = new URL('app-sign-in/', SITE);
+  for (const [key, value] of Object.entries({ state, client_id: String(clientId), scope: String(scope), prompt: String(prompt), hint: String(hint) })) {
+    if (value) page.searchParams.set(key, value);
+  }
+  return new Promise((resolve) => {
+    signingIn = { state, resolve, timer: setTimeout(() => endSignIn({ error: 'popup_closed' }), 10 * 60_000) };
+    void shell.openExternal(page.href);
+  });
+});
+
+/** A reader-app:// link the browser opened: the sign-in's answer, when its state is the one waiting. */
+function openedLink(link) {
+  let url;
+  try {
+    url = new URL(link);
+  } catch {
+    return;
+  }
+  if (url.protocol !== `${PROTOCOL}:` || url.hostname !== 'google-token' || !signingIn) return;
+  const values = url.searchParams;
+  if (values.get('state') !== signingIn.state) return;
+  const expires = Number.parseInt(values.get('expires_in') || '', 10);
+  endSignIn(
+    values.get('access_token')
+      ? { access_token: values.get('access_token'), expires_in: Number.isFinite(expires) ? expires : 3600, scope: values.get('scope') || '' }
+      : { error: values.get('error') || 'access_denied', error_description: values.get('error_description') || '' },
+  );
+  const win = main ?? BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+}
+
+// macOS hands the link to the running app; Windows and Linux start a second one with it (second-instance below).
+app.on('open-url', (event, link) => {
+  event.preventDefault();
+  openedLink(link);
+});
+
 ipcMain.on('start:retry', () => {
   const old = main;
   // openReader makes its window before it waits for anything: there is always one open.
@@ -492,7 +556,7 @@ function integrateAppImage() {
     fs.mkdirSync(applications(), { recursive: true });
     fs.writeFileSync(
       path.join(applications(), AppImageEntry),
-      `[Desktop Entry]\nType=Application\nName=Reader\nComment=Read research papers, keep notes and run code on this computer\nExec=${exec} %U\nIcon=reader-app\nTerminal=false\nCategories=Education;Science;\nStartupWMClass=reader\nActions=Uninstall;\n\n[Desktop Action Uninstall]\nName=Uninstall Reader\nExec=${exec} --uninstall\n`,
+      `[Desktop Entry]\nType=Application\nName=Reader\nComment=Read research papers, keep notes and run code on this computer\nExec=${exec} %U\nIcon=reader-app\nTerminal=false\nCategories=Education;Science;\nStartupWMClass=reader\nMimeType=x-scheme-handler/reader-app;\nActions=Uninstall;\n\n[Desktop Action Uninstall]\nName=Uninstall Reader\nExec=${exec} --uninstall\n`,
     );
     fs.writeFileSync(
       path.join(applications(), 'reader-app-uninstall.desktop'),
@@ -565,12 +629,18 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_event, argv) => {
     if (argv.includes('--uninstall')) return openUninstall();
+    const link = argv.find((arg) => arg.startsWith(`${PROTOCOL}:`));
+    if (link) return openedLink(link);
     const win = main ?? BrowserWindow.getAllWindows()[0];
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
     } else void openReader();
   });
+
+  // reader-app:// links open this app (from a development checkout, with its own script to run).
+  if (app.isPackaged) app.setAsDefaultProtocolClient(PROTOCOL);
+  else if (process.argv[1]) app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
 
   app.whenReady().then(() => {
     app.setAboutPanelOptions({ applicationName: 'Reader', applicationVersion: app.getVersion(), copyright: 'saurav717', website: SITE, iconPath: path.join(__dirname, 'build', 'icon.png') });
