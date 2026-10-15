@@ -41,6 +41,10 @@ module.exports = {
     // prepare-companion.mjs), and the meeting recorder's native program and its GStreamer libraries, which
     // Recall.ai ships universal (notes.js).
     x64ArchFiles: 'Contents/Resources/{companion/uv,app.asar.unpacked/node_modules/@recallai/desktop-sdk/**}',
+    // The two halves' app.asar are the same (the app's own JavaScript), so neither is merged into the other file by
+    // file: merging (electron-builder's default) fails on the symlinks in the recorder's GStreamer framework, unpacked
+    // beside it. @electron/universal then checks the two are identical and keeps one.
+    mergeASARs: false,
   },
   dmg: {
     title: 'Reader ${version}',
