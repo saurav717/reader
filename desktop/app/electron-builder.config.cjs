@@ -17,6 +17,8 @@ module.exports = {
   directories: { output: 'dist', buildResources: 'build' },
   // Released by the desktop app workflow (gh release), not by electron-builder: no update feeds.
   publish: [],
+  // reader-app:// links open the app: how Google's sign-in in the browser comes back to it (main.js).
+  protocols: [{ name: 'Reader', schemes: ['reader-app'] }],
   files: ['main.js', 'notes.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
   // The meeting recorder's native program (notes.js) runs from outside the archive: the SDK looks for it in app.asar.unpacked.
   asarUnpack: ['node_modules/@recallai/desktop-sdk/**'],

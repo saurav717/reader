@@ -362,6 +362,19 @@ export function suggestAccount(email: string | null): void {
 
 function requestToken(clientId: string, scope: string, prompt: string): Promise<Grant> {
   const account = whose?.email || suggested;
+  // In the Reader app Google refuses to sign in ("This browser or app may not be secure"): the app asks
+  // in the browser instead (public/app-sign-in/), and answers with the same token.
+  const viaApp = typeof window !== 'undefined' ? window.readerDesktop?.google : undefined;
+  if (viaApp) {
+    return viaApp.token({ clientId, scope, prompt, hint: account || '' }).then((response) => {
+      if (response.error || !response.access_token) throw new Error(describe(undefined, response.error, response.error_description));
+      return {
+        accessToken: response.access_token,
+        expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000 - 60_000,
+        scopes: (response.scope || scope).split(' '),
+      };
+    });
+  }
   return new Promise((resolve, reject) => {
     if (!googleReady()) {
       reject(new Error('Google Identity Services is not available'));
@@ -399,7 +412,7 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
  * popup from being blocked.
  */
 function tokenFor(clientId: string, scope: string, prompt: string): Promise<Grant> {
-  if (googleReady()) return requestToken(clientId, scope, prompt);
+  if (googleReady() || window.readerDesktop?.google) return requestToken(clientId, scope, prompt);
   return loadGoogleScript().then(() => requestToken(clientId, scope, prompt));
 }
 

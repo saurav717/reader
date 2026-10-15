@@ -13,8 +13,7 @@ The app is [Electron](https://www.electronjs.org/): it carries its own engine,
 so the page runs the same on every system, and it reaches the Companion on
 `127.0.0.1` as Chrome does. That includes Safari's Macs, where a browser tab
 can't. The window shows the site itself (`https://saurav717.github.io/reader/`).
-So Google sign-in works as it does on the web, and the app always has the
-newest site with no app update.
+So the app always has the newest site with no app update.
 
 - **The first time it opens** (and after an update that brings a newer
   Companion) it shows how setting up goes. It installs the Reader Companion
@@ -35,8 +34,16 @@ for Reader's notes when the site asks — no bot joins the call (see the README'
 Calendar section). macOS asks once for the microphone, screen recording and
 accessibility; Settings → Account → Meetings has a button for each.
 
-Links to other sites open in your browser. Google's sign-in and the
-Companion's own pages (Jupyter, VS Code) stay in the app.
+Links to other sites open in your browser. The Companion's own pages (Jupyter,
+VS Code) stay in the app.
+
+**Signing in to Google** happens in your browser: Google turns sign-in down
+inside an app's window ("This browser or app may not be secure"). The app opens
+the site's [`app-sign-in`](../public/app-sign-in/index.html) page there, Google's
+usual window signs you in, and the page hands the result back to the app with a
+`reader-app://` link (the browser may ask once to open Reader). The app checks
+the link carries the code it opened the page with, and only the site's pages
+can ask for a sign-in.
 
 The parts:
 - [`desktop/app/main.js`](../desktop/app/main.js): the app: the window, setting up, the menus, Uninstall.

@@ -58,7 +58,21 @@ export interface RecorderBridge {
 
 declare global {
   interface Window {
-    readerDesktop?: { app: true; platform: string; notes?: RecorderBridge };
+    readerDesktop?: {
+      app: true;
+      platform: string;
+      notes?: RecorderBridge;
+      /** Google sign-in in the browser, for an app Google won't sign in inside (src/lib/google.ts). */
+      google?: {
+        token(request: { clientId: string; scope: string; prompt: string; hint: string }): Promise<{
+          access_token?: string;
+          expires_in?: number;
+          scope?: string;
+          error?: string;
+          error_description?: string;
+        }>;
+      };
+    };
   }
 }
 
