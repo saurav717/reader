@@ -4974,7 +4974,13 @@ everyone in the project reads them, and the meeting's card says where:
   a notification says the same over the call's own window. A meeting set to
   Reader notes starts by itself when it opens; any other meeting is offered,
   with the project to file it in; and **Record a meeting now**, on the
-  logbook, records one round a table. A meeting for a project is recorded by
+  logbook, records one round a table. Settings → Meetings chooses how a meeting joined from the calendar is
+  recorded: **Find the meeting app** (Zoom, Meet in Chrome, Teams, Slack —
+  who spoke is known; a call not found within half a minute is recorded from
+  the computer's sound instead) or **Record the computer's sound** (any app
+  or browser — Safari, FaceTime, anything — the computer's sound and the
+  microphone from the moment Join is pressed, as Cluely does; speakers are
+  numbered, not named). A meeting for a project is recorded by
   its **host** alone — the organizer, or whoever made it on their own
   calendar — so one meeting makes one set of notes; on anyone else's
   computer the card says whose it is, and the notes reach them through the

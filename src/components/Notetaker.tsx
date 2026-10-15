@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useStore } from '../lib/store';
 import { getState as assistantState, streamModel } from '../lib/assistant';
 import { CALL_NAMES } from '../lib/calendar';
-import { armJoin, dismiss, isHost, recoverRecordings, retry, setProject, startNotetaker, startRecording, stopRecording, useNotetaker, type Session } from '../lib/notetaker';
+import { armJoin, dismiss, isHost, recordHere, recoverRecordings, retry, setProject, startNotetaker, startRecording, stopRecording, useNotetaker, type Session } from '../lib/notetaker';
 import { projectsOf } from '../lib/projects';
 import type { View } from '../types.view';
 import { CloseIcon } from './icons';
@@ -36,9 +36,12 @@ export default function Notetaker({ onView }: { onView: (view: View) => void }) 
   const notes = useNotetaker();
   const [now, setNow] = useState(Date.now());
   // The store reads the page through these, so it always sees the newest projects and choices.
-  const live = useMemo(() => ({ projects, who: user?.email ?? null, clientId: settings.googleClientId.trim(), auto: settings.notesAuto !== false, offer: settings.notesOffer !== false }), [projects, user?.email, settings.googleClientId, settings.notesAuto, settings.notesOffer]);
+  const live = useMemo(
+    () => ({ projects, who: user?.email ?? null, clientId: settings.googleClientId.trim(), auto: settings.notesAuto !== false, offer: settings.notesOffer !== false, source: settings.notesSource === 'computer' ? ('computer' as const) : ('app' as const) }),
+    [projects, user?.email, settings.googleClientId, settings.notesAuto, settings.notesOffer, settings.notesSource],
+  );
   useEffect(() => {
-    void startNotetaker({ projects: () => live.projects, who: () => live.who, clientId: () => live.clientId, auto: () => live.auto, offer: () => live.offer, write: writeWithModel }).then(() => recoverRecordings());
+    void startNotetaker({ projects: () => live.projects, who: () => live.who, clientId: () => live.clientId, auto: () => live.auto, offer: () => live.offer, source: () => live.source, write: writeWithModel }).then(() => recoverRecordings());
   }, [live]);
   const recording = notes.sessions.some((session) => session.status === 'recording');
   useEffect(() => {
@@ -141,7 +144,14 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
               </button>
             )}
           </div>
-          <p className="nt-fine">{session.armed ? 'Everyone in the call should know it is being recorded.' : 'Nothing is recorded unless you say so.'}</p>
+          <p className="nt-fine">
+            {session.armed ? 'Waiting for the meeting to open; the computer’s sound is recorded instead if it is not found in half a minute. Everyone in the call should know it is being recorded. ' : 'Nothing is recorded unless you say so. '}
+            {session.projectId && session.event ? (
+              <button type="button" className="link-btn" onClick={() => void recordHere(session.projectId, session.event!.title, session.event)}>
+                Record the computer’s sound now
+              </button>
+            ) : null}
+          </p>
         </>
       ) : null}
 

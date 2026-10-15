@@ -123,6 +123,7 @@ const defaultSettings: Settings = {
   granolaKey: '',
   notesAuto: true,
   notesOffer: true,
+  notesSource: 'app',
 };
 
 /**
