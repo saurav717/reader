@@ -26,7 +26,7 @@ module.exports = {
   publish: [{ provider: 'generic', url: 'https://github.com/saurav717/reader/releases/latest/download' }],
   // reader-app:// links open the app: how Google's sign-in in the browser comes back to it (main.js).
   protocols: [{ name: 'Reader', schemes: ['reader-app'] }],
-  files: ['main.js', 'notes.js', 'updates.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
+  files: ['main.js', 'notes.js', 'updates.js', 'google.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
   // The meeting recorder's native program (notes.js) runs from outside the archive: the SDK looks for it in app.asar.unpacked.
   asarUnpack: ['node_modules/@recallai/desktop-sdk/**'],
   extraResources: [{ from: 'companion', to: 'companion' }],
