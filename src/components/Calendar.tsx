@@ -64,7 +64,7 @@ import { canMakeZoom, makeZoomMeeting } from '../lib/zoom';
 import { fileGranolaNotes } from '../lib/meetingNotes';
 import { useLogbook } from '../lib/logbookStore';
 import { inDesktopApp, recorderBridge } from '../lib/recorder';
-import { knowEvents } from '../lib/notetaker';
+import { joinMeeting, knowEvents } from '../lib/notetaker';
 
 /** Where the Reader app for Mac, Windows and Linux is published (docs/desktop-app.md). */
 const DESKTOP_RELEASES = 'https://github.com/saurav717/reader/releases/latest';
@@ -959,7 +959,7 @@ function Agenda({ day, events, inMeetings, now, tags, onEvent, picked }: { day: 
               {onNow ? <em>now</em> : null}
             </span>
             {event.meet ? (
-              <a className="cal-join" href={event.meet} target="_blank" rel="noreferrer" onClick={(click) => click.stopPropagation()} title="Join the video call">
+              <a className="cal-join" href={event.meet} target="_blank" rel="noreferrer" onClick={(click) => (click.stopPropagation(), joinMeeting(event, tags.get(event.id)?.id ?? null))} title="Join the video call">
                 <VideoIcon size={14} />
                 Join
               </a>
@@ -1152,10 +1152,10 @@ function EventCard({
           </div>
         ) : null}
       </div>
-      {event.notetaker ? <NotesLine event={event} project={project} hasKey={granolaKey} onOpenProject={onOpenProject} onOpenSettings={onOpenSettings} /> : null}
+      {event.notetaker || project ? <NotesLine event={event} project={project} hasKey={granolaKey} onOpenProject={onOpenProject} onOpenSettings={onOpenSettings} /> : null}
       <div className="cal-card-actions">
         {event.meet ? (
-          <a className="btn primary sm" href={event.meet} target="_blank" rel="noreferrer" onClick={stop} title={`Join the ${CALL_NAMES[event.callKind ?? 'video']} call`}>
+          <a className="btn primary sm" href={event.meet} target="_blank" rel="noreferrer" onClick={(click) => (stop(click), joinMeeting(event, project?.id ?? null))} title={`Join the ${CALL_NAMES[event.callKind ?? 'video']} call`}>
             <VideoIcon size={14} />
             {event.callKind && event.callKind !== 'video' ? `Join ${CALL_NAMES[event.callKind].replace('Google ', '')}` : 'Join'}
           </a>
@@ -1196,6 +1196,8 @@ const NotesIcon = () => (
 function NotesLine({ event, project, hasKey, onOpenProject, onOpenSettings }: { event: CalendarEvent; project?: Project; hasKey: boolean; onOpenProject?: (id: string, section?: string) => void; onOpenSettings: () => void }) {
   const { log, status } = useLogbook(project);
   const filed = project && status === 'ready' ? log.notes.find((note) => note.meeting === event.id) : undefined;
+  // A meeting not set to notes on the calendar has a line only once notes were taken of it (Join, or the offer).
+  if (!event.notetaker && !filed) return null;
   const over = event.end.getTime() < Date.now();
   const reader = event.notetaker === 'reader';
   const app = inDesktopApp();

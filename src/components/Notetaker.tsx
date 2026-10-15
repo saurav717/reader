@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useStore } from '../lib/store';
 import { getState as assistantState, streamModel } from '../lib/assistant';
 import { CALL_NAMES } from '../lib/calendar';
-import { dismiss, recoverRecordings, retry, setProject, startNotetaker, startRecording, stopRecording, useNotetaker, type Session } from '../lib/notetaker';
+import { armJoin, dismiss, recoverRecordings, retry, setProject, startNotetaker, startRecording, stopRecording, useNotetaker, type Session } from '../lib/notetaker';
 import { projectsOf } from '../lib/projects';
 import type { View } from '../types.view';
 import { CloseIcon } from './icons';
@@ -83,7 +83,9 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
         {session.status === 'recording' ? <span className="nt-rec" aria-hidden="true" /> : <span className="nt-mark" aria-hidden="true">R</span>}
         <span className="nt-head-text">
           <small>
-            {session.status === 'found'
+            {session.status === 'joining'
+              ? `Joining${session.found.platform ? ` · ${platformName(session.found.platform)}` : ''}`
+              : session.status === 'found'
               ? `${platformName(session.found.platform)} meeting on this computer`
               : session.status === 'starting'
                 ? 'Starting…'
@@ -99,12 +101,39 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
           </small>
           <b>{title}</b>
         </span>
-        {session.status === 'found' || session.status === 'filed' || session.status === 'failed' ? (
+        {session.status === 'joining' || session.status === 'found' || session.status === 'filed' || session.status === 'failed' ? (
           <button type="button" className="icon-btn sm nt-close" onClick={() => dismiss(session.windowId)} aria-label="Close">
             <CloseIcon size={13} />
           </button>
         ) : null}
       </header>
+
+      {session.status === 'joining' ? (
+        <>
+          <p className="nt-text">
+            <span>
+              {session.armed ? (
+                <>Reader will take its notes from this computer once the meeting opens — no bot joins — and file them in <b>{project?.name}</b>, for everyone in the project.</>
+              ) : (
+                <>Reader can take its notes from this computer once the meeting opens — no bot joins — and file them in the project{session.projectId ? '' : ' you pick'}.</>
+              )}
+            </span>
+          </p>
+          <div className="nt-row">
+            {session.armed && project ? <span className="nt-to">→ <b>{project.name}</b></span> : picker}
+            {session.armed ? (
+              <button type="button" className="btn sm" onClick={() => armJoin(session.windowId, false)}>
+                Not this time
+              </button>
+            ) : (
+              <button type="button" className="btn primary sm" onClick={() => armJoin(session.windowId, true)} disabled={!session.projectId}>
+                Take notes
+              </button>
+            )}
+          </div>
+          <p className="nt-fine">{session.armed ? 'Everyone in the call should know it is being recorded.' : 'Nothing is recorded unless you say so.'}</p>
+        </>
+      ) : null}
 
       {session.status === 'found' ? (
         <>

@@ -78,6 +78,30 @@ runs in the Reader app (Electron), which already wraps the site.
                                             note + transcript → the project's logbook (the room)
 ```
 
+### Joining from the calendar
+
+**Join** on an event (its card, or the day's list) opens the call as before and,
+in the app, puts the offer in Reader's corner at once — before the meeting
+opens, while its lobby is up:
+
+![Join: the corner says Reader will take the notes once the meeting opens](notes-join.png)
+
+- An event set to Reader notes, for a project: *Reader will take its notes once
+  the meeting opens → the project*, with **Not this time**.
+- Any other event: *Reader can take its notes…* with the project to pick and
+  **Take notes**. Nothing is recorded unless said so.
+- The call's own window is in front by then, so a system notification says
+  the same over it (*Reader will take notes of …* / *Take notes of …?*);
+  clicking it brings Reader to the front. The same word goes out when the
+  recorder finds a meeting joined some other way — from Google Calendar, say —
+  whether it started by itself or is only offered.
+- When the recorder then sees the meeting open, it is taken as the one joined
+  (its event's call, else — when the calendar does not know the window — the
+  only one joined, unless its link says another call), and starts if said so.
+  The offer goes by itself after fifteen minutes with no meeting.
+- Once filed, the event's card says so, with **Open notes**, whether or not
+  the event was set to notes beforehand.
+
 - The transcript comes back to the app over the SDK's `desktop_sdk_callback`
   realtime endpoint, so the Worker needs no webhook and keeps nothing.
 - The page can only ask: the app checks every call comes from the site's

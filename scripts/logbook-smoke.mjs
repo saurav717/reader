@@ -274,6 +274,15 @@ await context.addInitScript(() => {
     },
   };
   localStorage.setItem('reader.assistant.v1', JSON.stringify({ model: 'deepseek-flash-fast' }));
+  // The word over the call's window (src/lib/notetaker.ts notice): kept, not shown.
+  window.__notices = [];
+  class FakeNotification {
+    static permission = 'granted';
+    constructor(title, options) {
+      window.__notices.push([title, options?.tag]);
+    }
+  }
+  window.Notification = FakeNotification;
 });
 await context.addInitScript(() => {
   localStorage.setItem('reader.tour', 'seen');
@@ -558,7 +567,19 @@ await page.locator('.nt-card.is-found').waitFor({ timeout: 5000 });
 check('a meeting not on the calendar is offered, with a project to pick, and not recorded', /Zoom meeting on this computer/.test(await page.locator('.nt-card').innerText()) && (await page.evaluate(() => window.__recorder.started.length)) === 0);
 await shot('notes-offer');
 await page.locator('.nt-card').getByRole('button', { name: 'Close' }).click();
-// 3:02 pm: the ablations sync opens in Zoom, and Reader starts by itself.
+// 2:58 pm: Join pressed on the ablations sync. The call opens (in Zoom); Reader's corner says it will take the notes,
+// with the way to say not this time — and a word over Zoom's own window.
+await page.clock.setFixedTime(new Date(`${todayKey}T14:58:00${OFFSET}`));
+page.on('popup', (popup) => void popup.close());
+await page.locator('.cal-ev.is-block', { hasText: 'Router ablations sync' }).click();
+await page.locator('.cal-card').getByRole('link', { name: /Join Zoom/ }).click();
+await page.locator('.nt-card.is-joining').waitFor({ timeout: 5000 });
+const joining = await page.locator('.nt-card').innerText();
+check('Join on the calendar: the corner says Reader will take the notes once the meeting opens, for the project, with Not this time', /Joining · Zoom/.test(joining) && /Router ablations sync/.test(joining) && /will take its notes .* once the meeting opens/.test(joining) && /Sparse-gated MoE/.test(joining) && (await page.locator('.nt-card').getByRole('button', { name: 'Not this time' }).count()) === 1, joining.replace(/\n/g, ' | '));
+check('a word went over the call’s window too — as one did offering the meeting the calendar did not know', JSON.stringify(await page.evaluate(() => window.__notices)) === JSON.stringify([['Take notes of Zoom Meeting?', 'zoom-other'], ['Reader will take notes of Router ablations sync', `join:${LAB}:${ablations.id}`]]), JSON.stringify(await page.evaluate(() => window.__notices)));
+await shot('notes-join');
+await page.keyboard.press('Escape');
+// 3:02 pm: the ablations sync opens in Zoom, and Reader starts, as said at Join.
 await page.clock.setFixedTime(new Date(`${todayKey}T15:02:00${OFFSET}`));
 await page.evaluate(() => {
   const window_ = { id: 'zoom-ablations', title: 'Zoom Meeting', url: 'https://iith.zoom.us/j/8555123456?pwd=Zx1', platform: 'zoom' };
@@ -566,7 +587,7 @@ await page.evaluate(() => {
   window.__recorder.emit({ type: 'meeting-detected', window: window_ });
 });
 await page.locator('.nt-card.is-recording').waitFor({ timeout: 5000 });
-check('it matched the calendar event by its Zoom link and started by itself, with a fresh upload token', asked.uploads === 1 && JSON.stringify(await page.evaluate(() => window.__recorder.started)) === JSON.stringify([['zoom-ablations', 'upload-token-1']]));
+check('it matched the meeting joined and started, with a fresh upload token, and the Join card is gone', asked.uploads === 1 && JSON.stringify(await page.evaluate(() => window.__recorder.started)) === JSON.stringify([['zoom-ablations', 'upload-token-1']]) && (await page.locator('.nt-card').count()) === 1);
 const SAID = [
   ['Priya Natarajan', 0, 'Okay so the expert choice run with z-loss is past forty thousand steps now and it has not collapsed.'],
   ['Saurav C', 14, 'That is the 350M one? What capacity factor?'],
