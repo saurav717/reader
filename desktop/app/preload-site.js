@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('readerDesktop', {
           stop: (windowId) => ipcRenderer.invoke('notes:stop', String(windowId)),
           prepareAudio: () => ipcRenderer.invoke('notes:prepare-audio'),
           requestPermission: (permission) => ipcRenderer.invoke('notes:permission', String(permission)),
+          /** macOS made to forget its decisions about Reader, and Reader started again: each permission asked afresh. */
+          resetPermissions: () => ipcRenderer.invoke('notes:reset-permissions'),
           onEvent: (listener) => {
             const hear = (_event, message) => listener(message);
             ipcRenderer.on('notes:event', hear);

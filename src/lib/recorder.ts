@@ -52,6 +52,8 @@ export interface RecorderBridge {
   /** A recording of the computer's sound and microphone with no meeting app: an in-person meeting, or a call the SDK did not find. */
   prepareAudio(): Promise<{ ok: boolean; windowId?: string; error?: string }>;
   requestPermission(permission: string): Promise<{ ok: boolean; error?: string }>;
+  /** macOS made to forget its decisions about Reader, and Reader started again, so each permission is asked afresh (desktop/app/notes.js). */
+  resetPermissions?(): Promise<{ ok: boolean; said?: string[]; error?: string }>;
   /** Every event from now on; answers the way to stop listening. */
   onEvent(listener: (event: RecorderEvent) => void): () => void;
 }
