@@ -62,6 +62,8 @@ declare global {
       app: true;
       platform: string;
       notes?: RecorderBridge;
+      /** The app's own version, and its updates (desktop/app/updates.js). */
+      updates?: AppUpdates;
       /** This computer's own Companion handed from the account it is connected to, to whoever pairs next (desktop/app/main.js). */
       companion?: { release(id: string): Promise<{ ok: boolean; error?: string }> };
       /** Google sign-in in the browser, for an app Google won't sign in inside (src/lib/google.ts). */
@@ -76,6 +78,26 @@ declare global {
       };
     };
   }
+}
+
+/** Where the Reader app is with updating itself (desktop/app/updates.js sends it as it changes). */
+export interface AppUpdateState {
+  status: 'idle' | 'checking' | 'downloading' | 'ready' | 'current' | 'manual' | 'failed' | 'unsupported';
+  /** This app's version. */
+  version: string;
+  /** The newer version, once there is one. */
+  available?: string;
+  percent?: number;
+  error?: string;
+}
+
+export interface AppUpdates {
+  state(): Promise<AppUpdateState | null>;
+  /** Checks now (and says what it found in a dialog). */
+  check(): Promise<AppUpdateState | null>;
+  /** Restarts into the version downloaded. */
+  install(): Promise<null>;
+  onEvent(listener: (state: AppUpdateState) => void): () => void;
 }
 
 /** The desktop app's recorder, when the page is in the app on a computer that can record (macOS or Windows). */

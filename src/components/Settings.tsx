@@ -235,8 +235,8 @@ const TABS: TabInfo[] = [
     group: 'About',
     label: 'Updates',
     icon: <RestoreIcon size={16} />,
-    blurb: 'The website’s version, and every Companion this browser is paired with.',
-    finds: 'updates version website companion reload pair',
+    blurb: 'The website’s version, the Reader app’s, and every Companion this browser is paired with.',
+    finds: 'updates version website app desktop releases companion reload pair',
   },
   {
     id: 'help',
@@ -1371,7 +1371,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
   );
 
   const updatesTab = (
-    <Card title="Website and Companion">
+    <Card title="Website, app and Companion">
       <CompanionUpdates />
     </Card>
   );

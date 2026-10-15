@@ -1,5 +1,5 @@
 // The site's pages in the app: they may know they are in the Reader app (to offer no download of it,
-// say), and — on macOS and Windows — use the meeting recorder (notes.js): find a meeting, record it,
+// say), see the app's version and update it (updates.js), and — on macOS and Windows — use the meeting recorder (notes.js): find a meeting, record it,
 // stop — and sign in to Google in the browser, since Google won't inside the app (main.js). Nothing else: no
 // Node, no other messages to the app.
 const { contextBridge, ipcRenderer } = require('electron');
@@ -14,6 +14,16 @@ contextBridge.exposeInMainWorld('readerDesktop', {
   },
   companion: {
     release: (id) => ipcRenderer.invoke('companion:release', String(id)),
+  },
+  updates: {
+    state: () => ipcRenderer.invoke('updates:state'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    onEvent: (listener) => {
+      const hear = (_event, message) => listener(message);
+      ipcRenderer.on('updates:event', hear);
+      return () => ipcRenderer.removeListener('updates:event', hear);
+    },
   },
   ...(recorder
     ? {

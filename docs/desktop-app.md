@@ -99,9 +99,18 @@ npm start             # or run it from source (after: node scripts/prepare-compa
 A `.dmg` needs a Mac and a Windows installer needs Windows (or Wine). The
 workflow builds each on its own system: every pull request that touches the
 app or the Companion builds all three as artifacts to try out. Each merge into
-`main` that touches them publishes the GitHub Release `app-v<Companion version>`
-(as do **Actions → Desktop app → Run workflow** with *release* ticked, and a
-tag `app-v…`). The site asks GitHub for the newest release and offers it.
+`main` that touches them publishes a new GitHub Release, `app-v<version>` (as do
+**Actions → Desktop app → Run workflow** with *release* ticked, and a tag
+`app-v<version>`, which names its own version). `<version>` is the Companion's
+major.minor and the workflow run's number — `0.14.312` — so every release is
+newer than the one before. The site asks GitHub for the newest release and
+offers it.
+
+Every version stays published, each for every system:
+[github.com/saurav717/reader/releases](https://github.com/saurav717/reader/releases).
+Beside the installers, each release has the files the app updates itself from:
+`latest-mac.yml` with `Reader-<version>-mac.zip`, `latest.yml` with the
+`.exe`'s `.blockmap`, and `latest-linux.yml`.
 
 ## Signing (optional)
 
@@ -153,6 +162,27 @@ has Apple notarize it. Both installers are then published without
 `-unsigned`, and the card says they open with no warning.
 
 ## Updating
+
+The app updates itself (`desktop/app/updates.js`). Twenty seconds after it
+opens, and every six hours after, it asks the newest release whether there is a
+newer version, downloads it in the background, and offers **Restart Now**; with
+**Later** it is put in place the next time Reader quits. **Check for Updates…**
+(the Reader menu on a Mac, Help elsewhere) and **Settings → Updates → Reader
+app** ask now; **Help → Every Version of Reader** opens the releases page.
+
+- **Windows, Linux**: electron-updater — the setup `.exe` run again silently,
+  the AppImage replaced, or the `.deb`/`.rpm` installed (it asks for your
+  password).
+- **macOS**: the new `Reader.app` is downloaded as a `.zip`, checked against
+  its SHA-512 in `latest-mac.yml`, and, once Reader has quit, takes the old
+  one's place. (electron-updater's own way on a Mac needs a Developer ID
+  signature.) A Reader run from its disk image, or from a folder you can't
+  write to, is sent to the releases page instead. An unsigned app is new to
+  macOS after each update, so meeting notes may need Reader switched off and on
+  again in System Settings → Privacy & Security; signing the app ends that.
+
+To go back to an older version, download it from the releases page and install
+it over the newer one; the app doesn't go back by itself.
 
 The site updates by itself: the app shows the site. For the Companion, change
 its version in `companion/pyproject.toml` and merge: the merge publishes

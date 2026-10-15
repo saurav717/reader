@@ -16,6 +16,7 @@
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
 const { setUpNotes, stopNotes } = require('./notes');
+const { setUpUpdates, checkForUpdates, installOnQuit, cancelUpdates, RELEASES } = require('./updates');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -486,6 +487,7 @@ function linuxPackage() {
 }
 
 ipcMain.handle('uninstall:run', async (_event, { vscode = true, deleteFiles = false } = {}) => {
+  cancelUpdates(); // a new version downloaded is not put back as the app quits
   const lines = [];
   const say = (line) => {
     lines.push(line);
@@ -595,12 +597,13 @@ function focused() {
 
 function buildMenu() {
   const uninstall = { label: 'Uninstall Reader…', click: openUninstall };
+  const update = { label: 'Check for Updates…', click: () => void checkForUpdates({ manual: true }) };
   const template = [
     ...(IS_MAC
       ? [
           {
             label: 'Reader',
-            submenu: [{ role: 'about', label: 'About Reader' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, uninstall, { type: 'separator' }, { role: 'quit' }],
+            submenu: [{ role: 'about', label: 'About Reader' }, update, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, uninstall, { type: 'separator' }, { role: 'quit' }],
           },
         ]
       : []),
@@ -627,7 +630,8 @@ function buildMenu() {
       submenu: [
         { label: 'Reader on the Web', click: () => shell.openExternal(SITE) },
         { label: 'Show the Companion’s Log', click: () => shell.openPath(path.join(COMPANION_HOME, 'companion.log')) },
-        ...(IS_MAC ? [] : [{ type: 'separator' }, uninstall, { type: 'separator' }, { role: 'about', label: 'About Reader' }]),
+        { label: 'Every Version of Reader', click: () => shell.openExternal(RELEASES) },
+        ...(IS_MAC ? [] : [{ type: 'separator' }, update, uninstall, { type: 'separator' }, { role: 'about', label: 'About Reader' }]),
       ],
     },
   ];
@@ -667,6 +671,8 @@ if (!app.requestSingleInstanceLock()) {
     integrateAppImage();
     // Meeting notes on this computer (notes.js): for the site's pages only.
     setUpNotes({ siteOrigin: SITE_ORIGIN });
+    // Updates (updates.js): checked a while after opening and every few hours; not when only uninstalling.
+    if (!uninstallOnly) setUpUpdates({ site: SITE_ORIGIN });
     if (uninstallOnly) openUninstall();
     else void openReader();
   });
@@ -682,6 +688,11 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     event.preventDefault();
     void stopNotes().finally(() => app.quit());
+  });
+
+  // A new version downloaded and not restarted into goes in as the app quits (macOS; electron-updater does it elsewhere).
+  app.on('will-quit', () => {
+    if (!uninstallOnly) installOnQuit();
   });
 
   app.on('window-all-closed', () => {
