@@ -13,8 +13,10 @@
 // the page gets from the Worker (worker/meetings.js) with the site's Recall key:
 // the key is never in the app.
 
-const { BrowserWindow, ipcMain, shell } = require('electron');
-const { spawn } = require('node:child_process');
+const { app, BrowserWindow, ipcMain, shell, systemPreferences } = require('electron');
+const { spawn, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const SUPPORTED = process.platform === 'darwin' || process.platform === 'win32';
 /** The SDK's API address: one of Recall's regions, on https, nothing else. */
@@ -42,6 +44,31 @@ function openSettings(pane) {
     }
   });
 }
+
+/** What the recorder said, kept for a look when something is wrong (Help → Show the Recorder's Log). */
+const logPath = () => path.join(app.getPath('userData'), 'recorder.log');
+function log(line) {
+  try {
+    const file = logPath();
+    if (fs.existsSync(file) && fs.statSync(file).size > 2_000_000) fs.renameSync(file, `${file}.1`);
+    fs.appendFileSync(file, `${new Date().toISOString()} ${line}\n`);
+  } catch {
+    // a log is a convenience
+  }
+}
+
+/** macOS's own answer about this app (not the recorder's program): a cross-check for the log. */
+function systemSays() {
+  if (process.platform !== 'darwin') return '';
+  try {
+    return `the app itself: microphone=${systemPreferences.getMediaAccessStatus('microphone')} screen=${systemPreferences.getMediaAccessStatus('screen')} accessibility=${systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'not granted'}`;
+  } catch (error) {
+    return `the app itself: not readable (${error.message})`;
+  }
+}
+
+/** The recorder's TCC services, as `tccutil reset` names them. */
+const TCC_SERVICES = ['Microphone', 'ScreenCapture', 'Accessibility', 'AppleEvents'];
 
 let sdk = null;
 let enabled = null;
@@ -121,11 +148,20 @@ function setUpNotes({ siteOrigin }) {
       });
     });
     sdk.addEventListener('permission-status', ({ permission, granted, status }) => {
+      log(`permission-status ${permission}: ${status} (granted=${granted}); ${systemSays()}`);
       permissions.set(permission, { type: 'permission', permission, granted, status });
       tell(permissions.get(permission));
     });
-    sdk.addEventListener('error', ({ window, type, message }) => tell({ type: 'error', ...(window ? { window: windowOf(window) } : {}), message: `${message || type}` }));
+    sdk.addEventListener('error', ({ window, type, message }) => {
+      log(`error ${type ?? ''}: ${message ?? ''}${window ? ` (window ${window.id})` : ''}`);
+      tell({ type: 'error', ...(window ? { window: windowOf(window) } : {}), message: `${message || type}` });
+    });
+    sdk.addEventListener('log', (event) => {
+      const line = typeof event === 'string' ? event : (event?.message ?? event?.msg ?? JSON.stringify(event));
+      if (/permission|tcc|denied|accessibility|microphone|screen|error|fail/i.test(String(line))) log(`sdk ${event?.level ?? ''}: ${String(line).slice(0, 600)}`);
+    });
     sdk.addEventListener('shutdown', ({ code }) => {
+      log(`shutdown (${code})`);
       // The SDK restarts itself; a recording that was on has ended.
       for (const id of recording) tell({ type: 'recording-ended', window: meetings.get(id) ?? { id } });
       recording.clear();
@@ -140,7 +176,9 @@ function setUpNotes({ siteOrigin }) {
         // Loaded only here, on a system the SDK runs on: its native recorder is in the app beside it (asarUnpack).
         sdk = require('@recallai/desktop-sdk');
         listen();
+        log(`init: Reader ${app.getVersion()} at ${app.getPath('exe')}, bundle ${process.platform === 'darwin' ? app.getBundleID?.() ?? '?' : '-'}; ${systemSays()}`);
         await sdk.init({ apiUrl, acquirePermissionsOnStartup: ['accessibility', 'screen-capture', 'microphone'] });
+        log('init: done');
       })().catch((error) => {
         enabled = null;
         sdk = null;
@@ -182,8 +220,11 @@ function setUpNotes({ siteOrigin }) {
     return { ok: true, windowId };
   });
 
+  handle('notes:reset-permissions', async () => resetPermissions());
+
   handle('notes:permission', async (permission) => {
     if (!PERMISSIONS.has(permission)) return { ok: false, error: 'which permission?' };
+    log(`asked for ${permission}; ${systemSays()}`);
     // macOS asks an app once; after that — granted or turned down — asking again shows nothing at all. So the page
     // with the switch opens too, a moment later so a first-time prompt is not hidden behind it. The SDK's answer is
     // not waited for: it comes only once its own process has dealt with the prompt, which can be a long time or never.
@@ -192,6 +233,27 @@ function setUpNotes({ siteOrigin }) {
     if (sdk) sdk.requestPermission(permission).catch(() => undefined);
     return { ok: true };
   });
+}
+
+/**
+ * macOS made to forget every decision about this app (the recorder's included: its program runs as this app),
+ * and the app started again, so each permission is asked for afresh — the way out when a decision made for an
+ * earlier build of an unsigned app lingers, switched on in System Settings yet denied to this one.
+ */
+function resetPermissions() {
+  if (process.platform !== 'darwin') return { ok: false, error: 'Only on macOS.' };
+  const bundle = app.getBundleID?.() || 'io.github.saurav717.reader';
+  const said = [];
+  for (const service of TCC_SERVICES) {
+    const result = spawnSync('/usr/bin/tccutil', ['reset', service, bundle], { encoding: 'utf8', timeout: 20_000 });
+    said.push(`${service}: ${result.status === 0 ? 'reset' : (result.stderr || result.stdout || `exit ${result.status}`).trim()}`);
+  }
+  log(`reset permissions for ${bundle} — ${said.join('; ')}`);
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 300);
+  return { ok: true, said };
 }
 
 /** Before the app quits: any recording stopped (so it is uploaded whole) and the SDK's process ended. */
@@ -203,4 +265,4 @@ async function stopNotes() {
   enabled = null;
 }
 
-module.exports = { setUpNotes, stopNotes, SUPPORTED };
+module.exports = { setUpNotes, stopNotes, resetPermissions, logPath, SUPPORTED };

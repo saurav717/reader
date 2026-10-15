@@ -15,7 +15,7 @@
 // or the system's own uninstaller on Windows, build/installer.nsh) takes it all away again.
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
-const { setUpNotes, stopNotes } = require('./notes');
+const { setUpNotes, stopNotes, logPath: recorderLogPath } = require('./notes');
 const { setUpGoogle, openedSignInLink, showMain } = require('./google');
 const { setUpUpdates, checkForUpdates, installOnQuit, cancelUpdates, RELEASES } = require('./updates');
 const { spawn, spawnSync } = require('node:child_process');
@@ -592,6 +592,7 @@ function buildMenu() {
       submenu: [
         { label: 'Reader on the Web', click: () => shell.openExternal(SITE) },
         { label: 'Show the Companion’s Log', click: () => shell.openPath(path.join(COMPANION_HOME, 'companion.log')) },
+        { label: 'Show the Recorder’s Log', click: () => shell.openPath(recorderLogPath()) },
         { label: 'Every Version of Reader', click: () => shell.openExternal(RELEASES) },
         ...(IS_MAC ? [] : [{ type: 'separator' }, update, uninstall, { type: 'separator' }, { role: 'about', label: 'About Reader' }]),
       ],
