@@ -62,6 +62,8 @@ declare global {
       app: true;
       platform: string;
       notes?: RecorderBridge;
+      /** This computer's own Companion handed from the account it is connected to, to whoever pairs next (desktop/app/main.js). */
+      companion?: { release(id: string): Promise<{ ok: boolean; error?: string }> };
       /** Google sign-in in the browser, for an app Google won't sign in inside (src/lib/google.ts). */
       google?: {
         token(request: { clientId: string; scope: string; prompt: string; hint: string }): Promise<{

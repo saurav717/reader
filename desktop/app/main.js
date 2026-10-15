@@ -365,6 +365,20 @@ ipcMain.handle('google:token', (event, request) => {
   });
 });
 
+// A Companion connected to another Google account pairs only with a page signed in as it: the account
+// that first paired it on this computer, maybe long ago, through the site. The person at this computer can
+// hand it to the account they are signed in as, as `reader-companion release` in a terminal would: so can the
+// site's pages in this app, for this computer's own Companion only (its id), when the person says so.
+ipcMain.handle('companion:release', async (event, id) => {
+  const from = event.senderFrame?.url || '';
+  if (!from.startsWith(SITE_ORIGIN + '/')) return { ok: false, error: 'Not the Reader site.' };
+  const mine = readJson(path.join(COMPANION_HOME, 'config.json'))?.id;
+  if (!mine || mine !== id) return { ok: false, error: 'That Companion isn’t this computer’s.' };
+  const said = [];
+  const code = await run(companionPath(), ['release'], (line) => said.push(line), { timeout: 60_000 });
+  return code === 0 ? { ok: true } : { ok: false, error: said.filter(Boolean).pop() || 'The Companion didn’t let go of the account.' };
+});
+
 /** A reader-app:// link the browser opened: the sign-in's answer, when its state is the one waiting. */
 function openedLink(link) {
   let url;

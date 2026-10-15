@@ -10,7 +10,7 @@ import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import { COLAB, isOn, serversOn, switched } from '../lib/compute';
 import type { CompanionInfo, DesktopApps } from '../lib/companion';
 import { claimForAccount, forgetDevice, pairForAccount, syncDevices } from '../lib/devices';
-import { currentAccount, onProxyChange } from '../lib/api';
+import { currentAccount, currentPass, onProxyChange } from '../lib/api';
 import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestDesktopApps, normaliseCode, pairFragment, setStopWithApp, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
@@ -1257,7 +1257,7 @@ function PairFromLink() {
       // A Companion this browser already knows, back at a new address (a new tunnel each start): reconnect without asking.
       if (reached?.info.id && serversNow().some((server) => server.companionId === reached.info.id)) {
         setReconnecting(true);
-        void connect(reached.base, true);
+        void connect(reached.base, true, reached.info);
       }
     });
     return () => {
@@ -1269,11 +1269,23 @@ function PairFromLink() {
   // While a computer this browser already knows is being looked for, show nothing: it most likely reconnects by itself.
   if (!problem && (info === undefined || reconnecting) && serversNow().some((server) => server.companionId)) return null;
   const close = () => setPending(null);
-  async function connect(base: string, again = false) {
+  // Connected to another Google account (an earlier sign-in on this computer), a Companion pairs only with a page
+  // signed in as it. In the Reader app the computer is the person's own: it goes to the account signed in now, and
+  // off the other's list, as `reader-companion release` would do (desktop/app/main.js; only this computer's own).
+  function takeable(seen: CompanionInfo | null | undefined): string | null {
+    const account = currentAccount();
+    const release = typeof window !== 'undefined' ? window.readerDesktop?.companion?.release : undefined;
+    return seen?.owned && seen.id && seen.owner !== maskEmail(account) && release && account && currentPass() ? seen.owner || 'another account' : null;
+  }
+  async function connect(base: string, again = false, seen = info) {
     if (!pending) return;
     setBusy(true);
     setProblem(null);
     try {
+      if (takeable(seen) && seen?.id) {
+        const released = await window.readerDesktop!.companion!.release(seen.id);
+        if (!released.ok) throw new Error(released.error || 'The Companion didn’t let go of the other Google account.');
+      }
       const { server } = await pairForAccount(pending.code, base);
       // Back again (the Reader app opens this link each time): nothing to say, the page just has it.
       if (again) setPending(null);
@@ -1340,6 +1352,11 @@ function PairFromLink() {
               <b>{found && found.base.startsWith('https:') ? 'through its HTTPS tunnel' : 'directly, on 127.0.0.1'}</b>
             </div>
             <p className="pg-note">The page may run code there, and read and write files in that folder only. Remove it any time under Your compute.</p>
+            {takeable(info) ? (
+              <p className="pg-note">
+                It was connected to another Google account (<b>{takeable(info)}</b>) by an earlier sign-in here. Connecting moves it to <b>{currentAccount()}</b>, and off that account’s list. Your files in its folder stay.
+              </p>
+            ) : null}
           </>
         )}
         {problem ? <p className="pg-bad">{problem}</p> : null}

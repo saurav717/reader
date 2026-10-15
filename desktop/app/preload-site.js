@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('readerDesktop', {
   google: {
     token: (request) => ipcRenderer.invoke('google:token', request),
   },
+  companion: {
+    release: (id) => ipcRenderer.invoke('companion:release', String(id)),
+  },
   ...(recorder
     ? {
         notes: {
