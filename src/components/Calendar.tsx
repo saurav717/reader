@@ -64,7 +64,7 @@ import { canMakeZoom, makeZoomMeeting } from '../lib/zoom';
 import { fileGranolaNotes } from '../lib/meetingNotes';
 import { useLogbook } from '../lib/logbookStore';
 import { inDesktopApp, recorderBridge } from '../lib/recorder';
-import { joinMeeting, knowEvents } from '../lib/notetaker';
+import { isHost, joinMeeting, knowEvents } from '../lib/notetaker';
 
 /** Where the Reader app for Mac, Windows and Linux is published (docs/desktop-app.md). */
 const DESKTOP_RELEASES = 'https://github.com/saurav717/reader/releases/latest';
@@ -1205,6 +1205,7 @@ function NotesLine({ event, project, hasKey, onOpenProject, onOpenSettings }: { 
   let said: ReactNode;
   if (filed) said = <>Notes filed in <b>{project!.name}</b>{filed.source === 'granola' ? ' from Granola' : filed.source === 'reader' ? ', recorded by Reader' : ''}.</>;
   else if (reader && !project) said = <>Reader takes notes on your computer. Tag a project below and they are filed in its logbook.</>;
+  else if (reader && !isHost(event)) said = <>Only the meeting’s host{event.organizer ? `, ${event.organizer},` : ''} records it with Reader; the notes are filed in <b>{project!.name}</b> for everyone in the project, you included.</>;
   else if (reader && over) said = <>No notes were filed for this meeting: Reader records it only while the Reader app is open on a computer in the call.</>;
   else if (reader && !app) said = <>Reader takes notes in the <b>Reader app</b> on your Mac or PC — no bot joins — and files them in <b>{project!.name}</b>. Have it open when the meeting starts.</>;
   else if (reader && !recorder) said = <>Reader’s notes need the Reader app on a Mac or a Windows PC; this computer cannot record meetings.</>;

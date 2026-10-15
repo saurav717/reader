@@ -132,6 +132,19 @@ export function knowEvents(list: CalendarEvent[]): void {
 
 // --------------------------------------------------------------- joining --
 
+/**
+ * Whether the person is a meeting's host: a meeting for a project is recorded
+ * by its host alone (the organizer, or whoever made it on their own calendar),
+ * so one meeting makes one set of notes, taken by the person who runs it.
+ */
+export function isHost(event: CalendarEvent, who: string | null = context?.who() ?? null): boolean {
+  if (event.host) return true;
+  return Boolean(who && event.organizerEmail && who.trim().toLowerCase() === event.organizerEmail);
+}
+
+/** A meeting for a project that someone else hosts: not this computer's to record. */
+const hostOnly = (event: CalendarEvent | undefined, projectId: string | null | undefined): boolean => Boolean(event && projectId && !isHost(event));
+
 /** How long after Join a meeting is waited for before the offer goes away. */
 const JOIN_WAIT = 15 * 60_000;
 const joinId = (event: CalendarEvent) => `join:${event.id}`;
@@ -144,7 +157,7 @@ const joinId = (event: CalendarEvent) => `join:${event.id}`;
  */
 export function joinMeeting(event: CalendarEvent, projectId: string | null): boolean {
   if (!bridge || state.availability !== 'ready') return false;
-  const armed = event.notetaker === 'reader' && Boolean(projectId) && (context?.auto() ?? true);
+  const armed = event.notetaker === 'reader' && Boolean(projectId) && (context?.auto() ?? true) && isHost(event);
   const windowId = joinId(event);
   // The meeting already open on this computer (joined a second time): nothing to wait for.
   if (state.sessions.some((session) => session.event?.id === event.id && session.status !== 'joining' && session.status !== 'filed' && session.status !== 'failed')) return true;
@@ -152,7 +165,7 @@ export function joinMeeting(event: CalendarEvent, projectId: string | null): boo
   window.setTimeout(() => {
     if (sessionOf(windowId)?.status === 'joining') dismiss(windowId);
   }, JOIN_WAIT);
-  notice(windowId, event.title, armed ? 'armed' : 'offer', projectName(projectId));
+  if (!hostOnly(event, projectId)) notice(windowId, event.title, armed ? 'armed' : 'offer', projectName(projectId));
   return true;
 }
 
@@ -227,6 +240,8 @@ async function hear(event: RecorderEvent): Promise<void> {
     const project = match ? meetingProject(context?.projects() ?? [], tagKeys(match)) : undefined;
     const session: Session = { windowId: found.id, found: { ...had?.found, ...found }, ...(match ? { event: match } : {}), projectId: had?.projectId ?? joining?.projectId ?? project?.id ?? null, status: 'found', auto: false, turns: [] };
     set({ sessions: [...state.sessions.filter((item) => item.windowId !== found.id && item.windowId !== joining?.windowId), session] });
+    // A meeting for a project is its host's to record: on anyone else's computer it is neither started nor offered.
+    if (hostOnly(match, session.projectId)) return dismiss(found.id);
     // Joined from the calendar with notes said yes to: it starts. Set to Reader notes on the calendar, for a project: it starts by itself.
     if (joining) {
       if (joining.armed) void startRecording(found.id, session.projectId, false);

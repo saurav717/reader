@@ -161,6 +161,37 @@ With the Apple ones, the workflow signs the app with the hardened runtime and
 has Apple notarize it. Both installers are then published without
 `-unsigned`, and the card says they open with no warning.
 
+## Staying signed in
+
+The site's sign-in is Google's token flow in the page: an access token that
+lasts an hour, with no backend to renew it, so every visit reconnects with a
+click. The app does better (`desktop/app/google.js`): it signs in by the
+authorization-code flow, through the browser — Google turns sign-in down
+inside an app's own window — and keeps the refresh token Google gives,
+sealed by the system (the Keychain on a Mac, DPAPI on Windows, the keyring
+on Linux) in the app's data folder. From then on the app opens signed in,
+renewing the token itself with no window; the page is told there is a kept
+sign-in (`readerDesktop.google.kept`) and signs in as it loads, with no
+click. Sign out and the app forgets the grant and gives it back to Google.
+
+The exchange needs the OAuth client's secret, so the Worker makes it
+(`worker/googleDesktop.js`, `/google/desktop/*`), with the same client the
+site uses and the `GOOGLE_CLIENT_SECRET` secret; the Worker keeps nothing.
+Set it up once:
+
+1. Google Cloud Console → APIs & Services → Credentials → the Web client
+   Reader uses → **Authorised redirect URIs** → add
+   `https://<your worker>/google/desktop/callback`.
+2. The client's secret (shown on the same page) on the Worker:
+   `npx wrangler secret put GOOGLE_CLIENT_SECRET`, then deploy the Worker.
+3. `/health` answers `"googleDesktop": true`. The next sign-in in the app
+   asks for consent once (Google gives a refresh token on consent), and keeps.
+
+Without the secret, the app signs in the way the site does
+(`public/app-sign-in/`), an hour at a time. An OAuth consent screen left in
+**Testing** has its refresh tokens expire after seven days; **Publish app**
+ends that.
+
 ## Updating
 
 The app updates itself (`desktop/app/updates.js`). Twenty seconds after it

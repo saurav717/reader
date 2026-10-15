@@ -41,6 +41,7 @@ import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, latexMonth } from './latex.js';
 import { handleGithub, isGithubPath } from './github.js';
+import { googleDesktopConfigured, handleGoogleDesktop, isGoogleDesktopPath } from './googleDesktop.js';
 import { readBalance } from './deepseekBalance.js';
 import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
 import { cloudflareOverview } from './cloudflare.js';
@@ -362,14 +363,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), notes: recallConfigured(env) ? { recall: recallApiUrl(env) } : false, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), googleDesktop: googleDesktopConfigured(env), notes: recallConfigured(env) ? { recall: recallApiUrl(env) } : false, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
           200,
           headers,
         );
@@ -417,6 +418,8 @@ export default {
       // LaTeX compiled for anyone signed in, on Cloud Run or GitHub Actions: worker/latex.js.
       // A person's GitHub token, kept sealed, and the few GitHub calls made with it: worker/github.js.
       if (isGithubPath(path)) return await handleGithub(request, env, path, { json, headers, authorized, personOverLimit, origins: ALLOWED_ORIGINS });
+      // The Reader app staying signed in to Google: the code flow's exchange and renewals, worker/googleDesktop.js.
+      if (isGoogleDesktopPath(path)) return await handleGoogleDesktop(request, env, path, { json, headers, origins: ALLOWED_ORIGINS, overLimit: loginOverLimit });
 
       if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally: (who, counts) => tally(env, ctx, who, counts) });
 

@@ -9,7 +9,7 @@ import { initials } from '../lib/presence';
 import { openSettings } from '../lib/openSettings';
 
 export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
-  const { user, driveConnected, driveRemembered, connectDrive, settings, authError } = useStore();
+  const { user, driveConnected, driveRemembered, signingInSilently, connectDrive, settings, authError } = useStore();
   const configured = Boolean(settings.googleClientId);
   // A visit that has connected before is reconnecting, not being introduced.
   const returning = driveRemembered && !driveConnected;
@@ -136,7 +136,11 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
         {signingIn && siteKey ? <Captcha siteKey={siteKey} onSolved={setSolved} /> : null}
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          {!driveConnected ? (
+          {signingInSilently ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-2)' }}>
+              <span className="spinner" aria-hidden="true" /> Signing you in…
+            </span>
+          ) : !driveConnected ? (
             // Identity and Drive are asked for together: signing in on its own
             // saves nothing, and the point of this screen is the saving.
             <button

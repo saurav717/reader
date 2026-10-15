@@ -286,6 +286,8 @@ interface StoreValue {
   connectDrive: () => Promise<void>;
   /** Drive was connected on an earlier visit, so reconnecting is one click. */
   driveRemembered: boolean;
+  /** The Reader app signing in by itself, from the sign-in it keeps: the welcome waits rather than asks. */
+  signingInSilently: boolean;
   /** A new tab is asking the open tabs for their sign-in (a moment, as the page loads): the reconnect screen waits for the answer. */
   askingTabs: boolean;
   signOut: () => void;
@@ -347,6 +349,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<GoogleUser | null>(google.restoredUser);
   const [driveConnected, setDriveConnected] = useState(google.hasDriveAccess);
   const [driveRemembered, setDriveRemembered] = useState(() => localStorage.getItem(DRIVE_KEY) === 'true');
+  const [signingInSilently, setSigningInSilently] = useState(false);
   // A tab opened beside a signed-in one takes its sign-in rather than asking the person again (google.ts).
   const [askingTabs, setAskingTabs] = useState(() => !google.restoredUser() && typeof BroadcastChannel !== 'undefined');
   /**
@@ -1548,6 +1551,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [enterAccount]);
 
+  // In the Reader app, a sign-in kept from before (desktop/app/google.js) signs the page in as it opens: no click, no window.
+  const signedInSilently = useRef(false);
+  useEffect(() => {
+    const clientId = settings.googleClientId.trim();
+    if (signedInSilently.current || driveConnected || !clientId) return;
+    signedInSilently.current = true;
+    void google.keptSignIn(clientId).then(async (kept) => {
+      if (!kept) return;
+      setSigningInSilently(true);
+      // Quietly: the grant is there, and Google is not asked again what was agreed to.
+      localStorage.setItem(DRIVE_KEY, 'true');
+      setDriveRemembered(true);
+      await connectDrive();
+      setSigningInSilently(false);
+    });
+  }, [settings.googleClientId, driveConnected, connectDrive]);
+
   const signOut = useCallback(() => {
     void (async () => {
       // What has not reached Drive yet goes now, while there is a token to send it with.
@@ -1584,6 +1604,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       user,
       driveConnected,
       driveRemembered,
+      signingInSilently,
       askingTabs,
       authError,
       syncLog,
@@ -1633,7 +1654,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors, setPaperCitation, lookupPaperCitations, citationsLooking,
       createCollection, renameCollection, updateCollection, adoptCollection, deleteCollection, addHighlight, updateHighlight,
-      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
+      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signingInSilently, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
     ],
   );

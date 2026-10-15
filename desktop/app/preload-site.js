@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('readerDesktop', {
   platform: process.platform,
   google: {
     token: (request) => ipcRenderer.invoke('google:token', request),
+    /** Whether the app keeps a sign-in for this client (and account): { email } or null. The page then signs in with no click. */
+    kept: (request) => ipcRenderer.invoke('google:kept', request),
+    signOut: (request) => ipcRenderer.invoke('google:signout', request),
   },
   companion: {
     release: (id) => ipcRenderer.invoke('companion:release', String(id)),

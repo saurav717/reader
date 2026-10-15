@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useStore } from '../lib/store';
 import { getState as assistantState, streamModel } from '../lib/assistant';
 import { CALL_NAMES } from '../lib/calendar';
-import { armJoin, dismiss, recoverRecordings, retry, setProject, startNotetaker, startRecording, stopRecording, useNotetaker, type Session } from '../lib/notetaker';
+import { armJoin, dismiss, isHost, recoverRecordings, retry, setProject, startNotetaker, startRecording, stopRecording, useNotetaker, type Session } from '../lib/notetaker';
 import { projectsOf } from '../lib/projects';
 import type { View } from '../types.view';
 import { CloseIcon } from './icons';
@@ -67,6 +67,8 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
   const project = projects.find((item) => item.id === session.projectId);
   const title = session.event?.title || session.found.title || platformName(session.found.platform);
   const last = session.turns[session.turns.length - 1];
+  // A meeting for a project is recorded by its host alone.
+  const notMine = Boolean(session.event && session.projectId && !isHost(session.event));
   const picker = (
     <select className="nt-project" value={session.projectId ?? ''} onChange={(change) => setProject(session.windowId, change.target.value || null)} aria-label="File the notes in">
       <option value="">Pick a project…</option>
@@ -108,7 +110,15 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
         ) : null}
       </header>
 
-      {session.status === 'joining' ? (
+      {session.status === 'joining' && notMine ? (
+        <p className="nt-text">
+          <span>
+            Only the meeting’s host{session.event?.organizer ? `, ${session.event.organizer},` : ''} records it for <b>{project?.name}</b>; the notes are filed there for everyone in the project, you included.
+          </span>
+        </p>
+      ) : null}
+
+      {session.status === 'joining' && !notMine ? (
         <>
           <p className="nt-text">
             <span>
