@@ -8031,6 +8031,13 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 
 /* One meeting's card, beside what was clicked. */
 .cal-card { position: fixed; z-index: 60; padding: 16px 18px 14px; border: 1px solid var(--border); border-top: 4px solid var(--ev); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-md); color: var(--ink); }
+/* Under glass `--surface` is nearly clear, and these sit over the grid's day numbers and events:
+   nearly solid, with a blur, so what is behind them never reads through their text. */
+:root[data-glass='on'] :is(.cal-card, .cal-editor) {
+  background: rgb(var(--float-rgb) / max(0.94, var(--float-a)));
+  -webkit-backdrop-filter: blur(20px) saturate(185%);
+  backdrop-filter: blur(20px) saturate(185%);
+}
 .cal-card-close { position: absolute; top: 8px; right: 8px; }
 .cal-card h3 { margin: 0 28px 4px 0; font-family: var(--serif); font-size: 18px; font-weight: 600; line-height: 1.25; }
 .cal-card-when { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
