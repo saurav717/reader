@@ -577,7 +577,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         let toWrite = library;
         const now = await libraryMark(googleClientId, driveFolderName);
         if (now && now.modifiedTime !== remoteMark.current?.modifiedTime) {
-          const remote = await readLibraryFromDrive(googleClientId, driveFolderName);
+          const remote = await readLibraryFromDrive(googleClientId, driveFolderName, owner);
           const reached = reachedAsAnother(owner);
           if (reached) throw new Error(wrongAccount(reached, owner));
           if (remote) {
@@ -685,7 +685,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLibrarySync({ state: 'loading' });
     try {
       const [remote, wasDirty, knownMark] = await Promise.all([
-        readLibraryFromDrive(googleClientId, driveFolderName),
+        readLibraryFromDrive(googleClientId, driveFolderName, owner),
         db.getKv<boolean>(DIRTY_KEY).catch(() => false),
         db.getKv<RemoteMark>(REMOTE_KEY).catch(() => undefined),
       ]);
@@ -698,20 +698,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (remote?.mark) {
         next = !wasDirty
           ? remote.library
-          : knownMark?.modifiedTime === remote.mark.modifiedTime
+          : knownMark?.modifiedTime === remote.mark.modifiedTime && !remote.notice
             ? local
             : mergeLibraries(local, remote.library);
         remoteMark.current = remote.mark;
         lastPushed.current = serialise(remote.library);
         void db.setKv(REMOTE_KEY, remote.mark).catch(() => undefined);
         if (remote.source === 'trash') restored = `${LIBRARY_FILE} was in Drive's trash, and has been put back.`;
+        // Another copy of the file was put together with this one: the result goes back, so there is one from now on.
+        if (remote.notice) {
+          lastPushed.current = null;
+          restored = restored ? `${restored} ${remote.notice}` : remote.notice;
+        }
       } else if (remote) {
-        // The file itself is gone, and the spare copy stands in for it: it is
+        // The file itself is gone, and a copy elsewhere in Drive or the spare copy stands in for it: it is
         // put together with the copy here, and written back where it was.
         next = mergeLibraries(local, remote.library);
         remoteMark.current = null;
         lastPushed.current = null;
-        restored = `${LIBRARY_FILE} was missing from Drive, and has been restored from the spare copy.`;
+        restored = remote.notice ?? `${LIBRARY_FILE} was missing from Drive, and has been restored from the spare copy.`;
       } else {
         next = mergeLibraries(local, await takeFromGuest(true));
         next = mergeLibraries(next, await rebuildFromSidecars(googleClientId, driveFolderName, newId));
@@ -739,7 +744,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       pulled.current = true;
       if (restamp) lastPushed.current = null;
-      dirty.current = Boolean(wasDirty) || !remote?.mark || restamp;
+      dirty.current = Boolean(wasDirty) || !remote?.mark || restamp || Boolean(remote?.notice);
       await applyLibrary(next);
       setLibrarySync({ state: 'saved', at: new Date().toISOString(), message: restored });
       void countStrays();

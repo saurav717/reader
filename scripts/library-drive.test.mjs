@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, loadTogether } from './bundle.mjs';
 
-const { parseLibrary, parseLibraryFile, mergeLibraries, serialise, fromSidecar, libraryFromSidecars, sidecar, emptyLibrary, disown } = await loadTogether([
+const { parseLibrary, parseLibraryFile, mergeLibraries, serialise, fromSidecar, libraryFromSidecars, sidecar, emptyLibrary, disown, combineCopies } = await loadTogether([
   'src/lib/driveLibrary.ts',
   'src/lib/sidecar.ts',
 ]);
@@ -210,5 +210,56 @@ describe('a library rebuilt from the sidecars in Drive', () => {
     const library = libraryFromSidecars(read, () => `c${next++}`);
     assert.equal(library.collections.length, 1);
     assert.deepEqual(library.papers.map((item) => item.collectionIds), [['c0'], ['c0']]);
+  });
+});
+
+describe('two copies of the file in Drive', () => {
+  const project = (id, name, at) => ({ id, name, color: '#1F5E52', createdAt: at, project: { question: 'why', startedAt: at, roles: {}, todos: [] } });
+  const older = {
+    library: { papers: [paper('arxiv:1', { progress: 0.22 })], collections: [{ id: 'rl', name: 'Reading list', color: '#1F5E52', createdAt: '2026-01-01T00:00:00.000Z' }], highlights: [], junk: [] },
+    modifiedTime: '2026-10-01T00:00:00.000Z',
+  };
+  const newer = {
+    library: {
+      papers: [paper('arxiv:1', { progress: 0.42 }), paper('arxiv:2', { collectionIds: ['p1'] })],
+      collections: [{ id: 'rl', name: 'Reading list', color: '#1F5E52', createdAt: '2026-01-01T00:00:00.000Z' }, project('p1', 'test project', '2026-10-10T00:00:00.000Z')],
+      highlights: [],
+      junk: [],
+    },
+    modifiedTime: '2026-10-15T00:00:00.000Z',
+    where: 'Papers_collection',
+  };
+
+  it('opens the one found here as the newer one, with its projects, when a newer copy is elsewhere', () => {
+    const { library, notice } = combineCopies(older, [newer]);
+    assert.equal(library.papers.find((item) => item.id === 'arxiv:1').progress, 0.42);
+    assert.ok(library.papers.some((item) => item.id === 'arxiv:2'));
+    assert.ok(library.collections.some((item) => item.id === 'p1' && item.project));
+    assert.match(notice, /A second copy of library.json was found in Drive \(in "Papers_collection"\)/);
+  });
+
+  it('keeps what only the older copy has', () => {
+    const { library } = combineCopies({ ...newer, where: undefined }, [{ ...older, library: { ...older.library, papers: [...older.library.papers, paper('arxiv:9')] }, where: 'Papers_collection (1)' }]);
+    assert.equal(library.papers.find((item) => item.id === 'arxiv:1').progress, 0.42);
+    assert.ok(library.papers.some((item) => item.id === 'arxiv:9'));
+  });
+
+  it('says nothing when the other copy adds nothing', () => {
+    const { library, notice } = combineCopies(newer, [{ ...older, where: 'Papers_collection (1)' }]);
+    assert.equal(notice, undefined);
+    assert.equal(serialise(library), serialise(newer.library));
+  });
+
+  it("leaves out a copy stamped as another account's", () => {
+    const { library, notice } = combineCopies(older, [{ ...newer, account: 'someone@else.example' }], 'me@example.com');
+    assert.equal(notice, undefined);
+    assert.equal(library.papers[0].progress, 0.22);
+    const mine = combineCopies(older, [{ ...newer, account: 'Me@Example.com' }], 'me@example.com');
+    assert.equal(mine.library.papers[0].progress, 0.42);
+  });
+
+  it('names every folder the copies were in, once each', () => {
+    const { notice } = combineCopies(older, [newer, { ...newer, where: 'Papers' }, { ...newer, where: 'Papers' }]);
+    assert.match(notice, /3 more copies of library.json were found in Drive \(in "Papers_collection", "Papers"\)/);
   });
 });

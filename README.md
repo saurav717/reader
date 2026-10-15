@@ -953,6 +953,15 @@ behind it:
 - **The trash.** A `library.json` in Drive's trash — or the whole
   `Papers_collection` folder — is taken back out of it rather than a second
   one being made.
+- **A second copy.** Drive can end up with two `library.json` files — a
+  second `Papers_collection` made at the top level by a first write from two
+  places at once, or the folder named in Settings changed on one device — and
+  each device would otherwise open whichever it finds, so one shows an older
+  library than the other, projects and all. Every copy the app can see is
+  read on sign-in, the newest is the base and the older ones add what it
+  lacks, and the result is written back to the folder named in Settings,
+  which is the one copy from then on. With no file there at all, the copy
+  elsewhere is the library rather than one rebuilt from the sidecars.
 - **The sidecars.** Each paper's `.json` in Drive also carries its reading
   progress, when it was last opened, the copy picked by hand, and the colours
   of its collections, so a library rebuilt from the paper folders alone loses
