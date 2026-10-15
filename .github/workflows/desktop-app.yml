@@ -2,12 +2,17 @@
 #   macOS    Reader-<version>.dmg                    one universal app (Apple silicon and Intel)
 #   Windows  Reader-Setup-<version>.exe              a setup wizard; uninstalled from Settings → Apps
 #   Linux    Reader-<version>-x86_64.AppImage, reader_<version>_amd64.deb, reader-<version>.x86_64.rpm
-# <version> is the Companion's (companion/pyproject.toml).
+# and what the app updates itself from (desktop/app/updates.js): latest-mac.yml and Reader-<version>-mac.zip,
+# latest.yml and the .exe's .blockmap, latest-linux.yml.
+#
+# <version> is the Companion's major.minor (companion/pyproject.toml) and this run's number — 0.14.312 —
+# so each release is newer than the one before and the app can tell; a tag app-v<version> names its own.
 #
 # Every run uploads the installers as artifacts. A pull request only builds them, to check. A merge
-# into main that touches the app or the Companion publishes them as the GitHub Release
-# app-v<version> (a new one, or the same version's refreshed), as does a tag app-v* or a manual run
-# with "release" ticked. The site's "Download for …" offers the newest (src/lib/companion.ts).
+# into main that touches the app or the Companion publishes them as a new GitHub Release,
+# app-v<version>, as does a tag app-v* or a manual run with "release" ticked. Every version stays
+# published, for every system (github.com/saurav717/reader/releases); the newest is "Latest", which is
+# what the site's "Download for …" offers (src/lib/companion.ts) and what the app updates to.
 #
 # Signing, all optional (Settings → Secrets and variables → Actions), see docs/desktop-app.md:
 #   MACOS_CERTIFICATE           your Developer ID Application certificate, a .p12, base64
@@ -39,7 +44,26 @@ permissions:
   contents: write
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/app-v*) VERSION="${GITHUB_REF_NAME#app-v}" ;;
+            *)
+              COMPANION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
+              VERSION="$(echo "$COMPANION" | cut -d. -f1-2).${{ github.run_number }}" ;;
+          esac
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "not a version: $VERSION"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Reader $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +75,8 @@ jobs:
           - os: ubuntu-latest
             target: --linux
     runs-on: ${{ matrix.os }}
+    env:
+      READER_APP_VERSION: ${{ needs.version.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -108,24 +134,32 @@ jobs:
           else
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           fi
+          # electron-builder names the .dmg and the .exe …-unsigned without a certificate (or, on a Mac, without notarizing),
+          # so the update files (latest*.yml) name them as they are published.
+          if [ "$RUNNER_OS" != Linux ] && [ "$(grep '^SIGNED=' "$GITHUB_ENV" | tail -n 1)" != SIGNED=yes ]; then echo "READER_UNSIGNED=1" >> "$GITHUB_ENV"; fi
 
       - name: Build the installers
         run: npx electron-builder --config electron-builder.config.cjs ${{ matrix.target }} --publish never
 
-      - name: Name them for the release
+      - name: Gather them for the release
         run: |
           mkdir -p out
-          VERSION="$(node -p "require('./companion/info.json').version")"
+          VERSION="$READER_APP_VERSION"
+          SUFFIX=""; [ -z "$READER_UNSIGNED" ] || SUFFIX="-unsigned"
           case "$RUNNER_OS" in
             macOS)
-              NAME="Reader-$VERSION.dmg"; [ -n "$SIGNED" ] || NAME="Reader-$VERSION-unsigned.dmg"
-              cp "dist/Reader-$VERSION.dmg" "out/$NAME" ;;
+              cp "dist/Reader-$VERSION$SUFFIX.dmg" "dist/Reader-$VERSION-mac.zip" dist/latest-mac.yml out/ ;;
             Windows)
-              NAME="Reader-Setup-$VERSION.exe"; [ -n "$SIGNED" ] || NAME="Reader-Setup-$VERSION-unsigned.exe"
-              cp "dist/Reader-Setup-$VERSION.exe" "out/$NAME" ;;
+              cp "dist/Reader-Setup-$VERSION$SUFFIX.exe" "dist/Reader-Setup-$VERSION$SUFFIX.exe.blockmap" dist/latest.yml out/ ;;
             Linux)
-              cp "dist/Reader-$VERSION-x86_64.AppImage" "dist/reader_${VERSION}_amd64.deb" "dist/reader-$VERSION.x86_64.rpm" out/ ;;
+              cp "dist/Reader-$VERSION-x86_64.AppImage" "dist/reader_${VERSION}_amd64.deb" "dist/reader-$VERSION.x86_64.rpm" dist/latest-linux.yml out/ ;;
           esac
+          # The update files name what is published beside them, with the version the app compares against its own.
+          for yml in out/latest*.yml; do
+            cat "$yml"
+            grep -q "^version: $VERSION\$" "$yml"
+            for file in $(sed -n 's/^ *- url: //p' "$yml"); do [ -f "out/$file" ] || { echo "$yml names $file, which isn't published"; exit 1; }; done
+          done
           ls -la out
           {
             echo "### $RUNNER_OS"
@@ -135,7 +169,7 @@ jobs:
       - name: Check the Linux packages
         if: runner.os == 'Linux'
         run: |
-          VERSION="$(node -p "require('./companion/info.json').version")"
+          VERSION="$READER_APP_VERSION"
           dpkg-deb -I "out/reader_${VERSION}_amd64.deb"
           dpkg-deb -c "out/reader_${VERSION}_amd64.deb" | grep -E 'resources/companion/(uv|info.json|reader_companion-.*\.whl|python/.*x86_64-unknown-linux-gnu.*\.tar\.gz)'
           rpm -qip "out/reader-$VERSION.x86_64.rpm"
@@ -150,6 +184,8 @@ jobs:
           "$APP/Contents/Resources/companion/uv" --version
           ls "$APP"/Contents/Resources/companion/python/*/ | grep -c 'apple-darwin' | grep -qx 2 # Python for both Apple silicon and Intel
           plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString'
+          plutil -p "$APP/Contents/Info.plist" | grep -q "\"CFBundleShortVersionString\" => \"$READER_APP_VERSION\""
+          test -f "$APP/Contents/Resources/app-update.yml" && cat "$APP/Contents/Resources/app-update.yml"
 
       - name: Check Safari's certificate on a real Mac
         if: runner.os == 'macOS'
@@ -172,9 +208,13 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [version, build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' || startsWith(github.ref, 'refs/tags/app-v') || inputs.release
     runs-on: ubuntu-latest
+    # One release at a time, in order: the newest is published last, so it is the one marked Latest.
+    concurrency:
+      group: desktop-app-release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -185,10 +225,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
-          TAG="${GITHUB_REF_NAME}"
-          case "$TAG" in app-v*) ;; *) TAG="app-v$VERSION" ;; esac
-          NOTES="Reader $VERSION as an app: its own window, no browser needed, with the Reader Companion $VERSION set up the first time it opens.
+          VERSION="${{ needs.version.outputs.version }}"
+          COMPANION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
+          TAG="app-v$VERSION"
+          NOTES="Reader $VERSION as an app: its own window, no browser needed, with the Reader Companion $COMPANION set up the first time it opens. An app already installed updates itself to it (Check for Updates… in the Reader menu on a Mac, in Help elsewhere); older versions stay on the releases page.
 
           - **macOS**: open the .dmg and drag Reader to Applications. To uninstall: Reader menu → Uninstall Reader…
           - **Windows**: run Reader-Setup. To uninstall: Settings → Apps → Reader → Uninstall.
@@ -196,5 +236,10 @@ jobs:
 
           An installer named …-unsigned isn't signed: macOS stops it once (Done, then Open Anyway in System Settings → Privacy & Security), and Windows asks once (More info → Run anyway)."
           ls -la installers
-          gh release create "$TAG" installers/* --title "Reader $VERSION" --notes "$NOTES" \
-            || gh release upload "$TAG" installers/* --clobber
+          # A new release for every version, so every one stays downloadable; its changes since the last listed after
+          # the notes. Run again for the same version (a re-run), its files are replaced.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" installers/* --clobber
+          else
+            gh release create "$TAG" installers/* --title "Reader $VERSION" --notes "$NOTES" --generate-notes --latest
+          fi

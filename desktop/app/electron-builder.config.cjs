@@ -4,29 +4,42 @@
 //   Windows  Reader-Setup-<version>.exe, a setup wizard (for you or everyone, where to); uninstalled
 //            from Settings -> Apps or the Start menu (build/installer.nsh)
 //   Linux    Reader-<version>-<arch>.AppImage, a .deb and an .rpm
-// The version is the Companion's (companion/pyproject.toml): the app is the way it is installed.
+// …-unsigned in the .dmg's and the .exe's names when READER_UNSIGNED is set (the workflow sets it with no
+// certificate), and beside them the files the app updates itself from (updates.js): latest-mac.yml with
+// Reader-<version>-mac.zip, latest.yml with the .exe's .blockmap, latest-linux.yml.
+// The version is READER_APP_VERSION (the desktop app workflow: the Companion's major.minor, and the run's
+// number, so every release is newer than the last), else the Companion's (companion/pyproject.toml).
 const info = require('./companion/info.json');
 
+const version = process.env.READER_APP_VERSION || info.version;
+const unsigned = process.env.READER_UNSIGNED ? '-unsigned' : '';
 const notarize = Boolean(process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID);
 
 module.exports = {
   appId: 'io.github.saurav717.reader',
   productName: 'Reader',
   copyright: 'saurav717',
-  extraMetadata: { version: info.version },
+  extraMetadata: { version },
   directories: { output: 'dist', buildResources: 'build' },
-  // Released by the desktop app workflow (gh release), not by electron-builder: no update feeds.
-  publish: [],
+  // Released by the desktop app workflow (gh release), not by electron-builder (--publish never). Where the app
+  // looks for a newer version: the newest release's files (updates.js).
+  publish: [{ provider: 'generic', url: 'https://github.com/saurav717/reader/releases/latest/download' }],
   // reader-app:// links open the app: how Google's sign-in in the browser comes back to it (main.js).
   protocols: [{ name: 'Reader', schemes: ['reader-app'] }],
-  files: ['main.js', 'notes.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
+  files: ['main.js', 'notes.js', 'updates.js', 'preload-ui.js', 'preload-site.js', 'ui/**', 'build/icon.png', 'package.json'],
   // The meeting recorder's native program (notes.js) runs from outside the archive: the SDK looks for it in app.asar.unpacked.
   asarUnpack: ['node_modules/@recallai/desktop-sdk/**'],
   extraResources: [{ from: 'companion', to: 'companion' }],
   mac: {
     category: 'public.app-category.education',
-    target: [{ target: 'dmg', arch: ['universal'] }],
+    // The .zip is what the app updates itself from (updates.js); people download the .dmg.
+    target: [
+      { target: 'dmg', arch: ['universal'] },
+      { target: 'zip', arch: ['universal'] },
+    ],
     icon: 'build/icon.png',
+    // The .zip's name (the .dmg names itself below).
+    artifactName: 'Reader-${version}-mac.${ext}',
     hardenedRuntime: true,
     gatekeeperAssess: false,
     notarize,
@@ -50,7 +63,7 @@ module.exports = {
   },
   dmg: {
     title: 'Reader ${version}',
-    artifactName: 'Reader-${version}.dmg',
+    artifactName: `Reader-\${version}${unsigned}.dmg`,
     background: 'build/dmg-background.png',
     iconSize: 112,
     window: { width: 600, height: 400 },
@@ -73,7 +86,7 @@ module.exports = {
     shortcutName: 'Reader',
     uninstallDisplayName: 'Reader',
     include: 'build/installer.nsh',
-    artifactName: 'Reader-Setup-${version}.${ext}',
+    artifactName: `Reader-Setup-\${version}${unsigned}.\${ext}`,
   },
   linux: {
     target: ['AppImage', 'deb', 'rpm'],

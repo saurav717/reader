@@ -168,6 +168,9 @@ describe('the page’s side', () => {
       assert.deepEqual(await companion.latestDesktopApps(), {});
       assert.equal(companion.appAssetKind('Reader.dmg').kind, 'mac'); // the Swift launcher's releases still count
       assert.equal(companion.appAssetKind('Reader-Companion-Setup.cmd'), null);
+      // What the app updates itself from, beside the installers: not offered as downloads.
+      for (const name of ['latest-mac.yml', 'latest.yml', 'latest-linux.yml', 'Reader-0.14.312-mac.zip', 'Reader-Setup-0.14.312-unsigned.exe.blockmap']) assert.equal(companion.appAssetKind(name), null, name);
+      assert.deepEqual(companion.appAssetKind('Reader-0.14.312-unsigned.dmg'), { kind: 'mac', signed: false });
     } finally {
       globalThis.fetch = realFetch;
       delete globalThis.sessionStorage;

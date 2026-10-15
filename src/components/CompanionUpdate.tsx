@@ -10,12 +10,16 @@
 import { useEffect, useState } from 'react';
 import type { CompanionInfo } from '../lib/companion';
 import type { JupyterServer } from '../lib/colab';
-import { COMPANION_VERSION, companionPort, findCompanion, findLocalCompanion, isNewer, normaliseCode, showCompanionCode, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
+import type { AppUpdateState } from '../lib/recorder';
+import { APP_RELEASES, COMPANION_VERSION, companionPort, findCompanion, findLocalCompanion, isNewer, normaliseCode, showCompanionCode, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
 import { useServers } from '../lib/playground';
 import { pairForAccount } from '../lib/devices';
 import { SITE_BUILD, isNewerBuild, publishedBuild } from '../lib/siteBuild';
 import type { SiteBuild } from '../lib/siteBuild';
 import { isCompanion } from './VsCodeExtension';
+
+/** Every published version of the Reader app, for every system (.github/workflows/desktop-app.yml). */
+const APP_RELEASES_PAGE = `https://github.com/${APP_RELEASES}/releases`;
 
 /** The first Companion that can update itself: an older one is updated once the way it was installed. */
 const SELF_UPDATING = '0.5.0';
@@ -197,16 +201,77 @@ function WebsiteRow() {
   );
 }
 
+/** The Reader app itself, in the app: its version, and the newer one it has downloaded to restart into. */
+function AppRow() {
+  const updates = typeof window !== 'undefined' ? window.readerDesktop?.updates : undefined;
+  const [state, setState] = useState<AppUpdateState | null>(null);
+  useEffect(() => {
+    if (!updates) return;
+    let live = true;
+    void updates.state().then((found) => live && found && setState(found));
+    const stop = updates.onEvent((next) => live && setState(next));
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [updates]);
+  if (!updates || !state) return null;
+  const line =
+    state.status === 'ready'
+      ? `Reader ${state.available} is downloaded: restart to use it, or it is put in place when you next quit.`
+      : state.status === 'downloading'
+        ? `Downloading Reader ${state.available}${state.percent ? ` (${state.percent}%)` : ''}…`
+        : state.status === 'checking'
+          ? 'Looking for a newer version…'
+          : state.status === 'current'
+            ? 'Up to date. It looks for a newer version a while after it opens and every few hours.'
+            : state.status === 'manual'
+              ? `Reader ${state.available} is out. ${state.error ?? ''}`
+              : state.status === 'failed'
+                ? `Couldn’t check for a newer version: ${state.error ?? 'no answer'}.`
+                : state.status === 'unsupported'
+                  ? (state.error ?? 'This copy can’t update itself.')
+                  : 'It looks for a newer version a while after it opens and every few hours.';
+  return (
+    <div className="companion-update">
+      <div>
+        <b>Reader app {state.version}</b>
+        <small>
+          {line}{' '}
+          <a href={APP_RELEASES_PAGE} target="_blank" rel="noreferrer">
+            Every version
+          </a>
+        </small>
+      </div>
+      {state.status === 'ready' ? (
+        <button type="button" className="btn sm primary" onClick={() => void updates.install()}>
+          Restart
+        </button>
+      ) : (
+        <button type="button" className="btn sm" disabled={state.status === 'checking' || state.status === 'downloading'} onClick={() => void updates.check()}>
+          Check now
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** The website, then every Companion this browser is paired with, or the one on this computer to pair with; Settings → Updates gives it its heading. */
 export default function CompanionUpdates() {
   const companions = useServers().filter(isCompanion);
   return (
     <>
       <WebsiteRow />
+      <AppRow />
       {companions.length ? companions.map((server) => <CompanionRow key={server.id} server={server} />) : <UnpairedRow />}
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
         Reader has two parts. The <b>website</b> is what you see, here and in the Reader app; nothing of it is installed, so it
-        is always the newest. The <b>Companion</b> is the one part installed on your computer: the Jupyter server that runs
+        is always the newest. (The <b>Reader app</b>, its window, updates itself: it downloads a new version in the background
+        and offers to restart into it. Every version, for Mac, Windows and Linux, stays on its{' '}
+        <a href={APP_RELEASES_PAGE} target="_blank" rel="noreferrer">
+          releases page
+        </a>
+        .) The <b>Companion</b> is the one part installed on your computer: the Jupyter server that runs
         your playgrounds. A website can’t replace a program on your computer, so the Companion updates when you press Update:
         it installs the newest one from this site, refreshes the Reader extension in VS Code, and starts again; your files and
         settings stay as they are.
