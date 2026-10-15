@@ -85,6 +85,8 @@ function companionEnv() {
   // (~/Reader/.venv is made from it: it goes only with your files.)
   env.UV_PYTHON_INSTALL_DIR = path.join(COMPANION_HOME, 'python');
   env.UV = path.join(COMPANION_HOME, 'bin', UV_EXE);
+  // uv gives up on a download that goes quiet for 30 seconds: too soon for Python (~20 MB) on a slow or busy connection.
+  env.UV_HTTP_TIMEOUT ||= '300';
   env.READER_APP = appLocation();
   env.PYTHONIOENCODING = 'utf-8';
   env.PYTHONUNBUFFERED = '1';
@@ -178,6 +180,14 @@ async function setUp(say) {
   fs.copyFileSync(path.join(RESOURCES, UV_EXE), uv);
   if (!IS_WIN) fs.chmodSync(uv, 0o755);
   if (IS_MAC) spawnSync('xattr', ['-c', uv]);
+
+  // Python first, on its own and tried again: it is the big download, and the one a slow connection drops.
+  say({ line: 'Downloading Python…' });
+  for (let attempt = 1; ; attempt += 1) {
+    if ((await run(uv, ['python', 'install', '3.12'], (line) => say({ line }))) === 0) break;
+    if (attempt === 3) throw new Error('Downloading Python didn’t finish. Check your connection (or VPN, proxy, firewall: it comes from github.com), then try again.');
+    say({ line: '\nThe download didn’t finish. Trying again…' });
+  }
 
   say({ line: 'Installing the Reader Companion…' });
   const wheel = path.join(RESOURCES, INFO.wheel || '');
