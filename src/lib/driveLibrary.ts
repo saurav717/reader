@@ -267,7 +267,76 @@ const rootName = (folderName: string | undefined) => folderName?.trim() || ROOT_
  * file itself being gone — in which case it has no mark, and is written
  * again in its place.
  */
-export type LibrarySource = 'file' | 'trash' | 'backup';
+export type LibrarySource = 'file' | 'trash' | 'backup' | 'copy';
+
+/** One library.json the app can see, with where it is and when Drive last saw it change. */
+export interface LibraryCopy {
+  library: Library;
+  /** Whose the file says it is, when it says. */
+  account?: string;
+  modifiedTime?: string;
+  /** The folder it is in, by name, for the notice. */
+  where: string;
+}
+
+/**
+ * Several copies of the file as one library. There should only ever be one,
+ * but Drive can hold two: a second `Papers_collection` made at the top level
+ * (a first write from two places at once — `findFolder` reads back only one
+ * of them, and which is Drive's to pick), or the folder named in Settings
+ * changed on one device, so that device writes somewhere else from then on.
+ * Each device then opens whichever copy it finds, and the two drift apart.
+ *
+ * So the copies are put together: the newest is the base, every older one
+ * adds what the base lacks (`mergeLibraries`), and the caller writes the
+ * result back where this device reads. A copy stamped as another account's
+ * (the mix-up an earlier version could cause) is not taken in. `notice`
+ * says what was done, when the result is more than `main` alone was.
+ */
+export function combineCopies(main: Omit<LibraryCopy, 'where'>, others: LibraryCopy[], owner?: string): { library: Library; notice?: string } {
+  const taken = others.filter((copy) => !owner || !copy.account || copy.account.trim().toLowerCase() === owner.trim().toLowerCase());
+  if (!taken.length) return { library: main.library };
+  const all: (Omit<LibraryCopy, 'where'> & { where?: string })[] = [main, ...taken];
+  all.sort((a, b) => (b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? ''));
+  const [base, ...rest] = all;
+  const library = rest.reduce((sum, copy) => mergeLibraries(sum, copy.library), base.library);
+  if (serialise(library) === serialise(main.library)) return { library };
+  const places = Array.from(new Set(taken.map((copy) => copy.where)));
+  const list = places.map((place) => `"${place}"`).join(', ');
+  return {
+    library,
+    notice: `${taken.length === 1 ? 'A second copy' : `${taken.length} more copies`} of ${LIBRARY_FILE} ${taken.length === 1 ? 'was' : 'were'} found in Drive (in ${list}) and ${taken.length === 1 ? 'has' : 'have'} been put together with this one.`,
+  };
+}
+
+/** The name of a folder in Drive, or a stand-in when it cannot be read. */
+async function folderNameOf(token: string, id: string): Promise<string> {
+  try {
+    const body = (await (await driveFetch(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=name`)).json()) as { name?: string };
+    return body.name || 'another folder';
+  } catch {
+    return 'another folder';
+  }
+}
+
+/**
+ * Every other library.json the app can see in Drive — in any folder, since
+ * `drive.file` shows it only its own files — read and parsed, with the name
+ * of the folder each is in. One that will not parse is left out.
+ */
+async function otherCopies(token: string, except: string | null): Promise<LibraryCopy[]> {
+  const files = (await queryFiles(token, `name = '${LIBRARY_FILE}'`).catch(() => [])).filter((file) => file.id !== except);
+  const copies: LibraryCopy[] = [];
+  const names = new Map<string, Promise<string>>();
+  for (const file of files) {
+    const read = parseLibraryFile(await downloadText(token, file.id).catch(() => ''));
+    if (!read) continue;
+    const parent = file.parents?.[0];
+    if (parent && !names.has(parent)) names.set(parent, folderNameOf(token, parent));
+    copies.push({ ...read, modifiedTime: file.modifiedTime, where: parent ? await names.get(parent)! : 'the top level of Drive' });
+  }
+  return copies;
+}
 
 /** The spare copy in the app's hidden folder, or null when there is none or it cannot be reached. */
 async function readBackup(token: string): Promise<{ library: Library; account?: string } | null> {
@@ -290,11 +359,19 @@ async function findRoot(token: string, name: string): Promise<string | null> {
  * file in the root folder first — out of the trash, folder and all, if it
  * was put there — and the spare copy when the file is gone. `account` is
  * whose the file says it is, when it says.
+ *
+ * Any other copy of the file the app can see (`combineCopies`) is put
+ * together with it, and `notice` says so: the caller writes the result back
+ * here, so this is the one copy from then on. With no file here at all, the
+ * other copies are the library — the folder was renamed in Settings, say —
+ * rather than a library rebuilt from the sidecars with no projects in it.
+ * `owner` is who is signed in: a copy stamped as someone else's is left out.
  */
 export async function readLibraryFromDrive(
   clientId: string,
   folderName: string | undefined,
-): Promise<{ library: Library; mark: RemoteMark | null; source: LibrarySource; account?: string } | null> {
+  owner?: string,
+): Promise<{ library: Library; mark: RemoteMark | null; source: LibrarySource; account?: string; notice?: string } | null> {
   const token = await ensureDriveToken(clientId);
   const rootId = await findRoot(token, rootName(folderName));
   let file = rootId ? await findFile(token, LIBRARY_FILE, rootId) : null;
@@ -308,13 +385,31 @@ export async function readLibraryFromDrive(
   }
   if (file) {
     const read = parseLibraryFile(await downloadText(token, file.id));
-    if (read) return { ...read, mark: { fileId: file.id, modifiedTime: file.modifiedTime }, source };
+    if (read) {
+      const combined = combineCopies({ ...read, modifiedTime: file.modifiedTime }, await otherCopies(token, file.id), owner);
+      return { ...read, ...combined, mark: { fileId: file.id, modifiedTime: file.modifiedTime }, source };
+    }
     // A file that will not parse — edited by hand — is not trusted over the spare copy.
     const backup = await readBackup(token);
     if (backup) return { ...backup, mark: null, source: 'backup' };
     throw new Error(`${rootName(folderName)}/${LIBRARY_FILE} in Drive could not be read.`);
   }
+  const copies = await otherCopies(token, null);
   const backup = await readBackup(token);
+  if (copies.length) {
+    // Newest first: the base is the one written last, the rest add to it.
+    copies.sort((a, b) => (b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? ''));
+    const [first, ...rest] = copies;
+    const combined = combineCopies(first, [...rest, ...(backup ? [{ ...backup, where: 'the hidden app folder' }] : [])], owner);
+    const places = Array.from(new Set(copies.map((copy) => copy.where))).map((place) => `"${place}"`).join(', ');
+    return {
+      library: combined.library,
+      account: first.account,
+      mark: null,
+      source: 'copy',
+      notice: `${rootName(folderName)}/${LIBRARY_FILE} was not in Drive; the library has been taken from the copy in ${places} and written here.`,
+    };
+  }
   return backup ? { ...backup, mark: null, source: 'backup' } : null;
 }
 
