@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
+import { zoomLink } from '../lib/calendar';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
@@ -137,7 +138,7 @@ const TABS: TabInfo[] = [
     label: 'Account',
     icon: <GoogleMark size={16} />,
     blurb: 'The Google account your library belongs to, the pass it gives the proxy, its calendar, and the OAuth client the sign-in uses.',
-    finds: 'google sign in sign out invite someone proxy pass calendar privacy terms oauth client id console',
+    finds: 'google sign in sign out invite someone proxy pass calendar meetings zoom granola notes privacy terms oauth client id console',
   },
   {
     id: 'library',
@@ -270,6 +271,35 @@ function rememberedTab(): SettingsTab {
 }
 
 /** One card of a tab: a title, what it is for, and its controls. */
+/** Zoom and Granola, for the Calendar's meetings: the person's own Zoom room, and the key that reads Granola's notes back. */
+function MeetingsCard() {
+  const { settings, updateSettings } = useStore();
+  const [room, setRoom] = useState(settings.zoomRoom);
+  const [key, setKey] = useState(settings.granolaKey);
+  const roomOk = !room.trim() || Boolean(zoomLink(room));
+  return (
+    <Card
+      id="settings-meetings"
+      title="Meetings: Zoom and Granola"
+      note="For the meetings you make on the Calendar page: a Zoom call with one click, and the notes Granola takes of a meeting filed in its project’s logbook once it ends."
+    >
+      <label className="setting">
+        <span>Your Zoom room</span>
+        <input type="url" value={room} onChange={(event) => setRoom(event.target.value)} onBlur={() => roomOk && updateSettings({ zoomRoom: zoomLink(room) ?? '' })} placeholder="https://zoom.us/my/your-name" aria-invalid={!roomOk} />
+        <small>{roomOk ? '“Use my room” in a new event puts this link on it. Your personal meeting room, or a standing meeting you reuse.' : 'That is not a Zoom meeting’s link: it looks like zoom.us/my/name or zoom.us/j/123….'}</small>
+      </label>
+      <label className="setting">
+        <span>Granola API key</span>
+        <input type="password" value={key} onChange={(event) => setKey(event.target.value)} onBlur={() => updateSettings({ granolaKey: key.trim() })} placeholder="grn_…" autoComplete="off" />
+        <small>
+          Made in Granola under Settings → API (Business and Enterprise plans). Granola takes the notes on your computer, from the same Google Calendar; with the key, Reader reads the notes of meetings you asked it to, and files them in the meeting’s project. Kept in this
+          browser and sent only to Reader’s proxy, which hands it to Granola.
+        </small>
+      </label>
+    </Card>
+  );
+}
+
 function Card({ id, title, note, children }: { id?: string; title?: string; note?: ReactNode; children?: ReactNode }) {
   return (
     <section className="set-card" id={id}>
@@ -522,6 +552,8 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
           <CalendarConnect />
         </Card>
       ) : null}
+
+      {user ? <MeetingsCard /> : null}
 
       <Card id="settings-client-id" title="Google OAuth client ID">
         <label className="setting">

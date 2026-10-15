@@ -318,6 +318,8 @@ export interface ProxyHealth {
   googleClientId: string;
   /** Whether it can send mail: an invitation to a shared project goes to the address invited (server/mail.js). */
   mail?: boolean;
+  /** Whether it can make Zoom meetings itself (a Server-to-Server app's credentials, worker/zoom.js); without, a Zoom link is pasted. */
+  zoom?: boolean;
 }
 
 const healthOf = new Map<string, Promise<ProxyHealth | null>>();
@@ -340,6 +342,7 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
               web: Boolean(body.web),
               googleClientId: typeof body.googleClientId === 'string' ? body.googleClientId.trim() : '',
               mail: Boolean(body.mail),
+              zoom: Boolean(body.zoom),
             }
           : null,
       )

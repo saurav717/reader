@@ -199,7 +199,7 @@ describe('drafting an event', () => {
     assert.equal(body.start.dateTime, d(2026, 10, 13, 14).toISOString());
     assert.equal(typeof body.start.timeZone, 'string');
     assert.equal(body.conferenceData, undefined);
-    const whole = cal.toGoogleEvent({ ...cal.emptyDraft('primary', d(2026, 10, 13), true), meet: true });
+    const whole = cal.toGoogleEvent({ ...cal.emptyDraft('primary', d(2026, 10, 13), true), call: 'meet' });
     assert.deepEqual(whole.start, { date: '2026-10-13' });
     assert.deepEqual(whole.end, { date: '2026-10-14' });
     assert.equal(whole.conferenceData.createRequest.conferenceSolutionKey.type, 'hangoutsMeet');

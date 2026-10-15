@@ -47,6 +47,7 @@ import { cloudflareOverview } from './cloudflare.js';
 import { mailOverview, unblockAddress } from './mailUsage.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
+import { askGranola, granolaKeyOf, granolaPath, makeZoomMeeting, zoomConfigured } from './meetings.js';
 import { CITE_ACCEPT, citeContentType, citeSourceUrl } from '../server/citeSources.js';
 import * as browserless from './browserless.js';
 
@@ -76,7 +77,7 @@ function cors(origin) {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token, X-Granola-Key',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -361,14 +362,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
           200,
           headers,
         );
@@ -512,6 +513,29 @@ export default {
         return json({ error: 'not found' }, 404, headers);
       }
 
+      // A meeting's Zoom call, made by the site's Zoom app, and its notes read back from Granola with the person's own key
+      // (worker/meetings.js). Both for someone signed in, so the Worker is nobody's open relay.
+      if (path === '/zoom/meetings' || path === '/granola' || path.startsWith('/granola/')) {
+        const who = await authorized(request, env);
+        if (!who) return json({ error: 'sign in with Google first' }, 401, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (path === '/zoom/meetings') {
+          if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+          if (!zoomConfigured(env)) return json({ error: 'this site has no Zoom app set up — paste the meeting’s link instead' }, 501, headers);
+          try {
+            return json(await makeZoomMeeting(env, await request.json().catch(() => ({}))), 200, noStore);
+          } catch (error) {
+            return json({ error: error.message }, error.status || 502, headers);
+          }
+        }
+        const key = granolaKeyOf(request);
+        if (!key) return json({ error: 'a Granola API key, in Settings → Meetings' }, 400, headers);
+        const asked = granolaPath(path, url.search);
+        if (!asked) return json({ error: 'not found' }, 404, headers);
+        const answer = await askGranola(key, asked);
+        return json(answer.body, answer.status, noStore);
+      }
+
       // A project shared with the people you work with: worker/projectRoom.js.
       // Every call takes the account's pass; the room checks the email on it
       // against its members. The live socket is taken only from this app.
@@ -551,6 +575,8 @@ export default {
           return roomOf(id).fetch(new URL(`https://room/live?email=${encodeURIComponent(who.email)}`), { headers: request.headers });
         }
         if (action === 'state') return forward(id, '/state');
+        // The project's logbook (worker/logbook.js): read with a GET, changed with a POST naming the change.
+        if (action === 'log') return forward(id, '/log', request.method === 'POST' ? await request.json().catch(() => ({})) : undefined);
         // An invitation is also a mail to the address, when the site can send one (server/mail.js): the
         // project's link, which only that Google account can join by. The link is the page's own, and is
         // sent only to an address of this app's, so the mailer writes nothing to anywhere else.

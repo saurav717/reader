@@ -1560,7 +1560,7 @@ export default function App() {
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'calendar' ? (
-        <Calendar onOpenSettings={() => (setSettingsAt({ tab: 'account' }), setSettingsOpen(true))} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
+        <Calendar onOpenSettings={() => (setSettingsAt({ tab: 'account' }), setSettingsOpen(true))} onOpenProject={(id, section) => (setUsageOpen(false), setView(section ? { kind: 'project', id, mode: 'logbook', section } : projectView(id, settings.projectOpensOn)))} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
         <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} explaining={explainOpen} onToggleExplain={toggleExplain} onReading={setWorkspacePaper} />
       ) : view.kind === 'junk' ? (

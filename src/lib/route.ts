@@ -59,7 +59,7 @@ export function pathFor(place: Place, base = basePath()): string {
                 ? withId('playground', view.id)
                 : 'playground'
               : view.kind === 'project'
-                ? `${withId('project', view.id)}${view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' ? `&view=${view.mode}` : ''}`
+                ? `${withId('project', view.id)}${view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' || view.mode === 'logbook' ? `&view=${view.mode}` : ''}${view.mode === 'logbook' && view.section ? `&section=${encodeURIComponent(view.section)}` : ''}`
                 : view.kind;
   return `${base}${tail}`;
 }
@@ -74,7 +74,7 @@ export const currentAddress = () => `${window.location.pathname}${window.locatio
 export function addressWith(path: string, search: string): string {
   const [pathname, own = ''] = path.split('?');
   const params = new URLSearchParams(search);
-  for (const key of ['id', 'view', 'at', 'room', 'join', 'invite', 'for', 'as']) params.delete(key);
+  for (const key of ['id', 'view', 'section', 'at', 'room', 'join', 'invite', 'for', 'as']) params.delete(key);
   new URLSearchParams(own).forEach((value, key) => params.set(key, value));
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -117,10 +117,11 @@ export function placeFor(address: string, base = basePath()): Place | null {
   if (head === 'project' && id) {
     const params = new URLSearchParams(query);
     const asked = params.get('view');
-    const mode = asked === 'read' || asked === 'workspace' || asked === 'write' ? asked : undefined;
+    const mode = asked === 'read' || asked === 'workspace' || asked === 'write' || asked === 'logbook' ? asked : undefined;
+    const section = mode === 'logbook' && /^[a-z]{1,20}$/.test(params.get('section') ?? '') ? params.get('section')! : undefined;
     const at = params.get('at');
     const room = params.get('room');
-    return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id }, ...(at ? { at } : {}), ...(room && /^[0-9a-f]{32}$/.test(room) ? { join: { room, token: params.get('join'), ...(/^[0-9a-f]{12}$/.test(params.get('for') ?? '') ? { tag: params.get('for')! } : {}) } } : {}) };
+    return { view: mode ? { kind: 'project', id, mode, ...(section ? { section } : {}) } : { kind: 'project', id }, ...(at ? { at } : {}), ...(room && /^[0-9a-f]{32}$/.test(room) ? { join: { room, token: params.get('join'), ...(/^[0-9a-f]{12}$/.test(params.get('for') ?? '') ? { tag: params.get('for')! } : {}) } } : {}) };
   }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };
   return null;

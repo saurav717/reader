@@ -1101,6 +1101,9 @@ top of every project page goes between three views:
   Where nothing can run the code yet, the workspace says which of Colab and
   your computer needs what, with a link to set it up.
 
+Beside them, **Logbook** holds the project's logistics — its meetings' notes,
+its links, a notepad and a whiteboard — for everyone in it (below).
+
 Settings → Projects chooses which of Overview and Workspace a project's rail
 mark opens on. Any search result — in Discover or on Home — has **Project ▾**,
 which adds the paper to one or several projects and sets its role there, and
@@ -1229,6 +1232,52 @@ Underneath, each shared project has a room on the Worker: a Durable Object
 invitations and where each member is, over one WebSocket per open page that
 hibernates when nobody is typing. Every call takes the pass the app already
 holds; the socket carries it as a subprotocol.
+
+### The logbook: meeting notes, links, a notepad and a whiteboard
+
+**Logbook** on the project bar is the project's logistics rather than its
+research — four tabs, each with its own address (`&view=logbook&section=…`):
+
+- **Meetings** — the notes of every meeting for the project, newest first:
+  filed by Granola when a meeting tagged with the project ends (see
+  [Calendar](#calendar)), or written in by hand. Each opens to its summary,
+  who was there, its **action items** — one click puts one on the project's
+  to-do list — and the **links mentioned**, to keep. Beside them, the
+  project's meetings in the next two weeks with **Join** for each call, and
+  the ones that ended without notes yet.
+- **Links** — the Overleaf draft, the results sheet, the dataset, last week's
+  recording: kept once, named, with a note, pinned or not, each marked by what
+  it is (doc, sheet, slides, code, paper, dataset, recording…). Above them,
+  **Came up in meetings**: every link in the meetings' notes not kept yet, so
+  the one pasted in a call's chat is not lost — **Keep** or wave it away.
+- **Notepad** — one page of Markdown the whole project writes in, written and
+  read side by side, saved as you type. Two people typing at once both keep
+  what they typed: a change made on an older version is merged into the newer
+  one (only the stretch each changed moves), never written over it.
+- **Whiteboard** — a sheet to draw on with a mouse, a finger or a stylus.
+  With a pen the line follows its pressure; **Pen only** ignores a hand
+  resting on the screen once a stylus has been seen. Pen, marker and eraser,
+  six colours and three widths, **Undo** for your own last stroke (⌘Z),
+  **Download** as SVG. Strokes are added and erased whole, so two people
+  drawing at once never collide, and the others see a stroke **as it is
+  drawn**, with *Priya is drawing* on the bar.
+
+![The logbook's Meetings tab: the project's meetings coming up with Join Zoom, and this morning's Granola notes open with who was there, action items with To-do, and links mentioned with Keep](docs/logbook-meetings.png)
+
+![The Links tab: links that came up in meetings offered to keep, then the kept links pinned first, each marked by kind, with who added it](docs/logbook-links.png)
+
+![The Notepad: Markdown on the left, read on the right, two people's changes merged](docs/logbook-notepad.png)
+
+![The Whiteboard: a hand-drawn diagram of a router and four experts, Priya's tick appearing as she draws it](docs/logbook-board.png)
+
+For a **shared** project the logbook is kept by its room on the Worker
+(`worker/logbook.js`), next to the list: every member reads it, the owner and
+editors write in it, and each change reaches the others' pages over the
+room's socket as it is made. A project of your own keeps its logbook in this
+browser; sharing it hands the logbook to the room, and stopping hands it back
+to the owner. The tabs show who else is on them.
+
+![The whiteboard in the dark theme: black ink drawn light](docs/logbook-board-dark.png)
 
 ### Writing with Overleaf
 
@@ -4889,6 +4938,42 @@ this.
 
 ![a new event drafted in the editor over the week](docs/calendar-editor.png)
 
+**A call, and its notes.** The editor's **Video call** is *None*, *Google
+Meet* (made by Google when you save) or *Zoom*: paste a meeting's link,
+**Use my room** for your own (Settings → Account → Meetings), or **Make
+one** — a Zoom meeting at the event's time, made by the site's Zoom account
+when the Worker has one (below). The Zoom link goes on the event where every
+calendar app shows it, as its place and the first line of its description.
+**Take notes with Granola** and the event's **project** sit under it. Granola
+— the AI notepad, on your own computer — reads the same Google Calendar and
+takes the meeting's notes; once the meeting has ended, Reader reads them back
+with your Granola API key and files them in the project's
+[logbook](#the-logbook-meeting-notes-links-a-notepad-and-a-whiteboard), where
+everyone in the project reads them. The meeting's card says which: *Granola
+will take notes, filed in …*, then *Notes filed in … · Open notes*. Join reads
+**Join Zoom**, **Join Meet** or **Join Teams** for the call it is.
+
+![a new event with a Zoom meeting made for it, Granola taking notes, and the project picked](docs/meetings-editor.png)
+
+![this morning's meeting: Join Zoom, and its notes filed in the project from Granola](docs/meetings-card-filed.png)
+
+Making Zoom meetings is the Worker's, as a Zoom *Server-to-Server OAuth*
+app (scope `meeting:write:meeting:admin`); without it, links are pasted:
+
+```bash
+npx wrangler secret put ZOOM_CLIENT_SECRET
+# and in wrangler.toml, under [vars]:
+# ZOOM_ACCOUNT_ID = "…"
+# ZOOM_CLIENT_ID = "…"
+# ZOOM_USER = "lab@example.org"                 # whose meetings; "me" when unset
+```
+
+Granola's API keys are made in Granola under Settings → API (its Business and
+Enterprise plans). The key is kept in the browser and passed through the
+Worker (`/granola/…`), which reads only the list of notes and one note, and
+keeps nothing. The notes are matched to their meeting by its calendar event,
+else by its title at its time, and each meeting is filed once.
+
 ![the week in the dark theme, on the two-zone rail](docs/calendar-week-dark.png)
 
 ## Addresses
@@ -4928,6 +5013,13 @@ src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
 src/lib/route.ts        each page's address, and the page an address names
 src/lib/calendar.ts     the Calendar page: the days each view shows, where a
                         meeting goes on the grid, and Google Calendar read
+src/lib/logbook.ts      a project's logbook: meeting notes, links, notepad,
+                        whiteboard strokes, and the links meetings bring up
+src/lib/logbookStore.ts where it is kept: the shared project's room, or here
+src/lib/granola.ts      Granola's notes read back and matched to meetings
+src/lib/zoom.ts         a Zoom meeting made by the Worker for an event
+worker/logbook.js       the room's side of the logbook
+worker/meetings.js      Zoom's Server-to-Server app, and Granola passed through
 src/lib/playground.ts   the Playground: playgrounds, Jupyter servers, the
                         files and their sync
 src/lib/api.ts          where the proxy is: the build's default, the setting
@@ -5019,6 +5111,7 @@ node scripts/pdf-assistant-smoke.mjs # every author off the PDF's first page; As
 node scripts/library-smoke.mjs  # the list and cards, selecting, moving, marking, Junk and back
 node scripts/live-smoke.mjs     # the people in a shared project's bar, the card, the list, following, the share dialog
 node scripts/calendar-smoke.mjs # the Calendar page: connecting, the week, the day, the month, a meeting's card
+node scripts/logbook-smoke.mjs  # a meeting with Zoom and Granola, its notes filed, and a shared project's logbook
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs
