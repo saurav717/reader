@@ -99,6 +99,8 @@ declare global {
             scope: string;
             prompt?: string;
             /** The account the request is for, as its email: Google picks it rather than asking. */
+            login_hint?: string;
+            /** The older name for `login_hint`, still sent beside it for a library that reads only this one. */
             hint?: string;
             callback: (response: TokenResponse) => void;
             error_callback?: (error: { type?: string; message?: string }) => void;
@@ -359,6 +361,7 @@ export function suggestAccount(email: string | null): void {
 }
 
 function requestToken(clientId: string, scope: string, prompt: string): Promise<Grant> {
+  const account = whose?.email || suggested;
   return new Promise((resolve, reject) => {
     if (!googleReady()) {
       reject(new Error('Google Identity Services is not available'));
@@ -368,7 +371,7 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
       client_id: clientId,
       scope,
       prompt,
-      ...(whose?.email ? { hint: whose.email } : suggested ? { hint: suggested } : {}),
+      ...(account ? { login_hint: account, hint: account } : {}),
       callback: (response) => {
         if (response.error || !response.access_token) {
           reject(new Error(describe(undefined, response.error, response.error_description)));
@@ -518,6 +521,8 @@ interface Waiting {
   reject: (error: Error) => void;
 }
 let renewing: Promise<StoredToken> | null = null;
+/** What the renewal on its way asked Google for. */
+let renewingFor: string[] = [];
 let waiting: Waiting | null = null;
 const renewalListeners = new Set<() => void>();
 const tellRenewal = () => renewalListeners.forEach((listener) => listener());
@@ -538,6 +543,7 @@ function inGesture(): boolean {
 function renewOnce(clientId: string, scopes: string): Promise<StoredToken> {
   if (renewing) return renewing;
   const expected = whose?.email;
+  renewingFor = scopes.split(' ');
   renewing = tokenFor(clientId, scopes, '')
     .then(adopt)
     .then((granted) => {
@@ -553,12 +559,33 @@ function renewOnce(clientId: string, scopes: string): Promise<StoredToken> {
 }
 
 /**
+ * Whether a token's scopes include these. Identity is asked for by its short
+ * names (`email`) and granted under long ones, so only the long ones are checked.
+ */
+const covers = (granted: string[], wanted: string[]): boolean =>
+  wanted.join(' ').split(' ').every((scope) => !scope.startsWith('https://') || granted.includes(scope));
+
+/**
+ * The renewal already on its way, for a caller that needs more than it asked
+ * for — the calendar, clicked for while Drive was renewing. Once it is done,
+ * its token serves if Google granted these too; else they are asked for in
+ * turn, which after its window has spent the click is the page's prompt. A
+ * failed renewal (another account, a closed window) fails this caller too.
+ * One that asked for everything needed is shared as it is, and each caller
+ * checks what came back, so a scope the person unticked is not asked again.
+ */
+async function afterRenewal(pending: Promise<StoredToken>, clientId: string, scopes: string[]): Promise<StoredToken> {
+  const granted = await pending;
+  return covers(granted.scopes, scopes) ? granted : renewQuietly(clientId, scopes);
+}
+
+/**
  * A token with these scopes: the one held while it lasts; else renewed — now,
  * inside a click; otherwise once the person clicks the page's prompt to carry
  * on (or another tab renews first), however many callers are waiting.
  */
 function renewQuietly(clientId: string, scopes: string[]): Promise<StoredToken> {
-  if (renewing) return renewing;
+  if (renewing) return covers(renewingFor, scopes) ? renewing : afterRenewal(renewing, clientId, scopes);
   if (inGesture()) return renewOnce(clientId, scopes.join(' '));
   if (!waiting) {
     let resolve!: (granted: StoredToken) => void;
@@ -578,7 +605,7 @@ function renewQuietly(clientId: string, scopes: string[]): Promise<StoredToken> 
         held.reject(new AccountChangedError(held.account, token.user.email));
         return;
       }
-      if (![...held.scopes].every((scope) => token!.scopes.includes(scope) || !scope.startsWith('https://'))) return;
+      if (!covers(token.scopes, [...held.scopes])) return;
       stop();
       waiting = null;
       tellRenewal();

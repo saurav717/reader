@@ -13,6 +13,7 @@ import {
   CalendarRequestError,
   MINUTES_IN_DAY,
   VIEWS,
+  accountKey,
   addDays,
   atKeys,
   createEvent,
@@ -31,6 +32,7 @@ import {
   onDay,
   periodLabel,
   placeTimed,
+  readAccountPref,
   respondToEvent,
   sameDay,
   sameMonth,
@@ -59,8 +61,13 @@ import { initialsOf, meetingProject, projectInfo, projectsOf, withMeeting, type 
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, PlusIcon, RestoreIcon, TrashIcon, VideoIcon } from './icons';
 
 const VIEW_KEY = 'reader.calendar.view';
+/** The calendars an account has hidden on the page: its own, as each account's calendars are (see accountKey). */
 const HIDDEN_KEY = 'reader.calendar.hidden';
-/** That the calendar was connected once in this browser: the page then offers to reconnect quietly rather than to connect anew. */
+/**
+ * That this account connected the calendar once in this browser: the page then
+ * offers to reconnect quietly rather than to connect anew. Per account, since
+ * another account signed in here has granted nothing, and Google asks it everything.
+ */
 const CONNECTED_KEY = 'reader.calendar.connected';
 /** Told when the calendar is connected or forgotten, so Settings and the page agree. */
 const ACCESS_CHANGED = 'reader:calendar-access';
@@ -77,20 +84,30 @@ const readView = (): CalendarView => {
   }
 };
 
-const readHidden = (): string[] => {
+const readHidden = (email: string | undefined): string[] => {
   try {
-    const stored = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]') as unknown;
+    const stored = JSON.parse(readAccountPref(localStorage, HIDDEN_KEY, email) ?? '[]') as unknown;
     return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
   } catch {
     return [];
   }
 };
 
-const wasConnected = (): boolean => {
+const wasConnected = (email: string | undefined): boolean => {
   try {
-    return localStorage.getItem(CONNECTED_KEY) === 'true';
+    return readAccountPref(localStorage, CONNECTED_KEY, email) === 'true';
   } catch {
     return false;
+  }
+};
+
+const rememberConnected = (email: string | undefined, connected: boolean): void => {
+  if (!email) return;
+  try {
+    if (connected) localStorage.setItem(accountKey(CONNECTED_KEY, email), 'true');
+    else localStorage.removeItem(accountKey(CONNECTED_KEY, email));
+  } catch {
+    // only a preference
   }
 };
 
@@ -136,7 +153,7 @@ export function CalendarConnect() {
     google
       .connectCalendar(clientId)
       .then(() => {
-        localStorage.setItem(CONNECTED_KEY, 'true');
+        rememberConnected(user.email, true);
         tellAccess();
       })
       .catch((failure: unknown) => setError(message(failure)))
@@ -144,7 +161,7 @@ export function CalendarConnect() {
   };
   const forget = () => {
     google.dropCalendar();
-    localStorage.removeItem(CONNECTED_KEY);
+    rememberConnected(user.email, false);
     tellAccess();
   };
   return (
@@ -164,7 +181,7 @@ export function CalendarConnect() {
         </button>
       ) : (
         <button type="button" className="btn primary sm" onClick={connect} disabled={busy || !clientId}>
-          {busy ? 'Connecting…' : wasConnected() ? 'Reconnect calendar' : 'Connect calendar'}
+          {busy ? 'Connecting…' : wasConnected(user.email) ? 'Reconnect calendar' : 'Connect calendar'}
         </button>
       )}
     </div>
@@ -192,7 +209,8 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   const [date, setDate] = useState<Date>(() => new Date());
   const [now, setNow] = useState<Date>(() => new Date());
   const [calendars, setCalendars] = useState<CalendarInfo[] | null>(null);
-  const [hidden, setHiddenState] = useState<string[]>(readHidden);
+  const email = user?.email;
+  const [hidden, setHiddenState] = useState<string[]>(() => readHidden(email));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -221,11 +239,14 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   const setHidden = (next: string[]) => {
     setHiddenState(next);
     try {
-      localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+      if (email) localStorage.setItem(accountKey(HIDDEN_KEY, email), JSON.stringify(next));
     } catch {
       // only a preference
     }
   };
+
+  // Whose hidden calendars: a sign-in from nobody's library happens in place, without a reload.
+  useEffect(() => setHiddenState(readHidden(email)), [email]);
 
   // The clock, for today's line and "now".
   useEffect(() => {
@@ -297,7 +318,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
     google
       .connectCalendar(clientId)
       .then(() => {
-        localStorage.setItem(CONNECTED_KEY, 'true');
+        rememberConnected(email, true);
         tellAccess();
       })
       .catch((failure: unknown) => setError(message(failure)))
@@ -566,20 +587,20 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
       <div className="main library-main cal" aria-label="Calendar">
         {head}
         <Empty
-          title={wasConnected() ? 'Reconnect your calendar' : 'See your meetings here'}
+          title={wasConnected(user.email) ? 'Reconnect your calendar' : 'See your meetings here'}
           text={
-            wasConnected()
+            wasConnected(user.email)
               ? `The sign-in for ${user.email} has to be renewed for the calendar. One click; Google asks nothing new.`
               : `Reader shows the calendars in ${user.email} — the ones you keep and the meetings in them — by day, week or month, and lets you add a meeting, change one, or answer an invitation from here. Connecting asks Google once, for your calendars and their events.`
           }
           error={error}
           note={
-            wasConnected()
+            wasConnected(user.email)
               ? undefined
               : 'A calendar is what Google calls a sensitive permission, so until this copy of Reader is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Reader, lets you through to the usual consent screen.'
           }
           more={{ href: `${basePath()}privacy/`, label: 'What Reader does with your calendar: the privacy policy' }}
-          action={{ label: connecting ? 'Connecting…' : wasConnected() ? 'Reconnect calendar' : 'Connect Google Calendar', onClick: connect, disabled: connecting, primary: true }}
+          action={{ label: connecting ? 'Connecting…' : wasConnected(user.email) ? 'Reconnect calendar' : 'Connect Google Calendar', onClick: connect, disabled: connecting, primary: true }}
         />
       </div>
     );

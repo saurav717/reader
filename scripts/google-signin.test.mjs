@@ -341,11 +341,19 @@ describe('whose token it is', () => {
     assert.equal(calls[0].hint, 'reader@example.com');
   });
 
+  it('names it as login_hint too, the name Google documents now', async () => {
+    const module = await ranOut();
+    const calls = install(grant(WITH_DRIVE));
+    await module.ensureDriveToken('client-id');
+    assert.equal(calls[0].login_hint, 'reader@example.com');
+  });
+
   it('gives no hint on a first sign-in, where there is nobody to name', async () => {
     const module = await fresh();
     const calls = install(grant(WITH_DRIVE));
     await module.signIn('client-id');
     assert.equal(calls[0].hint, undefined);
+    assert.equal(calls[0].login_hint, undefined);
   });
 
   it('refuses the waiting work another account’s token, and holds that token as their sign-in', async () => {
@@ -466,6 +474,33 @@ describe('renewing for work in the background', () => {
     const calls = install(grant(WITH_DRIVE));
     await module.renewNow('client-id');
     assert.equal(await pending, 'token');
+    assert.equal(calls.length, 1);
+  });
+
+  it('asks for the calendar after a Drive renewal already on its way, rather than saying it was refused', async () => {
+    const CALENDAR = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+    const module = await fresh();
+    // Drive's window is open when the calendar is clicked for: it answers with Drive alone, as it was asked.
+    let answerDrive;
+    const calls = install((config) => {
+      if (/calendar/.test(config.scope)) grant(`${WITH_DRIVE} ${CALENDAR}`)(config);
+      else answerDrive = () => grant(WITH_DRIVE)(config);
+    });
+    const drive = module.ensureDriveToken('client-id');
+    const calendar = module.connectCalendar('client-id');
+    answerDrive();
+    assert.equal(await drive, 'token');
+    assert.equal(await calendar, 'token');
+    assert.equal(calls.length, 2);
+    assert.match(calls[1].scope, /calendar\.events/);
+    assert.equal(module.hasCalendarAccess(), true);
+  });
+
+  it('takes the renewal on its way when it already carries what is asked for', async () => {
+    const module = await fresh();
+    const calls = install(grant(WITH_DRIVE));
+    const [first, second] = await Promise.all([module.ensureDriveToken('client-id'), module.ensureDriveToken('client-id')]);
+    assert.deepEqual([first, second], ['token', 'token']);
     assert.equal(calls.length, 1);
   });
 
