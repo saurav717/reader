@@ -37,8 +37,10 @@ module.exports = {
       NSScreenCaptureUsageDescription: 'Reader records the meetings you choose, to write up their notes for your project.',
       NSAppleEventsUsageDescription: 'Reader finds the meeting you are in, to take its notes.',
     },
-    // uv is already both architectures (lipo, in prepare-companion.mjs): the same file in both halves.
-    x64ArchFiles: 'Contents/Resources/companion/uv',
+    // Files already built for both architectures, the same in both halves of the universal app: uv (lipo, in
+    // prepare-companion.mjs), and the meeting recorder's native program and its GStreamer libraries, which
+    // Recall.ai ships universal (notes.js).
+    x64ArchFiles: 'Contents/Resources/{companion/uv,app.asar.unpacked/node_modules/@recallai/desktop-sdk/**}',
   },
   dmg: {
     title: 'Reader ${version}',
