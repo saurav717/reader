@@ -91,6 +91,10 @@ export default function Nav({ style, model }: { style: Exclude<NavStyle, 'classi
   return <IconRail model={model} tray={style === 'zones' || style === 'sidebar'} onUnfold={style === 'sidebar' ? () => setFolded(false) : undefined} />;
 }
 
+/** The Koios mark — a bookmark with a star cut out of it; public/icons/koios.svg is the same path. */
+const KOIOS_MARK =
+  'M17 5 H47 V59 L32 46 L17 59 Z M32 12 L34.6 20.4 L43 23 L34.6 25.6 L32 34 L29.4 25.6 L21 23 L29.4 20.4 Z';
+
 /** The brand: Home, the way it always was. */
 function Brand({ model }: { model: NavModel }) {
   return (
@@ -102,7 +106,9 @@ function Brand({ model }: { model: NavModel }) {
       title="Home — press G to go between Home and the paper you are reading"
       onClick={model.onBrand}
     >
-      R
+      <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+        <path fill="currentColor" fillRule="evenodd" d={KOIOS_MARK} />
+      </svg>
     </button>
   );
 }
