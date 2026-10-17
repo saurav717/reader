@@ -40,7 +40,7 @@ jobs:
         run: |
           npm ci
           npm run build:pages
-          grep -q "reader-arxiv-proxy" dist-pages/assets/index-*.js || { echo "::error::The build has no proxy address in it"; exit 1; }
+          grep -q "api.koios.dev" dist-pages/assets/index-*.js || { echo "::error::The build has no proxy address in it"; exit 1; }
 
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'

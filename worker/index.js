@@ -9,7 +9,7 @@
  * which URLs may be fetched are too important to keep two copies of.
  *
  * Deploy:  npx wrangler deploy
- * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
+ * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev (or its custom domain)
  */
 import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
 import { fetchOpenReview, openReviewAccount, openReviewFiles, saidChallenge } from '../server/openreview.js';

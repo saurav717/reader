@@ -9,7 +9,7 @@
  * The Worker is READER_PROXY when set, else the reader's own. Only
  * READER_TOKEN itself reads the tally; a pass from a Google sign-in does not.
  */
-const PROXY = (process.env.READER_PROXY || 'https://reader-arxiv-proxy.es16btech11007.workers.dev').replace(/\/$/, '');
+const PROXY = (process.env.READER_PROXY || 'https://api.koios.dev').replace(/\/$/, '');
 const TOKEN = (process.env.READER_TOKEN || '').trim();
 const args = process.argv.slice(2);
 const days = Number(args[args.indexOf('--days') + 1]) || 30;
