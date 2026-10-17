@@ -590,7 +590,7 @@ VITE_API_BASE=none npm run build:pages                   # or no proxy at all
 ```
 
 `build:pages` compiles in the Worker the deployed site uses
-(`reader-arxiv-proxy.es16btech11007.workers.dev`), so a build for
+(`api.koios.dev`, the custom domain of `reader-arxiv-proxy`), so a build for
 koios.dev keeps its PDFs, its sign-in check and the owner's
 usage dashboard without anything to remember.
 

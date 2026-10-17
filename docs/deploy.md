@@ -46,7 +46,7 @@ Cloudflare token:
 1. In the Cloudflare dashboard: your profile → **API Tokens** → **Create Token**
    → the **Edit Cloudflare Workers** template → **Use template**.
 2. Under **Account Resources**, pick your account; under **Zone Resources**,
-   **All zones** is fine (the Worker is on workers.dev). **Continue to summary**
+   **All zones** is fine (the Worker answers at api.koios.dev, in the koios.dev zone). **Continue to summary**
    → **Create Token**, and copy it.
 3. Your **Account ID** is on the Workers & Pages overview page, on the right.
 4. In **github.com/saurav717/reader → Settings → Secrets and variables →
@@ -90,7 +90,7 @@ one click, as in VS Code, but every repository of theirs), or **a pasted
 token** (always there). The two sign-ins appear once the Worker has their IDs;
 set up either or both. Both send people back to the Worker:
 
-    https://reader-arxiv-proxy.es16btech11007.workers.dev/github/callback
+    https://api.koios.dev/github/callback
 
 (your Worker's address, then `/github/callback`).
 
@@ -331,7 +331,7 @@ It takes two secrets, set once:
 
 Optional: a Worker var `LATEX_REPO` (owner/repo) if the workflow is in
 another repository, and a repository variable `LATEX_WORKER` if the Worker
-is not at `https://reader-arxiv-proxy.es16btech11007.workers.dev`. Until both
+is not at `https://api.koios.dev`. Until both
 secrets are set, the Write tab says the site has no compiler set up yet.
 The jobs are kept in the `SESSIONS` KV namespace the Worker already has.
 
