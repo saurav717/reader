@@ -1,6 +1,6 @@
 # Reader Playground for VS Code
 
-Your [Reader](https://saurav717.github.io/reader/playground) playgrounds in VS
+Your [Reader](https://koios.dev/playground) playgrounds in VS
 Code. A project you make on the site, on **This computer**, is a plain folder
 that the Reader Companion keeps in `~/Reader/playgrounds/<name>`. This
 extension shows those folders, the papers each one cites and the Companion's
@@ -36,7 +36,7 @@ other editor always agree.
 From the site: **Playground → Connect this computer → VS Code**. Or:
 
 ```bash
-curl -LsSfo /tmp/reader-playground.vsix https://saurav717.github.io/reader/vscode/reader-playground.vsix
+curl -LsSfo /tmp/reader-playground.vsix https://koios.dev/vscode/reader-playground.vsix
 code --install-extension /tmp/reader-playground.vsix
 ```
 

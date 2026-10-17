@@ -7,7 +7,7 @@
 //   node scripts/prepare-companion.mjs [--platform darwin|win32|linux] [--arch x64|arm64|universal]
 // The platform and arch default to this computer's; a macOS app is universal, its uv
 // both architectures in one binary (lipo, so only on a Mac). READER_SITE is the site the
-// app opens and pairs with (https://saurav717.github.io/reader/ by default).
+// app opens and pairs with (https://koios.dev/ by default).
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, readdirSync } from 'node:fs';
@@ -96,7 +96,7 @@ async function fetchUv(key, work) {
   return found;
 }
 
-export async function prepare({ platform = process.platform, arch = process.arch, site = process.env.READER_SITE || 'https://saurav717.github.io/reader/' } = {}) {
+export async function prepare({ platform = process.platform, arch = process.arch, site = process.env.READER_SITE || 'https://koios.dev/' } = {}) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   let python = true;

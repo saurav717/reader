@@ -12,7 +12,7 @@ import { findCitations, interpreterOf, listProjects, ping, projectFolderOf, read
 let companion: Companion;
 let running: string | null = null;
 
-const siteSetting = () => vscode.workspace.getConfiguration('reader').get<string>('site') || 'https://saurav717.github.io/reader/';
+const siteSetting = () => vscode.workspace.getConfiguration('reader').get<string>('site') || 'https://koios.dev/';
 
 // ------------------------------------------------------------- the trees --
 

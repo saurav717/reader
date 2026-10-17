@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const DEFAULT_PORT = 47321;
-export const DEFAULT_SITE = 'https://saurav717.github.io/reader/';
+export const DEFAULT_SITE = 'https://koios.dev/';
 
 /** ~/.reader-companion/config.json, as companion/reader_companion/cli.py writes it. */
 export interface CompanionConfig {

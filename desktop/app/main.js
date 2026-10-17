@@ -29,7 +29,7 @@ const IS_WIN = process.platform === 'win32';
 const HOME = os.homedir();
 const RESOURCES = app.isPackaged ? path.join(process.resourcesPath, 'companion') : path.join(__dirname, 'companion');
 const INFO = readJson(path.join(RESOURCES, 'info.json')) ?? {};
-const SITE = INFO.site || 'https://saurav717.github.io/reader/';
+const SITE = INFO.site || 'https://koios.dev/';
 const SITE_ORIGIN = new URL(SITE).origin;
 const COMPANION_HOME = process.env.READER_COMPANION_HOME || path.join(HOME, '.reader-companion');
 const UV_EXE = IS_WIN ? 'uv.exe' : 'uv';

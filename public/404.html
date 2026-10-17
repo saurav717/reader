@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reader</title>
+  <script>
+    // The reader is one page, served by GitHub Pages. Each page with a fixed
+    // address has a folder of its own there (scripts/pages-routes.mjs), so a
+    // reload is answered with the app; an older link with an id in the path
+    // (/paper/<id>, /playground/<id>) is not a file, so it lands here: send it
+    // back to the app, which puts the address back and opens the page it names
+    // (src/main.tsx).
+    (function () {
+      var path = window.location.pathname;
+      if (path.indexOf('/assets/') !== 0) {
+        window.location.replace('/?route=' + encodeURIComponent(path + window.location.search + window.location.hash));
+      }
+    })();
+  </script>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; color: #333; margin: 4rem auto; max-width: 32rem; padding: 0 1rem; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <p>There's nothing at this address. <a href="/">Open Reader</a>.</p>
+</body>
+</html>

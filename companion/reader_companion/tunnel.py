@@ -1,7 +1,7 @@
 """An HTTPS address for the Companion, through a Cloudflare quick tunnel, for browsers that won't call 127.0.0.1.
 
 Safari blocks an https page from calling http://127.0.0.1 (mixed content), so
-the reader on saurav717.github.io can't reach a Companion there. A quick tunnel
+the reader on koios.dev can't reach a Companion there. A quick tunnel
 (https://<words>.trycloudflare.com, no account needed) gives it an https
 address that forwards to 127.0.0.1. Everything through it still needs the
 server's token; /companion/pair needs the code the terminal shows.

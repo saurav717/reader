@@ -12,7 +12,7 @@ installer scripts (`.command`, `.cmd`, `curl … | sh`).
 The app is [Electron](https://www.electronjs.org/): it carries its own engine,
 so the page runs the same on every system, and it reaches the Companion on
 `127.0.0.1` as Chrome does. That includes Safari's Macs, where a browser tab
-can't. The window shows the site itself (`https://saurav717.github.io/reader/`).
+can't. The window shows the site itself (`https://koios.dev/`).
 So the app always has the newest site with no app update.
 
 - **The first time it opens** (and after an update that brings a newer

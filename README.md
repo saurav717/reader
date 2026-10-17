@@ -591,7 +591,7 @@ VITE_API_BASE=none npm run build:pages                   # or no proxy at all
 
 `build:pages` compiles in the Worker the deployed site uses
 (`reader-arxiv-proxy.es16btech11007.workers.dev`), so a build for
-saurav717.github.io/reader keeps its PDFs, its sign-in check and the owner's
+koios.dev keeps its PDFs, its sign-in check and the owner's
 usage dashboard without anything to remember.
 
 Without a proxy the app still runs, and says so in the UI: search falls back to
@@ -605,7 +605,7 @@ free tier — `worker/index.js` is the same routes in Workers form:
 
 ```bash
 # your site's origin goes in ALLOWED_ORIGINS at the top of worker/index.js;
-# it ships with https://saurav717.github.io and the two localhost ports.
+# it ships with https://koios.dev and the two localhost ports.
 npm run check:worker    # bundles it without deploying: ~24 KiB, no bindings
 npm run deploy:worker   # asks you to log in the first time, then prints the URL
 ```
@@ -615,15 +615,14 @@ The URL it prints is `https://reader-arxiv-proxy.<your-subdomain>.workers.dev`
 on it:
 
 ```bash
-curl -H 'Origin: https://saurav717.github.io' https://<that>/health
+curl -H 'Origin: https://koios.dev' https://<that>/health
 # {"ok":true}, and Access-Control-Allow-Origin echoing that same origin
 ```
 
 A wide-open proxy is one anyone can point at arXiv on your account's quota, so
 `ALLOWED_ORIGINS` is not optional — a site that is not on the list fails CORS,
 and from the page that looks exactly like the Worker being down. An origin is a
-scheme and a host: `https://saurav717.github.io`, never the `/reader/` path the
-app is served under.
+scheme and a host: `https://koios.dev`, never a path under it.
 
 `ALLOWED_ORIGINS` keeps other *sites* out; it does not keep other *people*
 out, since anything but a browser sends whichever Origin header it likes, and
@@ -675,7 +674,7 @@ a bot is at the Worker, where the sign-in is swapped for a pass:
   and the app goes back to the sign-in screen and says to wait a minute.
 - **A captcha, if you want one** — Cloudflare Turnstile, free. In the
   Cloudflare dashboard, **Turnstile → Add widget**, with the hostnames
-  `saurav717.github.io` and `localhost`, mode *Managed*. Put its **site key** in
+  `koios.dev` and `localhost`, mode *Managed*. Put its **site key** in
   `wrangler.toml` as `TURNSTILE_SITE_KEY` (public; `/health` hands it to the
   app) and its **secret key** in a secret, then deploy:
 
@@ -4360,7 +4359,7 @@ Under **Your compute**, **Connect this computer** offers it two ways.
 downloads a small installer for the system the browser is on: on macOS a zip
 holding `Reader Companion.command`, on Windows `Reader-Companion-Setup.cmd`.
 Double-click it. On Linux the card gives the same thing as a line to paste,
-`curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh`. It
+`curl -LsSf https://koios.dev/companion-setup.sh | sh`. It
 installs uv if needed, installs the Companion for good (`uv tool install`), and
 runs `reader-companion setup`, which:
 
@@ -4536,8 +4535,8 @@ without the Companion.
 the terminal closes:
 
 ```bash
-curl -LsSf https://saurav717.github.io/reader/companion.sh | sh                                  # macOS, Linux
-powershell -ExecutionPolicy ByPass -c "irm https://saurav717.github.io/reader/companion.ps1 | iex"  # Windows
+curl -LsSf https://koios.dev/companion.sh | sh                                  # macOS, Linux
+powershell -ExecutionPolicy ByPass -c "irm https://koios.dev/companion.ps1 | iex"  # Windows
 ```
 
 It installs [uv](https://docs.astral.sh/uv/) once if it isn't there. Then it
@@ -4628,7 +4627,7 @@ adds the rest:
 The extension reads the Companion's settings and the `.reader/playground.json`
 the page writes into each project folder. It keeps nothing of its own. To
 install it, use the card's **VS Code** tab:
-`curl -LsSfo /tmp/reader-playground.vsix https://saurav717.github.io/reader/vscode/reader-playground.vsix && code --install-extension /tmp/reader-playground.vsix`.
+`curl -LsSfo /tmp/reader-playground.vsix https://koios.dev/vscode/reader-playground.vsix && code --install-extension /tmp/reader-playground.vsix`.
 `npm run build:pages` builds that `.vsix` (`scripts/build-vscode.mjs`: esbuild,
 then the same zip writer as the Companion's wheel). To publish to the
 Marketplace instead, run `cd vscode && npx @vscode/vsce publish` with a
@@ -4675,7 +4674,7 @@ command for this site's address:
 
 ```bash
 pip install jupyter_server ipykernel
-jupyter server --ServerApp.allow_origin='https://saurav717.github.io' --ServerApp.root_dir="$HOME/reader-playgrounds"
+jupyter server --ServerApp.allow_origin='https://koios.dev' --ServerApp.root_dir="$HOME/reader-playgrounds"
 ```
 
 Paste the address Jupyter prints, with its `?token=`. The page tests it

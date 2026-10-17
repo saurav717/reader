@@ -3,11 +3,10 @@
 Merging a pull request into `main` here publishes everything it changes:
 
 - **The site.** The *Deploy site* workflow (`.github/workflows/deploy-site.yml`)
-  runs `npm run build:pages` and puts the result in
-  `saurav717/saurav717.github.io` under `reader/`. GitHub Pages then serves it
-  at https://saurav717.github.io/reader/ within a minute or two. The build has
-  the site's Worker compiled in (`build:pages`' default), and the workflow
-  refuses to publish one without it.
+  runs `npm run build:pages` and publishes the result as this repository's own
+  GitHub Pages site, which serves it at https://koios.dev/ within a minute or
+  two. The build has the site's Worker compiled in (`build:pages`' default),
+  and the workflow refuses to publish one without it.
 - **The proxy.** The *Deploy worker* workflow deploys the Cloudflare Worker
   when a merge changes it (below).
 - **The desktop app.** The *Desktop app* workflow builds Reader for macOS,
@@ -16,24 +15,25 @@ Merging a pull request into `main` here publishes everything it changes:
   Companion. The site's **Download for …** offers the newest, and **Settings → Updates → Update** brings an
   installed Companion up to the version the site serves.
 
-## Once: the token the site needs
+## Once: where the site is published
 
-A workflow here can't write to another repository on its own. Give it a token
-for the site's repository, and nothing else:
+The workflow needs no token: GitHub's own Pages deployment takes the build
+from the run. It needs the repository set up for that, once:
 
-1. On GitHub: your picture → **Settings** → **Developer settings** →
-   **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
-2. **Name** it "Reader site deploy", pick an **Expiration** (a year is fine; the
-   workflow says when it has run out), and under **Repository access** choose
-   **Only select repositories** → `saurav717/saurav717.github.io`.
-3. Under **Permissions → Repository permissions**, set **Contents** to
-   **Read and write**. Leave everything else as it is.
-4. **Generate token** and copy it.
-5. In **github.com/saurav717/reader → Settings → Secrets and variables →
-   Actions → New repository secret**, name it `SITE_DEPLOY_TOKEN` and paste it.
+1. In **github.com/saurav717/reader → Settings → Pages**, under **Build and
+   deployment → Source**, choose **GitHub Actions**.
+2. Under **Custom domain**, enter `koios.dev` and **Save**. The domain's DNS
+   already points at GitHub Pages (four `A` records for `koios.dev` and a
+   `CNAME` for `www`, kept at Cloudflare), so the check passes; once GitHub
+   has issued the certificate, tick **Enforce HTTPS**.
 
-Until it is there, *Deploy site* says so and does nothing, and a site update is a
-pull request to the site's repository, as before.
+Until the source is *GitHub Actions*, the deploy step fails and says so; the
+build itself still runs, so a pull request is still checked.
+
+The site used to live at https://saurav717.github.io/reader/, inside the
+personal site's repository, and nothing here writes there any more. The old
+address goes on showing the last build copied there, as it was; the personal
+site itself is untouched.
 
 ## Once more: the token the Worker needs
 
@@ -98,7 +98,7 @@ set up either or both. Both send people back to the Worker:
 Apps → New GitHub App):
 
 1. **GitHub App name**: anything, e.g. *Reader papers*. **Homepage URL**:
-   `https://saurav717.github.io/reader/`.
+   `https://koios.dev/`.
 2. Under **Identifying and authorizing users**: **Redirect URI** (called
    *Callback URL* on older versions of the form) is the address above;
    **Allow wildcard matching** unticked; keep **Expire user authorization

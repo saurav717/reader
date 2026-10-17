@@ -784,7 +784,7 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
   const [busy, setBusy] = useState(false);
   const parsed = parseServerUrl(address);
   const effective = parsed ? { url: parsed.url, token: token.trim() || parsed.token || '' } : null;
-  const origin = typeof window === 'undefined' ? 'https://saurav717.github.io' : window.location.origin;
+  const origin = typeof window === 'undefined' ? 'https://koios.dev' : window.location.origin;
   const save = async () => {
     if (!effective) return;
     setBusy(true);
@@ -871,7 +871,7 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
 // ------------------------------------------------------------ companion ----
 
 /** This site's address with its base path: what the Companion's installers are served under. */
-const siteBase = () => (typeof window === 'undefined' ? 'https://saurav717.github.io/reader/' : `${window.location.origin}${import.meta.env.BASE_URL}`);
+const siteBase = () => (typeof window === 'undefined' ? 'https://koios.dev/' : `${window.location.origin}${import.meta.env.BASE_URL}`);
 
 /** The first of these addresses a Companion answers on, trying for a while: a new tunnel can take some seconds to be found. */
 async function reachCompanion(routes: string[], forMs: number): Promise<{ base: string; info: CompanionInfo } | null> {

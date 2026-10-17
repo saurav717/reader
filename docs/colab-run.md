@@ -138,7 +138,7 @@ Half a day with the API key, before any UI work:
 curl -s "https://colaboratory.googleapis.com/\$discovery/rest?version=v1beta&key=$KEY" | jq '.resources | keys, .resources.runtimes.methods | keys'
 # 3: does the API answer a browser's preflight from the site?
 curl -si -X OPTIONS "https://colaboratory.googleapis.com/v1beta/runtimes?key=$KEY" \
-  -H 'Origin: https://saurav717.github.io' -H 'Access-Control-Request-Method: POST' \
+  -H 'Origin: https://koios.dev' -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: authorization,content-type' | grep -i access-control
 ```
 

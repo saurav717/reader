@@ -200,7 +200,7 @@ GOOGLE_CLIENT_ID = "308274983351-s52d0ustml5bneg91ju6of40tmitnaoa.apps.googleuse
 # Unset, the app signs in the way the site does, an hour at a time.
 # A captcha in front of Google sign-in: Cloudflare Turnstile, free. Make a
 # widget in the Cloudflare dashboard (Turnstile → Add widget, hostname
-# saurav717.github.io and localhost), put its site key here — it is public,
+# koios.dev and localhost), put its site key here — it is public,
 # /health hands it to the app, which draws the widget on the sign-in screen —
 # and its secret key as a secret:
 #

@@ -49,6 +49,7 @@ const UA = 'reader/0.1 (personal research reading tool)';
 // so the list is short, and ALLOWED_ORIGINS (comma-separated) extends it.
 const ALLOWED_ORIGINS = new Set(
   [
+    'https://koios.dev',
     'https://saurav717.github.io',
     'http://localhost:5173',
     'http://localhost:8080',
