@@ -1,12 +1,12 @@
 # Publishes the site: each merge into main builds it (npm run build:pages, with
-# the site's Worker compiled in) and puts it in saurav717/saurav717.github.io
-# under reader/, which GitHub Pages serves at https://saurav717.github.io/reader/.
-# So merging a pull request here is all a change needs; there's no site pull
-# request to merge as well.
+# the site's Worker compiled in) and publishes the build as this repository's
+# own GitHub Pages site, which serves it at https://koios.dev/. So merging a
+# pull request here is all a change needs.
 #
-# It needs one secret, SITE_DEPLOY_TOKEN: a fine-grained personal access token
-# with "Contents: Read and write" on saurav717/saurav717.github.io only (see
-# docs/deploy.md). Without it this run says so and does nothing.
+# It needs no token: GitHub's own Pages deployment takes the build from this
+# run. Once, in Settings → Pages, the source must be "GitHub Actions" and the
+# custom domain koios.dev (see docs/deploy.md); until then the deploy step
+# fails and says so, and the build itself still runs.
 name: Deploy site
 
 on:
@@ -16,21 +16,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-site
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    env:
-      SITE_DEPLOY_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
-      PUBLISH: ${{ github.event_name != 'pull_request' && secrets.SITE_DEPLOY_TOKEN != '' }}
     steps:
-      - name: Without the token, nothing to publish
-        if: github.event_name != 'pull_request' && env.SITE_DEPLOY_TOKEN == ''
-        run: echo "::notice::SITE_DEPLOY_TOKEN isn't set, so the site isn't published from here (docs/deploy.md)."
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -46,31 +42,23 @@ jobs:
           npm run build:pages
           grep -q "reader-arxiv-proxy" dist-pages/assets/index-*.js || { echo "::error::The build has no proxy address in it"; exit 1; }
 
-      - uses: actions/checkout@v4
-        if: env.PUBLISH == 'true'
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
-          repository: saurav717/saurav717.github.io
-          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
-          path: site
+          path: dist-pages
 
-      - name: Publish it under reader/
-        if: env.PUBLISH == 'true'
-        env:
-          MESSAGE: ${{ github.event.head_commit.message }}
-        run: |
-          cd site
-          # reader/ is the build, and only the build; SETUP.md there is the site's own.
-          [ -f reader/SETUP.md ] && cp reader/SETUP.md "$RUNNER_TEMP/SETUP.md"
-          rm -rf reader
-          cp -r ../dist-pages reader
-          [ -f "$RUNNER_TEMP/SETUP.md" ] && cp "$RUNNER_TEMP/SETUP.md" reader/SETUP.md
-          git add -A reader
-          if git diff --cached --quiet; then
-            echo "The site is already this build."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -q -m "Reader: build of saurav717/reader@${GITHUB_SHA::7}" -m "${MESSAGE:-}"
-          git push
-          echo "### Published saurav717/reader@${GITHUB_SHA::7} to https://saurav717.github.io/reader/" >> "$GITHUB_STEP_SUMMARY"
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - run: echo "### Published saurav717/reader@${GITHUB_SHA::7} to ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"

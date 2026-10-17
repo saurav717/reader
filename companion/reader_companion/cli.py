@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import __version__, account, desktop, env, state, tls, tunnel
 
-DEFAULT_SITE = os.environ.get("READER_SITE", "https://saurav717.github.io/reader/")
+DEFAULT_SITE = os.environ.get("READER_SITE", "https://koios.dev/")
 DEFAULT_PORT = 47321
 
 DIM, BOLD, GREEN, YELLOW, BLUE, RESET = ("\033[2m", "\033[1m", "\033[32m", "\033[33m", "\033[34m", "\033[0m") if sys.stdout.isatty() else ("",) * 6

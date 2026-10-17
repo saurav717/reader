@@ -15,7 +15,7 @@ project. This document is the design.
 > **Built: step 1.** `companion/` is the package, and the Playground's
 > **Connect this computer** card starts it, finds it and pairs with it (see
 > the README's *Connect this computer*). It is served from the site rather
-> than PyPI: `curl -LsSf https://saurav717.github.io/reader/companion.sh | sh`
+> than PyPI: `curl -LsSf https://koios.dev/companion.sh | sh`
 > installs uv if needed and runs the wheel the site build carries. Your code
 > runs in `~/Reader/.venv`, or in the Python given with `--python`. A real
 > terminal (xterm.js on Jupyter's terminals, your own shell) replaced the

@@ -12,7 +12,7 @@
 // for Windows and reader-companion-setup.sh for Linux. The wheel is made here, in
 // Node, so building the site needs no Python: a wheel is a zip of the package
 // and a few metadata files. siteUrl is the address the build is served at
-// (https://saurav717.github.io/reader/ by default, or READER_SITE); the
+// (https://koios.dev/ by default, or READER_SITE); the
 // installers fetch the wheel from it, and the Companion pairs back with it.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -243,7 +243,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     console.error('usage: node scripts/build-companion.mjs <outDir> [siteUrl]');
     process.exit(2);
   }
-  const site = process.argv[3] || process.env.READER_SITE || 'https://saurav717.github.io/reader/';
+  const site = process.argv[3] || process.env.READER_SITE || 'https://koios.dev/';
   const built = buildWheel();
   mkdirSync(join(out, 'companion'), { recursive: true });
   writeFileSync(join(out, 'companion', built.name), built.bytes);

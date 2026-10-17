@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/saurav717/reader"
   },
-  "homepage": "https://saurav717.github.io/reader/playground",
+  "homepage": "https://koios.dev/playground",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -161,7 +161,7 @@
       "properties": {
         "reader.site": {
           "type": "string",
-          "default": "https://saurav717.github.io/reader/",
+          "default": "https://koios.dev/",
           "description": "The reader's address. The Companion's settings name it once it has run; this is used before that."
         },
         "reader.setPythonInterpreter": {
