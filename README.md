@@ -486,6 +486,27 @@ its raw answers, and says whether each was read — the check to run once with a
 new key; `scripts/serply.test.mjs` pins the mapping to saved answers
 (`scripts/fixtures/serply-*.json`).
 
+### Drawing with OpenAI's image models
+
+`npm run draw` asks OpenAI's image API for a picture and writes the PNG into the
+repository: studies for the Koios drawing, mostly. `--koios` renders the preset
+prompts in `scripts/draw.mjs` (the figure at the axis, the profile with a star
+for an eye, the bookmark in a night sky, an atlas plate) into
+`docs/koios/studies/`; any other text is a prompt of its own, written to
+`docs/koios/drawings/`:
+
+```bash
+npm run draw -- --koios
+npm run draw -- "a four-pointed star cut out of a bookmark, flat vector, night sky" --n 2 --size 1024x1536
+```
+
+The key is `OPENAI_API_KEY`. In a cloud session, store it as a network secret for
+`api.openai.com` instead and leave the variable unset: the session's proxy
+attaches it, so the key never enters the machine. The request goes through
+`curl`, which honours `HTTPS_PROXY`; `--model`, `--quality` and `--out` are there
+for when the defaults (`gpt-image-1`, `medium`) are not what you want. Each image
+costs money, so the script draws one per prompt unless told `--n`.
+
 ### Getting a paper from a terminal
 
 `npm run fetch` is the same resolution and download, run from Node rather than

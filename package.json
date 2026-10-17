@@ -19,7 +19,8 @@
     "usage": "node scripts/usage.mjs",
     "check:worker": "npx --yes wrangler@4 deploy --dry-run",
     "deploy:worker": "npx --yes wrangler@4 deploy",
-    "fetch": "node scripts/fetch-paper.mjs"
+    "fetch": "node scripts/fetch-paper.mjs",
+    "draw": "node scripts/draw.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
