@@ -93,7 +93,9 @@ export default function DeleteAccount({ email, googleClientId, rooms, onClose }:
         </label>
 
         <label className="pj-label">
-          Type <b>{email}</b> to confirm
+          <span>
+            Type <b>{email}</b> to confirm
+          </span>
           <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={email} autoComplete="off" spellCheck={false} disabled={busy} />
         </label>
         {error ? <p className="pj-share-error">Nothing more was deleted: {error}</p> : null}
