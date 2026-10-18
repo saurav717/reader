@@ -312,13 +312,14 @@ export const SOURCE_LABELS: Record<CitationSource, string> = {
   arxiv: 'arXiv',
   datacite: 'DataCite',
   semanticscholar: 'Semantic Scholar',
+  ai: 'AI, from the web',
   pasted: 'pasted',
   generated: 'made here',
 };
 
 /** The sources, the one closest to the paper's publisher first: a draft takes the first that answered. */
-const OFFICIAL: CitationSource[] = ['crossref', 'acl', 'openreview', 'dblp', 'arxiv', 'datacite', 'semanticscholar', 'pasted', 'generated'];
-const DBLP_FIRST: CitationSource[] = ['dblp', 'crossref', 'acl', 'openreview', 'arxiv', 'datacite', 'semanticscholar', 'pasted', 'generated'];
+const OFFICIAL: CitationSource[] = ['crossref', 'acl', 'openreview', 'dblp', 'arxiv', 'datacite', 'semanticscholar', 'ai', 'pasted', 'generated'];
+const DBLP_FIRST: CitationSource[] = ['dblp', 'crossref', 'acl', 'openreview', 'arxiv', 'datacite', 'semanticscholar', 'ai', 'pasted', 'generated'];
 
 export function preferenceOrder(opts: CitationOptions = options): CitationSource[] {
   return opts.prefer === 'dblp' ? DBLP_FIRST : opts.prefer === 'generated' ? ['pasted', 'generated'] : OFFICIAL;
@@ -368,7 +369,7 @@ export interface CitationState {
 export function citationState(paper: Paper, opts: CitationOptions = options): CitationState {
   const variant = variantOf(paper, opts);
   const record = parseBibtex(variant.bibtex)[0];
-  const official = variant.source !== 'generated' && variant.source !== 'pasted';
+  const official = variant.source !== 'generated' && variant.source !== 'pasted' && variant.source !== 'ai';
   const pending =
     opts.published !== 'keep' && paper.citation?.publishedDoi && !isPublishedVersion(paper, variant) && (!paper.doi || paper.doi.toLowerCase() !== paper.citation.publishedDoi.toLowerCase())
       ? { doi: paper.citation.publishedDoi, in: paper.citation.publishedIn ?? 'a journal or proceedings' }
@@ -377,7 +378,16 @@ export function citationState(paper: Paper, opts: CitationOptions = options): Ci
   return {
     key: keyOf(paper, opts),
     source: variant.source,
-    label: variant.source === 'generated' ? (paper.citation?.lookedAt ? 'made here · no source had it' : 'made here · not looked up yet') : variant.source === 'pasted' ? 'pasted' : `official · ${SOURCE_LABELS[variant.source]}`,
+    label:
+      variant.source === 'generated'
+        ? paper.citation?.lookedAt
+          ? 'made here · no source had it'
+          : 'made here · not looked up yet'
+        : variant.source === 'pasted'
+          ? 'pasted'
+          : variant.source === 'ai'
+            ? `found by AI${variant.of ? ` · ${variant.of.replace(/, .*$/, '')}` : ''}`
+            : `official · ${SOURCE_LABELS[variant.source]}`,
     official,
     published: pending,
     summary: [record ? `@${record.type}` : '', venue ? `${venue}${record?.fields.year && !venue.includes(plain(record.fields.year)) ? ` ${plain(record.fields.year)}` : ''}` : ''].filter(Boolean).join(' · '),
@@ -798,6 +808,6 @@ export async function lookupCitations(paper: Paper): Promise<CitationRecord> {
     record.publishedDoi = publishedDoi;
     if (publishedIn) record.publishedIn = publishedIn;
   }
-  if (!record.variants.some((variant) => variant.source !== 'generated' && variant.source !== 'pasted')) record.error = 'No source had an entry for it.';
+  if (!record.variants.some((variant) => variant.source !== 'generated' && variant.source !== 'pasted' && variant.source !== 'ai')) record.error = 'No source had an entry for it.';
   return record;
 }

@@ -4,6 +4,8 @@
  * Markdown link, and the bare \cite key. One click copies the form Settings
  * → Citations picks; the arrow opens the rest. Used in the reader's top bar,
  * on the project's bibliography, and on the card over a cited reference.
+ * For a paper in the library it can also ask a language model to find the
+ * entry on the web (src/lib/citeAi.ts).
  */
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
@@ -26,10 +28,13 @@ export function asPaper(ref: PaperRef): Paper {
 }
 
 export default function CiteMenu({ paper, compact = false, label = 'Cite', align = 'right', onLookup }: { paper: Paper; /** The button as an icon-sized chip. */ compact?: boolean; label?: string; align?: 'left' | 'right'; /** Ask the indexes for the paper's official entries first (a paper in the library). */ onLookup?: () => Promise<void> }) {
-  const { settings } = useStore();
+  const { settings, papers, askAiForCitation } = useStore();
   const opts = settings.citations ?? CITATION_DEFAULTS;
   const [open, setOpen] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const inLibrary = papers.some((item) => item.id === paper.id);
   const box = useRef<HTMLDivElement>(null);
   const state = citationState(paper, opts);
 
@@ -57,6 +62,19 @@ export default function CiteMenu({ paper, compact = false, label = 'Cite', align
     say(ok ? `Copied ${format === 'key' ? '\\cite' : CITE_FORMATS.find((item) => item.id === format)?.label ?? format}` : 'Could not copy');
     setOpen(false);
   };
+  const askAi = async () => {
+    setAsking(true);
+    setAiError(null);
+    try {
+      await askAiForCitation(paper.id);
+      say('Found by AI');
+      setOpen(false);
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAsking(false);
+    }
+  };
   const main = CITE_FORMATS.find((item) => item.id === opts.copy) ?? CITE_FORMATS[0];
 
   return (
@@ -65,7 +83,7 @@ export default function CiteMenu({ paper, compact = false, label = 'Cite', align
         <button type="button" className="btn sm" onClick={() => void take(main.id)} title={`Copy the citation as ${main.label} (${main.note}) — Settings → Citations picks what one click copies`}>
           {said ?? label}
         </button>
-        <button type="button" className="btn sm cite-menu-more" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} aria-label="Copy the citation in another form">
+        <button type="button" className="btn sm cite-menu-more" aria-haspopup="menu" aria-expanded={open} onClick={() => (setOpen(!open), setAiError(null))} aria-label="Copy the citation in another form">
           <ChevronDownIcon size={12} />
         </button>
       </div>
@@ -90,6 +108,16 @@ export default function CiteMenu({ paper, compact = false, label = 'Cite', align
                 <span>Fetch its official entry</span>
                 <small className="cite-menu-note">Crossref, S2, dblp, OpenReview</small>
               </button>
+            </>
+          ) : null}
+          {onLookup && inLibrary ? (
+            <>
+              <hr />
+              <button type="button" role="menuitem" disabled={asking} onClick={() => void askAi()} title="DeepSeek first, then Claude, then Gemini — whichever has a key and credit left. Claude and DeepSeek search the web; the entry is kept as this paper's and used from now on.">
+                <span>{asking ? 'Asking AI…' : state.source === 'ai' ? 'Ask AI again' : 'Ask AI to find it'}</span>
+                <small className="cite-menu-note">searches the web · DeepSeek, Claude, Gemini</small>
+              </button>
+              {aiError ? <div className="cite-menu-error">{aiError}</div> : null}
             </>
           ) : null}
         </div>
