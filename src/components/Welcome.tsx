@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { KoiosMark, pickScene, ScenePlate, useSlides } from './NightScene';
+import { KoiosMark, pickScene, SceneBackdrop, ScenePlate, useSlides } from './NightScene';
+
+/** How the opening screen is laid out: the picture filling the screen from the right, or framed in the middle. */
+const WELCOME_LAYOUT: 'side' | 'centred' = 'side';
 import { basePath, currentAddress, placeFor } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
@@ -62,17 +65,21 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
   // picture, as a plate in the middle, the same words under it — and under
   // them the way in. The rail stays away until someone is in (App.tsx).
   // The scenes go round while the page waits, each fading in over the last,
-  // its words fading in after it.
+  // its words fading in after it. `side` fills the screen with the picture
+  // from the right and keeps the words and the way in on the left; `centred`
+  // frames the picture as a plate in the middle with everything under it.
   const { scene, previous, turn } = useSlides(pickScene());
+  const centred = WELCOME_LAYOUT === 'centred';
 
   return (
-    <div className="main night night-scene is-welcome is-centred">
-      <div className="night-mark is-centred">
+    <div className={`main night night-scene is-welcome${centred ? ' is-centred' : ''}`}>
+      {centred ? null : <SceneBackdrop scene={scene} previous={previous} />}
+      <div className={`night-mark${centred ? ' is-centred' : ''}`}>
         <KoiosMark />
         <span>koios</span>
       </div>
-      <ScenePlate scene={scene} previous={previous} />
-      <div className="night-copy is-centred">
+      {centred ? <ScenePlate scene={scene} previous={previous} /> : null}
+      <div className={`night-copy${centred ? ' is-centred' : ''}`}>
         <div key={turn} className="night-words">
           <h1>
             {scene.headline[0]}
@@ -242,7 +249,8 @@ export function Captcha({ siteKey, onSolved }: { siteKey: string; onSolved: (sol
         if (!live || !box.current || !window.turnstile) return;
         widget = window.turnstile.render(box.current, {
           sitekey: siteKey,
-          theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+          // The opening screen is the night whatever the theme, so the box is too.
+          theme: 'dark',
           callback: (answer: string) => answered(answer),
           'expired-callback': () => answered(null),
           'error-callback': () => answered(null),
