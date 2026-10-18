@@ -5,7 +5,7 @@
   --rail: #eeebe1;
   --border: #e2ddce;
   --border-soft: #ede9db;
-  --ink: #1a1a17;
+  --ink: #0a0e18;
   --ink-2: #55524a;
   --muted: #6f6c63;
   --accent: #1f5e52;
@@ -8937,27 +8937,6 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 }
 /* The sky: a glow at the top of the window and a few stars, behind everything. */
 :root[data-theme='dark'] .app { position: relative; z-index: 0; background: radial-gradient(ellipse 80% 55% at 50% -12%, rgba(24, 34, 62, 0.95) 0%, rgba(7, 10, 18, 0) 70%), var(--rail); }
-:root[data-theme='dark'] .app::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image:
-    radial-gradient(1.2px 1.2px at 8% 12%, rgba(233, 228, 214, 0.5) 50%, transparent 52%),
-    radial-gradient(1px 1px at 22% 6%, rgba(233, 228, 214, 0.35) 50%, transparent 52%),
-    radial-gradient(1.4px 1.4px at 37% 15%, rgba(240, 215, 154, 0.45) 50%, transparent 52%),
-    radial-gradient(1px 1px at 52% 4%, rgba(233, 228, 214, 0.3) 50%, transparent 52%),
-    radial-gradient(1.2px 1.2px at 66% 10%, rgba(233, 228, 214, 0.45) 50%, transparent 52%),
-    radial-gradient(1px 1px at 81% 7%, rgba(240, 215, 154, 0.4) 50%, transparent 52%),
-    radial-gradient(1.4px 1.4px at 93% 16%, rgba(233, 228, 214, 0.4) 50%, transparent 52%),
-    radial-gradient(1px 1px at 14% 42%, rgba(233, 228, 214, 0.25) 50%, transparent 52%),
-    radial-gradient(1px 1px at 88% 38%, rgba(233, 228, 214, 0.28) 50%, transparent 52%),
-    radial-gradient(1.2px 1.2px at 4% 72%, rgba(233, 228, 214, 0.3) 50%, transparent 52%),
-    radial-gradient(1px 1px at 96% 66%, rgba(240, 215, 154, 0.3) 50%, transparent 52%),
-    radial-gradient(1px 1px at 46% 92%, rgba(233, 228, 214, 0.22) 50%, transparent 52%),
-    radial-gradient(1.2px 1.2px at 72% 86%, rgba(233, 228, 214, 0.28) 50%, transparent 52%);
-}
 :root[data-theme='dark'] .main { background: transparent; }
 :root[data-theme='dark'] .rail { background: transparent; }
 
@@ -8995,3 +8974,33 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-theme='dark'] .home-card { box-shadow: none; }
 :root[data-theme='dark'] .chip { border-color: var(--border-soft); }
 :root[data-theme='dark'] .chip[aria-pressed='true'] { background: transparent; border-color: var(--accent); color: var(--accent-ink); color: #8fcbb8; }
+
+/* ---------- Where the ground is empty ----------
+   The armillary, one of the Titan's lines, and what to do: the one place
+   inside the app the name shows. */
+.quiet { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 44px 24px 40px; text-align: center; color: var(--muted); }
+.quiet > svg { color: var(--gold); opacity: 0.85; }
+.quiet-line { margin: 0; font: 300 26px/1.2 var(--serif); letter-spacing: -0.01em; color: var(--ink); }
+.quiet-text { margin: 0; max-width: 420px; font-size: 13px; line-height: 1.6; }
+.quiet .btn { margin-top: 6px; }
+.quiet.is-compact { gap: 8px; padding: 20px 16px 24px; }
+.quiet.is-compact .quiet-line { font-size: 20px; }
+.pj-empty-mark { color: var(--gold); opacity: 0.85; margin-bottom: 4px; }
+.cal-empty { background: transparent; border-color: var(--border); box-shadow: none; }
+.cal-empty > svg { color: var(--gold); opacity: 0.85; }
+.cal-empty h2 { font-weight: 400; }
+.settings-mark { flex: none; color: var(--gold); opacity: 0.8; margin: 2px 12px 0 0; }
+
+/* The day: navy ink on the paper, and the gold token on the rail's current place. */
+:root:not([data-theme='dark']) .nav-lab.is-active { color: var(--gold); }
+:root:not([data-theme='dark']) .icon-btn[aria-current='page'] { color: var(--gold); }
+
+/* One page becomes the next: a cross-fade of 300 ms with a 10 px rise. The
+   rail is named, so it holds still while the page changes. */
+.rail, .nav-rail { view-transition-name: koios-rail; }
+@keyframes koios-page-in { from { transform: translateY(10px); } to { transform: none; } }
+::view-transition-old(root) { animation: 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both -ua-view-transition-fade-out; }
+::view-transition-new(root) { animation: 300ms cubic-bezier(0.2, 0.7, 0.2, 1) both -ua-view-transition-fade-in, 300ms cubic-bezier(0.2, 0.7, 0.2, 1) both koios-page-in; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

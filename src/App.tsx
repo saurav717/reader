@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
 import { HIGHLIGHT_COLORS, type NavStyle } from './types';
@@ -223,7 +224,19 @@ export default function App() {
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
-  const [view, setView] = useState<View>(readView);
+  const [view, setViewNow] = useState<View>(readView);
+  // One page becomes the next by a short cross-fade, where the browser can do
+  // it (view transitions); elsewhere, and with motion reduced, at once.
+  const setView = useCallback((next: View) => {
+    const doc = document as Document & { startViewTransition?: (update: () => void) => unknown };
+    if (!doc.startViewTransition || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setViewNow(next);
+      return;
+    }
+    doc.startViewTransition(() => {
+      flushSync(() => setViewNow(next));
+    });
+  }, []);
   /** For the keys, which are set up before openPaper is. */
   const openPaperRef = useRef<(id: string) => void>(() => {});
   /** The paper read last in this tab: what G, and the button under R, go back to from Home. */

@@ -9,6 +9,7 @@ import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, GridIcon, InboxIcon, 
 import { plainCollections, projectsOf } from '../lib/projects';
 import RemovePaperDialog from './RemovePaperDialog';
 import { PAPERS_MIME, ProgressRing, carriesPapers, draggedPapers } from './LibraryBits';
+import { Quiet } from './Quiet';
 
 interface Props {
   view: View;
@@ -246,7 +247,11 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
       </div>
 
       <div className="scroll library-list">
-        {!scopeTotal ? <p className="library-empty">{inProject ? 'No papers in this project yet. Add some from its overview, or drop them on it in the whole library.' : 'Nothing here yet. Open Discover on the right to add a paper.'}</p> : null}
+        {!scopeTotal ? (
+          <Quiet line={inProject ? 'Take your bearing.' : 'Every paper is a star.'}>
+            {inProject ? 'No papers in this project yet. Add some from its overview, or drop them on it in the whole library.' : 'Nothing here yet. Open Discover on the right to add a paper.'}
+          </Quiet>
+        ) : null}
 
         {groups.map((group) => {
           if (!group.items.length) return null;

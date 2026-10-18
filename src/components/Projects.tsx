@@ -58,6 +58,7 @@ import Reader from './Reader';
 import Discover from './Discover';
 import { CiteButtons, DraftEditor, OpenOverleaf, OverleafCard } from './Overleaf';
 import WritePage from './Write';
+import { Armillary, Quiet } from './Quiet';
 import BibliographyCard from './Bibliography';
 import { ComputeSwitch } from './Compute';
 import { COLAB, computeId, isOn, serversOn, switchesOnCards } from '../lib/compute';
@@ -541,6 +542,7 @@ function ProjectBoard({ projects, onEnter, onNew, onCopy, copying }: { projects:
     return (
       <div className="pj-scroll">
         <div className="pj-empty">
+          <Armillary size={72} className="pj-empty-mark" />
           <span className="eyebrow">Projects</span>
           <h1>Keep each piece of research together</h1>
           <p>
@@ -828,7 +830,9 @@ function ProjectOverview({
           </div>
         ))
       ) : (
-        <p className="pj-none">No papers yet.</p>
+        <Quiet line="Take your bearing." compact>
+          No papers yet. Add some from Discover, beside the page.
+        </Quiet>
       )}
 
       {shared.length ? (

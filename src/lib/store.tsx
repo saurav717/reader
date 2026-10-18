@@ -454,7 +454,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     const root = document.documentElement;
-    root.dataset.theme = settings.theme;
+    // `system` is whichever the operating system says, and follows it as it changes.
+    const dark = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const apply = () => {
+      root.dataset.theme = settings.theme === 'system' ? (dark?.matches ? 'dark' : 'light') : settings.theme;
+    };
+    apply();
+    if (settings.theme === 'system') dark?.addEventListener('change', apply);
     if (settings.glass) root.dataset.glass = 'on';
     else delete root.dataset.glass;
     root.style.setProperty('--frost', String(settings.glassFrost));
@@ -464,6 +470,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setCitationOptions(settings.citations);
     setProxyBase(settings.proxyBase);
     setProxyToken(settings.proxyToken);
+    return () => dark?.removeEventListener('change', apply);
   }, [settings]);
 
   // Signed in with Google, the proxy is asked for a pass in place of a pasted

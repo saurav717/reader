@@ -25,6 +25,7 @@ import { hoverPaper, useNoteCounts } from '../lib/notes';
 import { CheckIcon, CloseIcon, CloudCheckIcon, CloudIcon, DriveMark, FlagIcon, FolderMoveIcon, GridIcon, ListIcon, NoteIcon, PlusIcon, SearchIcon, SlidersIcon, TableIcon, TrashIcon } from './icons';
 import RemovePaperDialog from './RemovePaperDialog';
 import { CoverTile, Menu, PAPERS_MIME, ProgressRing, progressLabel } from './LibraryBits';
+import { Quiet } from './Quiet';
 
 interface Props {
   view: View;
@@ -598,19 +599,20 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
 
       <div className={`scroll library-scroll${selecting ? ' has-selection' : ''}`}>
         {!rows.length ? (
-          <div className="empty">
-            <h3>{filter ? 'Nothing matches that' : 'Nothing here yet'}</h3>
-            <p>
-              {filter
-                ? 'Try part of a title, an author’s surname, a journal or a tag.'
-                : 'Search for a paper or a book in the Discover panel — or paste the link to any PDF there — and add it to this collection.'}
-            </p>
-            {filter ? null : (
-              <button type="button" className="btn primary" onClick={onDiscover} style={{ marginTop: 10 }}>
-                <PlusIcon size={15} /> Find papers
-              </button>
-            )}
-          </div>
+          <Quiet
+            line={filter ? 'Ask another way.' : 'Every paper is a star.'}
+            action={
+              filter ? null : (
+                <button type="button" className="btn primary" onClick={onDiscover}>
+                  <PlusIcon size={15} /> Find papers
+                </button>
+              )
+            }
+          >
+            {filter
+              ? 'Nothing matches that. Try part of a title, an author’s surname, a journal or a tag.'
+              : 'Nothing here yet. Search for a paper or a book in the Discover panel, or paste the link to any PDF there, and add it to this collection.'}
+          </Quiet>
         ) : null}
 
         {layout === 'compact' && rows.length ? tableHead : null}

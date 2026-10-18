@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useStore } from '../lib/store';
 import * as google from '../lib/google';
 import { basePath } from '../lib/route';
+import { Armillary } from './Quiet';
 import {
   CALL_NAMES,
   CalendarRequestError,
@@ -704,7 +705,7 @@ function Empty({ title, text, error, note, more, action }: { title: string; text
   return (
     <div className="scroll" style={{ padding: '18px 32px 32px' }}>
       <div className="cal-empty">
-        <CalendarIcon size={28} />
+        <Armillary size={64} />
         <h2>{title}</h2>
         <p>{text}</p>
         {error ? <p className="banner error">{error}</p> : null}

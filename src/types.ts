@@ -390,7 +390,8 @@ export interface Settings {
    * to the proxy, as a header.
    */
   proxyToken: string;
-  theme: 'light' | 'dark';
+  /** `system` follows the operating system's choice, and changes with it. */
+  theme: 'light' | 'dark' | 'system';
   /**
    * The glass material: the window's panes turn into frosted, nearly clear
    * sheets over a soft wash of colour, in either theme. Off, every surface is

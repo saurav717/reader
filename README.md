@@ -3113,9 +3113,24 @@ daylight.
 
 ![the library in the night theme: the month's label in gold, the papers' rings, the Discover pane beside](docs/night-library.png)
 
+Inside the app the Titan shows in one place only: where the ground is
+empty. An empty library, a project with no papers yet, the calendar before
+Google is connected, a search that found nothing, each gets the armillary
+drawn in gold hairlines and one of his lines — "Every paper is a star",
+"Ask well", "Take your bearing" — in place of a grey notice. The same
+drawing stands at the top of Settings. Pages change by a cross-fade of
+300 ms where the browser can do one, and at once where it cannot or motion
+is reduced.
+
+![the library with nothing in it yet: the armillary in gold hairlines, "Every paper is a star.", and the Find papers button](docs/night-empty.png)
+
+**Settings → Appearance → Theme** has Light, Dark and System, the last
+following the operating system as it changes.
+
 The words are in `src/components/NightScene.tsx`, with the scene chosen
 for the visit; the pictures' lettering was lifted off the renders in
-`docs/koios-studies/loading/` so the app can set its own.
+`docs/koios-studies/loading/` so the app can set its own. The armillary
+and the empty states are `src/components/Quiet.tsx`.
 
 ## Glass
 
