@@ -83,17 +83,23 @@ function Star({ className }: { className?: string }) {
   );
 }
 
-/** The picture and the veil over it. The words come first in the DOM; the picture fades in when it has arrived. */
-export function SceneBackdrop({ scene }: { scene: Scene }) {
-  const [arrived, setArrived] = useState(false);
+/**
+ * The picture and the veil over it. The words come first in the DOM; the
+ * picture fades in when it has arrived. Given the scene before, that one
+ * stays underneath while the new one fades in over it.
+ */
+export function SceneBackdrop({ scene, previous }: { scene: Scene; previous?: Scene | null }) {
+  const [arrived, setArrived] = useState<string | null>(null);
   return (
     <>
+      {previous ? <img key={previous.file} className="night-img is-in is-under" src={sceneUrl(previous)} alt="" style={{ objectPosition: previous.focus }} /> : null}
       <img
-        className={`night-img${arrived ? ' is-in' : ''}`}
+        key={scene.file}
+        className={`night-img${arrived === scene.file ? ' is-in' : ''}`}
         src={sceneUrl(scene)}
         alt=""
         decoding="async"
-        onLoad={() => setArrived(true)}
+        onLoad={() => setArrived(scene.file)}
         style={{ objectPosition: scene.focus }}
       />
       <div className="night-veil" aria-hidden="true" />
@@ -101,8 +107,8 @@ export function SceneBackdrop({ scene }: { scene: Scene }) {
   );
 }
 
-/** How long each scene stands on the opening screen before the next fades in. */
-const SLIDE_MS = 6500;
+/** How long each scene stands on the opening screen before the next fades in (the fade itself is 3 s, in styles.css). */
+const SLIDE_MS = 11000;
 
 /**
  * The scenes one after another, starting from this visit's: the current one,
@@ -120,7 +126,7 @@ export function useSlides(first: Scene): { scene: Scene; previous: Scene | null;
     const warm = window.setTimeout(() => {
       const next = new Image();
       next.src = sceneUrl(SCENES[(start + 1) % SCENES.length]);
-    }, SLIDE_MS - 2500);
+    }, SLIDE_MS - 4000);
     return () => {
       window.clearInterval(timer);
       window.clearTimeout(warm);

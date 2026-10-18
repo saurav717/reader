@@ -3095,13 +3095,15 @@ not the same twice running.
 ![the loading screen: a gold line drawing of an armillary sphere on a navy sky, "What is worth knowing is worth finding", and a hairline with a star on it under "Reading your library from Drive"](docs/night-loading.png)
 
 The opening screen, where Drive is connected, keeps the scene the loading
-screen chose, as a plate in the middle of the page: the mark above it, the
-two lines and the introduction under it, then the sign-in. The rail stays
-away until someone is in. While the page waits the scenes go round: every
-six and a half seconds the next fades in over the last, and its words fade
-in after it; with motion reduced, the first scene stands alone.
+screen chose: the picture fills the screen from the right, and the words
+and the sign-in sit on the left. The rail stays away until someone is in.
+While the page waits the scenes go round: each stands for eleven seconds,
+then the next fades in over it across three, and its words fade in after
+it; with motion reduced, the first scene stands alone. The same screen can
+be laid out with the picture framed in the middle instead, by one constant
+in `src/components/Welcome.tsx`.
 
-![the opening screen: an engraved marble profile under a gold ring, framed as a plate in the middle, "Ask well. Read slowly. Keep what matters." beneath it, and the sign-in under a hairline](docs/night-welcome.png)
+![the opening screen: an engraved marble profile under a gold ring filling the right of the screen, "Ask well. Read slowly. Keep what matters." on the left, and the sign-in under a hairline](docs/night-welcome.png)
 
 The dark theme is the same night: the sky's glow and a few stars in the
 ground, cream ink, gold hairlines where the lines were grey, the section

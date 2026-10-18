@@ -363,7 +363,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -648,7 +648,7 @@ export default {
           const kept = env.SESSIONS ? await env.SESSIONS.get('site:look').catch(() => null) : null;
           return json({ look: kept === 'classic' ? 'classic' : 'koios', stored: Boolean(env.SESSIONS) }, 200, { ...headers, 'Cache-Control': 'public, max-age=60' });
         }
-        if (request.method === 'PUT') {
+        if (request.method === 'POST' || request.method === 'PUT') {
           const who = await ownerAuthorized(request, env);
           if (!who?.owner) return json({ error: 'the look is the owner’s to set: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
           if (!env.SESSIONS) return json({ error: 'no SESSIONS namespace is bound here, so the look cannot be kept — see wrangler.toml' }, 501, headers);
@@ -658,7 +658,7 @@ export default {
           await env.SESSIONS.put('site:look', look);
           return json({ look, stored: true }, 200, { ...headers, 'Cache-Control': 'no-store' });
         }
-        return json({ error: 'GET or PUT' }, 405, headers);
+        return json({ error: 'GET or POST' }, 405, headers);
       }
 
       // Who uses this Worker's paid accounts, and how much: worker/usage.js.
