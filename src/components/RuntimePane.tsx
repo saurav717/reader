@@ -13,10 +13,14 @@
 // the watch and the pulse, and the runtime's actions. Everything shown comes
 // from the Colab store (src/lib/colab.ts) — the probe's samples, kept as a
 // history — and the sums are src/lib/runtime.ts.
+//
+// The pane shows the foreground session unless given another (`session`):
+// a project on several machines stacks one pane a machine, and the actions
+// then go to that machine's kernel by its scope.
 
 import { useEffect, useMemo, useState } from 'react';
-import { connect, HISTORY_MS, machineLabel, pauseRuns, probeMachine, PULSE_MS, restartKernel, resumeRuns, setGpuWatch, setMachine, setPulse, stopRuns, stopRuntime } from '../lib/colab';
-import type { CellRun, Pulse } from '../lib/colab';
+import { connect, connectIn, HISTORY_MS, interruptIn, machineLabel, pauseRuns, probeIn, probeMachine, PULSE_MS, restartIn, restartKernel, resumeRuns, setGpuWatch, setMachine, setPulse, stopRuns, stopRunsIn, stopRuntime, stopRuntimeIn } from '../lib/colab';
+import type { CellRun, ColabState, Pulse } from '../lib/colab';
 import { bins, nearFull, needMarkers, peakOf, peaksByCell, recent, rulerSegments, sessionLeft, spanText, timeline, unitsLeft } from '../lib/runtime';
 import type { RulerSegment } from '../lib/runtime';
 import type { Compute } from '../lib/hardware';
@@ -54,6 +58,8 @@ interface Props {
   onRunAll?: () => void;
   /** The cell picked in the notebook, when it is a code cell: its label, and how to run it. */
   picked?: { label: string; run: () => void };
+  /** Another session than the foreground's — one machine of a pool; its actions go to that kernel. */
+  session?: ColabState;
 }
 
 const clock = (since: number | undefined, now: number) => {
@@ -201,8 +207,19 @@ function Budget({ label, used, total, need, hue }: { label: string; used?: numbe
 // The pane
 // ---------------------------------------------------------------------------
 
-export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }: Props) {
-  const colab = useColab();
+export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked, session: shown }: Props) {
+  const foreground = useColab();
+  const colab = shown ?? foreground;
+  // The actions, for the session shown: the foreground's as always, or a pool member's by its scope.
+  const scope = shown && shown.id !== foreground.id ? shown.scope : null;
+  const act = {
+    stopRuns: () => (scope ? stopRunsIn(colab.id) : stopRuns()),
+    interrupt: () => (scope ? interruptIn(scope) : stopRuns()),
+    restart: () => (scope ? restartIn(scope) : restartKernel()),
+    stopRuntime: () => (scope ? stopRuntimeIn(scope) : stopRuntime()),
+    probe: () => (scope ? probeIn(scope) : probeMachine()),
+    connect: (machine?: Parameters<typeof connect>[0]) => (scope ? connectIn(colab.backend, scope, machine) : connect(machine)),
+  };
   const [now, setNow] = useState(Date.now());
   const [style, setStyleState] = useState<PaneStyle>(readStyle);
   const [changing, setChanging] = useState(false);
@@ -333,7 +350,7 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
                 ⏸ Pause
               </button>
             )}
-            <button type="button" className="btn sm colab-stop" onClick={() => void stopRuns()} title="Interrupts the cell running and drops the rest">
+            <button type="button" className="btn sm colab-stop" onClick={() => void act.stopRuns()} title="Interrupts the cell running and drops the rest">
               ■ Stop
             </button>
           </>
@@ -531,13 +548,13 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
           ))}
         </div>
       </div>
-      <button type="button" className="btn sm ghost rt-read" disabled={colab.status === 'busy' || !colab.gpuWatch} onClick={() => void probeMachine()}>
+      <button type="button" className="btn sm ghost rt-read" disabled={colab.status === 'busy' || !colab.gpuWatch} onClick={() => void act.probe()}>
         Read now
       </button>
 
       <div className="rt-part-label">The runtime</div>
       <div className="rt-actions">
-        <button type="button" className="btn sm" disabled={colab.status === 'busy'} onClick={() => void restartKernel()} title="Forgets every variable; keeps the machine and the files on it">
+        <button type="button" className="btn sm" disabled={colab.status === 'busy'} onClick={() => void act.restart()} title="Forgets every variable; keeps the machine and the files on it">
           Restart the kernel
         </button>
         {ownServer ? null : (
@@ -558,7 +575,7 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
               className="btn sm primary"
               onClick={() => {
                 setConfirmStop(false);
-                void stopRuntime();
+                void act.stopRuntime();
               }}
             >
               Stop
@@ -579,9 +596,9 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
           <MachinePicker
             machine={colab.machine}
             onPick={(machine) => {
-              setMachine(machine);
+              if (!scope) setMachine(machine);
               setChanging(false);
-              void stopRuntime().then(() => connect(machine));
+              void act.stopRuntime().then(() => act.connect(machine));
             }}
           />
         </div>

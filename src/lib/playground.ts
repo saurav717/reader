@@ -46,6 +46,20 @@ interface Named {
 export type Compute = { kind: 'colab'; machine: Machine; /** On the browser's Colab machine, with the paper pages and the other playgrounds that share it, rather than a machine of its own. */ shared?: boolean } | ({ kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string } & Named);
 
 /**
+ * One more machine a project runs on, beside its first (`compute`): a Colab
+ * machine of its own, or a Jupyter server of the person's. A project with
+ * several is a pool — one job on each, side by side — not one big machine:
+ * Colab's runtimes can call out but never be called, so a job cannot be
+ * spread over them (docs/compute-pool.md). The id names the member for
+ * good: its kernel's scope and its Colab notebook are made from it, so the
+ * same machine answers in every browser the project opens in.
+ */
+export interface PoolMember {
+  id: string;
+  compute: Compute;
+}
+
+/**
  * Where its files are kept: a folder in the account's Google Drive, a folder
  * on a Jupyter server, or the disk of the machine it runs on. `browser` is
  * only for projects made before: their files are moved out on opening.
@@ -72,6 +86,8 @@ export interface ConsoleEntry {
   id: string;
   command: string;
   at: number;
+  /** In a pool: the member it ran on, or 'all' for every machine at once; unset is the project's first machine. */
+  machine?: string;
 }
 
 export interface Playground {
@@ -82,6 +98,8 @@ export interface Playground {
   created: number;
   updated: number;
   compute: Compute;
+  /** The machines it runs on beside `compute`, when it is a pool (PoolMember). */
+  pool?: PoolMember[];
   home: FilesHome;
   /** How a project's files are edited: the page's own editor, or VS Code from the Companion's computer, in the page. */
   editor?: 'reader' | 'vscode';
@@ -257,6 +275,7 @@ function normalise(value: Partial<Playground> | undefined): Playground | null {
     created: value.created ?? Date.now(),
     updated: value.updated ?? value.created ?? Date.now(),
     compute: value.compute ?? { kind: 'colab', machine: { accelerator: 'NONE' } },
+    pool: Array.isArray(value.pool) && value.pool.length ? value.pool.filter((m): m is PoolMember => Boolean(m) && typeof m.id === 'string' && Boolean(m.compute) && (m.compute.kind === 'colab' || m.compute.kind === 'server')) : undefined,
     home: value.home ?? { kind: 'browser' },
     cites: Array.isArray(value.cites) ? value.cites : [],
     sync: { ignore: value.sync?.ignore ?? DEFAULT_IGNORE, bringBack: value.sync?.bringBack ?? DEFAULT_BRING_BACK },
@@ -278,12 +297,71 @@ export const subscribePlaygrounds = (listener: () => void) => {
 };
 export const usePlaygrounds = () => useSyncExternalStore(subscribePlaygrounds, snapshot);
 export const playgroundsLoaded = () => loaded;
-/** The kernel backend a playground's compute names, when it can be had: Colab, or a server still in the list. */
-export function backendOfPlayground(p: Playground): Backend | null {
+/** The kernel backend a compute names, for a kernel scope, when it can be had: Colab, or a server still in the list. */
+export function backendOfCompute(compute: Compute, scope: string): Backend | null {
   // On Colab: a machine of its own (its own notebook id, so Colab assigns it its own runtime), unless it shares the browser's.
-  if (p.compute.kind === 'colab') return { kind: 'colab', notebook: p.compute.shared ? undefined : playgroundNotebook(p.id), machine: p.compute.machine };
-  const server = serverById(p.compute.serverId);
+  if (compute.kind === 'colab') return { kind: 'colab', notebook: compute.shared ? undefined : playgroundNotebook(scope), machine: compute.machine };
+  const server = serverById(compute.serverId);
   return server ? { kind: 'jupyter', server } : null;
+}
+/** The kernel backend a playground's first machine names (its `compute`), when it can be had. */
+export const backendOfPlayground = (p: Playground): Backend | null => backendOfCompute(p.compute, p.id);
+
+// ------------------------------------------------------------- the pool ----
+
+/**
+ * The kernel scope of a machine of a project: the project's id for its
+ * first machine, as always, and the id with the member's after a `#` for
+ * the others — so a session's scope still says which project it is for
+ * (`playgroundOfScope`).
+ */
+export const memberScope = (playgroundId: string, member: string | null) => (member ? `${playgroundId}#${member}` : playgroundId);
+/** The project a kernel scope belongs to: its own id, or a pool member's. */
+export const playgroundOfScope = (scope: string) => scope.split('#')[0];
+
+/** One machine of a project, as the page works with it: the first (`member` null) or a pool member. */
+export interface ProjectMachine {
+  member: string | null;
+  compute: Compute;
+  scope: string;
+  backend: Backend | null;
+  /** Its place in the pool, from 0: what a job started on every machine is told (KOIOS_RANK). */
+  rank: number;
+  /** What it is, in a few words: "Colab · T4", or the server's name. */
+  label: string;
+}
+
+/** What a compute is, in a few words: Colab and its machine, or the server by name. */
+export function computeLabel(compute: Compute): string {
+  if (compute.kind === 'colab') return `Colab · ${compute.machine.accelerator === 'NONE' ? 'CPU' : compute.machine.accelerator}${compute.shared ? ' (shared)' : ''}`;
+  return serverById(compute.serverId)?.name ?? compute.name ?? 'a server';
+}
+
+/** Every machine of a project in order: the first, then the pool. */
+export function machinesOf(p: Playground): ProjectMachine[] {
+  const first: ProjectMachine = { member: null, compute: p.compute, scope: p.id, backend: backendOfPlayground(p), rank: 0, label: computeLabel(p.compute) };
+  const rest = (p.pool ?? []).map((member, index): ProjectMachine => {
+    const scope = memberScope(p.id, member.id);
+    return { member: member.id, compute: member.compute, scope, backend: backendOfCompute(member.compute, scope), rank: index + 1, label: computeLabel(member.compute) };
+  });
+  return [first, ...rest];
+}
+
+/** A machine added to a project's pool; the member made, so the page can go to it. */
+export function addMachine(playgroundId: string, compute: Compute): PoolMember | null {
+  const p = playgroundById(playgroundId);
+  if (!p) return null;
+  const member: PoolMember = { id: uid(), compute: compute.kind === 'server' ? { ...compute, deviceId: compute.deviceId ?? serverById(compute.serverId)?.companionId } : compute };
+  updatePlayground(playgroundId, { pool: [...(p.pool ?? []), member] });
+  return member;
+}
+
+/** A machine taken out of a project's pool; its kernel is the caller's to shut down (shutDownScope). */
+export function removeMachine(playgroundId: string, memberId: string) {
+  const p = playgroundById(playgroundId);
+  if (!p?.pool) return;
+  const pool = p.pool.filter((member) => member.id !== memberId);
+  updatePlayground(playgroundId, { pool: pool.length ? pool : undefined });
 }
 /** Every playground, as the store holds them now. */
 export const playgroundsNow = () => playgrounds;
@@ -321,7 +399,12 @@ function rebind(p: Playground): Playground {
   };
   const compute = fix(p.compute);
   const home = fix(p.home);
-  return compute === p.compute && home === p.home ? p : { ...p, compute, home };
+  const pool = p.pool?.map((member) => {
+    const next = fix(member.compute);
+    return next === member.compute ? member : { ...member, compute: next };
+  });
+  const poolSame = !pool || pool.every((member, index) => member === p.pool![index]);
+  return compute === p.compute && home === p.home && poolSame ? p : { ...p, compute, home, ...(poolSame ? {} : { pool }) };
 }
 
 function rebindAll() {
@@ -860,9 +943,9 @@ export function base64Of(bytes: Uint8Array): string {
  * runtime takes no file writes from another site. Text files only, and only
  * while a runtime is connected.
  */
-export function kernelHost(label: string, root: string): FileHost {
+export function kernelHost(label: string, root: string, scope?: string): FileHost {
   const run = async (code: string) => {
-    const answer = await runQuietly(code);
+    const answer = await runQuietly(code, scope);
     if (!answer) throw new Error('No runtime is connected: run a cell, or connect from the bar, first.');
     if (!answer.ok) throw new Error(answer.text || 'The runtime could not do that.');
     return answer.text;
@@ -966,6 +1049,15 @@ export function machineHost(playground: Playground, label: string): FileHost {
     if (server) return serverHost(server, machineRoot(playground));
   }
   return kernelHost(label, machineRoot(playground));
+}
+
+/** The same folder on one machine of a pool: a server's, or the kernel's own under that member's scope. */
+export function machineHostFor(playground: Playground, machine: ProjectMachine): FileHost {
+  if (machine.compute.kind === 'server') {
+    const server = serverById(machine.compute.serverId);
+    if (server) return serverHost(server, machineRoot(playground));
+  }
+  return kernelHost(machine.label, machineRoot(playground), machine.scope);
 }
 
 // ------------------------------------------------------- the sync rules ----
@@ -1101,7 +1193,16 @@ export async function readMeta(host: FileHost, name: string): Promise<string | n
 }
 
 /** The console's command as the kernel takes it: a bash cell, in the playground's folder on the machine. */
-export function shellCell(root: string, command: string): string {
+export function shellCell(root: string, command: string, env: Record<string, string> = {}): string {
   const quoted = `'${root.replace(/'/g, `'\\''`)}'`;
-  return `%%bash\nmkdir -p ${quoted} && cd ${quoted} || exit 1\n${command}`;
+  const exports = Object.entries(env).map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'\n`).join('');
+  return `%%bash\n${exports}mkdir -p ${quoted} && cd ${quoted} || exit 1\n${command}`;
 }
+
+/**
+ * What a command started on every machine of a pool is told about its place
+ * in it, as environment variables: its rank from 0, how many there are, and
+ * what its machine is — so one script can pick its seed, its slice of the
+ * data or its config by KOIOS_RANK, the way a sweep does.
+ */
+export const poolEnv = (machine: ProjectMachine, world: number): Record<string, string> => ({ KOIOS_RANK: String(machine.rank), KOIOS_WORLD: String(world), KOIOS_MACHINE: machine.label });

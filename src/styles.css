@@ -9554,3 +9554,21 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .lib-row .cover.is-selected .cover-check { background: transparent; color: var(--paper); }
 :root[data-koios='on'] .lib-row .cover.is-selected .cover-check::before { background: var(--ink); border-color: var(--ink); }
 :root[data-koios='on'] .lib-row .cover-check svg { width: 10px; height: 10px; }
+
+/* ---- the pool: a project on several machines (src/components/MachinePool.tsx) ---- */
+.pg-pool { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
+.pg-pool-label { font: 500 11px var(--sans); color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; margin-right: 4px; }
+.pg-pool-chip { max-width: 320px; }
+.pg-pool-rank { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 4px; background: var(--ink-2); color: var(--paper); font: 700 9.5px var(--mono); flex: none; }
+.pg-pool-add { min-width: 320px; max-width: 380px; }
+.pg-pool-note { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.pg-pool-note b { color: var(--ink); }
+.pg-pool-panes { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.pg-pool-pane { flex: none; border-bottom: 1px solid var(--border-soft); }
+.pg-pool-pane .rt-pane { overflow: visible; }
+.pg-pool-pane-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 10px 14px 0; font: 600 12px var(--sans); color: var(--ink-2); }
+.pg-shell-on { margin-left: 4px; font: 500 9.5px var(--mono); color: var(--muted); }
+.pg-console-on { font: 500 10.5px var(--sans); color: var(--muted); padding: 1px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--border-soft); }
+.pg-console-one { margin-top: 6px; }
+.pg-console-which { display: flex; align-items: center; gap: 6px; font: 500 11px var(--sans); color: var(--muted); margin-bottom: 2px; }
+.pg-console-target { height: 32px; max-width: 220px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 12px var(--sans); }

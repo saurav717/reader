@@ -7,11 +7,11 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
-import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, machineLabel, restartKernel, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
+import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
-import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
-import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, SyncReport } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -38,6 +38,7 @@ import ProjectAgent from './ProjectAgent';
 import CliAgent from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
 import KernelTerminal, { closeKernelTerminal } from './KernelTerminal';
+import MachinePool, { MachineMark, isConnected, sessionOf, useSessions } from './MachinePool';
 import CodeEditor from './CodeEditor';
 import type { CodeEditorHandle, Cursor, EditorPeer } from './CodeEditor';
 import { noteEdit, reportPlace, useJumps, usePeers } from '../lib/liveRoom';
@@ -152,6 +153,16 @@ const clock = (since: number | undefined, now: number) => {
 };
 
 const consoleKey = (playgroundId: string, entryId: string) => `pgsh:${playgroundId}:${entryId}`;
+/** A console command's run key on one pool member: the entry's key, the member's id after an `@` (the first machine keeps the plain key). */
+const memberKey = (key: string, member: string | null) => (member ? `${key}@${member}` : key);
+/** The runs a console entry has: one on the project's first machine, or one a machine when it was run on a member or on all. */
+const entryRuns = (playgroundId: string, machines: ProjectMachine[], entry: ConsoleEntry): { key: string; machine: ProjectMachine }[] => {
+  const key = consoleKey(playgroundId, entry.id);
+  const on = entry.machine === 'all' ? machines : entry.machine ? machines.filter((m) => m.member === entry.machine) : machines.slice(0, 1);
+  return (on.length ? on : machines.slice(0, 1)).map((machine) => ({ key: memberKey(key, machine.member), machine }));
+};
+/** Which machine a terminal tab is on: the member's id after an `@` in its id; the first machine otherwise. */
+const shellMember = (id: string): string | null => (id.includes('@') ? id.slice(id.lastIndexOf('@') + 1) : null);
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /** The backend a playground's compute names, when it can be had: its Colab machine, or a server that is still in the list. */
@@ -167,6 +178,8 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   const [title, setTitle] = useState(playground.title);
   const [changing, setChanging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /** The pool row shown with Add a machine out, from the chip's menu, before the project has a pool. */
+  const [poolOpen, setPoolOpen] = useState(false);
   const backend = backendOf(playground);
   const machineName = backend
     ? backendLabel(backend, colab.backend.kind === backend.kind ? colab.runtime : undefined)
@@ -211,16 +224,24 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   );
 
   // On Colab: the runtime stopped after the idle time asked for, while the tab is open — a forgotten GPU is units spent.
+  // Every Colab machine of the project: its first, and each pool member's, by its own session.
   useEffect(() => {
-    if (playground.compute.kind !== 'colab' || !playground.idleStopMin) return;
+    if (!playground.idleStopMin) return;
+    const colabMachines = machinesOf(playground).filter((m) => m.compute.kind === 'colab');
+    if (!colabMachines.length) return;
     const check = window.setInterval(() => {
-      if (colabNow().status !== 'idle') return;
-      if (Date.now() - lastActivityAt() < playground.idleStopMin * 60_000) return;
-      void stopRuntime();
-      setNote(`The Colab runtime was stopped after ${playground.idleStopMin} minutes with nothing running, as this playground asks. The next Run starts a new one.`);
+      for (const machine of colabMachines) {
+        const first = machine.member === null;
+        const state = first ? colabNow() : sessionOf(sessionsNow(), machine.scope);
+        const since = first ? lastActivityAt() : lastActivityIn(machine.scope);
+        if (state?.status !== 'idle' || since === undefined) continue;
+        if (Date.now() - since < playground.idleStopMin * 60_000) continue;
+        void (first ? stopRuntime() : stopRuntimeIn(machine.scope));
+        setNote(`The Colab runtime${first ? '' : ` of machine ${machine.rank}`} was stopped after ${playground.idleStopMin} minutes with nothing running, as this playground asks. The next Run starts a new one.`);
+      }
     }, 30_000);
     return () => window.clearInterval(check);
-  }, [playground.compute, playground.idleStopMin]);
+  }, [playground.compute, playground.pool, playground.idleStopMin]);
 
   const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId) ?? null);
   const screen = useCallback(async (): Promise<Screen> => {
@@ -289,7 +310,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
             Open everywhere…
           </button>
         ) : null}
-        <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} onNote={setNote} />
+        <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} onPool={() => setPoolOpen(true)} onNote={setNote} />
         {tab === 'notebook' ? (
           <>
             <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => setSide(side === 'runtime' ? null : 'runtime')}>
@@ -324,6 +345,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         </div>
       ) : null}
       {playground.home.kind === 'browser' && playground.kind === 'project' ? <MoveOutOfBrowser playground={playground} machineName={machineName} onNote={setNote} /> : null}
+      <MachinePool playground={playground} usable={usable} open={poolOpen} onOpen={setPoolOpen} onNote={setNote} />
       <div className="pg-body">
         {tab === 'notebook' ? (
           <div className="pg-notebook">
@@ -367,7 +389,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
 }
 
 /** The chip in the bar: where the kernel is, how it is, and its menu — connect, interrupt, change, shut down; and for a Companion on this computer, shut it down and start it again. */
-function MachineChip({ playground, name, usable, onChange, onNote }: { playground: Playground; name: string; usable: boolean; onChange: () => void; onNote: (note: string | null) => void }) {
+function MachineChip({ playground, name, usable, onChange, onPool, onNote }: { playground: Playground; name: string; usable: boolean; onChange: () => void; /** Opens the pool row with Add a machine: more machines for the project, one job each. */ onPool: () => void; onNote: (note: string | null) => void }) {
   const colab = useColab();
   const [open, setOpen] = useState(false);
   const server = playground.compute.kind === 'server' ? serverById(playground.compute.serverId) : undefined;
@@ -598,6 +620,18 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
             }}
           >
             Change where it runs…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="pg-chip-two"
+            title="One more machine for this project — a Colab machine of its own, or a computer of yours — to run a sweep or a few seeds side by side, one job each"
+            onClick={() => {
+              setOpen(false);
+              onPool();
+            }}
+          >
+            {playground.pool?.length ? 'The project’s machines' : 'Run on more machines…'} <small className="pg-chip-sub">{playground.pool?.length ? `${1 + playground.pool.length} machines, one job each` : 'a pool: several machines, one job each'}</small>
           </button>
           {connected || (companion && power === 'up') ? (
             <>
@@ -1032,6 +1066,19 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
   const [command, setCommand] = useState(playground.pending ?? '');
   const [base, setBase] = useState<string | null>(null);
+  // The project's machines: its first, and its pool. A command goes to one of them, or to all at once (one job each).
+  const machines = useMemo(() => machinesOf(playground), [playground, servers]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pooled = machines.length > 1;
+  const sessions = useSessions();
+  const targetKey = `pgtarget:${playground.id}`;
+  const [targetState, setTargetState] = useState<string>(() => readSession(targetKey, 'first'));
+  const target = targetState === 'all' || machines.some((m) => (m.member ?? 'first') === targetState) ? targetState : 'first';
+  const setTarget = (next: string) => (setTargetState(next), writeSession(targetKey, next));
+  /** The folder's absolute path on each pool member, once asked (the first machine's is `base`). */
+  const memberBases = useRef<Record<string, string>>({});
+  /** The machines a command goes to now. */
+  const targets = target === 'all' ? machines : [machines.find((m) => (m.member ?? 'first') === target) ?? machines[0]];
+  const runningOn = (m: ProjectMachine) => (m.member === null ? colab.running : sessionOf(sessions, m.scope)?.running);
   const current = files.find((file) => `${file.where}:${file.path}` === active) ?? null;
   // Where you are, to the others in a shared project (src/lib/liveRoom.ts): the file and the caret, as you move; their
   // carets are drawn in the editor and their names in the tree; a jump from one of them opens their file at their line.
@@ -1143,14 +1190,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setShells(next);
     writeSession(shellsKey, next);
   };
-  const addShell = () => {
-    const id = `${playground.id}~${shortId()}`;
+  /** A new terminal: on the project's first machine, or on a pool member (its id after an `@`, so the tab comes back to it). */
+  const addShell = (member: string | null = null) => {
+    const id = `${playground.id}~${shortId()}${member ? `@${member}` : ''}`;
     keepShells([...shells, id]);
     setActiveShell(id);
   };
+  const [addShellMenu, setAddShellMenu] = useState(false);
+  /** Which machine a terminal tab is on, and how its shell is reached: through its server's terminals, or a shell in its kernel. */
+  const shellOn = (id: string): { machine: ProjectMachine; server: JupyterServer | undefined; kernel: boolean } => {
+    const member = shellMember(id);
+    const machine = (member ? machines.find((m) => m.member === member) : undefined) ?? machines[0];
+    if (machine.member === null) return { machine, server: computeServer, kernel: kernelTerms || !computeServer };
+    const server = machine.compute.kind === 'server' ? serverById(machine.compute.serverId) : undefined;
+    return { machine, server, kernel: !server };
+  };
   const closeShell = (id: string) => {
-    if (kernelTerms) closeKernelTerminal(id);
-    else if (computeServer) forgetTerminal(computeServer, id);
+    const on = shellOn(id);
+    if (on.kernel) closeKernelTerminal(id, on.machine.member === null ? undefined : on.machine.scope);
+    else if (on.server) forgetTerminal(on.server, id);
     const left = shells.filter((shell) => shell !== id);
     const next = left.length ? left : [`${playground.id}~${shortId()}`];
     keepShells(next);
@@ -1381,7 +1439,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   };
 
   /** The folder on the machine, as an absolute path the shell can cd into: the small kernel's start, joined to the folder. */
-  const folderOnMachine = async () => {
+  const folderOnMachine = async (machine?: ProjectMachine) => {
+    if (machine && machine.member !== null) {
+      // A pool member's: asked of its own kernel, and kept.
+      const kept = memberBases.current[machine.scope];
+      if (kept) return kept;
+      const answer = await runQuietly(`import os\nprint(os.path.abspath(${JSON.stringify(machineRoot(playground))}))`, machine.scope);
+      const found = answer?.ok ? answer.text.trim().split('\n').pop() ?? null : null;
+      if (found) memberBases.current[machine.scope] = found;
+      return found ?? machineRoot(playground);
+    }
     if (base) return base;
     const answer = await runQuietly(`import os\nprint(os.path.abspath(${JSON.stringify(machineRoot(playground))}))`);
     const found = answer?.ok ? answer.text.trim().split('\n').pop() ?? null : null;
@@ -1389,24 +1456,51 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     return found ?? machineRoot(playground);
   };
 
+  /** One command on one machine of the project: its own kernel connected if need be, the folder copied over when it is kept elsewhere, the command run there, results brought back. */
+  const runOn = async (machine: ProjectMachine, entry: ConsoleEntry, trimmed: string, world: number) => {
+    // In a pool the command is told its place, so one script can take its seed or slice by KOIOS_RANK.
+    const env = pooled ? poolEnv(machine, world) : {};
+    if (machine.member === null) {
+      if (!connected) {
+        try {
+          await connect();
+        } catch {
+          return;
+        }
+      }
+      if (split && !(await push())) return;
+      const folder = await folderOnMachine();
+      await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env));
+      if (split) await pull();
+      return;
+    }
+    if (!machine.backend) {
+      setProblem(`${machine.label} isn’t connected to this browser.`);
+      return;
+    }
+    try {
+      if (!isConnected(sessionOf(sessionsNow(), machine.scope))) await connectIn(machine.backend, machine.scope);
+      if (split) {
+        for (const file of files) if (file.where === 'home' && file.text !== file.saved) await save(file);
+        await pushFolder(playground, machineHostFor(playground, machine));
+      }
+      const folder = await folderOnMachine(machine);
+      await runCellFor(machine.backend, machine.scope, memberKey(consoleKey(playground.id, entry.id), machine.member), shellCell(folder, trimmed, env));
+      if (split) await pullBack(playground, machineHostFor(playground, machine));
+    } catch (error) {
+      setProblem(`${machine.label}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const run = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || colab.running) return;
+    if (!trimmed || targets.some(runningOn)) return;
     setProblem(null);
-    if (!connected) {
-      try {
-        await connect();
-      } catch {
-        return;
-      }
-    }
-    if (split && !(await push())) return;
-    const entry: ConsoleEntry = { id: uid(), command: trimmed, at: Date.now() };
+    const entry: ConsoleEntry = { id: uid(), command: trimmed, at: Date.now(), ...(target !== 'first' ? { machine: target } : {}) };
     updatePlayground(playground.id, (p) => ({ console: [...p.console, entry].slice(-40), pending: p.pending === trimmed ? undefined : p.pending }));
     setCommand('');
-    const folder = await folderOnMachine();
-    await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed));
-    if (split) await pull();
+    // On all machines at once: each gets the command in its own kernel, side by side.
+    await Promise.all(targets.map((machine) => runOn(machine, entry, trimmed, targets.length)));
     setRefresh((n) => n + 1);
   };
 
@@ -1418,14 +1512,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     else void run(plan.command);
   };
 
-  const consoleCells = playground.console.map((entry, index) => ({ key: consoleKey(playground.id, entry.id), id: entry.id, label: `command ${index + 1}` }));
+  const consoleCells = playground.console.flatMap((entry, index) => entryRuns(playground.id, machines, entry).map(({ key, machine }) => ({ key, id: entry.id, label: `command ${index + 1}${pooled ? ` · machine ${machine.rank}` : ''}` })));
   const nbCells = useSyncExternalStore(subscribeNotebook, () => notebookFor(notebookKey(playground.id)));
   const metricCells = useMemo(
     () => [
-      ...playground.console.map((entry, index) => {
-        const run = colab.runs[consoleKey(playground.id, entry.id)];
-        return { key: consoleKey(playground.id, entry.id), id: entry.id, label: `$ ${entry.command.slice(0, 32)}${entry.command.length > 32 ? '…' : ''} (${index + 1})`, text: run ? run.outputs.map((o) => ('text' in o ? o.text : '')).join('') : '', at: run?.startedAt ?? entry.at };
-      }),
+      ...playground.console.flatMap((entry, index) =>
+        entryRuns(playground.id, machines, entry).map(({ key, machine }) => {
+          const run = colab.runs[key];
+          return { key, id: entry.id, label: `$ ${entry.command.slice(0, 32)}${entry.command.length > 32 ? '…' : ''} (${index + 1}${pooled ? ` · m${machine.rank}` : ''})`, text: run ? run.outputs.map((o) => ('text' in o ? o.text : '')).join('') : '', at: run?.startedAt ?? entry.at };
+        }),
+      ),
       ...(nbCells?.cells ?? [])
         .map((cell, index) => ({ cell, index }))
         .filter(({ cell }) => cell.type === 'code')
@@ -1434,7 +1530,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           return { key: runKey(cell.id), id: cell.id, label: `cell ${index + 1}`, text: run ? run.outputs.map((o) => ('text' in o ? o.text : '')).join('') : '', at: run?.startedAt ?? 0 };
         }),
     ],
-    [playground.console, colab.runs, nbCells, playground.id],
+    [playground.console, colab.runs, nbCells, playground.id, machines, pooled],
   );
 
   const dirty = current ? current.text !== current.saved : false;
@@ -2023,8 +2119,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
                   {shells.map((id, index) => (
                     <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
-                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)}>
+                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)} title={pooled ? `Terminal ${index + 1}, on machine ${shellOn(id).machine.rank}: ${shellOn(id).machine.label}` : undefined}>
                         {index + 1}
+                        {pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
                       </button>
                       {shells.length > 1 ? (
                         <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
@@ -2033,9 +2130,27 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       ) : null}
                     </span>
                   ))}
-                  <button type="button" className="icon-btn sm" onClick={addShell} aria-label="A new terminal" title={`New Terminal (${keyLabel('ctrl+shift+`')})`}>
-                    +
-                  </button>
+                  {pooled ? (
+                    <span className="menu-wrap">
+                      <button type="button" className="icon-btn sm" onClick={() => setAddShellMenu(!addShellMenu)} aria-haspopup="menu" aria-expanded={addShellMenu} aria-label="A new terminal, on one of the machines" title="New Terminal — on which machine">
+                        +
+                      </button>
+                      {addShellMenu ? (
+                        <div className="menu pg-chip-menu" role="menu" onMouseLeave={() => setAddShellMenu(false)}>
+                          <div className="menu-label">A terminal on</div>
+                          {machines.map((m) => (
+                            <button key={m.scope} type="button" role="menuitem" onClick={() => (setAddShellMenu(false), addShell(m.member))}>
+                              <MachineMark compute={m.compute} /> {m.rank} · {m.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <button type="button" className="icon-btn sm" onClick={() => addShell()} aria-label="A new terminal" title={`New Terminal (${keyLabel('ctrl+shift+`')})`}>
+                      +
+                    </button>
+                  )}
                 </div>
               ) : null}
               <span className="vs-panel-where" title={`${machineName}:${base ?? machineRoot(playground)}`}>
@@ -2057,8 +2172,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   <b>{syncing === 'push' ? 'Copying…' : report?.what === 'push' && Date.now() - report.at < 60_000 ? `✓ ${report.sent.length} copied` : '↑ Copy now'}</b>
                 </button>
               ) : null}
-              {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
-                <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
+              {view === 'commands' && machines.some((m) => runningOn(m)?.startsWith('pgsh:')) ? (
+                <button type="button" className="btn sm colab-stop" title={pooled ? 'Stops the command on every machine it runs on' : undefined} onClick={() => void Promise.all(machines.filter((m) => runningOn(m)?.startsWith('pgsh:')).map((m) => (m.member === null ? interrupt() : interruptIn(m.scope))))}>
                   ■ Stop
                 </button>
               ) : null}
@@ -2070,25 +2185,53 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               </button>
             </div>
             {view === 'terminal'
-              ? shells.map((id) => (
-                  <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
-                    {kernelTerms || !computeServer ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={machineName} connected={connected} playgroundId={playground.id} /> : <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} playgroundId={playground.id} />}
-                  </div>
-                ))
+              ? shells.map((id) => {
+                  const on = shellOn(id);
+                  const first = on.machine.member === null;
+                  const label = first ? machineName : on.machine.label;
+                  const up = first ? connected : isConnected(sessionOf(sessions, on.machine.scope));
+                  return (
+                    <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
+                      {on.kernel || !on.server ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={label} connected={up} playgroundId={playground.id} scope={first ? undefined : on.machine.scope} /> : <Terminal server={on.server} cwd={machineRoot(playground)} sessionId={id} label={label} playgroundId={playground.id} />}
+                      {!first && !up ? (
+                        <div className="pg-terminal-veil">
+                          <span>
+                            Machine {on.machine.rank} ({on.machine.label}) isn’t connected.{' '}
+                            <button type="button" className="link" onClick={() => on.machine.backend && void connectIn(on.machine.backend, on.machine.scope).catch(() => undefined)}>
+                              Connect it
+                            </button>
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
               : null}
             <div className="pg-console-log" ref={consoleLog} hidden={view === 'terminal'}>
               {playground.console.slice(-12).map((entry) => {
-                const key = consoleKey(playground.id, entry.id);
-                const runNow = colab.runs[key];
+                const runsOf = entryRuns(playground.id, machines, entry);
                 return (
                   <div key={entry.id} className="pg-console-entry">
                     <div className="pg-console-cmd">
                       <span className="pg-prompt">$</span> {entry.command}
+                      {pooled ? <span className="pg-console-on">{entry.machine === 'all' ? `all ${runsOf.length} machines` : `machine ${runsOf[0]?.machine.rank ?? 0}`}</span> : null}
                       <button type="button" className="link" onClick={() => setCommand(entry.command)} title="Put it in the box again">
                         again
                       </button>
                     </div>
-                    {runNow ? <CellRunOutput run={runNow} onForget={() => forgetRun(key)} /> : <div className="pg-note">ran {new Date(entry.at).toLocaleString()} — the output was in that tab</div>}
+                    {runsOf.map(({ key, machine }) => {
+                      const runNow = colab.runs[key];
+                      return (
+                        <div key={key} className={runsOf.length > 1 ? 'pg-console-one' : undefined}>
+                          {runsOf.length > 1 ? (
+                            <div className="pg-console-which">
+                              <MachineMark compute={machine.compute} /> machine {machine.rank} · {machine.label}
+                            </div>
+                          ) : null}
+                          {runNow ? <CellRunOutput run={runNow} onForget={() => forgetRun(key)} /> : <div className="pg-note">ran {new Date(entry.at).toLocaleString()} — the output was in that tab</div>}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -2102,8 +2245,18 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               }}
             >
               <span className="pg-prompt">$</span>
-              <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`A command, run in a shell on ${machineName} — python main.py, pip install …, nvidia-smi`} spellCheck={false} aria-label="A command" disabled={!usable} />
-              <button type="submit" className="btn sm primary" disabled={!usable || !command.trim() || Boolean(colab.running)}>
+              <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`A command, run in a shell on ${target === 'all' ? `all ${machines.length} machines` : targets[0].member === null ? machineName : targets[0].label} — python main.py, pip install …, nvidia-smi`} spellCheck={false} aria-label="A command" disabled={!usable} />
+              {pooled ? (
+                <select className="pg-console-target" value={target} onChange={(event) => setTarget(event.target.value)} aria-label="Which machine the command runs on" title="Which machine the command runs on. On all: every machine gets it at once, told its rank as KOIOS_RANK (0, 1, …) and the count as KOIOS_WORLD, so one script can take its own seed, config or slice of the data.">
+                  {machines.map((m) => (
+                    <option key={m.scope} value={m.member ?? 'first'}>
+                      on {m.rank} · {m.label}
+                    </option>
+                  ))}
+                  <option value="all">on all {machines.length} machines</option>
+                </select>
+              ) : null}
+              <button type="submit" className="btn sm primary" disabled={!usable || !command.trim() || targets.some(runningOn)}>
                 {split ? 'Copy & run' : 'Run'}
               </button>
             </form>
@@ -2179,7 +2332,27 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 )}
               </>
             ) : rightTab === 'runtime' ? (
-              connected ? <RuntimePane cells={consoleCells} onGoTo={() => undefined} /> : <p className="pg-note pg-pad">Connect from the bar, or run a command, and {machineName} is read here: GPU, memory, disk, live.</p>
+              pooled ? (
+                <div className="pg-pool-panes">
+                  {machines.map((m) => {
+                    const first = m.member === null;
+                    const state = first ? colab : sessionOf(sessions, m.scope);
+                    const up = first ? connected : isConnected(state);
+                    return (
+                      <section key={m.scope} className="pg-pool-pane">
+                        <h4 className="pg-pool-pane-head">
+                          <MachineMark compute={m.compute} /> machine {m.rank} · {first ? machineName : m.label}
+                        </h4>
+                        {up ? <RuntimePane cells={consoleCells.filter((cell) => (first ? !cell.key.includes('@') : cell.key.endsWith(`@${m.member}`)))} onGoTo={() => undefined} session={first ? undefined : state} /> : <p className="pg-note pg-pad">Not connected. Its chip in the row above connects it, or a command run on it does.</p>}
+                      </section>
+                    );
+                  })}
+                </div>
+              ) : connected ? (
+                <RuntimePane cells={consoleCells} onGoTo={() => undefined} />
+              ) : (
+                <p className="pg-note pg-pad">Connect from the bar, or run a command, and {machineName} is read here: GPU, memory, disk, live.</p>
+              )
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
             ) : (

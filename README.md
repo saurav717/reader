@@ -4946,6 +4946,16 @@ playground off Colab or to Shared, stops its own machine and only that one.
 When your Colab plan allows no more machines at once, the playground shares the
 browser's for now and says so, until one is stopped in Colab.
 
+**Several machines: a pool.** A project can run on more than one machine —
+more Colab machines of their own, your own computer through its Companion, a
+GPU server, mixed as you like (the machine chip → *Run on more machines…*).
+They are separate machines, one job each: a console command goes to one you
+pick, or to all at once, each told its place as `KOIOS_RANK` and
+`KOIOS_WORLD` so one script can take its own seed, config or slice of the
+data; each has its own terminals and its own row in the Runtime pane. What a
+pool is not — one big GPU — and why Colab's network rules that out, is in
+[docs/compute-pool.md](docs/compute-pool.md).
+
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:
 - **On a Companion**, the Companion says exactly what each terminal runs

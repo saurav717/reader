@@ -167,6 +167,52 @@ describe('the console', () => {
   it('runs a command in a bash cell, in the folder, quoting it', () => {
     assert.equal(pg.shellCell("/root/pg/it's", 'python main.py'), "%%bash\nmkdir -p '/root/pg/it'\\''s' && cd '/root/pg/it'\\''s' || exit 1\npython main.py");
   });
+  it('tells a command its place in a pool, before the cd, quoted', () => {
+    const cell = pg.shellCell('/root/pg', 'python main.py', { KOIOS_RANK: '2', KOIOS_MACHINE: "Colab · T4 (it's)" });
+    assert.match(cell, /^%%bash\nexport KOIOS_RANK='2'\nexport KOIOS_MACHINE='Colab · T4 \(it'\\''s\)'\nmkdir -p/);
+    assert.match(cell, /\npython main\.py$/);
+  });
+});
+
+describe('a pool: a project on several machines', () => {
+  const colab = (accelerator) => ({ kind: 'colab', machine: { accelerator } });
+  const record = { id: 'p1', title: 'Sweep', kind: 'project', compute: colab('T4'), home: { kind: 'drive', folder: 'sweep' }, pool: [{ id: 'm1', compute: colab('NONE') }, { id: 'm2', compute: { kind: 'server', serverId: 'srv-9', name: 'my-mac', where: 'pc' } }] };
+
+  it('names each machine’s kernel scope by the project and the member, and the project from a scope', () => {
+    assert.equal(pg.memberScope('p1', null), 'p1');
+    assert.equal(pg.memberScope('p1', 'm1'), 'p1#m1');
+    assert.equal(pg.playgroundOfScope('p1#m1'), 'p1');
+    assert.equal(pg.playgroundOfScope('p1'), 'p1');
+  });
+
+  it('lists the first machine and the pool in order, each with its rank, scope and label', () => {
+    const machines = pg.machinesOf(record);
+    assert.deepEqual(
+      machines.map((m) => [m.rank, m.member, m.scope, m.label]),
+      [
+        [0, null, 'p1', 'Colab · T4'],
+        [1, 'm1', 'p1#m1', 'Colab · CPU'],
+        [2, 'm2', 'p1#m2', 'my-mac'],
+      ],
+    );
+    // Each Colab member gets a notebook id of its own, so Colab assigns it its own runtime — and the first keeps the project's.
+    assert.equal(machines[0].backend.notebook, pg.backendOfPlayground(record).notebook);
+    assert.notEqual(machines[1].backend.notebook, machines[0].backend.notebook);
+    // A server not in this browser's list is a machine with no backend here.
+    assert.equal(machines[2].backend, null);
+  });
+
+  it('tells a command on every machine its rank, the count, and what the machine is', () => {
+    const [first, , third] = pg.machinesOf(record);
+    assert.deepEqual(pg.poolEnv(first, 3), { KOIOS_RANK: '0', KOIOS_WORLD: '3', KOIOS_MACHINE: 'Colab · T4' });
+    assert.deepEqual(pg.poolEnv(third, 3), { KOIOS_RANK: '2', KOIOS_WORLD: '3', KOIOS_MACHINE: 'my-mac' });
+  });
+
+  it('a project without a pool has one machine, the first', () => {
+    const { pool, ...alone } = record;
+    assert.equal(pg.machinesOf(alone).length, 1);
+    assert.equal(pg.machinesOf(alone)[0].rank, 0);
+  });
 });
 
 describe('a file for the kernel', () => {

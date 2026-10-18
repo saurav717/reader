@@ -1208,11 +1208,20 @@ function stopPulse(s: Session) {
   s.pulsing = null;
 }
 
-/** The machine read between cells at the pulse's cadence, while the foreground runtime is idle; the watch takes over while a cell runs. */
+/**
+ * Whether a session is read between cells: the foreground's, and — a
+ * project that runs on several machines (a pool, src/lib/playground.ts) —
+ * the sessions of its other machines, whose scope is the project's id with
+ * the member's after a `#`, so the Runtime pane shows every machine live,
+ * not only the one the cells go to.
+ */
+const pulses = (s: Session) => s === current || (current.scope !== PAGES && s.scope.startsWith(`${current.scope}#`));
+
+/** The machine read between cells at the pulse's cadence, while the runtime is idle; the watch takes over while a cell runs. */
 function schedulePulse(s: Session) {
   stopPulse(s);
   const every = PULSE_MS[s.state.pulse];
-  if (s !== current || !every || !s.state.gpuWatch || s.state.status !== 'idle') return;
+  if (!pulses(s) || !every || !s.state.gpuWatch || s.state.status !== 'idle') return;
   s.pulsing = window.setTimeout(() => {
     s.pulsing = null;
     void probeSession(s).finally(() => schedulePulse(s));
@@ -1401,9 +1410,12 @@ function sessionFor(backend: Backend, scope: string): Session {
 export function chooseBackend(backend: Backend, scope: string = PAGES) {
   const s = sessionFor(backend, scope);
   if (s !== current) {
-    stopPulse(current);
     current = s;
-    schedulePulse(s);
+    // The pulse follows the foreground: its own session and its pool's read between cells, the rest left alone.
+    for (const other of sessions.values()) {
+      if (pulses(other)) schedulePulse(other);
+      else stopPulse(other);
+    }
   }
   // A scope moved to another machine: its session on the old one, if nothing runs there, is let go (its kernel stays
   // on that machine, kept for the scope). One still running is left to finish.
@@ -1512,6 +1524,38 @@ async function refreshUnits(googleToken: string) {
 
 /** When the foreground session's last cell finished, or started: the idle stop counts from here. */
 export const lastActivityAt = () => current.lastActivity;
+/** The same for a scope's session — a pool member's, say; undefined when this tab has none for it. */
+export const lastActivityIn = (scope: string): number | undefined => sessionOfScope(scope)?.lastActivity;
+
+// --------------------------------------------- a pool's other machines ----
+//
+// A project on several machines keeps a session for each: its own kernel
+// on its own machine, under the member's scope. The page's chip and panes
+// drive the foreground with the functions above; these drive any other by
+// its scope, without bringing it to the foreground.
+
+/** Connects a scope's session on a backend — a pool member's machine — leaving the foreground as it is. */
+export const connectIn = (backend: Backend, scope: string, machine?: Machine): Promise<void> => {
+  const s = sessionFor(backend, scope);
+  return connectSession(s, machine ?? s.state.machine);
+};
+export async function interruptIn(scope: string): Promise<void> {
+  const s = sessionOfScope(scope);
+  if (s) await interruptSession(s);
+}
+export async function restartIn(scope: string): Promise<void> {
+  const s = sessionOfScope(scope);
+  if (s) await restartSession(s);
+}
+export async function stopRuntimeIn(scope: string): Promise<void> {
+  const s = sessionOfScope(scope);
+  if (s) await stopSessionRuntime(s);
+}
+/** One reading of a scope's machine now, between cells, as `probeMachine` for the foreground. */
+export const probeIn = (scope: string): Promise<MachineSample | null> => {
+  const s = sessionOfScope(scope);
+  return s ? probeSession(s) : Promise.resolve(null);
+};
 
 /**
  * Runs one cell — the code as shown — in the foreground session's kernel,

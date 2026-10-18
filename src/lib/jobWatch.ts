@@ -107,6 +107,8 @@ interface Watched {
   /** The page's own id for the shell, what typeInTerminal is keyed by. */
   sessionId?: string;
   serverId?: string;
+  /** A kernel shell's: the kernel scope it is in — a pool member's; the project's own when unset. */
+  scope?: string;
   socket: WebSocket | null;
   tries: number;
   retry: number;
@@ -122,11 +124,11 @@ interface Watched {
 
 const watched = new Map<string, Watched>();
 const LIST_KEY = 'reader.terminals.watched';
-type Saved = Pick<Watched, 'playgroundId' | 'kind' | 'name' | 'sessionId' | 'serverId'>;
+type Saved = Pick<Watched, 'playgroundId' | 'kind' | 'name' | 'sessionId' | 'serverId' | 'scope'>;
 
 const save = () => {
   try {
-    const list: Saved[] = [...watched.values()].map(({ playgroundId, kind, name, sessionId, serverId }) => ({ playgroundId, kind, name, sessionId, serverId }));
+    const list: Saved[] = [...watched.values()].map(({ playgroundId, kind, name, sessionId, serverId, scope }) => ({ playgroundId, kind, name, sessionId, serverId, scope }));
     sessionStorage.setItem(LIST_KEY, JSON.stringify(list));
   } catch {
     // Only so a reload goes on watching.
@@ -164,7 +166,7 @@ function interruptTerminal(w: Watched) {
   if (w.kind === 'server') {
     if (w.socket?.readyState === WebSocket.OPEN) w.socket.send(JSON.stringify(['stdin', '\u0003']));
   } else {
-    void shellCall(`_rt_write(${JSON.stringify(w.name)}, ${JSON.stringify(b64('\u0003'))}, 0)`, w.playgroundId).catch(() => undefined);
+    void shellCall(`_rt_write(${JSON.stringify(w.name)}, ${JSON.stringify(b64('\u0003'))}, 0)`, w.scope ?? w.playgroundId).catch(() => undefined);
   }
 }
 
@@ -245,10 +247,10 @@ export function watchTerminal(spec: { playgroundId: string; server: JupyterServe
 }
 
 /** A shell on a Colab runtime (KernelTerminal's), followed through the playground's own kernel session. */
-export function watchKernelTerminal(spec: { playgroundId: string; name: string }) {
+export function watchKernelTerminal(spec: { playgroundId: string; name: string; scope?: string }) {
   const key = `kernel:${spec.playgroundId}:${spec.name}`;
   if (watched.has(key)) return;
-  watched.set(key, { key, playgroundId: spec.playgroundId, kind: 'kernel', name: spec.name, sessionId: spec.name, socket: null, tries: 0, retry: 0, screen: emptyScreen(), lastOutput: 0, closed: false });
+  watched.set(key, { key, playgroundId: spec.playgroundId, kind: 'kernel', name: spec.name, sessionId: spec.name, scope: spec.scope, socket: null, tries: 0, retry: 0, screen: emptyScreen(), lastOutput: 0, closed: false });
   save();
   startPolling();
 }
@@ -319,7 +321,7 @@ async function poll() {
   const kernels = new Map<string, Watched[]>();
   for (const w of list) {
     if (w.kind === 'server' && w.serverId) servers.set(w.serverId, [...(servers.get(w.serverId) ?? []), w]);
-    if (w.kind === 'kernel') kernels.set(w.playgroundId, [...(kernels.get(w.playgroundId) ?? []), w]);
+    if (w.kind === 'kernel') kernels.set(w.scope ?? w.playgroundId, [...(kernels.get(w.scope ?? w.playgroundId) ?? []), w]);
   }
   await Promise.all([
     ...[...servers.entries()].map(async ([serverId, terms]) => {
@@ -332,10 +334,10 @@ async function poll() {
         else report(w);
       }
     }),
-    ...[...kernels.entries()].map(async ([playgroundId, terms]) => {
+    ...[...kernels.entries()].map(async ([scope, terms]) => {
       let status: Record<string, { alive: boolean; busy: boolean; command: string; tail: string }> | null = null;
       try {
-        status = JSON.parse(await shellCall('_rt_status()', playgroundId));
+        status = JSON.parse(await shellCall('_rt_status()', scope));
       } catch {
         status = null;
       }
@@ -405,7 +407,7 @@ export function startJobWatch() {
   try {
     const list = JSON.parse(sessionStorage.getItem(LIST_KEY) ?? '[]') as Saved[];
     for (const saved of list) {
-      if (saved.kind === 'kernel') watchKernelTerminal({ playgroundId: saved.playgroundId, name: saved.name });
+      if (saved.kind === 'kernel') watchKernelTerminal({ playgroundId: saved.playgroundId, name: saved.name, scope: saved.scope });
       else {
         const server = saved.serverId ? serverById(saved.serverId) : undefined;
         if (server) watchTerminal({ playgroundId: saved.playgroundId, server, name: saved.name, sessionId: saved.sessionId });
