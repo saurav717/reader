@@ -236,7 +236,7 @@ const TABS: TabInfo[] = [
     group: 'About',
     label: 'Updates',
     icon: <RestoreIcon size={16} />,
-    blurb: 'The website’s version, the Reader app’s, and every Companion this browser is paired with.',
+    blurb: 'The website’s version, the Koios app’s, and every Companion this browser is paired with.',
     finds: 'updates version website app desktop releases companion reload pair',
   },
   {
@@ -244,7 +244,7 @@ const TABS: TabInfo[] = [
     group: 'About',
     label: 'Tour & help',
     icon: <FlagIcon size={16} />,
-    blurb: 'A walk round the app, the app used on a real paper, and what Reader does with your data.',
+    blurb: 'A walk round the app, the app used on a real paper, and what Koios does with your data.',
     finds: 'guided tour showcase show me help privacy policy terms of service',
   },
 ];
@@ -296,8 +296,8 @@ function MeetingsCard() {
         <span>Granola API key</span>
         <input type="password" value={key} onChange={(event) => setKey(event.target.value)} onBlur={() => updateSettings({ granolaKey: key.trim() })} placeholder="grn_…" autoComplete="off" />
         <small>
-          Made in Granola under Settings → API (Business and Enterprise plans). Granola takes the notes on your computer, from the same Google Calendar; with the key, Reader reads the notes of meetings you asked it to, and files them in the meeting’s project. Kept in this
-          browser and sent only to Reader’s proxy, which hands it to Granola.
+          Made in Granola under Settings → API (Business and Enterprise plans). Granola takes the notes on your computer, from the same Google Calendar; with the key, Koios reads the notes of meetings you asked it to, and files them in the meeting’s project. Kept in this
+          browser and sent only to Koios’s proxy, which hands it to Granola.
         </small>
       </label>
     </Card>
@@ -317,19 +317,19 @@ function RecorderSettings() {
   ];
   return (
     <div className="setting set-recorder">
-      <span>Reader’s notes, on this computer</span>
+      <span>Koios’s notes, on this computer</span>
       <small>
         {!inDesktopApp()
-          ? 'In the Reader app for Mac or Windows, Reader records a meeting from your own computer — no bot joins the call — writes it up with your Ask AI model, and files it in the meeting’s project.'
+          ? 'In the Koios app for Mac or Windows, Koios records a meeting from your own computer — no bot joins the call — writes it up with your Ask AI model, and files it in the meeting’s project.'
           : !bridge
-            ? 'This computer cannot record meetings: Reader’s notes need macOS or Windows.'
+            ? 'This computer cannot record meetings: Koios’s notes need macOS or Windows.'
             : notes.availability === 'ready'
               ? 'Ready: Zoom, Google Meet, Teams and Slack huddles are found as they open.'
               : notes.reason ?? 'Starting the recorder…'}
       </small>
       <label className="setting-row">
         <input type="checkbox" checked={settings.notesAuto} onChange={(change) => updateSettings({ notesAuto: change.target.checked })} />
-        <span>Start by itself when a meeting set to Reader notes opens</span>
+        <span>Start by itself when a meeting set to Koios notes opens</span>
       </label>
       <label className="setting-row">
         <input type="checkbox" checked={settings.notesOffer} onChange={(change) => updateSettings({ notesOffer: change.target.checked })} />
@@ -357,7 +357,7 @@ function RecorderSettings() {
           })}
           <small className={`set-permissions-state${PERMISSIONS.every(([permission]) => notes.permissions[permission] === 'granted') ? ' is-ok' : ''}`}>
             {PERMISSIONS.every(([permission]) => notes.permissions[permission] === 'granted')
-              ? '✓ All three granted: Reader can record meetings on this computer.'
+              ? '✓ All three granted: Koios can record meetings on this computer.'
               : `The recorder says — ${PERMISSIONS.map(([permission, label]) => `${label.replace(/ \(.*\)$/, '')}: ${(notes.permissions[permission] ?? 'not reported yet').replace(/_/g, ' ')}`).join(' · ')}.`}{' '}
             <button type="button" className="link-btn" onClick={() => PERMISSIONS.forEach(([permission]) => notes.permissions[permission] !== 'granted' && void bridge.requestPermission(permission))} title="Ask the recorder again for the state of each permission not yet granted (macOS may prompt for one not asked yet)">
               Check again
@@ -373,7 +373,7 @@ function RecorderSettings() {
                   }}
                   title="A decision macOS made for an earlier build of Reader can linger, switched on in System Settings yet denied to this one: this forgets them all and starts Reader again"
                 >
-                  Reset permissions and restart Reader
+                  Reset permissions and restart Koios
                 </button>
               </>
             ) : null}
@@ -618,7 +618,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
                 <b>{user.name}</b>
                 <small>{user.email}</small>
               </div>
-              <button type="button" className="btn sm" onClick={() => setInviting(true)} title="Email someone what Reader is, with a note of your own and the site's address">
+              <button type="button" className="btn sm" onClick={() => setInviting(true)} title="Email someone what Koios is, with a note of your own and the site's address">
                 Invite someone
               </button>
               <button type="button" className="btn sm" onClick={signOut}>
@@ -666,7 +666,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
         ) : null}
       </Card>
 
-      <p className="set-foot">What Reader does with your Google account, your Drive and your calendar, and what it never sees: {privacyLinks}.</p>
+      <p className="set-foot">What Koios does with your Google account, your Drive and your calendar, and what it never sees: {privacyLinks}.</p>
     </>
   );
 
@@ -879,7 +879,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
           <GitHubConnect compact />
           <small>
             The same GitHub connection as Projects → Connections: a <strong>fine-grained</strong> token limited to this
-            repository (and any Reader writes), Contents: read and write, with an expiry. Reader’s server keeps it
+            repository (and any Koios writes), Contents: read and write, with an expiry. Koios’s server keeps it
             encrypted for you alone; it is never kept in this browser.
           </small>
         </div>
@@ -1345,7 +1345,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
         <p style={muted}>
           A project’s paper is always written in its Write tab, kept in your Google Drive (or, if you choose, on your
           computers): the choice above only adds another place to reach it. Overleaf is optional — link a project to one
-          from its Write tab or the paper card, and Reader’s server keeps the two in step through Overleaf’s Git, with the
+          from its Write tab or the paper card, and Koios’s server keeps the two in step through Overleaf’s Git, with the
           Overleaf account connected once under Projects → Connections (or below).
         </p>
       </Card>
@@ -1353,7 +1353,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
       <Card
         id="settings-overleaf-accounts"
         title="Overleaf accounts"
-        note="Connected once, here or from any project’s Write tab: Reader’s server keeps each account’s Git token encrypted with your Reader account, for every project and every device. Each project syncs with whichever connected account can open it — its own Overleaf account’s, or one it is shared with."
+        note="Connected once, here or from any project’s Write tab: Koios’s server keeps each account’s Git token encrypted with your Koios account, for every project and every device. Each project syncs with whichever connected account can open it — its own Overleaf account’s, or one it is shared with."
       >
         <OverleafAccounts />
       </Card>
@@ -1475,7 +1475,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
       </Card>
 
       <Card title="Your data">
-        <p style={{ ...muted, margin: 0 }}>What Reader does with your Google account, your Drive and your calendar, and what it never sees: {privacyLinks}.</p>
+        <p style={{ ...muted, margin: 0 }}>What Koios does with your Google account, your Drive and your calendar, and what it never sees: {privacyLinks}.</p>
       </Card>
     </>
   );

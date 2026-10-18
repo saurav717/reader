@@ -59,7 +59,7 @@ const STEPS: Step[] = [
   {
     id: 'welcome',
     place: 'any',
-    title: 'Welcome to Reader',
+    title: 'Welcome to Koios',
     body: (
       <>
         <p>Search the indexes, keep what you collect, read it with highlights, and ask a model about it — all from one window.</p>

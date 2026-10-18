@@ -292,7 +292,7 @@ export default function CliAgent({
     const turn: CliTurn = { at: Date.now(), request: prompt, job, offset: 0, lines: [], done: false };
     setChat(projectId, agent, { ...chat, turns: [...chat.turns, turn].slice(-TURNS_KEPT) });
     try {
-      const context = `You are running inside Reader's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short.`;
+      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short.`;
       await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context }), { cwd: folder, env }, projectId);
       await persist(projectId, host);
       void follow(projectId, agent, job, host, afterRun);

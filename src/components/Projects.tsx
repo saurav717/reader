@@ -1701,7 +1701,7 @@ function SetUpCode({ project, papers, missing, onLinked, onView }: { project: Pr
               <span>turned off in Settings → Compute</span>
             ) : (
               <span>
-                needs the Reader app, one command —{' '}
+                needs the Koios app, one command —{' '}
                 <button type="button" className="link-btn" onClick={() => onView({ kind: 'playground' })}>
                   connect this computer
                 </button>

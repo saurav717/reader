@@ -143,7 +143,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <div className="wg-flow" aria-label="Where your words go">
               <span className="wg-node">
                 <b>You write</b>
-                <small>in Reader, in the browser</small>
+                <small>in Koios, in the browser</small>
               </span>
               <span className="wg-arrow" aria-hidden="true">
                 →
@@ -157,7 +157,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
               </span>
               <span className="wg-node">
                 <b>Overleaf</b>
-                <small>kept in step by Reader’s server, if linked</small>
+                <small>kept in step by Koios’s server, if linked</small>
               </span>
             </div>
             <p className="wg-note">The PDF is made on Cloud Run, with all of TeX Live: you don’t install anything.</p>
@@ -174,7 +174,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                 </p>
               </Choice>
               <Choice name="This computer" tag="Overleaf projects only" pick="you need your own TeX installation, or want the files in a folder for other tools.">
-                <p>A copy of the Overleaf project in a folder on each of your computers, set up once on each. It needs the Reader app (the Companion) running.</p>
+                <p>A copy of the Overleaf project in a folder on each of your computers, set up once on each. It needs the Koios app (the Companion) running.</p>
               </Choice>
             </div>
             <div className="wg-how">
@@ -188,7 +188,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                 </li>
               </ul>
             </div>
-            <p className="wg-note">Papers saved on a computer by earlier versions of Reader move into Drive by themselves; their old folders are removed once every file is safely in Drive. Dropbox folders are never touched.</p>
+            <p className="wg-note">Papers saved on a computer by earlier versions of Koios move into Drive by themselves; their old folders are removed once every file is safely in Drive. Dropbox folders are never touched.</p>
           </section>
 
           <section id="wg-begin" className="wg-section">
@@ -196,9 +196,9 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <p className="wg-lede">A project with no paper yet opens on “Start this project’s paper”, with two choices.</p>
             <div className="wg-choices">
               <Choice name="From your Overleaf account" pick="the paper already exists in Overleaf, or coauthors write there.">
-                <p>Pick one of your Overleaf projects. It comes into Drive and stays in step both ways: your edits show in Overleaf, theirs come into Reader.</p>
+                <p>Pick one of your Overleaf projects. It comes into Drive and stays in step both ways: your edits show in Overleaf, theirs come into Koios.</p>
                 <p className="wg-small">
-                  Reader lists the Overleaf projects it already knows. For any other, open it in Overleaf, copy the address from the browser (<span className="mono">overleaf.com/project/…</span>) and paste it — Overleaf
+                  Koios lists the Overleaf projects it already knows. For any other, open it in Overleaf, copy the address from the browser (<span className="mono">overleaf.com/project/…</span>) and paste it — Overleaf
                   doesn’t let other apps list your projects.
                 </p>
               </Choice>
@@ -222,7 +222,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
 
           <section id="wg-accounts" className="wg-section">
             <h3>Overleaf accounts</h3>
-            <p className="wg-lede">Reader talks to Overleaf through Overleaf’s Git integration, with a token you make once per Overleaf account.</p>
+            <p className="wg-lede">Koios talks to Overleaf through Overleaf’s Git integration, with a token you make once per Overleaf account.</p>
             <div className="wg-how">
               <b>Connect an account</b>
               <Steps>
@@ -230,9 +230,9 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                   In Overleaf: <em>Account Settings → Git integration → Generate token</em>. It starts with <span className="mono">olp_</span>.
                 </li>
                 <li>
-                  In Reader: <em>Settings → Overleaf accounts</em> (or the form any Write tab shows when it needs one). Give the account a name you’ll recognise, like your email, paste the token, and paste the link of one of that account’s own Overleaf projects.
+                  In Koios: <em>Settings → Overleaf accounts</em> (or the form any Write tab shows when it needs one). Give the account a name you’ll recognise, like your email, paste the token, and paste the link of one of that account’s own Overleaf projects.
                 </li>
-                <li>Reader opens that project with the token before keeping it. Overleaf doesn’t say which account a token belongs to, so this is how a token from a different account is caught: it can’t open the project, and Reader says so.</li>
+                <li>Koios opens that project with the token before keeping it. Overleaf doesn’t say which account a token belongs to, so this is how a token from a different account is caught: it can’t open the project, and Koios says so.</li>
                 <li>That’s it — every project, on every device, uses it.</li>
               </Steps>
               <button type="button" className="btn sm" onClick={() => toAccounts(onClose)}>
@@ -242,7 +242,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <div className="wg-facts">
               <div>
                 <b>Is it safe?</b>
-                <p>The token is kept encrypted by Reader’s server, under your Google sign-in — never in a paper, in Drive, or in your browser. Disconnect removes it; delete it in Overleaf too to make it useless everywhere.</p>
+                <p>The token is kept encrypted by Koios’s server, under your Google sign-in — never in a paper, in Drive, or in your browser. Disconnect removes it; delete it in Overleaf too to make it useless everywhere.</p>
               </div>
               <div>
                 <b>More than one account</b>
@@ -266,17 +266,17 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                 <tr>
                   <td>“…can’t open this project”</td>
                   <td>None of your connected accounts has access to it.</td>
-                  <td>Connect the account it’s in — the form is right there — and Reader carries on by itself.</td>
+                  <td>Connect the account it’s in — the form is right there — and Koios carries on by itself.</td>
                 </tr>
                 <tr>
                   <td>“X can’t open this Overleaf project any more… synced through Y”</td>
-                  <td>The project was unshared from X, or X’s token was revoked, so Reader used Y, which can.</td>
+                  <td>The project was unshared from X, or X’s token was revoked, so Koios used Y, which can.</td>
                   <td>Nothing. Reconnect X with a new token if you want it back.</td>
                 </tr>
                 <tr>
                   <td>“Overleaf’s Git isn’t answering right now”</td>
                   <td>Overleaf is down for a moment on its side. Nothing was lost.</td>
-                  <td>Nothing: Reader tries again in a few minutes.</td>
+                  <td>Nothing: Koios tries again in a few minutes.</td>
                 </tr>
               </tbody>
             </table>
@@ -295,7 +295,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
               <dt>Continue…</dt>
               <dd>Opens the LaTeX project you were last writing.</dd>
               <dt>On Overleaf, or not</dt>
-              <dd>Each LaTeX project can have an Overleaf project of its own, or none. A new one starts off Overleaf — nothing to connect, nothing synced — until you press <em>Put on Overleaf</em> on its card: Reader makes the Overleaf project with its files in it (in the account signed in in this browser), and you paste that project’s address back once. A paper brought in from Overleaf keeps syncing as before.</dd>
+              <dd>Each LaTeX project can have an Overleaf project of its own, or none. A new one starts off Overleaf — nothing to connect, nothing synced — until you press <em>Put on Overleaf</em> on its card: Koios makes the Overleaf project with its files in it (in the account signed in in this browser), and you paste that project’s address back once. A paper brought in from Overleaf keeps syncing as before.</dd>
               <dt>Compare with Overleaf</dt>
               <dd>On a LaTeX project that is on Overleaf (its card, or the editor’s status bar). On the left, every file: changed on both, only on this site, only on Overleaf, or the same. On the right, a file’s two versions side by side, as GitHub shows them. Keep this site’s version or Overleaf’s in total, for one file or all of them, or pick change by change — this site’s, Overleaf’s, or both. <em>PDFs</em> compiles any two of this site’s, Overleaf’s and the result as picked, and boxes what changed on each page. <em>Apply to both</em> makes the picked version the one on this site and on Overleaf.</dd>
               <dt>View in</dt>
@@ -305,9 +305,9 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
               <dt>Browse templates</dt>
               <dd>Conference kits you saved before (NeurIPS, ICML, ACL…), kept in your Drive.</dd>
               <dt>Upload a template (.zip)</dt>
-              <dd>The zip a conference gives out. Reader also keeps it as a template for next time.</dd>
+              <dd>The zip a conference gives out. Koios also keeps it as a template for next time.</dd>
               <dt>Upload a LaTeX project</dt>
-              <dd>Its folder from your computer, subfolders and all, so its \input and \includegraphics paths still work; or its files picked one by one. Reader finds its main .tex (main.tex, else the one with \documentclass).</dd>
+              <dd>Its folder from your computer, subfolders and all, so its \input and \includegraphics paths still work; or its files picked one by one. Koios finds its main .tex (main.tex, else the one with \documentclass).</dd>
             </dl>
           </section>
 
@@ -325,7 +325,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                 <p>The PDF is in Overleaf’s window, beside.</p>
               </Choice>
               <Choice name="This computer" pick="the paper is kept on this computer.">
-                <p>Your own TeX, through the Reader app.</p>
+                <p>Your own TeX, through the Koios app.</p>
               </Choice>
             </div>
             <dl className="wg-list">
@@ -400,14 +400,14 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <dl className="wg-faq">
               <dt>Do I need a paid Overleaf plan?</dt>
               <dd>Only to sync with Overleaf: its Git integration is a paid feature. Without one, start without Overleaf — everything else works.</dd>
-              <dt>Why can’t Reader list my Overleaf projects?</dt>
-              <dd>Overleaf doesn’t let other apps do that. Paste a project’s address once, and Reader remembers it.</dd>
+              <dt>Why can’t Koios list my Overleaf projects?</dt>
+              <dd>Overleaf doesn’t let other apps do that. Paste a project’s address once, and Koios remembers it.</dd>
               <dt>Is anything kept on my computer?</dt>
               <dd>Not for papers in Drive. Only if you choose “Keep on this computer” for a project.</dd>
               <dt>What if Overleaf or Cloud Run is down?</dt>
               <dd>Your writing is saved in Drive either way. Syncs are tried again by themselves; to compile meanwhile, switch Compile on to GitHub Actions.</dd>
               <dt>Can I still write in Overleaf directly?</dt>
-              <dd>Yes — you and your coauthors can. What changes there comes into Reader at the next sync.</dd>
+              <dd>Yes — you and your coauthors can. What changes there comes into Koios at the next sync.</dd>
             </dl>
           </section>
         </div>

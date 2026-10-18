@@ -69,8 +69,8 @@ export async function claimForAccount(server: JupyterServer): Promise<{ server: 
   // An older Companion has no /companion/claim, and its answer to the browser's check before the request
   // carries no CORS headers, so the request fails as if nothing answered: ask its version first.
   const info = await findCompanion(server.url, 4000);
-  if (!info) return { server, problem: 'The Companion isn’t answering. Open the Reader app on that computer, or start it again.' };
-  if (isNewer(ACCOUNTS, info.version)) return { server, problem: `This Companion is ${info.version}; connecting it to your account needs ${ACCOUNTS}. Update it in Settings → Updates (or open the newest Reader app), then try again.` };
+  if (!info) return { server, problem: 'The Companion isn’t answering. Open the Koios app on that computer, or start it again.' };
+  if (isNewer(ACCOUNTS, info.version)) return { server, problem: `This Companion is ${info.version}; connecting it to your account needs ${ACCOUNTS}. Update it in Settings → Updates (or open the newest Koios app), then try again.` };
   try {
     const claimed = await claimCompanion(server, pass, apiAt);
     return { server: saveServer({ ...server, token: claimed.token, account: claimed.email }) };

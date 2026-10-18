@@ -183,7 +183,7 @@ export function starterFiles(sections: Section[]): RepoFiles {
 
 /** The page itself as Markdown, so the plan travels with the code. */
 export function planMarkdown(title: string, content: string, writer = 'Claude'): string {
-  return `# ${title} — implementation plan\n\n*Planned by ${writer} in Reader. The starter files beside this are the ones it wrote; the compute budget was worked out for the hardware picked when it was written.*\n\n${content.trim()}\n`;
+  return `# ${title} — implementation plan\n\n*Planned by ${writer} in Koios. The starter files beside this are the ones it wrote; the compute budget was worked out for the hardware picked when it was written.*\n\n${content.trim()}\n`;
 }
 
 /** A notebook that lays the repository out (a cell a file), then runs the page's cells. */
@@ -198,7 +198,7 @@ export function scaffoldNotebook(title: string, sections: Section[], writer = 'C
       ...{ execution_count: null, metadata: {}, outputs: [] },
     } as never);
   }
-  book.cells[0].source = `# ${title} — implementation\n\n*Planned by ${writer} in Reader. Run the cells in order: the first ones write the starter files into this session's disk, the rest are the page's own cells. Outputs shown under a cell were written by ${writer}, not run.*\n`.split(/(?<=\n)/);
+  book.cells[0].source = `# ${title} — implementation\n\n*Planned by ${writer} in Koios. Run the cells in order: the first ones write the starter files into this session's disk, the rest are the page's own cells. Outputs shown under a cell were written by ${writer}, not run.*\n`.split(/(?<=\n)/);
   return JSON.stringify(book, null, 1);
 }
 
@@ -236,7 +236,7 @@ export interface Bundle {
 
 /** The page itself as Markdown, beside the notebook of its cells. */
 export function pageMarkdown(title: string, content: string, writer = 'Claude'): string {
-  return `# ${title} — explained\n\n*Explained by ${writer} in Reader. The notebook beside this holds the page's cells.*\n\n${content.trim()}\n`;
+  return `# ${title} — explained\n\n*Explained by ${writer} in Koios. The notebook beside this holds the page's cells.*\n\n${content.trim()}\n`;
 }
 
 export function bundleOf(title: string, content: string, sections: Section[], kind: 'plan' | 'page', writer = 'Claude'): Bundle {

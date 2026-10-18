@@ -745,14 +745,14 @@ export default function NotebookPage({
       key: 'page',
       label: 'the explanation',
       zipNote: '.zip — the explanation as EXPLANATION.md, and a notebook of its cells',
-      message: `Explanation of “${short}”, from Reader`,
+      message: `Explanation of “${short}”, from Koios`,
       bundle: explanationDoc?.content && !explanationDoc.streaming ? () => bundleOf(title, explanationDoc.content, parseExplanation(explanationDoc.content), 'page', writerOf(explanationDoc)) : null,
     },
     {
       key: 'plan',
       label: 'the scaffold',
       zipNote: '.zip — the directories and starter files, the plan as PLAN.md, and a notebook that writes them',
-      message: `Implementation scaffold for “${short}”, planned in Reader`,
+      message: `Implementation scaffold for “${short}”, planned in Koios`,
       bundle: planDoc?.content && !planDoc.streaming ? () => bundleOf(title, planDoc.content, parseExplanation(planDoc.content), 'plan', writerOf(planDoc)) : null,
     },
   ];
@@ -766,7 +766,7 @@ export default function NotebookPage({
       setPush({ state: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   };
-  const commit = () => (nb ? commitBundle(notebookBundle(`notebooks/${notebookFileName(title)}`, toIpynb(nb)), `Notebook for “${short}”, from Reader`) : Promise.resolve());
+  const commit = () => (nb ? commitBundle(notebookBundle(`notebooks/${notebookFileName(title)}`, toIpynb(nb)), `Notebook for “${short}”, from Koios`) : Promise.resolve());
   useEffect(() => {
     if (!note) return;
     const timer = window.setTimeout(() => setNote(null), 4000);

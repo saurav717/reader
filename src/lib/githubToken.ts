@@ -48,8 +48,8 @@ export class NoTokenServer extends Error {}
 
 async function answer(response: Response): Promise<GitHubStatus> {
   const body = (await response.json().catch(() => ({}))) as GitHubStatus & { error?: string };
-  if (response.status === 404 || response.status === 501) throw new NoTokenServer(body.error || 'Reader’s server can’t keep a GitHub token.');
-  if (!response.ok) throw new Error(body.error || `Reader’s server answered ${response.status}.`);
+  if (response.status === 404 || response.status === 501) throw new NoTokenServer(body.error || 'Koios’s server can’t keep a GitHub token.');
+  if (!response.ok) throw new Error(body.error || `Koios’s server answered ${response.status}.`);
   return body;
 }
 
@@ -63,7 +63,7 @@ export async function keepGitHubToken(token: string): Promise<GitHubStatus> {
   try {
     response = await apiFetch('/github/token', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
   } catch {
-    throw new NoTokenServer('Reader’s server couldn’t be reached.');
+    throw new NoTokenServer('Koios’s server couldn’t be reached.');
   }
   return answer(response);
 }
@@ -106,7 +106,7 @@ export function signInWithGitHub(via: 'oauth' | 'app'): Promise<GitHubStatus> {
     apiFetch('/github/oauth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ via }) })
       .then(async (response) => {
         const body = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
-        if (!response.ok || !body.url) throw new Error(body.error || `Reader’s server answered ${response.status}.`);
+        if (!response.ok || !body.url) throw new Error(body.error || `Koios’s server answered ${response.status}.`);
         if (!popup) throw new Error('The browser blocked the GitHub window: allow pop-ups for this site, then try again.');
         popup.location.href = body.url;
       })

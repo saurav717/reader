@@ -190,8 +190,8 @@ export function AwayCard({
         </div>
         <p className="away-hint">
           {down
-            ? `On ${reach.computer}, open the Reader app (or run reader-companion there); this page finds it again by itself.`
-            : `To connect it: open the Reader app on ${reach.computer}, or sign in here with the Google account it is under — your computers appear on their own. `}
+            ? `On ${reach.computer}, open the Koios app (or run reader-companion there); this page finds it again by itself.`
+            : `To connect it: open the Koios app on ${reach.computer}, or sign in here with the Google account it is under — your computers appear on their own. `}
           {playground.kind === 'project' ? (
             <>
               {' '}

@@ -194,11 +194,11 @@ export const armJoin = (windowId: string, armed: boolean) => patchSession(window
 function notice(tag: string, title: string, kind: 'armed' | 'offer' | 'recording', project?: string): void {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   try {
-    const shown = new Notification(kind === 'offer' ? `Take notes of ${title}?` : kind === 'armed' ? `Reader will take notes of ${title}` : `Reader is taking notes of ${title}`, {
+    const shown = new Notification(kind === 'offer' ? `Take notes of ${title}?` : kind === 'armed' ? `Koios will take notes of ${title}` : `Koios is taking notes of ${title}`, {
       body:
         kind === 'offer'
-          ? 'Reader can take them on this computer, with no bot in the call. Open Reader to say yes.'
-          : `No bot joins. They are filed in ${project ?? 'the project'} → Logbook, for everyone in it. Open Reader to ${kind === 'armed' ? 'change that' : 'stop'}.`,
+          ? 'Koios can take them on this computer, with no bot in the call. Open Koios to say yes.'
+          : `No bot joins. They are filed in ${project ?? 'the project'} → Logbook, for everyone in it. Open Koios to ${kind === 'armed' ? 'change that' : 'stop'}.`,
       tag,
       silent: true,
     });
@@ -305,7 +305,7 @@ export async function startRecording(windowId: string, projectId: string | null,
   try {
     const response = await apiFetch('/notes/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const body = (await response.json().catch(() => ({}))) as { uploadToken?: string; error?: string };
-    if (!response.ok || !body.uploadToken) throw new Error(body.error || `Reader’s server answered ${response.status}.`);
+    if (!response.ok || !body.uploadToken) throw new Error(body.error || `Koios’s server answered ${response.status}.`);
     const started = await bridge.start(windowId, body.uploadToken);
     if (!started.ok) throw new Error(started.error || 'The recorder did not start.');
   } catch (error) {

@@ -137,7 +137,7 @@ export async function overleafTokenKnown(): Promise<boolean> {
 export async function connectOverleaf(token: string, label = '', project?: string): Promise<string> {
   const response = await apiFetch('/latex/overleaf/token', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, label, ...(project ? { url: project } : {}) }) });
   const body = (await response.json().catch(() => ({}))) as { error?: string; account?: string; accounts?: OverleafAccount[] };
-  if (!response.ok || !body.account) throw new Error(body.error ?? `Reader’s server answered ${response.status}.`);
+  if (!response.ok || !body.account) throw new Error(body.error ?? `Koios’s server answered ${response.status}.`);
   told(body.accounts ?? []);
   return body.account;
 }
@@ -196,7 +196,7 @@ export async function cloudSync(store: PaperStore, url: string, message: string,
   // A token given now, or the accounts tried: the page's list brought up to date.
   if (token || answer.needToken) void overleafAccounts().catch(() => undefined);
   if (!response.ok || !answer.commit) {
-    return { ok: false, committed: false, pushed: false, conflicts: [], error: answer.error ?? `Reader’s server answered ${response.status}.`, needToken: answer.needToken };
+    return { ok: false, committed: false, pushed: false, conflicts: [], error: answer.error ?? `Koios’s server answered ${response.status}.`, needToken: answer.needToken };
   }
   // What Overleaf has that this paper hadn't: written into Drive.
   const incoming: string[] = [];
@@ -259,7 +259,7 @@ export async function compareWithOverleaf(store: PaperStore, url: string, option
   const exclude = options.exclude ?? [];
   const response = await apiFetch('/latex/overleaf/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, ...(options.account ? { account: options.account } : {}) }) });
   const answer = (await response.json().catch(() => ({}))) as { commit?: string; files?: { path: string; base64: string; sha?: string }[]; error?: string; needToken?: boolean; account?: string };
-  if (!response.ok || !answer.commit) throw Object.assign(new Error(answer.error ?? `Reader’s server answered ${response.status}.`), { needToken: Boolean(answer.needToken) });
+  if (!response.ok || !answer.commit) throw Object.assign(new Error(answer.error ?? `Koios’s server answered ${response.status}.`), { needToken: Boolean(answer.needToken) });
   const theirs = new Map((answer.files ?? []).filter((file) => kept(file.path, exclude)).map((file) => [file.path, file]));
   const mine = await current(store, exclude);
   const paths = [...new Set([...mine.keys(), ...theirs.keys()])].sort((a, b) => a.localeCompare(b));
@@ -292,5 +292,5 @@ export async function settleWithOverleaf(store: PaperStore, url: string, compari
   for (const file of comparison.files) if (file.theirs !== undefined) files[file.path] = await fingerprint(file.theirs);
   await store.writeText(SYNC_STATE, JSON.stringify({ commit: comparison.commit, files } satisfies SyncState));
   seen.delete(store);
-  return cloudSync(store, url, 'Settled in Reader’s compare with Overleaf', undefined, { account: options.account ?? comparison.account, exclude: options.exclude });
+  return cloudSync(store, url, 'Settled in Koios’s compare with Overleaf', undefined, { account: options.account ?? comparison.account, exclude: options.exclude });
 }

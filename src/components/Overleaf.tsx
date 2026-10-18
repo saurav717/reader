@@ -141,7 +141,7 @@ async function saveDraft(project: Project, settings: Settings) {
   put(project.id, (current) => ({ ...current, saving: true, error: undefined }));
   const names = changed.map((file) => file.path.split('/').pop()).join(', ');
   try {
-    const saved = await writeDraft(target, changed, `Edit ${names} from Reader`);
+    const saved = await writeDraft(target, changed, `Edit ${names} from Koios`);
     put(project.id, (current) => {
       const files = current.files.filter((file) => !saved.some((s) => s.path === file.path)).concat(saved).sort((a, b) => a.path.localeCompare(b.path));
       const edits = { ...current.edits };
@@ -283,7 +283,7 @@ function LinkForm({ project, onDone, note }: { project: Project; onDone: () => v
     setMaking(true);
     setMadeError(null);
     try {
-      const made = await createPrivateRepo(settings.githubToken.trim(), repoNameFor(project.name), `The paper for ${project.name}, written in Overleaf and Reader.`);
+      const made = await createPrivateRepo(settings.githubToken.trim(), repoNameFor(project.name), `The paper for ${project.name}, written in Overleaf and Koios.`);
       setRepo(made.fullName);
       setBranch(made.defaultBranch === 'main' ? '' : made.defaultBranch);
     } catch (error) {
@@ -437,7 +437,7 @@ export function OverleafCard({ project, onWrite, onWorkspace }: { project: Proje
     <section className="pj-panel ol-card">
       <div className="ol-head">
         <span className="eyebrow">The paper</span>
-        <span className={`ol-sync${onOverleaf ? ' is-on' : ''}`} title={onOverleaf ? 'This LaTeX project: each save here goes to its Overleaf project, and what coauthors write there comes back' : 'This LaTeX project is kept in Reader only — link it to an Overleaf project of its own to write there too'}>
+        <span className={`ol-sync${onOverleaf ? ' is-on' : ''}`} title={onOverleaf ? 'This LaTeX project: each save here goes to its Overleaf project, and what coauthors write there comes back' : 'This LaTeX project is kept in Koios only — link it to an Overleaf project of its own to write there too'}>
           {place && latexProjects.length > 1 ? `${here || 'top'} · ` : ''}
           {onOverleaf ? 'Synced with Overleaf' : 'Not on Overleaf'}
         </span>

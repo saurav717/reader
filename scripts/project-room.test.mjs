@@ -129,7 +129,7 @@ describe('sharing a project', () => {
       assert.equal(sent[0].url, 'https://api.resend.com/emails');
       assert.deepEqual(sent[0].body.to, ['dana@ethz.ch']);
       assert.equal(sent[0].body.reply_to, 'owner@x.org');
-      assert.equal(sent[0].body.subject, 'Owner One invited you to “Sparse-gated MoE” on Reader');
+      assert.equal(sent[0].body.subject, 'Owner One invited you to “Sparse-gated MoE” on Koios');
       const tag = await (await import('../server/mail.js')).addressTag('dana@ethz.ch');
       assert.match(tag, /^[0-9a-f]{12}$/);
       assert.match(sent[0].body.text, new RegExp(`${link.replace(/[.?+]/g, '\\$&')}&for=${tag}`), 'the link carries a tag of the address, not the address');
@@ -272,7 +272,7 @@ describe('sharing a project', () => {
   });
 });
 
-describe('inviting someone to try Reader', () => {
+describe('inviting someone to try Koios', () => {
   const withMail = () => ({ ...env(), MAIL_API_KEY: 're_test', MAIL_FROM: 'Reader <noreply@reader.example>' });
   const stub = () => {
     const sent = [];
@@ -291,7 +291,7 @@ describe('inviting someone to try Reader', () => {
       assert.equal(sent.length, 1);
       assert.deepEqual(sent[0].body.to, ['colleague@uni.edu']);
       assert.equal(sent[0].body.reply_to, 'owner@x.org');
-      assert.equal(sent[0].body.subject, "Owner One thinks you'd like Reader");
+      assert.equal(sent[0].body.subject, "Owner One thinks you'd like Koios");
       assert.match(sent[0].body.text, /Have a look\?/);
       assert.equal((await call(e, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://evil.example/' } })).status, 400);
       assert.equal((await call(e, '/invite', { pass, body: { email: 'not-an-address', link: 'https://saurav717.github.io/reader/' } })).status, 400);

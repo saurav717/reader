@@ -79,7 +79,7 @@ function WriteStart({ project }: { project: Project }) {
   const bring = async (url: string) => {
     const gitUrl = overleafGitUrl(url);
     if (!gitUrl) throw new Error('That isn’t an Overleaf project’s address.');
-    const done = await cloudSync(driveStore(paperDriveNow, folder), gitUrl, 'From Reader');
+    const done = await cloudSync(driveStore(paperDriveNow, folder), gitUrl, 'From Koios');
     if (!done.ok) throw Object.assign(new Error(done.error ?? 'It didn’t come in.'), { needToken: Boolean(done.needToken) });
     await setLink({ url, drive: { folder }, ...(done.account ? { gitAccount: done.account } : {}) });
   };
@@ -182,7 +182,7 @@ function PutOnOverleaf({ project, store, dir = '', main, onDone }: { project: Pr
       onPicked={async (url) => {
         const gitUrl = overleafGitUrl(url);
         if (!gitUrl) throw new Error('That isn’t an Overleaf project’s address.');
-        const done = await cloudSync(own, gitUrl, 'The paper, from Reader', undefined, { firstPushes: true, exclude });
+        const done = await cloudSync(own, gitUrl, 'The paper, from Koios', undefined, { firstPushes: true, exclude });
         if (!done.ok) throw Object.assign(new Error(done.error ?? 'The paper didn’t go to Overleaf.'), { needToken: Boolean(done.needToken) });
         await keep({ url, ...(done.account ? { gitAccount: done.account } : {}), ...(main ? { main } : {}) });
         onDone?.();
@@ -236,7 +236,7 @@ function OverleafPicker({ project, mode, onPicked, onMake }: { project: Project;
     }
   };
   const pasted = parseOverleafUrl(address);
-  if (accounts === null) return <p className="wr-quiet">Asking Reader’s server about your Overleaf accounts…</p>;
+  if (accounts === null) return <p className="wr-quiet">Asking Koios’s server about your Overleaf accounts…</p>;
   // Two steps, the first only when it is needed: the Overleaf account, connected once for every project
   // (here or under Projects → Connections) — never asked again once it is — then this project's Overleaf project.
   const hasAccount = accounts.length > 0 && !needAccount;
@@ -279,7 +279,7 @@ function OverleafPicker({ project, mode, onPicked, onMake }: { project: Project;
               {mode === 'push' && onMake ? (
                 <div className="wr-ol-make">
                   <p>
-                    <b>a.</b> Reader makes a new Overleaf project with this paper in it, in the Overleaf account signed in in this browser. Overleaf’s Git can’t make projects, so this opens Overleaf in a new tab.
+                    <b>a.</b> Koios makes a new Overleaf project with this paper in it, in the Overleaf account signed in in this browser. Overleaf’s Git can’t make projects, so this opens Overleaf in a new tab.
                   </p>
                   <div className="wr-row">
                     <button
@@ -304,7 +304,7 @@ function OverleafPicker({ project, mode, onPicked, onMake }: { project: Project;
                 </p>
               ) : offered.length ? (
                 <>
-                  <span className="wr-field-label">Your Overleaf projects Reader knows</span>
+                  <span className="wr-field-label">Your Overleaf projects Koios knows</span>
                   <div className="wr-ol-list" role="list">
                     {offered.map((item) => (
                       <button key={item.url} type="button" role="listitem" className="wr-ol-item" disabled={busy} onClick={() => void pick(item.url)}>
@@ -365,7 +365,7 @@ function KeepWhere({ project, here, folder, store }: { project: Project; here?: 
     setProblem(null);
     try {
       if (store?.kind === 'drive' && gitUrl) {
-        const done = await cloudSync(store, gitUrl, 'Edits from Reader, before the paper moved to a computer');
+        const done = await cloudSync(store, gitUrl, 'Edits from Koios, before the paper moved to a computer');
         if (!done.ok) throw new Error(done.needToken ? 'Your Overleaf Git token is needed to send what is in Drive to Overleaf first: give it under the files, then try again.' : done.error ?? 'What is in Drive couldn’t be sent to Overleaf first.');
       }
       await keep('computer');
@@ -383,13 +383,13 @@ function KeepWhere({ project, here, folder, store }: { project: Project; here?: 
       // Already in Drive from before: this computer's edits go to Overleaf, which Drive syncs from; the folder then goes.
       if (link?.drive?.folder && here && folder) {
         if (folder.sync === 'git') {
-          const sent = await syncPaper(here.server, folder.path, 'Edits from Reader, before the paper moved to Drive');
+          const sent = await syncPaper(here.server, folder.path, 'Edits from Koios, before the paper moved to Drive');
           if (!sent.ok) throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
         }
-        if (folder.sync !== 'dropbox' && /^papers\/[^/]+$/.test(folder.path)) await removeFolder(here.server, folder.path).catch((error) => console.warn(`Reader: ${folder.path} couldn’t be removed from this computer:`, error));
+        if (folder.sync !== 'dropbox' && /^papers\/[^/]+$/.test(folder.path)) await removeFolder(here.server, folder.path).catch((error) => console.warn(`Koios: ${folder.path} couldn’t be removed from this computer:`, error));
         save(here.id, undefined);
         // Drive brought up to date with it now, not only when a document is next opened.
-        if (gitUrl && paperDriveNow()) await cloudSync(driveStore(paperDriveNow, link.drive.folder), gitUrl, 'From Reader').catch((error) => console.warn('Reader: Drive will catch up at the next sync:', error));
+        if (gitUrl && paperDriveNow()) await cloudSync(driveStore(paperDriveNow, link.drive.folder), gitUrl, 'From Koios').catch((error) => console.warn('Koios: Drive will catch up at the next sync:', error));
       }
       // Not in Drive yet: the tab brings it there, from this computer's folder (ToDrive).
       await keep('drive');
@@ -500,7 +500,7 @@ function ToDrive({ project }: { project: Project }) {
         <h2>{blocked ? 'Bringing the paper into Google Drive' : 'Getting the paper ready in Google Drive'}</h2>
         <p>
           The project’s LaTeX is kept in your Drive, in <span className="mono">{paperDriveFolder(project.name, project.id)}</span> — nothing on this computer — written here in the browser, compiled on Cloud Run
-          {gitUrl ? ', and kept in step with Overleaf by Reader’s server.' : '.'}{' '}
+          {gitUrl ? ', and kept in step with Overleaf by Koios’s server.' : '.'}{' '}
           <WriteGuideLink section="where">How this works</WriteGuideLink>
         </p>
         {step ? (
@@ -511,7 +511,7 @@ function ToDrive({ project }: { project: Project }) {
         {blocked === 'elsewhere' ? (
           <>
             <p>
-              This project’s paper is in a folder on {here && !('error' in here) ? 'another computer' : 'a computer, and this one’s Companion isn’t running'}: open the Reader app there and it moves into Drive by itself — what was written there with it.
+              This project’s paper is in a folder on {here && !('error' in here) ? 'another computer' : 'a computer, and this one’s Companion isn’t running'}: open the Koios app there and it moves into Drive by itself — what was written there with it.
             </p>
             {gitUrl ? <p className="wr-quiet">Or bring it in from Overleaf now: anything written on that computer and not yet synced stays there.</p> : null}
           </>
@@ -890,7 +890,7 @@ function GithubCompilePanel({ state, on, onCompile, open, onClose }: { state: Gi
           </button>
         ) : null}
       </span>
-      <small>{(state.on ?? on) === 'github' ? 'The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.' : 'The files pass through Reader’s server to its compiler on Cloud Run and are deleted once compiled; the PDF and log within the hour.'}</small>
+      <small>{(state.on ?? on) === 'github' ? 'The files pass through Koios’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.' : 'The files pass through Koios’s server to its compiler on Cloud Run and are deleted once compiled; the PDF and log within the hour.'}</small>
       <button type="button" className="wr-ghs-x" onClick={onClose} aria-label="Close the compile details" title="Close">
         ×
       </button>
@@ -1000,7 +1000,7 @@ function UpdateCompanion({ server, version }: { server: Here['server']; version:
   const [state, setState] = useState<'idle' | 'updating' | 'failed'>('idle');
   const [problem, setProblem] = useState<string | null>(null);
   if (isNewer(SELF_UPDATING, version)) {
-    return <span className="wr-quiet">This Companion ({version}) is from before it could update itself: install it again the way you did (the Reader app’s .dmg, or the line on the Connect card), once.</span>;
+    return <span className="wr-quiet">This Companion ({version}) is from before it could update itself: install it again the way you did (the Koios app’s .dmg, or the line on the Connect card), once.</span>;
   }
   return (
     <span className="wr-update">
@@ -1014,7 +1014,7 @@ function UpdateCompanion({ server, version }: { server: Here['server']; version:
           try {
             const done = await updateCompanion(server);
             const back = done.updated ? await waitForVersion(server.url, done.version) : true;
-            if (!back) throw new Error('It installed the update but hasn’t answered since. Open the Reader app to start it.');
+            if (!back) throw new Error('It installed the update but hasn’t answered since. Open the Koios app to start it.');
             window.location.reload();
           } catch (error) {
             setState('failed');
@@ -1074,14 +1074,14 @@ function OwnTex({ server, status, onStatus, onReady }: { server: Here['server'];
     return (
       <div className="wr-owntex is-done">
         <span>
-          <b>TeX Live for Reader is installed</b> — compiling uses it, and a missing package installs with one click.
+          <b>TeX Live for Koios is installed</b> — compiling uses it, and a missing package installs with one click.
         </span>
         <button
           type="button"
           className="link-btn"
           disabled={busy}
           onClick={() => {
-            if (window.confirm('Remove TeX Live for Reader from this computer? Compiling goes back to the TeX installed before, if there is one.')) void act(() => removeTexLive(server)).then(onReady);
+            if (window.confirm('Remove TeX Live for Koios from this computer? Compiling goes back to the TeX installed before, if there is one.')) void act(() => removeTexLive(server)).then(onReady);
           }}
         >
           Remove
@@ -1094,7 +1094,7 @@ function OwnTex({ server, status, onStatus, onReady }: { server: Here['server'];
     const share = status?.of ? Math.round(((status.done ?? 0) / status.of) * 100) : 0;
     return (
       <div className="wr-owntex">
-        <b>Installing TeX Live for Reader{status?.scheme === 'medium' ? ' (medium)' : ''}…</b>
+        <b>Installing TeX Live for Koios{status?.scheme === 'medium' ? ' (medium)' : ''}…</b>
         <div className="wr-owntex-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={share}>
           <span style={{ width: `${Math.max(2, share)}%` }} />
         </div>
@@ -1111,9 +1111,9 @@ function OwnTex({ server, status, onStatus, onReady }: { server: Here['server'];
   }
   return (
     <div className="wr-owntex">
-      <b>Let Reader install TeX Live</b>
+      <b>Let Koios install TeX Live</b>
       <span>
-        TeX Live — the same as Overleaf’s — goes into the Companion’s folder: no password, and nothing else on this computer changes. Reader compiles with it from then on, and a package it lacks installs with one click.
+        TeX Live — the same as Overleaf’s — goes into the Companion’s folder: no password, and nothing else on this computer changes. Koios compiles with it from then on, and a package it lacks installs with one click.
       </span>
       {status?.state === 'failed' ? (
         <div className="wr-bad">
@@ -1185,7 +1185,7 @@ function frozen(year: number): boolean {
 }
 
 /** What to do about packages this computer's TeX hasn't got: install them, or let Tectonic fetch them. */
-function MissingPackages({ names, texLive, tectonic, onTectonic, first }: { names: string[]; texLive?: string; tectonic: boolean; onTectonic: () => void; /** The way Reader does it for you, above the rest. */ first?: ReactNode }) {
+function MissingPackages({ names, texLive, tectonic, onTectonic, first }: { names: string[]; texLive?: string; tectonic: boolean; onTectonic: () => void; /** The way Koios does it for you, above the rest. */ first?: ReactNode }) {
   const year = texLive ? Number(texLive) : NaN;
   const old = Number.isFinite(year) && frozen(year);
   const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
@@ -1972,7 +1972,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
           <span className="eyebrow">Write</span>
           <h2>{project.name}</h2>
           <p className="wr-quiet">
-            <span className="mono">{store.label}</span> · {folder.sync === 'drive' ? (overleafGitUrl(link?.url) ? (throughAccount ? `in step with Overleaf through ${throughAccount}` : 'in step with Overleaf, through Reader’s server') : 'not on Overleaf') : folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only'}
+            <span className="mono">{store.label}</span> · {folder.sync === 'drive' ? (overleafGitUrl(link?.url) ? (throughAccount ? `in step with Overleaf through ${throughAccount}` : 'in step with Overleaf, through Koios’s server') : 'not on Overleaf') : folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only'}
             {' · '}
             {folder.sync === 'drive' && !overleafGitUrl(link?.url) && (docs?.length ?? 0) > 1 ? (
               <span className="wr-quiet">each LaTeX project links to Overleaf on its own, below</span>
@@ -2106,7 +2106,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
             ) : null}
             {making === 'templates' ? (
               <>
-                <p className="wr-home-shelf">Come with Reader</p>
+                <p className="wr-home-shelf">Come with Koios</p>
                 <div className="wr-home-templates">
                   {LATEX_GALLERY.map((template) => (
                     <button key={template.slug} type="button" className="wr-home-template" disabled={busy} onClick={() => void fromGallery(template)} title={`${template.note} — from ${template.source}`}>
@@ -2381,7 +2381,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
       setSyncing(true);
       if (!quiet) setSyncError(null);
       try {
-        const done = await syncNow('Edits from Reader', token.trim() || undefined);
+        const done = await syncNow('Edits from Koios', token.trim() || undefined);
         setSynced(done);
         setSyncError(done.ok ? null : done.error ?? 'The sync didn’t finish.');
         if (token.trim() && done.ok) setNeedToken(false);
@@ -2562,7 +2562,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   flushRef.current = () => {
     window.clearTimeout(timers.current.save);
     void saveAll().then((wrote) => {
-      if (git && options.sync !== 'manual' && (wrote || synced?.ok !== true || Date.now() - (synced?.at ?? 0) > 2000)) void syncNow('Edits from Reader').catch(() => undefined);
+      if (git && options.sync !== 'manual' && (wrote || synced?.ok !== true || Date.now() - (synced?.at ?? 0) > 2000)) void syncNow('Edits from Koios').catch(() => undefined);
     });
   };
   useEffect(() => {
@@ -3239,10 +3239,10 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
           This computer
         </button>
       )}
-      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="Reader’s compiler on GitHub Actions, with all of TeX Live: the PDF comes back here in a minute or two. It compiles: it doesn’t publish or sync anything.">
+      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="Koios’s compiler on GitHub Actions, with all of TeX Live: the PDF comes back here in a minute or two. It compiles: it doesn’t publish or sync anything.">
         GitHub Actions
       </button>
-      <button type="button" aria-pressed={options.pdf === 'cloudrun'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'cloudrun' } })} title="Reader’s compiler on Google Cloud Run, with all of TeX Live: the PDF comes back here in seconds. It compiles: it doesn’t publish or sync anything.">
+      <button type="button" aria-pressed={options.pdf === 'cloudrun'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'cloudrun' } })} title="Koios’s compiler on Google Cloud Run, with all of TeX Live: the PDF comes back here in seconds. It compiles: it doesn’t publish or sync anything.">
         Cloud Run
       </button>
       <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf’s compiler: your edits go to Overleaf, and the PDF is in Overleaf’s window">
@@ -3405,7 +3405,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
               <h3>You’re not signed in to Overleaf here</h3>
               <p>
                 {inDrive
-                  ? `Your edits can’t reach Overleaf — and its PDF won’t change — until an Overleaf account is connected to Reader.${unsynced ? ' Syncing is off for this project until then.' : ''} It takes a minute: Overleaf’s Git token, from Account Settings → Git integration on Overleaf.`
+                  ? `Your edits can’t reach Overleaf — and its PDF won’t change — until an Overleaf account is connected to Koios.${unsynced ? ' Syncing is off for this project until then.' : ''} It takes a minute: Overleaf’s Git token, from Account Settings → Git integration on Overleaf.`
                   : 'The Companion on this computer has no Overleaf Git token for this folder yet, so your edits can’t reach Overleaf: give it in the bar below (Overleaf: Account Settings → Git integration).'}
               </p>
               {inDrive ? (
@@ -3504,7 +3504,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
                 className={`wr-tree-item${path === (looking ?? shown) ? ' is-on' : ''}${isTextFile(path) || isViewable(path) ? '' : ' is-other'}`}
                 disabled={!isTextFile(path) && !isViewable(path)}
                 onClick={() => (isTextFile(path) ? (setViewing(null), setOpen(path)) : setViewing(path))}
-                title={isTextFile(path) || isViewable(path) ? path : `${path}: Reader can’t show this kind of file`}
+                title={isTextFile(path) || isViewable(path) ? path : `${path}: Koios can’t show this kind of file`}
               >
                 {path.slice(scope?.dir ? scope.dir.length + 1 : 0).includes('/') ? <span className="wr-tree-dir">{path.slice(scope?.dir ? scope.dir.length + 1 : 0, path.lastIndexOf('/') + 1)}</span> : null}
                 {path.split('/').pop()}
@@ -3737,7 +3737,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
                 first={
                   !canOwnTex ? (
                     <p className="wr-quiet">
-                      Update the Companion and Reader can install TeX Live — and any missing package — for you, without a password: <UpdateCompanion server={server} version={here.version} />
+                      Update the Companion and Koios can install TeX Live — and any missing package — for you, without a password: <UpdateCompanion server={server} version={here.version} />
                     </p>
                   ) : engines?.texlive?.installed ? (
                     <InstallMissing server={server} names={missing} onDone={() => void compile()} />
@@ -3801,11 +3801,11 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         ) : null}
         <span className="wr-sp" />
         <WriteGuideLink section="editor" />
-        <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
+        <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Koios can install TeX Live for you">
           TeX
         </button>
         {git ? (
-          <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title={inDrive ? 'The Overleaf Git token Reader’s server keeps for you, and how to remove it' : 'The Overleaf Git token on this computer: where it is, and how to remove it'}>
+          <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title={inDrive ? 'The Overleaf Git token Koios’s server keeps for you, and how to remove it' : 'The Overleaf Git token on this computer: where it is, and how to remove it'}>
             {inDrive ? 'Overleaf account' : 'Overleaf token'}
           </button>
         ) : null}
@@ -3818,7 +3818,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
             <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
           ) : (
             <span>
-              Update the Companion ({here.version}) and Reader can install TeX Live for you: <UpdateCompanion server={server} version={here.version} />
+              Update the Companion ({here.version}) and Koios can install TeX Live for you: <UpdateCompanion server={server} version={here.version} />
             </span>
           )}
         </div>

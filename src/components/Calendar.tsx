@@ -297,7 +297,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
           tellAccess();
           setError('Google no longer accepts this sign-in for your calendar. Connect it again.');
         } else if (failure instanceof CalendarRequestError && failure.status === 403) {
-          setError(`Google Calendar refused: ${failure.message}. If this is your own copy of Reader, the Google Calendar API has to be turned on in its Cloud project.`);
+          setError(`Google Calendar refused: ${failure.message}. If this is your own copy of Koios, the Google Calendar API has to be turned on in its Cloud project.`);
         } else setError(message(failure));
       } finally {
         setLoading(false);
@@ -628,15 +628,15 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
           text={
             wasConnected(user.email)
               ? `The sign-in for ${user.email} has to be renewed for the calendar. One click; Google asks nothing new.`
-              : `Reader shows the calendars in ${user.email} — the ones you keep and the meetings in them — by day, week or month, and lets you add a meeting, change one, or answer an invitation from here. Connecting asks Google once, for your calendars and their events.`
+              : `Koios shows the calendars in ${user.email} — the ones you keep and the meetings in them — by day, week or month, and lets you add a meeting, change one, or answer an invitation from here. Connecting asks Google once, for your calendars and their events.`
           }
           error={error}
           note={
             wasConnected(user.email)
               ? undefined
-              : 'A calendar is what Google calls a sensitive permission, so until this copy of Reader is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Reader, lets you through to the usual consent screen.'
+              : 'A calendar is what Google calls a sensitive permission, so until this copy of Koios is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Koios, lets you through to the usual consent screen.'
           }
-          more={{ href: `${basePath()}privacy/`, label: 'What Reader does with your calendar: the privacy policy' }}
+          more={{ href: `${basePath()}privacy/`, label: 'What Koios does with your calendar: the privacy policy' }}
           action={{ label: connecting ? 'Connecting…' : wasConnected(user.email) ? 'Reconnect calendar' : 'Connect Google Calendar', onClick: connect, disabled: connecting, primary: true }}
         />
       </div>
@@ -1204,20 +1204,20 @@ function NotesLine({ event, project, hasKey, onOpenProject, onOpenSettings }: { 
   const app = inDesktopApp();
   const recorder = Boolean(recorderBridge());
   let said: ReactNode;
-  if (filed) said = <>Notes filed in <b>{project!.name}</b>{filed.source === 'granola' ? ' from Granola' : filed.source === 'reader' ? ', recorded by Reader' : ''}.</>;
-  else if (reader && !project) said = <>Reader takes notes on your computer. Tag a project below and they are filed in its logbook.</>;
-  else if (reader && !isHost(event)) said = <>Only the meeting’s host{event.organizer ? `, ${event.organizer},` : ''} records it with Reader; the notes are filed in <b>{project!.name}</b> for everyone in the project, you included.</>;
-  else if (reader && over) said = <>No notes were filed for this meeting: Reader records it only while the Reader app is open on a computer in the call.</>;
-  else if (reader && !app) said = <>Reader takes notes in the <b>Reader app</b> on your Mac or PC — no bot joins — and files them in <b>{project!.name}</b>. Have it open when the meeting starts.</>;
-  else if (reader && !recorder) said = <>Reader’s notes need the Reader app on a Mac or a Windows PC; this computer cannot record meetings.</>;
-  else if (reader) said = <>Reader will take notes on this computer when the meeting opens — no bot joins — and file them in <b>{project!.name}</b>.</>;
+  if (filed) said = <>Notes filed in <b>{project!.name}</b>{filed.source === 'granola' ? ' from Granola' : filed.source === 'reader' ? ', recorded by Koios' : ''}.</>;
+  else if (reader && !project) said = <>Koios takes notes on your computer. Tag a project below and they are filed in its logbook.</>;
+  else if (reader && !isHost(event)) said = <>Only the meeting’s host{event.organizer ? `, ${event.organizer},` : ''} records it with Koios; the notes are filed in <b>{project!.name}</b> for everyone in the project, you included.</>;
+  else if (reader && over) said = <>No notes were filed for this meeting: Koios records it only while the Koios app is open on a computer in the call.</>;
+  else if (reader && !app) said = <>Koios takes notes in the <b>Koios app</b> on your Mac or PC — no bot joins — and files them in <b>{project!.name}</b>. Have it open when the meeting starts.</>;
+  else if (reader && !recorder) said = <>Koios’s notes need the Koios app on a Mac or a Windows PC; this computer cannot record meetings.</>;
+  else if (reader) said = <>Koios will take notes on this computer when the meeting opens — no bot joins — and file them in <b>{project!.name}</b>.</>;
   else if (!project) said = <>Granola is taking notes. Tag a project below and they are filed in its logbook when the meeting ends.</>;
   else if (!hasKey) said = <>Granola is taking notes. Add your Granola key in Settings and they are filed in <b>{project.name}</b> when it ends.</>;
   else if (over) said = <>Waiting for Granola’s notes; they are filed in <b>{project.name}</b> as soon as Granola has them.</>;
   else said = <>Granola will take notes, filed in <b>{project.name}</b> when it ends — for everyone in the project.</>;
   return (
     <div className={`cal-card-notes${filed ? ' is-filed' : ''}`}>
-      {reader ? <span className="cal-reader-mark" aria-hidden="true">R</span> : <span className="cal-granola" aria-hidden="true">G</span>}
+      {reader ? <span className="cal-reader-mark" aria-hidden="true">K</span> : <span className="cal-granola" aria-hidden="true">G</span>}
       <span className="cal-card-notes-text">{said}</span>
       {filed && project && onOpenProject ? (
         <button type="button" className="link-btn" onClick={() => onOpenProject(project.id, 'meetings')}>
@@ -1390,8 +1390,8 @@ function EventEditor({
             {(
               [
                 ['none', 'Off', 'Nobody takes notes'],
-                ['reader', 'Reader', 'Reader’s desktop app records the meeting on your computer — no bot joins the call — and writes the notes up'],
-                ['granola', 'Granola', 'Granola, on your computer, takes the notes; Reader reads them back with your Granola key'],
+                ['reader', 'Koios', 'Koios’s desktop app records the meeting on your computer — no bot joins the call — and writes the notes up'],
+                ['granola', 'Granola', 'Granola, on your computer, takes the notes; Koios reads them back with your Granola key'],
               ] as const
             ).map(([notes, label, title]) => (
               <button key={notes} type="button" role="radio" aria-checked={draft.notes === notes} onClick={() => set({ notes })} title={title}>
@@ -1417,9 +1417,9 @@ function EventEditor({
         {draft.notes !== 'none' ? (
           <p className="cal-editor-note">
             {draft.notes === 'reader' ? (
-              <>Reader records it on your computer when it starts — in the Reader app for Mac or Windows, with no bot in the call — and writes it up. </>
+              <>Koios records it on your computer when it starts — in the Koios app for Mac or Windows, with no bot in the call — and writes it up. </>
             ) : (
-              <>Granola takes the notes on your computer; Reader reads them back when it ends. </>
+              <>Granola takes the notes on your computer; Koios reads them back when it ends. </>
             )}
             {project ? (
               <>

@@ -75,7 +75,7 @@ export default function MoveToDrive() {
               return { project: { ...info, overleaf: inDrive(info.overleaf, folder, here.id) } };
             });
           } catch (error) {
-            console.warn(`Reader: “${project.name}” wasn’t moved to Drive this time:`, error);
+            console.warn(`Koios: “${project.name}” wasn’t moved to Drive this time:`, error);
             // Tried again in a while, while Reader stays open (Overleaf down for a moment, say), and at its next opening.
             window.setTimeout(() => (tried.current.delete(project.id), setRetry((n) => n + 1)), RETRY_MS);
           }
@@ -95,7 +95,7 @@ async function clearLeftover(url: string, folder: { path: string; sync: string }
   // Gone already (removed when the paper moved): only forgotten.
   if (!(await companionStore(here.server, folder.path).list('').then(() => true, () => false))) return;
   if (folder.sync === 'git' && overleafGitUrl(url)) {
-    const sent = await syncPaper(here.server, folder.path, 'Edits from Reader, before the folder was removed from this computer');
+    const sent = await syncPaper(here.server, folder.path, 'Edits from Koios, before the folder was removed from this computer');
     if (!sent.ok) throw new Error(sent.error ?? 'The folder couldn’t be synced with Overleaf first.');
   }
   // Only a folder Reader made: a Dropbox folder, or one linked in from elsewhere, is left where it is, and only forgotten.

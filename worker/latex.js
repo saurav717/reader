@@ -402,10 +402,10 @@ export async function handleLatex(request, env, path, { json, headers, authorize
             signal: AbortSignal.timeout(60_000),
           });
         } catch (error) {
-          return json({ error: `Reader’s server couldn’t reach its compiler to check the token (${error?.message || error}).` }, 502, noStore);
+          return json({ error: `Koios’s server couldn’t reach its compiler to check the token (${error?.message || error}).` }, 502, noStore);
         }
         // The compiler not updated yet (it deploys after the Worker): said, not taken for a wrong token.
-        if (checked.status === 404) return json({ error: 'Reader’s server is being updated and can’t check tokens for a few minutes yet: try again shortly.' }, 503, noStore);
+        if (checked.status === 404) return json({ error: 'Koios’s server is being updated and can’t check tokens for a few minutes yet: try again shortly.' }, 503, noStore);
         if (!checked.ok) {
           const said = await checked.json().catch(() => ({}));
           return json({ error: said.error || `the compiler answered ${checked.status}`, mismatch: checked.status === 401 }, checked.status === 401 ? 403 : 502, noStore);
@@ -456,14 +456,14 @@ export async function handleLatex(request, env, path, { json, headers, authorize
         answer = await fetch(`${base}/git/${peek ? 'files' : 'sync'}`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(peek ? { url: body.url, token } : { url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
+          body: JSON.stringify(peek ? { url: body.url, token } : { url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Koios').slice(0, 200) }),
           signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
         });
       } catch (error) {
-        return json({ error: `Reader’s server couldn’t reach its compiler (${error?.message || error}).` }, 502, noStore);
+        return json({ error: `Koios’s server couldn’t reach its compiler (${error?.message || error}).` }, 502, noStore);
       }
       // The compiler not updated yet: said, not taken for every account being refused.
-      if (peek && answer.status === 404) return json({ error: 'Reader’s server is being updated and can’t compare with Overleaf for a few minutes yet: try again shortly.' }, 503, noStore);
+      if (peek && answer.status === 404) return json({ error: 'Koios’s server is being updated and can’t compare with Overleaf for a few minutes yet: try again shortly.' }, 503, noStore);
       // This account can't open the project (another account's, or its token revoked): the next one is tried.
       if (answer.status === 401) {
         refused.push(account);

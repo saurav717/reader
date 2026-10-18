@@ -129,7 +129,7 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
               {initials(greeting.byName)}
             </span>
             <div>
-              <b>{greeting.byName} invited you to Reader</b>
+              <b>{greeting.byName} invited you to Koios</b>
               {greeting.note ? <blockquote>{greeting.note}</blockquote> : null}
             </div>
           </div>

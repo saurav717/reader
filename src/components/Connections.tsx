@@ -84,12 +84,12 @@ function WhichGitHub() {
         <tbody>
           <tr>
             <th>Setting up</th>
-            <td>Sign in, then tick the repositories Reader may use</td>
+            <td>Sign in, then tick the repositories Koios may use</td>
             <td>One click, as in VS Code</td>
             <td>Make a token on GitHub, copy it here</td>
           </tr>
           <tr>
-            <th>What Reader can reach</th>
+            <th>What Koios can reach</th>
             <td>Only the repositories you tick</td>
             <td>Every repository of yours, private ones too (GitHub’s <span className="mono">repo</span> scope)</td>
             <td>What you give the token: a fine-grained one can be limited to a few repositories</td>
@@ -97,25 +97,25 @@ function WhichGitHub() {
           <tr>
             <th>What it can do there</th>
             <td>Read and write files; make repositories</td>
-            <td>Anything you can (Reader itself only makes the few calls it needs)</td>
+            <td>Anything you can (Koios itself only makes the few calls it needs)</td>
             <td>The permissions you pick</td>
           </tr>
           <tr>
             <th>How long it lasts</th>
-            <td>Eight hours, renewed by Reader’s server for up to six months of use</td>
+            <td>Eight hours, renewed by Koios’s server for up to six months of use</td>
             <td>Until you disconnect, or six months unused</td>
             <td>Until the expiry you set (or six months unused)</td>
           </tr>
         </tbody>
       </table>
       <p className="cx-quiet">
-        Whichever you pick, Reader’s server keeps the token encrypted for you alone, never sends it back to a page, and
-        makes only the GitHub calls Reader needs; Disconnect revokes it with GitHub. You can switch at any time.
+        Whichever you pick, Koios’s server keeps the token encrypted for you alone, never sends it back to a page, and
+        makes only the GitHub calls Koios needs; Disconnect revokes it with GitHub. You can switch at any time.
       </p>
       <p className="cx-quiet">
         <b>Recommended: the GitHub App.</b> It is as easy as signing in, and if anything went wrong — this site, its
         server, your browser — what could be reached is only the repositories you ticked, with a token that runs out
-        within hours. Sign in with GitHub is the quickest, and fine if you are comfortable with Reader being able to
+        within hours. Sign in with GitHub is the quickest, and fine if you are comfortable with Koios being able to
         reach all your repositories; a fine-grained token is for when neither sign-in is set up on this server.
       </p>
     </details>
@@ -181,26 +181,26 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
               if (saved === ON_SERVER) await forgetGitHubToken();
               updateSettings({ githubToken: '' });
             }}
-            title={via === 'app' || via === 'oauth' ? 'Disconnect, and revoke Reader’s access with GitHub' : 'Forget the token (revoke it on GitHub too, if you are done with it)'}
+            title={via === 'app' || via === 'oauth' ? 'Disconnect, and revoke Koios’s access with GitHub' : 'Forget the token (revoke it on GitHub too, if you are done with it)'}
           >
             Disconnect
           </button>
         </div>
         <p className="cx-quiet">
           {via === 'app'
-            ? <>Only the repositories you chose for Reader’s GitHub App. <a href={appRepositories(methods?.appSlug)} target="_blank" rel="noopener noreferrer">Choose repositories ↗</a> · Its token lasts eight hours and is renewed by Reader’s server{status.expiresAt ? ` until ${dateOf(status.expiresAt)}` : ''}.</>
+            ? <>Only the repositories you chose for Koios’s GitHub App. <a href={appRepositories(methods?.appSlug)} target="_blank" rel="noopener noreferrer">Choose repositories ↗</a> · Its token lasts eight hours and is renewed by Koios’s server{status.expiresAt ? ` until ${dateOf(status.expiresAt)}` : ''}.</>
             : via === 'oauth'
               ? 'Every repository of yours (GitHub’s repo scope) until you disconnect.'
               : via === 'browser'
                 ? 'Kept in this browser.'
                 : `${status.kind === 'fine-grained' ? 'Fine-grained' : status.kind === 'classic' ? 'Classic' : 'A'} token${status.expiresAt ? `, expires ${dateOf(status.expiresAt)}` : ''}.`}{' '}
-          {!local ? 'Kept encrypted by Reader’s server for you alone, never sent back to a page' : ''}
+          {!local ? 'Kept encrypted by Koios’s server for you alone, never sent back to a page' : ''}
           {!local && status.lastUsedAt ? `; last used ${dateOf(status.lastUsedAt)}` : ''}
           {!local ? '.' : ''}
         </p>
         {via === 'oauth' && methods?.app ? (
           <p className="cx-tip">
-            Want Reader to reach only some repositories?{' '}
+            Want Koios to reach only some repositories?{' '}
             <button type="button" className="link-btn" disabled={Boolean(busy)} onClick={() => void signIn('app')}>
               Switch to the GitHub App
             </button>
@@ -227,7 +227,7 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
                   }
                 }}
               >
-                Move it to Reader’s server
+                Move it to Koios’s server
               </button>
             ) : null}
           </p>
@@ -267,9 +267,9 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
           {methods?.app ? (
             <button type="button" className="cx-way is-recommended" disabled={Boolean(busy)} onClick={() => void signIn('app')}>
               <b>
-                <GitHubMark /> {busy === 'app' ? 'Waiting for GitHub…' : 'Use Reader’s GitHub App'} <small>recommended</small>
+                <GitHubMark /> {busy === 'app' ? 'Waiting for GitHub…' : 'Use Koios’s GitHub App'} <small>recommended</small>
               </b>
-              {compact ? null : <span>Sign in, then pick which repositories Reader may use — only those. Its token lasts hours and renews itself.</span>}
+              {compact ? null : <span>Sign in, then pick which repositories Koios may use — only those. Its token lasts hours and renews itself.</span>}
             </button>
           ) : null}
           {methods?.oauth ? (
@@ -277,7 +277,7 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
               <b>
                 <GitHubMark /> {busy === 'oauth' ? 'Waiting for GitHub…' : 'Sign in with GitHub'} <small>quickest</small>
               </b>
-              {compact ? null : <span>One click, as in VS Code. Reader can then reach all your repositories, private ones too, until you disconnect.</span>}
+              {compact ? null : <span>One click, as in VS Code. Koios can then reach all your repositories, private ones too, until you disconnect.</span>}
             </button>
           ) : null}
         </div>
@@ -295,7 +295,7 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
               <a href={TOKEN_URL} target="_blank" rel="noopener noreferrer">
                 a fine-grained one ↗
               </a>{' '}
-              limited to the repositories Reader should write (or “All repositories” if it is to make new ones), with Contents — and, to make repositories, Administration — read and write, and an expiry date.
+              limited to the repositories Koios should write (or “All repositories” if it is to make new ones), with Contents — and, to make repositories, Administration — read and write, and an expiry date.
             </p>
           ) : null}
           <div className="cx-row">
@@ -314,7 +314,7 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
       {problem || refused ? <p className="cx-bad">{problem ?? refused}</p> : null}
       {noServer ? (
         <p className="cx-warn">
-          Reader’s server can’t keep it right now.{' '}
+          Koios’s server can’t keep it right now.{' '}
           <button type="button" className="link-btn" disabled={Boolean(busy) || !typed.trim()} onClick={() => void paste(true)}>
             Keep it in this browser instead
           </button>{' '}
@@ -384,7 +384,7 @@ export function ProjectConnections() {
             <b>
               Overleaf <small className="cx-quiet">· optional</small>
             </b>
-            <p className="cx-lede">For keeping a paper in step with Overleaf: your Overleaf email and its Git token, once, and the Write tab never asks again. Without it, papers are written and kept in Reader only.</p>
+            <p className="cx-lede">For keeping a paper in step with Overleaf: your Overleaf email and its Git token, once, and the Write tab never asks again. Without it, papers are written and kept in Koios only.</p>
             <OverleafAccounts />
           </div>
         </div>
@@ -490,10 +490,10 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
   };
   const create = () =>
     run('Making the repository…', async () => {
-      const made = await createPrivateRepo(token, name.trim(), `The code for ${project.name}, from Reader.`).catch((error: unknown) => {
+      const made = await createPrivateRepo(token, name.trim(), `The code for ${project.name}, from Koios.`).catch((error: unknown) => {
         // A GitHub App only reaches the repositories it was given: one made outside it has to be given to it first.
         const said = error instanceof Error ? error.message : String(error);
-        throw new Error(/refused|not found|403|404/i.test(said) ? `${said} With Reader’s GitHub App, make the repository on GitHub, add it to the app (Projects → Connections → Choose repositories), then pick it below.` : said);
+        throw new Error(/refused|not found|403|404/i.test(said) ? `${said} With Koios’s GitHub App, make the repository on GitHub, add it to the app (Projects → Connections → Choose repositories), then pick it below.` : said);
       });
       await setRepo({ repo: made.fullName, branch: made.defaultBranch || 'main' });
       setChanging(false);
@@ -510,7 +510,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
       if (!repo || !code) return;
       const parsed = parseRepo(repo.repo);
       if (!parsed) throw new Error('The repository’s name isn’t owner/name.');
-      const done = await pushCode(code, { ...parsed, branch: repo.branch, token }, message.trim() || `Code from Reader: ${project.name}`, (at, of) => setBusy(`Reading the files… ${at} of ${of}`));
+      const done = await pushCode(code, { ...parsed, branch: repo.branch, token }, message.trim() || `Code from Koios: ${project.name}`, (at, of) => setBusy(`Reading the files… ${at} of ${of}`));
       setMessage('');
       await updateCollection(project.id, (collection) => {
         const info = { ...project.project, ...(collection.project ?? {}) };
@@ -535,7 +535,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
               <b>Connect GitHub first</b>
               <p className="cx-quiet">
                 {connectionProblem && /sign in/i.test(connectionProblem)
-                  ? 'Sign in to Reader (with Google) first: your GitHub connection is kept with your Reader account.'
+                  ? 'Sign in to Koios (with Google) first: your GitHub connection is kept with your Koios account.'
                   : 'Once, for every project: then pick or make the repository for this one. Optional — the code stays where it is without it.'}
               </p>
               {connectionProblem && !/sign in/i.test(connectionProblem) ? <p className="cx-bad">{connectionProblem}</p> : null}
@@ -557,7 +557,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
                 <span className="cx-way-title">Or use one of yours</span>
                 <div className="cx-row">
                   <select value={picked} onChange={(event) => setPicked(event.target.value)} aria-label="One of your repositories" disabled={!mine?.length}>
-                    <option value="">{mine === null ? 'Asking GitHub…' : mine.length ? 'Pick a repository' : viaApp ? 'None given to Reader’s GitHub App yet' : 'None the token can write to'}</option>
+                    <option value="">{mine === null ? 'Asking GitHub…' : mine.length ? 'Pick a repository' : viaApp ? 'None given to Koios’s GitHub App yet' : 'None the token can write to'}</option>
                     {mine?.map((one) => (
                       <option key={one.fullName} value={one.fullName}>
                         {one.fullName}
@@ -580,7 +580,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
                   <p className="cx-quiet">
                     {viaApp ? (
                       <>
-                        Reader’s GitHub App reaches only the repositories you give it, and has none yet: install it on your account and pick them (or All repositories, so Create can use the ones it makes).{' '}
+                        Koios’s GitHub App reaches only the repositories you give it, and has none yet: install it on your account and pick them (or All repositories, so Create can use the ones it makes).{' '}
                         <a href={connection?.methods?.appSlug ? chooseRepos : 'https://github.com/settings/installations'} target="_blank" rel="noopener noreferrer">
                           Choose repositories ↗
                         </a>
@@ -594,7 +594,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
                   </p>
                 ) : viaApp ? (
                   <p className="cx-quiet">
-                    Only the repositories given to Reader’s GitHub App are listed.{' '}
+                    Only the repositories given to Koios’s GitHub App are listed.{' '}
                     <a href={connection?.methods?.appSlug ? chooseRepos : 'https://github.com/settings/installations'} target="_blank" rel="noopener noreferrer">
                       Choose repositories ↗
                     </a>
@@ -622,7 +622,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
               </p>
               {code ? (
                 <>
-                  <input value={message} placeholder={`Code from Reader: ${project.name}`} onChange={(event) => setMessage(event.target.value)} aria-label="Commit message" />
+                  <input value={message} placeholder={`Code from Koios: ${project.name}`} onChange={(event) => setMessage(event.target.value)} aria-label="Commit message" />
                   <div className="cx-row">
                     <button type="button" className="btn primary sm" disabled={Boolean(busy)} onClick={() => void push()}>
                       Push to GitHub
@@ -642,16 +642,16 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
             <div className="cx-pop-foot">
               <span className="cx-quiet">
                 GitHub: <b>{token === ON_SERVER ? connection?.login ?? '…' : 'a token in this browser'}</b>
-                {connection?.via === 'app' ? ' · Reader’s GitHub App' : connection?.via === 'oauth' ? ' · Signed in with GitHub' : ''}
+                {connection?.via === 'app' ? ' · Koios’s GitHub App' : connection?.via === 'oauth' ? ' · Signed in with GitHub' : ''}
               </span>
               <button
                 type="button"
                 className="link-btn"
                 onClick={() => {
-                  if (!window.confirm('Disconnect GitHub from Reader? Reader’s access is revoked with GitHub and its token forgotten, for every project. (To sign in as another GitHub account next time, sign out of github.com first.)')) return;
+                  if (!window.confirm('Disconnect GitHub from Koios? Koios’s access is revoked with GitHub and its token forgotten, for every project. (To sign in as another GitHub account next time, sign out of github.com first.)')) return;
                   void disconnect();
                 }}
-                title="Sign out of GitHub in Reader: its access revoked, the token forgotten"
+                title="Sign out of GitHub in Koios: its access revoked, the token forgotten"
               >
                 Disconnect
               </button>

@@ -264,7 +264,7 @@ export default function UsageOverview({ report, days, refreshedAt, onOpen }: { r
           <li>Daily allowances (Cloudflare, Brevo) start again at 00:00 UTC; monthly ones on the plan’s own cycle, which each tab names.</li>
           <li>
             Counts by person come from your Worker’s own tally, kept 90 days. A provider’s own numbers (Tavily, DeepSeek, Cloudflare, Brevo, Google Cloud) cover the
-            whole account, including anything used outside Reader with the same key.
+            whole account, including anything used outside Koios with the same key.
           </li>
           <li>Only you see this page: the Worker answers it to READER_TOKEN or a Google sign-in named in READER_OWNERS. It refreshes every 30 seconds while open.</li>
           <li>Each tab opens with an “About” panel: what the service is for, its limits, what happens past them, and how to set it up. Close it once you know it.</li>

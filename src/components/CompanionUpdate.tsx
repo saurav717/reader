@@ -55,7 +55,7 @@ function CompanionRow({ server }: { server: JupyterServer }) {
       if (!updated) return setRow({ state: 'current', version });
       setRow({ state: 'updating', version: from, to: version });
       const back = await waitForVersion(server.url, version);
-      setRow(back ? { state: 'updated', version: back.version } : { state: 'failed', version: from, error: 'It installed the update but hasn’t answered since. Open the Reader app to start it.' });
+      setRow(back ? { state: 'updated', version: back.version } : { state: 'failed', version: from, error: 'It installed the update but hasn’t answered since. Open the Koios app to start it.' });
     } catch (error) {
       setRow({ state: 'failed', version: from, error: error instanceof Error ? error.message : String(error) });
     }
@@ -68,13 +68,13 @@ function CompanionRow({ server }: { server: JupyterServer }) {
           {row.state === 'looking'
             ? 'Looking…'
             : row.state === 'offline'
-              ? 'Not running (shut down, or the computer is off). Start starts it, through the Reader app.'
+              ? 'Not running (shut down, or the computer is off). Start starts it, through the Koios app.'
               : row.state === 'starting'
                 ? 'Starting… your browser may ask whether to open Reader Companion.'
               : row.state === 'unstarted'
-                ? 'It didn’t start from here. Open the Reader app on it, or run reader-companion start in a terminal there.'
+                ? 'It didn’t start from here. Open the Koios app on it, or run reader-companion start in a terminal there.'
               : row.state === 'manual'
-                ? `Companion ${row.version}, from before it could update itself. Update it once the way you installed it (the Reader app's .dmg, or the line on the Playground's Connect this computer card); from then on, Update here does it.`
+                ? `Companion ${row.version}, from before it could update itself. Update it once the way you installed it (the Koios app's .dmg, or the line on the Playground's Connect this computer card); from then on, Update here does it.`
                 : row.state === 'current'
                 ? `Companion ${row.version}: up to date.`
                 : row.state === 'old'
@@ -123,7 +123,7 @@ function UnpairedRow() {
   const ask = async () => {
     if (!found) return;
     const shown = await showCompanionCode(found.base);
-    setNote(shown ? 'The code is in a window on this computer’s screen.' : 'This computer can’t show it in a window: run reader-companion pair in a terminal, or open the Reader app.');
+    setNote(shown ? 'The code is in a window on this computer’s screen.' : 'This computer can’t show it in a window: run reader-companion pair in a terminal, or open the Koios app.');
   };
   const pair = async () => {
     if (!found) return;
@@ -143,10 +143,10 @@ function UnpairedRow() {
         <b>{found ? `Companion on ${found.info.name}` : 'Companion on this computer'}</b>
         <small>
           {found === undefined
-            ? 'Looking for the Reader Companion…'
+            ? 'Looking for the Koios Companion…'
             : found
               ? `Companion ${found.info.version} is running here, but this window isn’t paired with it yet. Pair it to update it, shut it down and start it from here.`
-              : 'No Reader Companion answers on this computer: it is off, or not installed. Open the Reader app to start it, or Playground → Connect this computer to install it.'}
+              : 'No Koios Companion answers on this computer: it is off, or not installed. Open the Koios app to start it, or Playground → Connect this computer to install it.'}
         </small>
         {found ? (
           <span className="companion-pair">
@@ -189,7 +189,7 @@ function WebsiteRow() {
         <small>
           {newer
             ? `A newer version was published ${when(published.time)}. Reload to use it; nothing to download.`
-            : `Up to date${loaded ? `: published ${loaded}` : ''} (${SITE_BUILD.commit}). It updates by itself — the Reader app and every tab load the newest one each time they open.`}
+            : `Up to date${loaded ? `: published ${loaded}` : ''} (${SITE_BUILD.commit}). It updates by itself — the Koios app and every tab load the newest one each time they open.`}
         </small>
       </div>
       {newer ? (
@@ -218,15 +218,15 @@ function AppRow() {
   if (!updates || !state) return null;
   const line =
     state.status === 'ready'
-      ? `Reader ${state.available} is downloaded: restart to use it, or it is put in place when you next quit.`
+      ? `Koios ${state.available} is downloaded: restart to use it, or it is put in place when you next quit.`
       : state.status === 'downloading'
-        ? `Downloading Reader ${state.available}${state.percent ? ` (${state.percent}%)` : ''}…`
+        ? `Downloading Koios ${state.available}${state.percent ? ` (${state.percent}%)` : ''}…`
         : state.status === 'checking'
           ? 'Looking for a newer version…'
           : state.status === 'current'
             ? 'Up to date. It looks for a newer version a while after it opens and every few hours.'
             : state.status === 'manual'
-              ? `Reader ${state.available} is out. ${state.error ?? ''}`
+              ? `Koios ${state.available} is out. ${state.error ?? ''}`
               : state.status === 'failed'
                 ? `Couldn’t check for a newer version: ${state.error ?? 'no answer'}.`
                 : state.status === 'unsupported'
@@ -235,7 +235,7 @@ function AppRow() {
   return (
     <div className="companion-update">
       <div>
-        <b>Reader app {state.version}</b>
+        <b>Koios app {state.version}</b>
         <small>
           {line}{' '}
           <a href={APP_RELEASES_PAGE} target="_blank" rel="noreferrer">
@@ -265,8 +265,8 @@ export default function CompanionUpdates() {
       <AppRow />
       {companions.length ? companions.map((server) => <CompanionRow key={server.id} server={server} />) : <UnpairedRow />}
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-        Reader has two parts. The <b>website</b> is what you see, here and in the Reader app; nothing of it is installed, so it
-        is always the newest. (The <b>Reader app</b>, its window, updates itself: it downloads a new version in the background
+        Koios has two parts. The <b>website</b> is what you see, here and in the Koios app; nothing of it is installed, so it
+        is always the newest. (The <b>Koios app</b>, its window, updates itself: it downloads a new version in the background
         and offers to restart into it. Every version, for Mac, Windows and Linux, stays on its{' '}
         <a href={APP_RELEASES_PAGE} target="_blank" rel="noreferrer">
           releases page

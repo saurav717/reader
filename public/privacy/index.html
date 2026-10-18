@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Privacy · Reader</title>
+  <title>Privacy · Koios</title>
   <meta name="description" content="What the paper reader does with your data, and what it never sees." />
   <link rel="icon" href="../icons/koios-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -59,16 +59,16 @@
 </head>
 <body>
   <header class="bar">
-    <a class="brand" href="../" aria-label="Reader">R</a>
-    <b>Reader</b>
+    <a class="brand" href="../" aria-label="Koios">K</a>
+    <b>Koios</b>
     <nav>
       <a href="../privacy/" aria-current="page">Privacy</a>
       <a href="../terms/">Terms</a>
-      <a class="go" href="../">Open Reader →</a>
+      <a class="go" href="../">Open Koios →</a>
     </nav>
   </header>
   <main>
-    <p class="cap">Reader</p>
+    <p class="cap">Koios</p>
     <h1>Privacy policy</h1>
     <p class="lede">What the paper reader at koios.dev/ — “the app” below — does with your data, and what it never sees. This page covers the app and nothing else on this site.</p>
     <p class="when">Last updated 14 October 2026.</p>
@@ -104,15 +104,15 @@
       <li>arXiv, OpenAlex, Semantic Scholar, Crossref and Unpaywall, for search results and metadata; Google Scholar, through the proxy, when you choose it;</li>
       <li>Google (<code>accounts.google.com</code>, <code>googleapis.com</code>), for sign-in, Drive, Calendar and Colab;</li>
       <li>Zoom (<code>zoom.us</code>), through the proxy, only when you ask it to make a meeting, and Granola (<code>public-api.granola.ai</code>), through the proxy with your own key, only when you have set one;</li>
-      <li>Recall.ai (<code>recall.ai</code>), only in the Reader app and only for a meeting you chose to record (or set to Reader notes): its recorder sends the meeting's sound to Recall.ai to be transcribed, the transcript comes back to the app, and the notes written from it are filed in your project. The proxy asks Recall.ai for each recording's upload token with the site's key and keeps nothing of the meeting;</li>
+      <li>Recall.ai (<code>recall.ai</code>), only in the Koios app and only for a meeting you chose to record (or set to Koios notes): its recorder sends the meeting's sound to Recall.ai to be transcribed, the transcript comes back to the app, and the notes written from it are filed in your project. The proxy asks Recall.ai for each recording's upload token with the site's key and keeps nothing of the meeting;</li>
       <li>Google Fonts, for the typefaces the page uses;</li>
       <li>the proxy above, for PDFs and for everything marked “through the proxy” here;</li>
       <li>a dictionary and Wikipedia, for the lookup card over a selection.</li>
     </ul>
     <p><strong>AI features.</strong> Ask AI, Explain and the lookup card's background paragraph send the text of the paper you are reading — and your question, and, where you ask it, pictures of the pages or figures on screen — to the model you pick: Anthropic's Claude, DeepSeek, or Google's Gemini, through the proxy on the site's keys or directly on a key you enter in Settings. Nothing is sent until you use one of these features. The Web button sends your question to a web search service through the proxy. Answers you keep go into your notes, in your Drive.</p>
     <p><strong>Writing a paper.</strong> The Write tab sends a draft's LaTeX to a compiler to make its PDF — the Companion on your own computer, a Cloud Run service run by me, or GitHub Actions in your repository — and to Overleaf, if you link an Overleaf project. The compiler keeps nothing once the PDF is returned.</p>
-    <p id="github"><strong>GitHub.</strong> If you connect GitHub — with Reader's GitHub App, a sign-in, or a pasted token — the token goes to the proxy, which checks it with GitHub and keeps it sealed, for your account alone, with a key only the proxy holds. It is never sent back to any page and nothing of it stays in the browser. GitHub calls go through the proxy, which makes only the few the app needs: commits, a repository made, read or turned private. A token unused for six months is forgotten; one revoked on GitHub, at once.</p>
-    <p><strong>Your own computer.</strong> The Reader Companion, if you install it, runs on your machine and talks only to your browser and to the services you point it at; nothing from it passes through the proxy.</p>
+    <p id="github"><strong>GitHub.</strong> If you connect GitHub — with Koios's GitHub App, a sign-in, or a pasted token — the token goes to the proxy, which checks it with GitHub and keeps it sealed, for your account alone, with a key only the proxy holds. It is never sent back to any page and nothing of it stays in the browser. GitHub calls go through the proxy, which makes only the few the app needs: commits, a repository made, read or turned private. A token unused for six months is forgotten; one revoked on GitHub, at once.</p>
+    <p><strong>Your own computer.</strong> The Koios Companion, if you install it, runs on your machine and talks only to your browser and to the services you point it at; nothing from it passes through the proxy.</p>
     <p>Each of these services has its own privacy policy, and I have no control over what they log. Beyond these requests the app sends nothing anywhere. It carries no analytics, no advertising and no third-party trackers of any kind, and it sets no cookies.</p>
 
     <h2>Deleting your data</h2>
@@ -132,7 +132,7 @@
     <h2>Contact</h2>
     <p>Questions about this policy, or about the app's use of Google user data: <strong>es16btech11007@gmail.com</strong>.</p>
 
-    <p class="foot">Reader is open source: <a href="https://github.com/saurav717/reader">github.com/saurav717/reader</a>. Its <a href="../terms/">terms of service</a> are a separate page.</p>
+    <p class="foot">Koios is open source: <a href="https://github.com/saurav717/reader">github.com/saurav717/reader</a>. Its <a href="../terms/">terms of service</a> are a separate page.</p>
   </main>
 </body>
 </html>

@@ -74,8 +74,8 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
   }, [projectUrl]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  if (!driveConnected) return <p className="wr-quiet">Sign in with Google first: your Overleaf accounts are kept with your Reader account, for every device.</p>;
-  if (accounts === null) return <p className="wr-quiet">Asking Reader’s server about your Overleaf accounts…</p>;
+  if (!driveConnected) return <p className="wr-quiet">Sign in with Google first: your Overleaf accounts are kept with your Koios account, for every device.</p>;
+  if (accounts === null) return <p className="wr-quiet">Asking Koios’s server about your Overleaf accounts…</p>;
   const used = (id: string) => projectsOf(collections).filter((project) => project.project.overleaf?.gitAccount === id);
   const connect = async () => {
     // Optional: with a project, the token is tried on it now; without, at its first sync.
@@ -140,7 +140,7 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
                   type="button"
                   className="link-btn"
                   onClick={() => {
-                    if (!window.confirm(`Disconnect “${account.label}” from Reader? Its projects stop syncing until it is connected again. (To make its token useless everywhere, delete it in Overleaf too: Account Settings → Git integration.)`)) return;
+                    if (!window.confirm(`Disconnect “${account.label}” from Koios? Its projects stop syncing until it is connected again. (To make its token useless everywhere, delete it in Overleaf too: Account Settings → Git integration.)`)) return;
                     void forgetOverleafToken(account.id);
                   }}
                 >
@@ -165,12 +165,12 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
           <label className="wr-field">
             <span>Its Overleaf Git token</span>
             <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} aria-label="Overleaf Git token" />
-            <small>The token and your email are kept encrypted by Reader’s server, for you alone and your syncs only — never sent back to any page, in a paper, in Drive or in this browser — and forgotten after six months unused. Overleaf’s Git integration needs a paid Overleaf plan.</small>
+            <small>The token and your email are kept encrypted by Koios’s server, for you alone and your syncs only — never sent back to any page, in a paper, in Drive or in this browser — and forgotten after six months unused. Overleaf’s Git integration needs a paid Overleaf plan.</small>
           </label>
           <label className="wr-field">
             <span>Optional: one of this account’s Overleaf projects, to check the token on</span>
             <input value={check} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setCheck(event.target.value)} aria-label="An Overleaf project of this account" />
-            <small>Overleaf doesn’t say which account a token belongs to, so Reader opens this project with it: a token from another account can’t, and isn’t kept. Pick one this account owns — a project only shared with it would pass too. Left empty, the token is checked the first time a project syncs with it.</small>
+            <small>Overleaf doesn’t say which account a token belongs to, so Koios opens this project with it: a token from another account can’t, and isn’t kept. Pick one this account owns — a project only shared with it would pass too. Left empty, the token is checked the first time a project syncs with it.</small>
           </label>
           <div className="wr-row">
             <button type="button" className="btn primary" disabled={busy || !token.trim()} onClick={() => void connect()}>

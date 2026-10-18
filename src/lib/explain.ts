@@ -275,7 +275,7 @@ export const caveatsOf = (sections: Section[]) =>
 export function notebook(title: string, sections: Section[], writer = 'Claude'): string {
   const cells: object[] = [];
   const md = (text: string) => cells.push({ cell_type: 'markdown', metadata: {}, source: text.split(/(?<=\n)/) });
-  md(`# ${title}\n\n*Explained by ${writer} in Reader. The outputs under each cell were written by ${writer}, not run — run them to check.*`);
+  md(`# ${title}\n\n*Explained by ${writer} in Koios. The outputs under each cell were written by ${writer}, not run — run them to check.*`);
   for (const section of sections) {
     const parts: string[] = section.title ? [`## ${section.title}`] : [];
     const push = () => {

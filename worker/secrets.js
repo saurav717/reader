@@ -32,7 +32,7 @@ export function secretsReady(env) {
   return String(env.SECRETS_KEY || '').trim().length >= 32;
 }
 
-export const SECRETS_MISSING = 'Reader’s server can’t keep tokens yet: it needs its SECRETS_KEY secret (openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY).';
+export const SECRETS_MISSING = 'Koios’s server can’t keep tokens yet: it needs its SECRETS_KEY secret (openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY).';
 
 async function master(env) {
   return crypto.subtle.importKey('raw', enc.encode(String(env.SECRETS_KEY || '').trim()), 'HKDF', false, ['deriveKey', 'deriveBits']);

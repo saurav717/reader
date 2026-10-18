@@ -218,7 +218,7 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
                     <b>{event.title}</b>
                     <small>
                       {timeOf(event.start.toISOString())}
-                      {event.notetaker === 'granola' ? <span className="cal-granola sm" title="Granola takes the notes">G</span> : event.notetaker === 'reader' ? <span className="cal-reader-mark sm" title="Reader takes the notes, on the computer in the call">R</span> : null}
+                      {event.notetaker === 'granola' ? <span className="cal-granola sm" title="Granola takes the notes">G</span> : event.notetaker === 'reader' ? <span className="cal-reader-mark sm" title="Koios takes the notes, on the computer in the call">K</span> : null}
                     </small>
                   </span>
                   {event.meet ? (
@@ -305,7 +305,7 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
                       {note.attendees.length ? ` · ${note.attendees.length} ${note.attendees.length === 1 ? 'person' : 'people'}` : ''}
                     </small>
                   </span>
-                  <span className={`lb-src is-${note.source}`}>{note.source === 'granola' ? 'Granola' : note.source === 'reader' ? 'Recorded by Reader' : 'Written here'}</span>
+                  <span className={`lb-src is-${note.source}`}>{note.source === 'granola' ? 'Granola' : note.source === 'reader' ? 'Recorded by Koios' : 'Written here'}</span>
                 </button>
                 {expanded ? (
                   <div className="lb-note-body">
@@ -454,28 +454,28 @@ function RecorderPanel({ project, writable }: { project: Project; writable: bool
   return (
     <section className="lb-granola lb-recorder">
       <h3>
-        <span className="cal-reader-mark">R</span> Reader’s notes
+        <span className="cal-reader-mark">K</span> Koios’s notes
       </h3>
       {!inDesktopApp() ? (
         <p className="lb-quiet">
-          In the Reader app for Mac or Windows, Reader records a meeting on your computer — Zoom, Meet, Teams or Slack, with no bot in the call — and files its notes here.{' '}
+          In the Koios app for Mac or Windows, Koios records a meeting on your computer — Zoom, Meet, Teams or Slack, with no bot in the call — and files its notes here.{' '}
           <a href="https://github.com/saurav717/reader/releases/latest" target="_blank" rel="noreferrer">
             Get the app
           </a>
         </p>
       ) : !bridge ? (
-        <p className="lb-quiet">This computer cannot record meetings: Reader’s notes need macOS or Windows.</p>
+        <p className="lb-quiet">This computer cannot record meetings: Koios’s notes need macOS or Windows.</p>
       ) : notes.availability !== 'ready' ? (
         <p className="lb-quiet">{notes.availability === 'checking' ? 'Starting the recorder…' : notes.reason ?? 'The recorder is not ready.'}</p>
       ) : (
         <>
-          <p className="lb-quiet">Meetings set to Reader notes are recorded on this computer as they open, and any other is offered. No bot joins.</p>
+          <p className="lb-quiet">Meetings set to Koios notes are recorded on this computer as they open, and any other is offered. No bot joins.</p>
           {active ? (
             <button type="button" className="btn sm nt-stop" onClick={() => void stopRecording(active.windowId)}>
               <i aria-hidden="true" /> Stop {here ? 'this recording' : 'the recording on now'}
             </button>
           ) : writable ? (
-            <button type="button" className="btn sm" onClick={() => void recordHere(project.id, `${project.name} meeting`)} title="Record the computer’s microphone and sound now: a meeting in the room, or a call Reader did not find">
+            <button type="button" className="btn sm" onClick={() => void recordHere(project.id, `${project.name} meeting`)} title="Record the computer’s microphone and sound now: a meeting in the room, or a call Koios did not find">
               <span className="nt-rec sm" aria-hidden="true" /> Record a meeting now
             </button>
           ) : null}
