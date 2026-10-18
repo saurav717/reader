@@ -1148,7 +1148,7 @@ reply-to address:
 ```bash
 npx wrangler secret put MAIL_API_KEY            # the provider's key
 # and in wrangler.toml, under [vars]:
-# MAIL_FROM = "Reader <noreply@example.org>"
+# MAIL_FROM = "Koios <noreply@example.org>"
 # MAIL_PROVIDER = "brevo"                        # optional; told by the key's shape otherwise
 ```
 

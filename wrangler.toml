@@ -55,7 +55,7 @@ name = "ROOMS"
 class_name = "ProjectRoom"
 
 # Mail from the site (server/mail.js): the invitation to a shared project,
-# sent to the address invited — whether or not it has ever opened Reader —
+# sent to the address invited — whether or not it has ever opened Koios —
 # with the project's link. Through Brevo, SendGrid, Postmark or Resend,
 # whichever the key is for, from an address the provider has verified — a
 # domain, or with Brevo, SendGrid and Postmark one address of your own
@@ -65,7 +65,7 @@ class_name = "ProjectRoom"
 #
 # and the sender as a var below, exactly as verified. Without them, nothing
 # is sent and the share dialog says to send the link by hand.
-# MAIL_FROM = "Reader <noreply@example.org>"
+# MAIL_FROM = "Koios <noreply@example.org>"
 # MAIL_PROVIDER = "brevo"        # optional: brevo, sendgrid, postmark or resend; told by the key's shape otherwise
 # The Usage page's Email tab (worker/mailUsage.js) measures the mail sent
 # against the free plan's sends — Brevo 300 a day, Resend 100 a day and 3,000
@@ -152,7 +152,7 @@ simple = { limit = 60, period = 60 }
 [vars]
 # The sender of the site's mail — an invitation to a shared project — as
 # verified with the provider whose key is MAIL_API_KEY (server/mail.js).
-MAIL_FROM = "Reader <es16btech11007@gmail.com>"
+MAIL_FROM = "Koios <es16btech11007@gmail.com>"
 # Which paid Scholar service is asked first when both keys are set; the other
 # is asked when it refuses (server/scholarServices.js). "serpapi" reads a
 # profile exactly — every work, citations, h-index; "serply" is cheaper, and

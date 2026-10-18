@@ -1,5 +1,5 @@
 // "Invite someone": show a colleague, a student, a coauthor — anyone who may
-// never have opened Reader — what it is, three ways with one message
+// never have opened Koios — what it is, three ways with one message
 // (docs/live-collaboration.md): a personal link with your name and a note,
 // and a QR code of it for a slide; an email from the site's sender with you
 // as the reply-to (server/mail.js); or your own mail app, with the message
@@ -71,7 +71,7 @@ export default function InviteSomeone({ onClose }: { onClose: () => void }) {
       try {
         const response = await apiFetch('/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, note, link: site, name: user?.name }) });
         const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-        results.push({ email, ok: Boolean(body.ok), note: body.ok ? 'sent' : body.error || `Reader’s server answered ${response.status}.` });
+        results.push({ email, ok: Boolean(body.ok), note: body.ok ? 'sent' : body.error || `Koios’s server answered ${response.status}.` });
       } catch (error) {
         results.push({ email, ok: false, note: error instanceof Error ? error.message : String(error) });
       }
@@ -89,8 +89,8 @@ export default function InviteSomeone({ onClose }: { onClose: () => void }) {
       <div className="scrim" onClick={busy ? undefined : onClose} role="presentation" />
       <div className="sheet invite-someone" role="dialog" aria-modal="true" aria-labelledby="invite-someone-title">
         <span className="eyebrow">Invite someone</span>
-        <h2 id="invite-someone-title">Show someone Reader</h2>
-        <p className="lede">Three ways, one message: what Reader is in a few lines, your note, and the site’s address. Whoever opens it signs in with Google, and that is their account — nothing for them to create.</p>
+        <h2 id="invite-someone-title">Show someone Koios</h2>
+        <p className="lede">Three ways, one message: what Koios is in a few lines, your note, and the site’s address. Whoever opens it signs in with Google, and that is their account — nothing for them to create.</p>
         {!signedIn ? (
           <p className="invite-someone-note">Sign in with Google first: the invitation says who it is from.</p>
         ) : (
