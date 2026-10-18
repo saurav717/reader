@@ -118,7 +118,7 @@ export async function eraseAccount(env, email, { client, browserSession } = {}) 
   }
 
   if (client) {
-    if (browserSession) await browserSession.fetch('https://session/erase', { method: 'POST' }).catch(() => undefined);
+    if (browserSession) await browserSession.fetch(`https://session/erase?client=${encodeURIComponent(client)}`, { method: 'POST' }).catch(() => undefined);
     done.browser = await forgetCookies(forClient(env, client)).catch(() => false);
   }
   return done;

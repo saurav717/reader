@@ -926,7 +926,7 @@ export default {
         const withToken = await authorized(request, env);
         if (changes && !withToken) return needsToken(env, headers);
         if (path === '/browse/open') tally(env, ctx, withToken, { browser: 1 });
-        if (path === '/browse/note-check') return json({ error: 'not found' }, 404, headers);
+        if (path === '/browse/note-check' || path === '/browse/erase') return json({ error: 'not found' }, 404, headers);
         const client = clientOf(request, url);
         if (!client && path !== '/browse/status') return json({ error: 'no client id — this site is older than this Worker; reload it' }, 400, headers);
         const scoped = browse.forClient(env, client);
