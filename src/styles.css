@@ -9000,6 +9000,82 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
   --koios-glow: radial-gradient(ellipse 90% 60% at 50% -20%, rgba(30, 40, 62, 0.95) 0%, rgba(14, 17, 22, 0) 70%);
 }
 :root[data-koios='on'][data-sky='on'] .app { background: var(--koios-stars), var(--koios-glow), var(--rail); }
+ 
+/* The night itself, behind the panes, wherever a page leaves the ground
+   showing: a denser field of stars over the few above, a faint band of the
+   Milky Way, a handful that twinkle, a crescent moon with its path on the
+   water, now and then a falling star, and a shore along the bottom. The
+   panes sit over it; the `.app` is its own stack so the sky stays under them.
+   While a paper is open it steps back, so nothing busy sits behind the text. */
+.koios-sky { display: none; }
+:root[data-koios='on'][data-sky='on'] .app { isolation: isolate; }
+:root[data-koios='on'][data-sky='on'] .koios-sky {
+  display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden;
+  background:
+    radial-gradient(1px 1px at 23px 41px, rgba(240, 236, 226, 0.55), transparent),
+    radial-gradient(1px 1px at 97px 13px, rgba(240, 236, 226, 0.4), transparent),
+    radial-gradient(1px 1px at 151px 87px, rgba(240, 236, 226, 0.5), transparent),
+    radial-gradient(1px 1px at 61px 139px, rgba(240, 236, 226, 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 179px 163px, rgba(240, 236, 226, 0.55), transparent),
+    radial-gradient(1px 1px at 41px 71px, rgba(200, 214, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 131px 37px, rgba(255, 236, 200, 0.4), transparent),
+    linear-gradient(118deg, transparent 28%, rgba(150, 160, 205, 0.045) 42%, rgba(190, 190, 220, 0.075) 50%, rgba(150, 160, 205, 0.045) 58%, transparent 72%);
+  background-size: 197px 181px, 233px 211px, 271px 251px, 163px 307px, 311px 277px, 149px 173px, 223px 239px, 100% 100%;
+  transition: opacity 0.4s ease;
+}
+:root[data-koios='on'][data-sky='on'] .app:has(.reader-head) .koios-sky { opacity: 0.35; }
+.koios-sky > i { position: absolute; display: block; }
+/* A few brighter stars, breathing out of step with each other. */
+.ks-twinkle {
+  inset: 0;
+  background:
+    radial-gradient(2px 2px at 14% 22%, rgba(255, 248, 230, 0.95), transparent),
+    radial-gradient(2.5px 2.5px at 38% 9%, rgba(255, 248, 230, 0.9), transparent),
+    radial-gradient(2px 2px at 61% 31%, rgba(220, 230, 255, 0.9), transparent),
+    radial-gradient(2px 2px at 79% 18%, rgba(255, 248, 230, 0.85), transparent),
+    radial-gradient(2px 2px at 92% 42%, rgba(255, 236, 200, 0.8), transparent);
+  animation: ks-twinkle 5.5s ease-in-out infinite;
+}
+.ks-twinkle.is-late {
+  background:
+    radial-gradient(2px 2px at 27% 47%, rgba(255, 248, 230, 0.85), transparent),
+    radial-gradient(2.5px 2.5px at 52% 14%, rgba(255, 236, 200, 0.9), transparent),
+    radial-gradient(2px 2px at 70% 52%, rgba(220, 230, 255, 0.8), transparent),
+    radial-gradient(2px 2px at 6% 58%, rgba(255, 248, 230, 0.8), transparent),
+    radial-gradient(2.5px 2.5px at 86% 7%, rgba(255, 248, 230, 0.95), transparent);
+  animation-duration: 7s;
+  animation-delay: -3s;
+}
+@keyframes ks-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+/* The crescent: a lit edge and a soft halo, high on the right. */
+.ks-moon {
+  top: 9vh; right: calc(14vw - 11px); width: 22px; height: 22px; border-radius: 50%;
+  box-shadow: inset -6px 3px 0 0 rgba(240, 228, 200, 0.92);
+  filter: drop-shadow(0 0 12px rgba(240, 228, 200, 0.4));
+}
+/* Now and then, a falling star across the upper sky. */
+.ks-meteor {
+  top: 14vh; left: 62vw; width: 140px; height: 1.5px; border-radius: 1px;
+  background: linear-gradient(90deg, rgba(255, 248, 230, 0.95), rgba(255, 248, 230, 0));
+  opacity: 0; transform-origin: left center;
+  animation: ks-meteor 19s linear 4s infinite;
+}
+@keyframes ks-meteor {
+  0% { opacity: 0; transform: rotate(-24deg) translateX(0); }
+  1% { opacity: 1; }
+  5% { opacity: 0; transform: rotate(-24deg) translateX(-340px); }
+  100% { opacity: 0; transform: rotate(-24deg) translateX(-340px); }
+}
+/* The shore: the sea from the horizon down, a far headland and an island,
+   rocks in the foreground, and the moon's path on the water under it. */
+.ks-shore {
+  left: 0; right: 0; bottom: 0; height: 22vh;
+  background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 200' preserveAspectRatio='none'><defs><linearGradient id='s' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23182038' stop-opacity='.3'/><stop offset='.35' stop-color='%230b1020' stop-opacity='.55'/><stop offset='1' stop-color='%2305080f' stop-opacity='.9'/></linearGradient><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23e6d2a0' stop-opacity='.22'/><stop offset='1' stop-color='%23e6d2a0' stop-opacity='0'/></linearGradient></defs><rect y='60' width='1600' height='140' fill='url(%23s)'/><rect y='59' width='1600' height='1.5' fill='%23c9a86a' fill-opacity='.08'/><g fill='url(%23g)'><rect x='1362' y='63' width='30' height='1' rx='.5'/><rect x='1350' y='70' width='22' height='1' rx='.5'/><rect x='1381' y='72' width='18' height='1' rx='.5'/><rect x='1357' y='81' width='40' height='1' rx='.5'/><rect x='1343' y='92' width='16' height='1' rx='.5'/><rect x='1368' y='94' width='34' height='1' rx='.5'/><rect x='1352' y='107' width='26' height='1' rx='.5'/><rect x='1388' y='110' width='14' height='1' rx='.5'/><rect x='1360' y='124' width='30' height='1' rx='.5'/><rect x='1346' y='141' width='18' height='1' rx='.5'/><rect x='1375' y='143' width='22' height='1' rx='.5'/></g><path fill='%230c1222' d='M0 60V34C70 26 150 14 230 20S360 44 430 52 500 60 520 60Z'/><path fill='%230c1222' d='M1030 60C1080 48 1130 42 1180 44S1260 54 1290 60Z'/><path fill='%2304070d' d='M0 200V132C50 124 110 128 160 146S240 182 300 200Z'/><path fill='%2304070d' d='M1600 200V140C1550 134 1500 144 1460 162S1400 190 1370 200Z'/></svg>") 0 0 / 100% 100% no-repeat;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-twinkle, .ks-meteor { animation: none; }
+  .ks-twinkle { opacity: 0.6; }
+}
 
 /* Past the page's edges. Safari bounces the whole window when a scroll runs
    out, and shows the ground behind it: the night's navy, never white. Just

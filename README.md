@@ -3115,8 +3115,10 @@ primary button is stone filled with ink, so there is no green anywhere in
 the chrome; the highlighters keep their four colours on the paper, muted.
 Lines are stone at a tenth, felt rather than seen. Headings are in the light
 serif the opening screens use, and the rail is icons alone, 56 px wide. Behind
-the pages is the sky from the opening screens, the glow and a few stars,
-under glass too; **Settings → Appearance** has a switch to leave the
+the pages is the sky from the opening screens, the glow and a field of
+stars, a few of them twinkling, a crescent moon, now and then a falling
+star, and a shore along the bottom with the moon's path on the water; it
+steps back while a paper is open, and it shows under glass too; **Settings → Appearance** has a switch to leave the
 ground plain slate instead. Opening a paper puts the library away, so the
 page stands alone; it comes back when the paper closes, or at once when
 asked for. New visitors start in Koios; the same panel has Light and Dark,
