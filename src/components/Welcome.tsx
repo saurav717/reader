@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { NightScene, pickScene } from './NightScene';
+import { KoiosMark, pickScene, ScenePlate } from './NightScene';
 import { basePath, currentAddress, placeFor } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
 import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
-import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
+import { CheckIcon, GoogleMark } from './icons';
 import { linkGreeting, pendingInvite, type Greeting } from '../lib/invites';
 import { initials } from '../lib/presence';
 import { openSettings } from '../lib/openSettings';
@@ -58,12 +58,25 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
     if (configured) prepareGoogle();
   }, [configured]);
 
-  // The opening screen stands on the scene the loading screen stood on: the
-  // same picture, the same words, and under them the way in.
+  // The opening screen keeps the scene the loading screen stood on — the same
+  // picture, as a plate in the middle, the same words under it — and under
+  // them the way in. The rail stays away until someone is in (App.tsx).
   const scene = pickScene();
 
   return (
-    <NightScene scene={scene} className="main is-welcome">
+    <div className="main night night-scene is-welcome is-centred">
+      <div className="night-mark is-centred">
+        <KoiosMark />
+        <span>koios</span>
+      </div>
+      <ScenePlate scene={scene} />
+      <div className="night-copy is-centred">
+        <h1>
+          {scene.headline[0]}
+          <br />
+          {scene.headline[1]}
+        </h1>
+        <p className="night-intro">{scene.intro}</p>
       <div className="night-signin">
         {invited && !user ? (
           <div className="welcome-greeting">
@@ -89,33 +102,11 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
             </div>
           </div>
         ) : null}
-        <h2 className="night-h2">{returning ? 'Reconnect your Drive' : 'Read papers, keep what matters'}</h2>
-        <p style={{ margin: '0 0 22px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>
+        <p className="night-why">
           {returning
-            ? 'A sign-in lasts as long as the token Google gives it, about an hour, and this one has run out. One click reconnects, and Google will not ask again what you have already agreed to. Papers you add then go to your Drive as you collect them.'
-            : 'Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Sign in with Google and your library lives in your own Drive — every paper, its highlights, and your collections — the same in any browser you sign in from.'}
+            ? 'Your sign-in has run out, as Google’s do after about an hour. One click reconnects your Drive, and Google will not ask again what you have already agreed to.'
+            : 'Sign in with Google and your library lives in your own Drive: every paper, its highlights and your collections, the same from any browser.'}
         </p>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <SearchIcon size={18} style={{ color: 'var(--accent)', marginTop: 2, flexShrink: 0 }} />
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>
-              One search across three sources, or paste an arXiv id.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <HighlighterIcon size={18} style={{ color: 'var(--accent)', marginTop: 2, flexShrink: 0 }} />
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>
-              Four highlight colours with meanings, notes, and a Markdown export.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <CloudCheckIcon size={18} style={{ color: 'var(--accent)', marginTop: 2, flexShrink: 0 }} />
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>
-              A folder per collection in your Drive, holding the PDF and a JSON sidecar of your annotations.
-            </p>
-          </div>
-        </div>
 
         {authError ? (
           <p className="banner error" style={{ marginBottom: 14 }}>
@@ -191,7 +182,8 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
           ; the <a href={`${basePath()}terms/`} style={{ color: 'inherit' }}>terms</a> are beside it.
         </p>
       </div>
-    </NightScene>
+      </div>
+    </div>
   );
 }
 

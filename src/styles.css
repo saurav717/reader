@@ -8867,3 +8867,54 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 /* The rail's mark, at night: gold on the navy tile, like the opening screen's. */
 :root[data-theme='dark'] .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
 :root[data-theme='dark'] button.brand[aria-current='page'] { box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--rail), 0 0 0 3px var(--gold); }
+
+/* The opening screen, with the scene in the middle: the mark, the picture as
+   a tall plate, the two lines, and the way in under them. No rail: nobody is
+   in yet. */
+.night-scene.is-centred {
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  gap: 26px;
+  padding: 64px var(--edge) 56px;
+}
+.night-scene.is-centred::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 30%, rgba(20, 28, 48, 0.9) 0%, rgba(7, 10, 18, 0) 58%);
+  pointer-events: none;
+}
+.night-mark.is-centred { position: relative; top: auto; left: auto; justify-content: center; }
+.night-plate {
+  position: relative;
+  flex: none;
+  margin: 0;
+  width: min(380px, 80vw);
+  height: min(48vh, 470px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 0 8px var(--paper), 0 0 0 9px var(--border-soft);
+  background: var(--surface);
+}
+.night-plate img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.9s ease; }
+.night-plate img.is-in { opacity: 1; }
+.night-copy.is-centred { align-items: center; max-width: 640px; gap: 16px; }
+.night-copy.is-centred h1 { font-size: clamp(30px, 3.1vw, 44px); }
+.night-copy.is-centred .night-intro { max-width: 540px; font-size: clamp(15px, 1.2vw, 18px); }
+.is-centred .night-signin { align-items: center; width: 100%; max-width: 540px; margin-top: 8px; padding-top: 22px; }
+.is-centred .night-signin > div { justify-content: center; }
+.is-centred .welcome-greeting { text-align: left; justify-content: flex-start; width: 100%; box-sizing: border-box; }
+.night-why { margin: 0 0 18px; max-width: 460px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+@media (max-width: 760px) {
+  .night-scene.is-centred { padding: 40px 20px 48px; gap: 20px; }
+  .night-plate { width: min(300px, 78vw); height: min(44vh, 400px); }
+}
+@media (max-height: 760px) {
+  .night-scene.is-centred { padding-top: 36px; padding-bottom: 40px; gap: 18px; }
+  .night-plate { height: min(38vh, 400px); }
+  .night-copy.is-centred { gap: 12px; }
+  .night-copy.is-centred h1 { font-size: clamp(28px, 2.8vw, 38px); }
+  .is-centred .night-signin { margin-top: 2px; padding-top: 16px; }
+  .night-why { margin-bottom: 12px; }
+}

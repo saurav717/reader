@@ -3094,10 +3094,12 @@ not the same twice running.
 
 ![the loading screen: a gold line drawing of an armillary sphere on a navy sky, "What is worth knowing is worth finding", and a hairline with a star on it under "Reading your library from Drive"](docs/night-loading.png)
 
-The opening screen, where Drive is connected, stands on the same scene the
-loading screen stood on, with the sign-in under the words.
+The opening screen, where Drive is connected, keeps the scene the loading
+screen chose, as a plate in the middle of the page: the mark above it, the
+two lines and the introduction under it, then the sign-in. The rail stays
+away until someone is in.
 
-![the opening screen: an engraved marble profile under a gold ring, "Ask well. Read slowly. Keep what matters.", and the sign-in beneath a hairline](docs/night-welcome.png)
+![the opening screen: an engraved marble profile under a gold ring, framed as a plate in the middle, "Ask well. Read slowly. Keep what matters." beneath it, and the sign-in under a hairline](docs/night-welcome.png)
 
 The dark theme is the same night: a navy ground instead of grey, cream ink,
 gold hairlines where the lines were grey, and the bookmark mark in gold on

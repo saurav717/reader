@@ -101,7 +101,21 @@ export function SceneBackdrop({ scene }: { scene: Scene }) {
   );
 }
 
-/** A scene with the words on it: the loading screen is this with a rule at the foot; the opening screen puts its sign-in under the words. */
+/**
+ * The scene as a plate: a tall crop around its subject, framed by a hairline,
+ * for a page that keeps it in the middle. Every scene keeps its subject on
+ * the right, so the crop is taken from the right edge.
+ */
+export function ScenePlate({ scene }: { scene: Scene }) {
+  const [arrived, setArrived] = useState(false);
+  return (
+    <figure className="night-plate">
+      <img className={arrived ? 'is-in' : undefined} src={sceneUrl(scene)} alt="" decoding="async" onLoad={() => setArrived(true)} style={{ objectPosition: '100% 50%' }} />
+    </figure>
+  );
+}
+
+/** A scene with the words on it: the loading screen is this with a rule at the foot. */
 export function NightScene({ scene, className, children, foot }: { scene: Scene; className?: string; children?: ReactNode; foot?: ReactNode }) {
   return (
     <div className={`night night-scene${className ? ` ${className}` : ''}`} style={{ '--focus': scene.focus } as CSSProperties}>

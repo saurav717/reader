@@ -1318,7 +1318,7 @@ export default function App() {
       className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && fullscreen ? ' is-fullscreen' : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
-{navStyle === 'classic' ? (
+{showWelcome ? null : navStyle === 'classic' ? (
       <nav className="rail" aria-label="Primary">
         <button
           type="button"
