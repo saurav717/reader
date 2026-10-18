@@ -9299,3 +9299,42 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 /* Covers take one slate for all, so the library is a list of titles, not tiles. */
 :root[data-koios='on'] .cover { --c1: #232a34; --c2: #161b22; box-shadow: inset 0 0 0 1px rgba(230, 225, 214, 0.1); color: rgba(230, 225, 214, 0.82); }
 :root[data-koios='on'] .pj-panel { border-color: var(--border-soft); border-radius: 0; background: transparent; box-shadow: none; }
+
+/* Koios II, the library: the year in the gutter where the cover tile was,
+   progress as a line, the chips as words, the side list plain with a gold
+   rule at the current place, the filter an underline. */
+:root[data-koios='on'] .lib-row { grid-template-columns: 44px minmax(0, 1fr) 150px auto; }
+:root[data-koios='on'] .lib-row .cover { width: 44px; height: auto; padding: 2px 0 0; border-radius: 0; background: none; box-shadow: none; color: var(--muted); align-self: start; }
+:root[data-koios='on'] .lib-row .cover-kind { display: none; }
+:root[data-koios='on'] .lib-row .cover-year { font: 400 11px var(--mono); }
+:root[data-koios='on'] .lib-row .cover-check::before { background: transparent; border-color: var(--muted); }
+:root[data-koios='on'] .lib-main .paper-name { font-weight: 400; font-size: 17px; color: var(--ink); }
+:root[data-koios='on'] .lib-row:hover .paper-name { color: var(--accent-ink); }
+:root[data-koios='on'] .lib-authors { color: var(--ink-2); }
+:root[data-koios='on'] .lib-chip { padding: 0; height: auto; border: 0; background: transparent; color: var(--muted); font-size: 11.5px; }
+:root[data-koios='on'] .lib-chip.hl, :root[data-koios='on'] .lib-chip.note { background: transparent; color: var(--muted); }
+:root[data-koios='on'] .lib-chip .dot { display: none; }
+:root[data-koios='on'] .lib-status { gap: 12px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+:root[data-koios='on'] .lib-status .ring { position: relative; width: 96px !important; height: 1px !important; background: rgba(230, 225, 214, 0.12); }
+:root[data-koios='on'] .lib-status .ring svg, :root[data-koios='on'] .lib-status .ring-mark { display: none; }
+:root[data-koios='on'] .lib-status .ring::after { content: ''; position: absolute; left: 0; top: 0; height: 1px; width: calc(var(--p, 0) * 100%); background: var(--gold); }
+:root[data-koios='on'] .lib-status .ring.is-finished { background: var(--gold); }
+:root[data-koios='on'] .lib-status .ring.is-new { background: rgba(230, 225, 214, 0.06); }
+:root[data-koios='on'] .collection-head { padding-top: 34px; }
+:root[data-koios='on'] .collection-title { font-weight: 300; font-size: 34px; }
+:root[data-koios='on'] .collection-sub { font: 400 11px var(--mono); letter-spacing: 0.06em; color: var(--muted); margin-top: 8px; }
+:root[data-koios='on'] .collection-head .btn.primary { background: transparent; border-color: transparent; color: var(--ink-2); }
+:root[data-koios='on'] .collection-head .btn.primary:hover { color: var(--ink); }
+:root[data-koios='on'] .collection-toolbar { border-bottom: 0; padding-bottom: 6px; }
+:root[data-koios='on'] .collection-filter.field { background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 2px; width: 220px; }
+:root[data-koios='on'] .collection-toolbar .btn { border-color: transparent; color: var(--ink-2); }
+:root[data-koios='on'] .library-panel .nav-item { border-radius: 0; padding: 7px 10px 7px 12px; color: var(--ink-2); }
+:root[data-koios='on'] .library-panel .nav-item > svg { display: none; }
+:root[data-koios='on'] .library-panel .nav-item:hover { background: transparent; color: var(--ink); }
+:root[data-koios='on'] .library-panel .nav-item.is-active { background: transparent; color: var(--ink); font-weight: 400; box-shadow: inset 1px 0 0 var(--gold); }
+:root[data-koios='on'] .library-panel .nav-item.is-active .count { color: var(--muted); }
+:root[data-koios='on'] .library-panel .nav-item.is-drop { background: var(--accent-soft); box-shadow: inset 1px 0 0 var(--gold); color: var(--ink); }
+:root[data-koios='on'] .library-panel .paper-row { border-radius: 0; }
+:root[data-koios='on'] .library-panel .paper-row.is-active { background: transparent; box-shadow: inset 1px 0 0 var(--gold); }
+:root[data-koios='on'] .library-panel .paper-row.is-active .paper-row-title { color: var(--ink); font-weight: 400; }
+:root[data-koios='on'] .library-panel .panel-head h2 { font: 300 22px var(--serif); }
