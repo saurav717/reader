@@ -9405,3 +9405,14 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .explain-pages button[aria-pressed='true'] svg { color: var(--gold); }
 /* Side lists that are tab lists keep the mark at their left, not under. */
 :root[data-koios='on'] .settings-tabs:not(.is-row) [role='tab'][aria-selected='true'] { box-shadow: inset 1px 0 0 var(--gold); }
+/* The row on hover: the status column takes the width it needs so the
+   actions never land on it, and the selection box sits in the margin at the
+   left of the year rather than over it. */
+:root[data-koios='on'] .lib-row { grid-template-columns: 44px minmax(0, 1fr) max-content auto; }
+:root[data-koios='on'] .lib-status .ring { width: 72px !important; }
+:root[data-koios='on'] .lib-row .cover { overflow: visible; }
+:root[data-koios='on'] .lib-row .cover-check { inset: auto; left: -30px; top: 1px; width: 20px; height: 16px; background: transparent; }
+:root[data-koios='on'] .lib-row .cover-check::before { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--muted); background: transparent; }
+:root[data-koios='on'] .lib-row .cover.is-selected .cover-check { background: transparent; color: var(--paper); }
+:root[data-koios='on'] .lib-row .cover.is-selected .cover-check::before { background: var(--ink); border-color: var(--ink); }
+:root[data-koios='on'] .lib-row .cover-check svg { width: 10px; height: 10px; }
