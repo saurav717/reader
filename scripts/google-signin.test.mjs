@@ -116,7 +116,7 @@ beforeEach(() => {
 
 describe('reaching Google inside the click', () => {
   it('asks for the token synchronously when the script is already there', () => {
-    const calls = install(grant(IDENTITY));
+    const calls = install(grant(WITH_DRIVE));
     let finished = false;
     void google.signIn('client-id').then(() => {
       finished = true;
@@ -131,7 +131,7 @@ describe('reaching Google inside the click', () => {
     const calls = install(grant(WITH_DRIVE));
     void google.signIn('client-id');
     assert.equal(calls.length, 1);
-    assert.match(calls[0].scope, /^openid email profile .*drive\.file$/);
+    assert.match(calls[0].scope, /^openid email profile .*drive\.file/);
     assert.match(calls[0].scope, /drive\.appdata/);
   });
 
@@ -139,7 +139,7 @@ describe('reaching Google inside the click', () => {
     const calls = install(grant(IDENTITY));
     void google.connectDrive('client-id').catch(() => undefined);
     assert.equal(calls.length, 1);
-    assert.match(calls[0].scope, /drive\.file$/);
+    assert.match(calls[0].scope, /drive\.file/);
     assert.equal(calls[0].prompt, 'consent');
   });
 
@@ -148,7 +148,7 @@ describe('reaching Google inside the click', () => {
     const pending = module.signIn('client-id');
     assert.equal(scripts.length, 1);
     assert.equal(module.googleReady(), false);
-    const calls = install(grant(IDENTITY));
+    const calls = install(grant(WITH_DRIVE));
     scripts[0].listeners.load();
     const user = await pending;
     assert.equal(calls.length, 1);
@@ -204,14 +204,21 @@ describe('what the app says when Google refuses', () => {
 });
 
 describe('what counts as connected', () => {
-  it('reports the scopes that came back, not the ones asked for', async () => {
+  it('is not a sign-in at all when Drive came back unticked', async () => {
     const module = await fresh();
     install(grant(IDENTITY));
-    await module.signIn('client-id');
+    await assert.rejects(module.signIn('client-id'), /Drive was left unticked/);
+    // Nothing is kept: not the token, and not a "signed in without Drive" state for the app to find.
+    assert.equal(module.restoredUser(), null);
     assert.equal(module.hasDriveAccess(), false);
+    assert.equal(stored.has(SESSION_KEY), false);
+
+    install(grant(IDENTITY));
+    await assert.rejects(module.connectDrive('client-id'), /Drive was left unticked/);
+    assert.equal(module.restoredUser(), null);
 
     install(grant(WITH_DRIVE));
-    await module.connectDrive('client-id');
+    await module.signIn('client-id');
     assert.equal(module.hasDriveAccess(), true);
   });
 
@@ -274,7 +281,7 @@ describe('staying signed in across a reload', () => {
 
   it('forgets the session on sign-out', async () => {
     const module = await fresh();
-    install(grant(IDENTITY));
+    install(grant(WITH_DRIVE));
     await module.signIn('client-id');
     assert.equal(stored.has(SESSION_KEY), true);
     module.signOut();
@@ -502,6 +509,20 @@ describe('renewing for work in the background', () => {
     const [first, second] = await Promise.all([module.ensureDriveToken('client-id'), module.ensureDriveToken('client-id')]);
     assert.deepEqual([first, second], ['token', 'token']);
     assert.equal(calls.length, 1);
+  });
+
+  it('asks for Drive with Colab even when the lapsed token in hand cannot vouch for it', async () => {
+    // An hour on: the token has expired, so nothing in hand says Drive was granted. Colab's renewal must still
+    // ask for it, or the token that comes back is a sign-in without Drive — which the app has no such thing as.
+    stored.set(SESSION_KEY, JSON.stringify({ accessToken: 'old', expiresAt: Date.now() - 1, scopes: [...WITH_DRIVE.split(' '), 'https://www.googleapis.com/auth/colaboratory'], user: { name: 'A Reader', email: 'reader@example.com' } }));
+    const later = await fresh();
+    assert.equal(later.hasDriveAccess(), false);
+    const calls = install(grant(`${WITH_DRIVE} https://www.googleapis.com/auth/colaboratory`));
+    await later.connectColab('client-id');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].scope, /drive\.file/);
+    assert.match(calls[0].scope, /colaboratory/);
+    assert.equal(later.hasDriveAccess(), true);
   });
 
   it('asks for Colab on the same single window as Drive', async () => {

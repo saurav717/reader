@@ -19,7 +19,6 @@ import {
   blankCells,
   createPlayground,
   deletePlayground,
-  configurePlaygroundDrive,
   filesHere,
   labelBrowserHome,
   reachOf,
@@ -65,9 +64,9 @@ export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; o
     void loadPlaygrounds().then(() => setReady(true));
   }, []);
   // Signed in with Drive: the list is the account's, in its Drive, in every browser it signs in to.
+  // (The store is told about Drive in App.tsx, wherever the person is; this page only reads the list.)
   const clientId = settings.googleClientId.trim();
   useEffect(() => {
-    configurePlaygroundDrive(driveConnected && clientId ? { clientId, folderName: settings.driveFolderName, account: currentAccount() ?? undefined } : null);
     if (driveConnected && clientId) void syncPlaygrounds().finally(() => setFromDrive(true));
   }, [driveConnected, clientId, settings.driveFolderName]);
   if (id) {
