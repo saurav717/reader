@@ -9560,7 +9560,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .pg-pool-label { font: 500 11px var(--sans); color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; margin-right: 4px; }
 .pg-pool-chip { max-width: 320px; }
 .pg-pool-rank { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 4px; background: var(--ink-2); color: var(--paper); font: 700 9.5px var(--mono); flex: none; }
-.pg-pool-add { min-width: 320px; max-width: 380px; }
+.pg-pool-add { min-width: 320px; max-width: 380px; max-height: min(70vh, 560px); }
 .pg-pool-note { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); font-size: 11.5px; line-height: 1.5; color: var(--muted); }
 .pg-pool-note b { color: var(--ink); }
 .pg-pool-panes { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }

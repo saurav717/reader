@@ -99,7 +99,10 @@ function PoolChip({ playground, machine, session, usable, onNote }: { playground
   const take = async () => {
     if (!machine.member) return;
     setMenu(false);
-    if (session?.status === 'busy' && !window.confirm(`${name} is running something. Take it out of the project anyway? What runs there is interrupted.`)) return;
+    if (session?.status === 'busy') {
+      if (!window.confirm(`${name} is running something. Take it out of the project anyway? What runs there is interrupted.`)) return;
+      await interruptIn(machine.scope).catch(() => undefined);
+    }
     removeMachine(playground.id, machine.member);
     // Its machine stops (Colab: no more units) or its kernel ends; nothing of the project is left running there unseen.
     await shutDownScope(machine.scope, machine.compute.kind === 'server' ? serverById(machine.compute.serverId) : undefined).catch(() => undefined);
@@ -107,7 +110,7 @@ function PoolChip({ playground, machine, session, usable, onNote }: { playground
   };
   return (
     <div className="menu-wrap" ref={box}>
-      <button type="button" className={`colab-chip pg-chip pg-pool-chip is-${dot}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} title={`Machine ${machine.rank + 1} of ${1 + (playground.pool?.length ?? 0)}: ${name} · ${text}`}>
+      <button type="button" className={`colab-chip pg-chip pg-pool-chip is-${dot}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} title={`Machine ${machine.rank} of ${1 + (playground.pool?.length ?? 0)}: ${name} · ${text}${session?.sharing ? ` · ${session.sharing}` : ''}`}>
         <span className="pg-pool-rank" aria-hidden="true">
           {machine.rank}
         </span>
@@ -123,6 +126,7 @@ function PoolChip({ playground, machine, session, usable, onNote }: { playground
             {session?.specs?.gpuName ? ` · ${session.specs.gpuName}` : ''}
             {session?.specs?.ramTotalMb ? ` · ${Math.round(session.specs.ramTotalMb / 1024)} GB RAM` : ''}
             {first ? <small className="pg-chip-secure">The project's first machine: the bar's chip changes it.</small> : <small className="pg-chip-secure">KOIOS_RANK={machine.rank} for a command run on all machines</small>}
+            {session?.sharing ? <small className="pg-chip-secure pg-bad">{session.sharing}</small> : null}
           </p>
           {!connected ? (
             <button

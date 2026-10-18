@@ -165,7 +165,7 @@ export function ConnectCard({
           <ul>
             <li>run anything without a click</li>
             <li>mount your Drive or read your notebooks</li>
-            <li>start more than one runtime</li>
+            <li>start a runtime you did not ask for: one a machine, each from a click</li>
           </ul>
         </div>
       </div>

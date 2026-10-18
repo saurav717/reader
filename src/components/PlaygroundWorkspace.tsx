@@ -489,17 +489,30 @@ function MachineChip({ playground, name, usable, onChange, onPool, onNote }: { p
             void connect(machine).catch(() => undefined);
           }}
           footer={
-            <button
-              type="button"
-              className="colab-action"
-              onClick={() => {
-                setOpen(false);
-                onChange();
-              }}
-            >
-              <b>Change where it runs…</b>
-              <span>This PC, a computer of yours, a GPU server — or the code on one machine and run on another</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className="colab-action"
+                onClick={() => {
+                  setOpen(false);
+                  onChange();
+                }}
+              >
+                <b>Change where it runs…</b>
+                <span>This PC, a computer of yours, a GPU server — or the code on one machine and run on another</span>
+              </button>
+              <button
+                type="button"
+                className="colab-action"
+                onClick={() => {
+                  setOpen(false);
+                  onPool();
+                }}
+              >
+                <b>{playground.pool?.length ? 'The project’s machines' : 'Run on more machines…'}</b>
+                <span>{playground.pool?.length ? `${1 + playground.pool.length} machines, one job each` : 'More Colab machines, or a computer of yours beside Colab: one job each, for a sweep or a few seeds side by side'}</span>
+              </button>
+            </>
           }
         />
       ) : open ? (
@@ -1197,13 +1210,21 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setActiveShell(id);
   };
   const [addShellMenu, setAddShellMenu] = useState(false);
+  const addShellBox = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!addShellMenu) return;
+    const away = (event: MouseEvent) => !addShellBox.current?.contains(event.target as Node) && setAddShellMenu(false);
+    window.addEventListener('mousedown', away);
+    return () => window.removeEventListener('mousedown', away);
+  }, [addShellMenu]);
   /** Which machine a terminal tab is on, and how its shell is reached: through its server's terminals, or a shell in its kernel. */
   const shellOn = (id: string): { machine: ProjectMachine; server: JupyterServer | undefined; kernel: boolean } => {
     const member = shellMember(id);
     const machine = (member ? machines.find((m) => m.member === member) : undefined) ?? machines[0];
     if (machine.member === null) return { machine, server: computeServer, kernel: kernelTerms || !computeServer };
+    // A member's server: its own terminals when it is a Companion (which has them); a shell in its kernel otherwise.
     const server = machine.compute.kind === 'server' ? serverById(machine.compute.serverId) : undefined;
-    return { machine, server, kernel: !server };
+    return { machine, server, kernel: !server || !isCompanion(server) };
   };
   const closeShell = (id: string) => {
     const on = shellOn(id);
@@ -1480,10 +1501,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     }
     try {
       if (!isConnected(sessionOf(sessionsNow(), machine.scope))) await connectIn(machine.backend, machine.scope);
-      if (split) {
-        for (const file of files) if (file.where === 'home' && file.text !== file.saved) await save(file);
-        await pushFolder(playground, machineHostFor(playground, machine));
-      }
+      // The folder kept elsewhere: copied to this machine first (the edits on screen were saved by `run`).
+      if (split) await pushFolder(playground, machineHostFor(playground, machine));
       const folder = await folderOnMachine(machine);
       await runCellFor(machine.backend, machine.scope, memberKey(consoleKey(playground.id, entry.id), machine.member), shellCell(folder, trimmed, env));
       if (split) await pullBack(playground, machineHostFor(playground, machine));
@@ -1499,6 +1518,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     const entry: ConsoleEntry = { id: uid(), command: trimmed, at: Date.now(), ...(target !== 'first' ? { machine: target } : {}) };
     updatePlayground(playground.id, (p) => ({ console: [...p.console, entry].slice(-40), pending: p.pending === trimmed ? undefined : p.pending }));
     setCommand('');
+    // Unsaved edits first, once: what is sent to every machine is what is on screen.
+    if (split) for (const file of files) if (file.where === 'home' && file.text !== file.saved) await save(file);
     // On all machines at once: each gets the command in its own kernel, side by side.
     await Promise.all(targets.map((machine) => runOn(machine, entry, trimmed, targets.length)));
     setRefresh((n) => n + 1);
@@ -1533,6 +1554,18 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     [playground.console, colab.runs, nbCells, playground.id, machines, pooled],
   );
 
+  /** Whether a run key is a machine's: a pool member's end in `@` and its id; the first machine's (the notebook's cells, its commands) have no `@`. */
+  const onMachine = (key: string, m: ProjectMachine) => (m.member === null ? !key.includes('@') : key.endsWith(`@${m.member}`));
+  /** Each machine's session for its Runtime pane, with only its own runs, so the ruler and the peaks are that machine's. */
+  const paneStates = useMemo(() => {
+    const map = new Map<string, (typeof sessions)[number]>();
+    if (!pooled) return map;
+    for (const m of machines) {
+      const state = m.member === null ? colab : sessionOf(sessions, m.scope);
+      if (state) map.set(m.scope, { ...state, runs: Object.fromEntries(Object.entries(state.runs).filter(([key]) => onMachine(key, m))) });
+    }
+    return map;
+  }, [pooled, machines, colab, sessions]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = current ? current.text !== current.saved : false;
   // The newest command in view from its top: what was typed, then what it printed.
   const consoleLog = useRef<HTMLDivElement>(null);
@@ -2131,12 +2164,12 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     </span>
                   ))}
                   {pooled ? (
-                    <span className="menu-wrap">
+                    <span className="menu-wrap" ref={addShellBox}>
                       <button type="button" className="icon-btn sm" onClick={() => setAddShellMenu(!addShellMenu)} aria-haspopup="menu" aria-expanded={addShellMenu} aria-label="A new terminal, on one of the machines" title="New Terminal — on which machine">
                         +
                       </button>
                       {addShellMenu ? (
-                        <div className="menu pg-chip-menu" role="menu" onMouseLeave={() => setAddShellMenu(false)}>
+                        <div className="menu pg-chip-menu" role="menu">
                           <div className="menu-label">A terminal on</div>
                           {machines.map((m) => (
                             <button key={m.scope} type="button" role="menuitem" onClick={() => (setAddShellMenu(false), addShell(m.member))}>
@@ -2193,16 +2226,6 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   return (
                     <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
                       {on.kernel || !on.server ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={label} connected={up} playgroundId={playground.id} scope={first ? undefined : on.machine.scope} /> : <Terminal server={on.server} cwd={machineRoot(playground)} sessionId={id} label={label} playgroundId={playground.id} />}
-                      {!first && !up ? (
-                        <div className="pg-terminal-veil">
-                          <span>
-                            Machine {on.machine.rank} ({on.machine.label}) isn’t connected.{' '}
-                            <button type="button" className="link" onClick={() => on.machine.backend && void connectIn(on.machine.backend, on.machine.scope).catch(() => undefined)}>
-                              Connect it
-                            </button>
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
                   );
                 })
@@ -2336,14 +2359,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <div className="pg-pool-panes">
                   {machines.map((m) => {
                     const first = m.member === null;
-                    const state = first ? colab : sessionOf(sessions, m.scope);
-                    const up = first ? connected : isConnected(state);
+                    const pane = paneStates.get(m.scope);
+                    const up = first ? connected : isConnected(pane);
                     return (
                       <section key={m.scope} className="pg-pool-pane">
                         <h4 className="pg-pool-pane-head">
-                          <MachineMark compute={m.compute} /> machine {m.rank} · {first ? machineName : m.label}
+                          <MachineMark compute={m.compute} /> machine {m.rank} · {first && connected ? machineName : m.label}
                         </h4>
-                        {up ? <RuntimePane cells={consoleCells.filter((cell) => (first ? !cell.key.includes('@') : cell.key.endsWith(`@${m.member}`)))} onGoTo={() => undefined} session={first ? undefined : state} /> : <p className="pg-note pg-pad">Not connected. Its chip in the row above connects it, or a command run on it does.</p>}
+                        {up && pane ? <RuntimePane cells={consoleCells.filter((cell) => onMachine(cell.key, m))} onGoTo={() => undefined} session={pane} /> : <p className="pg-note pg-pad">Not connected. Its chip in the row above connects it, or a command run on it does.</p>}
                       </section>
                     );
                   })}
