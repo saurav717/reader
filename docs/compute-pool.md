@@ -8,7 +8,9 @@ computer's GPU is one pool.
 
 This document is what the pool is, what it is not, and why: what Colab
 allows, and what it does not. It is the note to come back to before asking
-the pool to do something it cannot.
+the pool to do something it cannot. How the pool is built — sessions,
+kernels, the pool row — and how a run is picked up from another computer are
+in [compute-continuity.md](compute-continuity.md), with figures.
 
 ## What the pool does
 

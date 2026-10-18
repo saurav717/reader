@@ -4954,7 +4954,8 @@ pick, or to all at once, each told its place as `KOIOS_RANK` and
 `KOIOS_WORLD` so one script can take its own seed, config or slice of the
 data; each has its own terminals and its own row in the Runtime pane. What a
 pool is not — one big GPU — and why Colab's network rules that out, is in
-[docs/compute-pool.md](docs/compute-pool.md).
+[docs/compute-pool.md](docs/compute-pool.md); how it is built, with figures,
+in [docs/compute-continuity.md](docs/compute-continuity.md).
 
 **From another computer, while it runs.** Start a command in a project on one
 computer, sign in on another, open the project, and it is the same kernel
@@ -4967,7 +4968,8 @@ shows the command's output so far from its log, follows the rest as the
 kernel sends it, and can stop it. The same holds for a reload. A notebook
 cell started elsewhere is followed from the moment you join; its earlier
 output stays with the browser that ran it. Rows go when the machine stops,
-and after two days untouched.
+and after two days untouched. The design, with the join and the follow drawn
+out: [docs/compute-continuity.md](docs/compute-continuity.md).
 
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:
