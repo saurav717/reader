@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { NightScene, pickScene } from './NightScene';
 import { basePath, currentAddress, placeFor } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
@@ -57,12 +58,13 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
     if (configured) prepareGoogle();
   }, [configured]);
 
+  // The opening screen stands on the scene the loading screen stood on: the
+  // same picture, the same words, and under them the way in.
+  const scene = pickScene();
+
   return (
-    <div className="main" style={{ alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ maxWidth: 520, width: '100%' }}>
-        <div className="brand" style={{ width: 44, height: 44, fontSize: 25, marginBottom: 18 }}>
-          R
-        </div>
+    <NightScene scene={scene} className="main is-welcome">
+      <div className="night-signin">
         {invited && !user ? (
           <div className="welcome-greeting">
             <span className="pj-av is-lg" style={{ background: '#8a3a6e' }}>
@@ -87,10 +89,8 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
             </div>
           </div>
         ) : null}
-        <h1 style={{ margin: '0 0 8px', fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 600, letterSpacing: '-0.014em' }}>
-          {returning ? 'Reconnect your Drive' : 'Read papers, keep what matters'}
-        </h1>
-        <p style={{ margin: '0 0 26px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>
+        <h2 className="night-h2">{returning ? 'Reconnect your Drive' : 'Read papers, keep what matters'}</h2>
+        <p style={{ margin: '0 0 22px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>
           {returning
             ? 'A sign-in lasts as long as the token Google gives it, about an hour, and this one has run out. One click reconnects, and Google will not ask again what you have already agreed to. Papers you add then go to your Drive as you collect them.'
             : 'Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Sign in with Google and your library lives in your own Drive — every paper, its highlights, and your collections — the same in any browser you sign in from.'}
@@ -191,7 +191,7 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
           ; the <a href={`${basePath()}terms/`} style={{ color: 'inherit' }}>terms</a> are beside it.
         </p>
       </div>
-    </div>
+    </NightScene>
   );
 }
 

@@ -94,7 +94,7 @@ const defaultSettings: Settings = {
   syncOnOpen: true,
   proxyBase: '',
   proxyToken: '',
-  theme: 'light',
+  theme: 'dark',
   glass: false,
   glassFrost: 0.5,
   glassWall: 'spotlight',

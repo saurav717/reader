@@ -37,6 +37,7 @@ import type { SettingsPlace } from './lib/openSettings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import { isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
+import { LoadingScreen } from './components/NightScene';
 import GoogleRenewal from './components/GoogleRenewal';
 import Home from './components/Home';
 import { readHomePrefs, startVisit } from './lib/homeViews';
@@ -1020,13 +1021,10 @@ export default function App() {
   // on it.
   if (!ready) {
     return (
-      <div className="app">
-        <div className="main" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
-          <span className="spinner" aria-label="Loading your library" />
-          {user && driveConnected ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>Reading your library from Drive…</span> : null}
-        </div>
+      <>
+        <LoadingScreen label={user && driveConnected ? 'Reading your library from Drive' : 'Reading your library'} />
         {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
-      </div>
+      </>
     );
   }
 

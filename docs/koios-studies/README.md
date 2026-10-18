@@ -39,8 +39,11 @@ means.
 
 ## Loading-page samples
 
-`loading/` holds six loading-screen samples drawn by gpt-image-2 with the
-copy set exactly: a two-line serif headline, a two-sentence introduction to
-Koios in the stoic register, and the "Reading your library" rule. `sheet.png`
-lays the six out together. The same copy is on the design canvas's vector
-boards, which are the ones to build from.
+`loading/` holds six loading-screen samples drawn by gpt-image-2 at their full
+1536 × 1024, with the copy set exactly: a two-line serif headline, a
+two-sentence introduction to Koios in the stoic register, and the "Reading
+your library" rule. `sheet.png` lays the six out together. The site uses them:
+`public/loading/scene-01..06.jpg` are these six with the lettering lifted off,
+so the app sets the words itself, and `scene-07..11.jpg` are five earlier
+pictures in the same world. `src/components/NightScene.tsx` holds the words
+and picks the scene for each visit.

@@ -29,6 +29,8 @@
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
   /* The Ask Claude window. Its colour is a raw triple an alpha is multiplied
      into — the window writes --win-tint, the slider in its title bar moves it. */
+  --gold: #b8963f;
+  --gold-soft: #d8b46a;
   --win-rgb: 255 253 247;
   --win-edge: 26 26 23;
   --win-edge-a: 0.14;
@@ -40,16 +42,20 @@
   --viz-3: #2d64a0;
 }
 
+/* Night: the navy the loading screen is painted on, cream ink, and gold
+   hairlines where the lines were grey. Green keeps every action. */
 :root[data-theme='dark'] {
-  --paper: #15161a;
-  --surface: #1d1f25;
-  --panel: #1a1c21;
-  --rail: #17181c;
-  --border: #2c2f36;
-  --border-soft: #25272d;
-  --ink: #eae7df;
-  --ink-2: #c3bfb4;
+  --paper: #0b0f1a;
+  --surface: #0f1524;
+  --panel: #0d121b;
+  --rail: #070a12;
+  --border: rgba(216, 180, 106, 0.2);
+  --border-soft: rgba(216, 180, 106, 0.12);
+  --ink: #e9e4d6;
+  --ink-2: #c6c0b0;
   --muted: #9b978c;
+  --gold: #d8b46a;
+  --gold-soft: #f0d79a;
   --accent: #57a98f;
   --accent-soft: #1e3a33;
   --accent-ink: #8fcbb8;
@@ -8729,3 +8735,135 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .set-recorder .set-notes-source { margin: 2px 0 6px; }
 .set-permissions-state { flex-basis: 100%; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 .set-permissions-state.is-ok { color: var(--accent-ink); font-weight: 500; }
+
+/* ---------- The night: the loading screen and the opening screen ----------
+   A scene (public/loading) on the right, the words on the left, gold
+   hairlines; the same in either theme, since this is the sky you pass
+   through on the way to the paper. `.night` sets the tokens, so buttons and
+   banners inside it dress for it. */
+.night {
+  --paper: #070a12;
+  --surface: #0f1524;
+  --panel: #0b0f1a;
+  --rail: #070a12;
+  --border: rgba(216, 180, 106, 0.22);
+  --border-soft: rgba(216, 180, 106, 0.14);
+  --ink: #e9e4d6;
+  --ink-2: #c6c0b0;
+  --muted: #8d8878;
+  --accent: #57a98f;
+  --accent-soft: #1e3a33;
+  --accent-ink: #8fcbb8;
+  --accent-on: #10201c;
+  --accent-rgb: 87 169 143;
+  --gold: #d8b46a;
+  --gold-soft: #f0d79a;
+  --danger: #e09090;
+  --edge: clamp(24px, 7vw, 112px);
+  color-scheme: dark;
+  background: var(--paper);
+  color: var(--ink);
+}
+.night-scene {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  padding: 120px var(--edge) 140px;
+  box-sizing: border-box;
+}
+.night-scene.is-loading { position: fixed; inset: 0; z-index: 60; }
+.night-scene.main { flex: 1; min-height: 0; }
+.night-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--focus, 78% 50%);
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+.night-img.is-in { opacity: 1; }
+.night-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(7, 10, 18, 0.95) 0%, rgba(7, 10, 18, 0.84) 36%, rgba(7, 10, 18, 0.22) 62%, rgba(7, 10, 18, 0) 82%);
+}
+.night-mark {
+  position: absolute;
+  top: 48px;
+  left: var(--edge);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--gold);
+  font: 500 13px/1 var(--mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.night-copy {
+  position: relative;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.night-copy h1 {
+  margin: 0;
+  font: 300 clamp(36px, 4.4vw, 64px) / 1.08 var(--serif);
+  letter-spacing: -0.01em;
+  color: #f1ece0;
+  text-wrap: balance;
+}
+.night-intro {
+  margin: 0;
+  max-width: 500px;
+  font: italic 400 clamp(16px, 1.4vw, 20px) / 1.5 var(--serif);
+  color: #a9a392;
+}
+.night-foot {
+  position: absolute;
+  left: var(--edge);
+  bottom: 64px;
+  width: min(620px, calc(100% - 2 * var(--edge)));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.night-rule { position: relative; height: 1px; background: rgba(216, 180, 106, 0.28); }
+.night-rule-fill { position: absolute; left: 0; top: 0; height: 1px; width: 50%; background: var(--gold); }
+.night-rule-star { position: absolute; top: -9px; left: 50%; margin-left: -9px; color: var(--gold-soft); }
+.night-rule.is-busy .night-rule-fill { animation: night-fill 7s cubic-bezier(0.45, 0, 0.3, 1) infinite alternate; }
+.night-rule.is-busy .night-rule-star { animation: night-star 7s cubic-bezier(0.45, 0, 0.3, 1) infinite alternate; }
+@keyframes night-fill { from { width: 6%; } to { width: 90%; } }
+@keyframes night-star { from { left: 6%; } to { left: 90%; } }
+@media (prefers-reduced-motion: reduce) {
+  .night-rule.is-busy .night-rule-fill, .night-rule.is-busy .night-rule-star { animation: none; }
+  .night-img { transition: none; }
+}
+
+/* The opening screen: the sign-in sits under the words, on the same scene. */
+.night-scene.is-welcome { padding-top: 112px; padding-bottom: 72px; justify-content: flex-start; overflow-y: auto; }
+.night-scene.is-welcome .night-copy { max-width: 560px; }
+.night-signin { display: flex; flex-direction: column; margin-top: 18px; padding-top: 26px; border-top: 1px solid var(--border); }
+.night-h2 { margin: 0 0 8px; font: 400 24px/1.2 var(--serif); letter-spacing: -0.01em; color: var(--ink); }
+.night .welcome-greeting { background: rgba(15, 21, 36, 0.8); }
+.night .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
+
+@media (max-width: 760px) {
+  .night-scene { padding: 96px 20px 120px; justify-content: flex-end; }
+  .night-scene.is-welcome { padding-top: 88px; justify-content: flex-start; }
+  .night-mark { top: 28px; left: 20px; }
+  .night-img { object-position: 70% 0; }
+  .night-veil { background: linear-gradient(180deg, rgba(7, 10, 18, 0.35) 0%, rgba(7, 10, 18, 0.78) 40%, rgba(7, 10, 18, 0.96) 70%); }
+  .night-foot { left: 20px; bottom: 36px; width: calc(100% - 40px); }
+}
+
+/* The rail's mark, at night: gold on the navy tile, like the opening screen's. */
+:root[data-theme='dark'] .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
+:root[data-theme='dark'] button.brand[aria-current='page'] { box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--rail), 0 0 0 3px var(--gold); }

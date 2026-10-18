@@ -3081,6 +3081,36 @@ sent, the history, the SDK), `src/lib/screen.ts` (reading the passage in view an
 selection), `src/lib/floatWindow.ts` (the window's geometry) and `src/lib/markdown.ts`
 (drawing the answers).
 
+## The night
+
+The site is named for Koios, the Titan who held the axis the stars turn
+around, and whose name the Greeks heard as the question itself. It opens on
+him. While the library is read from Drive the page is a night scene: a
+picture on the right, two lines in a light serif on the left, a short
+introduction to the Titan beneath them, and a gold hairline with a star
+going along it for as long as the read takes. There are eleven scenes, in
+`public/loading/`, and each visit gets the next one in turn, so the page is
+not the same twice running.
+
+![the loading screen: a gold line drawing of an armillary sphere on a navy sky, "What is worth knowing is worth finding", and a hairline with a star on it under "Reading your library from Drive"](docs/night-loading.png)
+
+The opening screen, where Drive is connected, stands on the same scene the
+loading screen stood on, with the sign-in under the words.
+
+![the opening screen: an engraved marble profile under a gold ring, "Ask well. Read slowly. Keep what matters.", and the sign-in beneath a hairline](docs/night-welcome.png)
+
+The dark theme is the same night: a navy ground instead of grey, cream ink,
+gold hairlines where the lines were grey, and the bookmark mark in gold on
+the rail. Green keeps every action, so the tool is still the tool. New
+visitors start in it; **Settings → Appearance** has the day theme, whose
+paper is unchanged, for reading in daylight.
+
+![Home in the night theme: navy ground, gold hairlines around the search and the collections, the gold mark on the rail](docs/night-home.png)
+
+The words are in `src/components/NightScene.tsx`, with the scene chosen
+for the visit; the pictures' lettering was lifted off the renders in
+`docs/koios-studies/loading/` so the app can set its own.
+
 ## Glass
 
 **Settings → Appearance → Glass** swaps the solid paper for glass, in either
