@@ -8971,23 +8971,31 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .rail { background: transparent; }
 /* The sky, when asked for: a faint glow at the top and a sparse field of
    stars, dim enough to sit under a page of text. */
-:root[data-koios='on'][data-sky='on'] .app {
-  background:
-    radial-gradient(1px 1px at 12% 18%, rgba(230, 225, 214, 0.5), transparent 100%),
-    radial-gradient(1px 1px at 31% 7%, rgba(230, 225, 214, 0.4), transparent 100%),
-    radial-gradient(1.5px 1.5px at 47% 24%, rgba(230, 225, 214, 0.45), transparent 100%),
-    radial-gradient(1px 1px at 63% 11%, rgba(230, 225, 214, 0.4), transparent 100%),
-    radial-gradient(1px 1px at 78% 29%, rgba(230, 225, 214, 0.35), transparent 100%),
-    radial-gradient(1.5px 1.5px at 88% 6%, rgba(230, 225, 214, 0.5), transparent 100%),
-    radial-gradient(1px 1px at 22% 41%, rgba(230, 225, 214, 0.25), transparent 100%),
-    radial-gradient(1px 1px at 56% 48%, rgba(230, 225, 214, 0.25), transparent 100%),
-    radial-gradient(1px 1px at 93% 44%, rgba(230, 225, 214, 0.3), transparent 100%),
-    radial-gradient(1px 1px at 40% 72%, rgba(230, 225, 214, 0.18), transparent 100%),
-    radial-gradient(1px 1px at 70% 84%, rgba(230, 225, 214, 0.18), transparent 100%),
-    radial-gradient(1px 1px at 8% 88%, rgba(230, 225, 214, 0.18), transparent 100%),
-    radial-gradient(ellipse 90% 60% at 50% -20%, rgba(28, 36, 56, 0.9) 0%, rgba(14, 17, 22, 0) 70%),
-    var(--rail);
+:root[data-koios='on'] {
+  --koios-stars:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(240, 236, 226, 0.9), transparent 100%),
+    radial-gradient(1px 1px at 31% 7%, rgba(240, 236, 226, 0.7), transparent 100%),
+    radial-gradient(2px 2px at 47% 24%, rgba(240, 236, 226, 0.8), transparent 100%),
+    radial-gradient(1px 1px at 63% 11%, rgba(240, 236, 226, 0.7), transparent 100%),
+    radial-gradient(1.5px 1.5px at 78% 29%, rgba(240, 236, 226, 0.65), transparent 100%),
+    radial-gradient(2px 2px at 88% 6%, rgba(240, 236, 226, 0.9), transparent 100%),
+    radial-gradient(1px 1px at 22% 41%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1.5px 1.5px at 56% 48%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 93% 44%, rgba(240, 236, 226, 0.55), transparent 100%),
+    radial-gradient(1px 1px at 40% 72%, rgba(240, 236, 226, 0.4), transparent 100%),
+    radial-gradient(1.5px 1.5px at 70% 84%, rgba(240, 236, 226, 0.4), transparent 100%),
+    radial-gradient(1px 1px at 8% 88%, rgba(240, 236, 226, 0.4), transparent 100%),
+    radial-gradient(1px 1px at 5% 60%, rgba(240, 236, 226, 0.35), transparent 100%),
+    radial-gradient(1px 1px at 84% 64%, rgba(240, 236, 226, 0.35), transparent 100%),
+    radial-gradient(1px 1px at 36% 94%, rgba(240, 236, 226, 0.3), transparent 100%),
+    radial-gradient(1.5px 1.5px at 97% 90%, rgba(240, 236, 226, 0.45), transparent 100%),
+    radial-gradient(1px 1px at 18% 2%, rgba(240, 236, 226, 0.6), transparent 100%),
+    radial-gradient(1px 1px at 72% 2%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 50% 60%, rgba(240, 236, 226, 0.3), transparent 100%),
+    radial-gradient(1px 1px at 27% 56%, rgba(240, 236, 226, 0.3), transparent 100%);
+  --koios-glow: radial-gradient(ellipse 90% 60% at 50% -20%, rgba(30, 40, 62, 0.95) 0%, rgba(14, 17, 22, 0) 70%);
 }
+:root[data-koios='on'][data-sky='on'] .app { background: var(--koios-stars), var(--koios-glow), var(--rail); }
 
 /* Headings in the light serif. */
 :root[data-koios='on'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
@@ -9203,6 +9211,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
     linear-gradient(160deg, #0a0e1a, #0b0f1a);
 }
 :root[data-glass='on'][data-koios='on'] .app { background: transparent; }
+:root[data-glass='on'][data-koios='on'][data-sky='on'] body { background: var(--koios-stars), var(--koios-glow), var(--wall); background-attachment: fixed; }
 
 /* ---------- Koios II: the pages re-drawn ----------
    The rail is icons alone, 56 px, the current place marked by one gold rule

@@ -1085,7 +1085,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
         </label>
         {settings.theme === 'koios' && koiosOffered ? (
           <label className="theme-follow">
-            <input type="checkbox" checked={Boolean(settings.koiosSky)} onChange={(event) => updateSettings({ koiosSky: event.target.checked })} />
+            <input type="checkbox" checked={settings.koiosSky !== false} onChange={(event) => updateSettings({ koiosSky: event.target.checked })} />
             A faint sky behind the pages, as on the opening screens
           </label>
         ) : null}

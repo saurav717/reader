@@ -394,7 +394,7 @@ export interface Settings {
   theme: 'light' | 'dark' | 'system' | 'koios';
   /** Set once the theme has been picked by hand; until then it follows the site's look (lib/store.tsx, readSettings). */
   themeChosen?: boolean;
-  /** Under Koios: a faint sky, the glow and a few stars, behind the pages. Off, the ground is plain slate. */
+  /** Under Koios: the sky, a glow and a few stars, behind the pages; on unless set false, when the ground is plain slate. */
   koiosSky?: boolean;
   /**
    * The glass material: the window's panes turn into frosted, nearly clear

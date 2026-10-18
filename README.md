@@ -3114,10 +3114,12 @@ section labels, and the progress lines; nothing else is coloured. The
 primary button is stone filled with ink, so there is no green anywhere in
 the chrome; the highlighters keep their four colours on the paper, muted.
 Lines are stone at a tenth, felt rather than seen. Headings are in the light
-serif the opening screens use, and the rail is icons alone, 56 px wide. The
-ground is plain by default; **Settings → Appearance** has a switch for a
-faint sky behind the pages, the glow and a few dim stars from the opening
-screens. New visitors start in Koios; the same panel has Light and Dark,
+serif the opening screens use, and the rail is icons alone, 56 px wide. Behind
+the pages is the sky from the opening screens, the glow and a few stars,
+under glass too; **Settings → Appearance** has a switch to leave the
+ground plain slate instead. Opening a paper puts the library away, so the
+page stands alone; it comes back when the paper closes, or at once when
+asked for. New visitors start in Koios; the same panel has Light and Dark,
 whose paper is unchanged, for reading in daylight.
 
 ![Home in the night theme: the glow at the top of the sky, "Find your next paper" in a light serif, gold labels over the suggestions and the collections, the gold mark on the rail](docs/night-home.png)

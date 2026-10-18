@@ -650,6 +650,25 @@ export default function App() {
     // Only the move onto and off Home; the panels' own state is read, not followed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onHome]);
+  // Reading is the page alone: the library steps aside when a paper opens and
+  // comes back when it closes, unless it was opened by hand meanwhile. The dock
+  // stays as it was, so notes asked for beside the page are there.
+  const onPaper = view.kind === 'paper';
+  const libraryBeforePaper = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (onPaper) {
+      if (libraryBeforePaper.current !== null || isNarrow()) return;
+      libraryBeforePaper.current = libraryOpen;
+      setLibraryOpen(false);
+      return;
+    }
+    const before = libraryBeforePaper.current;
+    if (before === null) return;
+    libraryBeforePaper.current = null;
+    setLibraryOpen((current) => current || before);
+    // Only the move onto and off a paper.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onPaper]);
   // A project's workspace is a paper beside its code, and its Write tab the paper
   // and its PDF: the library and the dock step aside on the way in, and come
   // back as they were on the way out.

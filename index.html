@@ -26,7 +26,7 @@
         if (theme === 'koios' && look === 'classic') theme = 'dark';
         if (theme === 'koios') {
           document.documentElement.dataset.koios = 'on';
-          if (saved.koiosSky) document.documentElement.dataset.sky = 'on';
+          if (saved.koiosSky !== false) document.documentElement.dataset.sky = 'on';
           theme = 'dark';
         }
         document.documentElement.dataset.theme = theme;
