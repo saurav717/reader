@@ -3081,6 +3081,69 @@ sent, the history, the SDK), `src/lib/screen.ts` (reading the passage in view an
 selection), `src/lib/floatWindow.ts` (the window's geometry) and `src/lib/markdown.ts`
 (drawing the answers).
 
+## The night
+
+The site is named for Koios, the Titan who held the axis the stars turn
+around, and whose name the Greeks heard as the question itself. It opens on
+him. While the library is read from Drive the page is a night scene: a
+picture on the right, two lines in a light serif on the left, a short
+introduction to the Titan beneath them, and a gold hairline with a star
+going along it for as long as the read takes. There are eleven scenes, in
+`public/loading/`, and each visit gets the next one in turn, so the page is
+not the same twice running.
+
+![the loading screen: a gold line drawing of an armillary sphere on a navy sky, "What is worth knowing is worth finding", and a hairline with a star on it under "Reading your library from Drive"](docs/night-loading.png)
+
+The opening screen, where Drive is connected, keeps the scene the loading
+screen chose, as a plate in the middle of the page: the mark above it, the
+two lines and the introduction under it, then the sign-in. The rail stays
+away until someone is in. While the page waits the scenes go round: every
+six and a half seconds the next fades in over the last, and its words fade
+in after it; with motion reduced, the first scene stands alone.
+
+![the opening screen: an engraved marble profile under a gold ring, framed as a plate in the middle, "Ask well. Read slowly. Keep what matters." beneath it, and the sign-in under a hairline](docs/night-welcome.png)
+
+The dark theme is the same night: the sky's glow and a few stars in the
+ground, cream ink, gold hairlines where the lines were grey, the section
+labels in gold and tracked, headings in the light serif the opening screens
+use, and the bookmark mark in gold on the rail. Green keeps every action, so
+the tool is still the tool. New visitors start in it; **Settings →
+Appearance** has the day theme, whose paper is unchanged, for reading in
+daylight.
+
+![Home in the night theme: the glow at the top of the sky, "Find your next paper" in a light serif, gold labels over the suggestions and the collections, the gold mark on the rail](docs/night-home.png)
+
+![the library in the night theme: the month's label in gold, the papers' rings, the Discover pane beside](docs/night-library.png)
+
+Inside the app the Titan shows in one place only: where the ground is
+empty. An empty library, a project with no papers yet, the calendar before
+Google is connected, a search that found nothing, each gets the armillary
+drawn in gold hairlines and one of his lines — "Every paper is a star",
+"Ask well", "Take your bearing" — in place of a grey notice. The same
+drawing stands at the top of Settings. Pages change by a cross-fade of
+300 ms where the browser can do one, and at once where it cannot or motion
+is reduced.
+
+![the library with nothing in it yet: the armillary in gold hairlines, "Every paper is a star.", and the Find papers button](docs/night-empty.png)
+
+**Settings → Appearance → Theme** has Light, Dark and System, the last
+following the operating system as it changes.
+
+The night is one of two looks, and the owner chooses which the site wears:
+**Usage → The site → Look** switches every visitor between **Koios** and
+**Classic**, the theme before it, with the loading screen and the sign-in
+the same under both. The choice is kept on the Worker (`/site/look`, in the
+SESSIONS namespace) and reaches each visitor on their next page load; the
+page applies the last answer it heard before its first paint, so nothing
+changes look as it opens.
+
+![Usage → The site → Look: two cards, Koios with the armillary and Classic with the green R, Koios marked "On for everyone"](docs/night-look-switch.png)
+
+The words are in `src/components/NightScene.tsx`, with the scene chosen
+for the visit; the pictures' lettering was lifted off the renders in
+`docs/koios-studies/loading/` so the app can set its own. The armillary
+and the empty states are `src/components/Quiet.tsx`.
+
 ## Glass
 
 **Settings → Appearance → Glass** swaps the solid paper for glass, in either

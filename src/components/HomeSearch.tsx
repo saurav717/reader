@@ -10,6 +10,7 @@ import { CheckIcon, ChevronDownIcon, ExternalIcon, PlusIcon, SearchIcon } from '
 import { Locations } from './Discover';
 import { AddToProject } from './Projects';
 import { plainCollections } from '../lib/projects';
+import { Quiet } from './Quiet';
 
 /** A search result dragged onto a collection carries itself. */
 const REF_MIME = 'application/x-reader-ref';
@@ -379,9 +380,17 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
               </button>
             </p>
           ) : null}
-          {asked && !busy && !results.length && !errors.length ? <p className="find-note">Nothing found. Try other words, or more sources.</p> : null}
+          {asked && !busy && !results.length && !errors.length ? (
+            <Quiet line="Ask another way." compact>
+              Nothing found. Try other words, or more sources.
+            </Quiet>
+          ) : null}
           {!asked && suggestions === null ? <p className="find-note">Looking for papers near what you are reading…</p> : null}
-          {!asked && suggestions?.length === 0 ? <p className="find-note">Search above, and what you save shows up in your collections on the right.</p> : null}
+          {!asked && suggestions?.length === 0 ? (
+            <Quiet line="Ask well." compact>
+              Search above. What you keep shows up in your collections on the right.
+            </Quiet>
+          ) : null}
           {shown.map((ref, index) => {
             const have = inLibrary(ref);
             const year = /^\d{4}/.exec(ref.published || '')?.[0];

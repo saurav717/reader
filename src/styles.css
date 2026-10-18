@@ -29,6 +29,8 @@
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
   /* The Ask Claude window. Its colour is a raw triple an alpha is multiplied
      into — the window writes --win-tint, the slider in its title bar moves it. */
+  --gold: #b8963f;
+  --gold-soft: #d8b46a;
   --win-rgb: 255 253 247;
   --win-edge: 26 26 23;
   --win-edge-a: 0.14;
@@ -50,6 +52,8 @@
   --ink: #eae7df;
   --ink-2: #c3bfb4;
   --muted: #9b978c;
+  --gold: #d8b46a;
+  --gold-soft: #f0d79a;
   --accent: #57a98f;
   --accent-soft: #1e3a33;
   --accent-ink: #8fcbb8;
@@ -8729,3 +8733,311 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .set-recorder .set-notes-source { margin: 2px 0 6px; }
 .set-permissions-state { flex-basis: 100%; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 .set-permissions-state.is-ok { color: var(--accent-ink); font-weight: 500; }
+
+/* ---------- The night: the loading screen and the opening screen ----------
+   A scene (public/loading) on the right, the words on the left, gold
+   hairlines; the same in either theme, since this is the sky you pass
+   through on the way to the paper. `.night` sets the tokens, so buttons and
+   banners inside it dress for it. */
+.night {
+  --paper: #070a12;
+  --surface: #0f1524;
+  --panel: #0b0f1a;
+  --rail: #070a12;
+  --border: rgba(216, 180, 106, 0.22);
+  --border-soft: rgba(216, 180, 106, 0.14);
+  --ink: #e9e4d6;
+  --ink-2: #c6c0b0;
+  --muted: #8d8878;
+  --accent: #57a98f;
+  --accent-soft: #1e3a33;
+  --accent-ink: #8fcbb8;
+  --accent-on: #10201c;
+  --accent-rgb: 87 169 143;
+  --gold: #d8b46a;
+  --gold-soft: #f0d79a;
+  --danger: #e09090;
+  --edge: clamp(24px, 7vw, 112px);
+  color-scheme: dark;
+  background: var(--paper);
+  color: var(--ink);
+}
+.night-scene {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  padding: 120px var(--edge) 140px;
+  box-sizing: border-box;
+}
+.night-scene.is-loading { position: fixed; inset: 0; z-index: 60; }
+.night-scene.main { flex: 1; min-height: 0; }
+.night-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--focus, 78% 50%);
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+.night-img.is-in { opacity: 1; }
+.night-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(7, 10, 18, 0.95) 0%, rgba(7, 10, 18, 0.84) 36%, rgba(7, 10, 18, 0.22) 62%, rgba(7, 10, 18, 0) 82%);
+}
+.night-mark {
+  position: absolute;
+  top: 48px;
+  left: var(--edge);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--gold);
+  font: 500 13px/1 var(--mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.night-copy {
+  position: relative;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.night-copy h1 {
+  margin: 0;
+  font: 300 clamp(36px, 4.4vw, 64px) / 1.08 var(--serif);
+  letter-spacing: -0.01em;
+  color: #f1ece0;
+  text-wrap: balance;
+}
+.night-intro {
+  margin: 0;
+  max-width: 500px;
+  font: italic 400 clamp(16px, 1.4vw, 20px) / 1.5 var(--serif);
+  color: #a9a392;
+}
+.night-foot {
+  position: absolute;
+  left: var(--edge);
+  bottom: 64px;
+  width: min(620px, calc(100% - 2 * var(--edge)));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.night-rule { position: relative; height: 1px; background: rgba(216, 180, 106, 0.28); }
+.night-rule-fill { position: absolute; left: 0; top: 0; height: 1px; width: 50%; background: var(--gold); }
+.night-rule-star { position: absolute; top: -9px; left: 50%; margin-left: -9px; color: var(--gold-soft); }
+.night-rule.is-busy .night-rule-fill { animation: night-fill 7s cubic-bezier(0.45, 0, 0.3, 1) infinite alternate; }
+.night-rule.is-busy .night-rule-star { animation: night-star 7s cubic-bezier(0.45, 0, 0.3, 1) infinite alternate; }
+@keyframes night-fill { from { width: 6%; } to { width: 90%; } }
+@keyframes night-star { from { left: 6%; } to { left: 90%; } }
+@media (prefers-reduced-motion: reduce) {
+  .night-rule.is-busy .night-rule-fill, .night-rule.is-busy .night-rule-star { animation: none; }
+  .night-img { transition: none; }
+}
+
+/* The opening screen: the sign-in sits under the words, on the same scene. */
+.night-scene.is-welcome { padding-top: 112px; padding-bottom: 72px; justify-content: flex-start; overflow-y: auto; }
+.night-scene.is-welcome .night-copy { max-width: 560px; }
+.night-signin { display: flex; flex-direction: column; margin-top: 18px; padding-top: 26px; border-top: 1px solid var(--border); }
+.night-h2 { margin: 0 0 8px; font: 400 24px/1.2 var(--serif); letter-spacing: -0.01em; color: var(--ink); }
+.night .welcome-greeting { background: rgba(15, 21, 36, 0.8); }
+.night .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
+
+@media (max-width: 760px) {
+  .night-scene { padding: 96px 20px 120px; justify-content: flex-end; }
+  .night-scene.is-welcome { padding-top: 88px; justify-content: flex-start; }
+  .night-mark { top: 28px; left: 20px; }
+  .night-img { object-position: 70% 0; }
+  .night-veil { background: linear-gradient(180deg, rgba(7, 10, 18, 0.35) 0%, rgba(7, 10, 18, 0.78) 40%, rgba(7, 10, 18, 0.96) 70%); }
+  .night-foot { left: 20px; bottom: 36px; width: calc(100% - 40px); }
+}
+
+/* The rail's mark, at night: gold on the navy tile, like the opening screen's. */
+:root[data-look='koios'][data-theme='dark'] .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
+:root[data-look='koios'][data-theme='dark'] button.brand[aria-current='page'] { box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--rail), 0 0 0 3px var(--gold); }
+
+/* The opening screen, with the scene in the middle: the mark, the picture as
+   a tall plate, the two lines, and the way in under them. No rail: nobody is
+   in yet. */
+.night-scene.is-centred {
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  gap: 26px;
+  padding: 64px var(--edge) 56px;
+}
+.night-scene.is-centred::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 30%, rgba(20, 28, 48, 0.9) 0%, rgba(7, 10, 18, 0) 58%);
+  pointer-events: none;
+}
+.night-mark.is-centred { position: relative; top: auto; left: auto; justify-content: center; }
+.night-plate {
+  position: relative;
+  flex: none;
+  margin: 0;
+  width: min(380px, 80vw);
+  height: min(48vh, 470px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 0 8px var(--paper), 0 0 0 9px var(--border-soft);
+  background: var(--surface);
+}
+.night-plate img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.9s ease; }
+.night-plate img.is-in { opacity: 1; }
+.night-copy.is-centred { align-items: center; max-width: 640px; gap: 16px; }
+.night-copy.is-centred h1 { font-size: clamp(30px, 3.1vw, 44px); }
+.night-copy.is-centred .night-intro { max-width: 540px; font-size: clamp(15px, 1.2vw, 18px); }
+.is-centred .night-signin { align-items: center; width: 100%; max-width: 540px; margin-top: 8px; padding-top: 22px; }
+.is-centred .night-signin > div { justify-content: center; }
+.is-centred .welcome-greeting { text-align: left; justify-content: flex-start; width: 100%; box-sizing: border-box; }
+.night-why { margin: 0 0 18px; max-width: 460px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+@media (max-width: 760px) {
+  .night-scene.is-centred { padding: 40px 20px 48px; gap: 20px; }
+  .night-plate { width: min(300px, 78vw); height: min(44vh, 400px); }
+}
+@media (max-height: 760px) {
+  .night-scene.is-centred { padding-top: 36px; padding-bottom: 40px; gap: 18px; }
+  .night-plate { height: min(38vh, 400px); }
+  .night-copy.is-centred { gap: 12px; }
+  .night-copy.is-centred h1 { font-size: clamp(28px, 2.8vw, 38px); }
+  .is-centred .night-signin { margin-top: 2px; padding-top: 16px; }
+  .night-why { margin-bottom: 12px; }
+}
+
+/* ---------- The night, deeper ----------
+   The pages in the opening screens' world, not merely their colours: the
+   sky in the ground, hairlines that read as gold, gold where a label or an
+   active place is marked, and headings in the light serif the screens use.
+   Green stays on every action. All of it under the dark theme only. */
+:root[data-look='koios'][data-theme='dark'] {
+  --paper: #090d17;
+  --surface: #0e1322;
+  --panel: #0b1019;
+  --rail: #070a12;
+  --border: rgba(216, 180, 106, 0.3);
+  --border-soft: rgba(216, 180, 106, 0.17);
+  --accent-soft: rgba(216, 180, 106, 0.13);
+  --accent-ink: #e2c585;
+  --shadow-sm: 0 1px 0 rgba(216, 180, 106, 0.08);
+}
+/* The sky: a glow at the top of the window and a few stars, behind everything. */
+:root[data-look='koios'][data-theme='dark'] .app { position: relative; z-index: 0; background: radial-gradient(ellipse 80% 55% at 50% -12%, rgba(24, 34, 62, 0.95) 0%, rgba(7, 10, 18, 0) 70%), var(--rail); }
+:root[data-look='koios'][data-theme='dark'] .main { background: transparent; }
+:root[data-look='koios'][data-theme='dark'] .rail { background: transparent; }
+
+/* Headings in the light serif. */
+:root[data-look='koios'][data-theme='dark'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
+:root[data-look='koios'][data-theme='dark'] .home-hello h1 { font-weight: 300; font-size: 30px; }
+:root[data-look='koios'][data-theme='dark'] .find-hero h2 { font-weight: 300; font-size: 44px; letter-spacing: -0.01em; }
+:root[data-look='koios'][data-theme='dark'] .find-hero p { color: var(--muted); }
+:root[data-look='koios'][data-theme='dark'] .panel-head h2 { font-weight: 500; }
+
+/* Labels and kickers in gold, tracked, the way the eyebrow on the opening screen is. */
+:root[data-look='koios'][data-theme='dark'] .home-eyebrow,
+:root[data-look='koios'][data-theme='dark'] .eyebrow,
+:root[data-look='koios'][data-theme='dark'] .lib-group,
+:root[data-look='koios'][data-theme='dark'] .lib-line-head,
+:root[data-look='koios'][data-theme='dark'] .hc-kicker,
+:root[data-look='koios'][data-theme='dark'] .hc-label,
+:root[data-look='koios'][data-theme='dark'] .menu-label,
+:root[data-look='koios'][data-theme='dark'] .sec-label,
+:root[data-look='koios'][data-theme='dark'] .notes-paper-eyebrow,
+:root[data-look='koios'][data-theme='dark'] .passage-eyebrow,
+:root[data-look='koios'][data-theme='dark'] .pg-tree-head,
+:root[data-look='koios'][data-theme='dark'] .colab-part-label,
+:root[data-look='koios'][data-theme='dark'] .rt-part-label,
+:root[data-look='koios'][data-theme='dark'] .stat-label,
+:root[data-look='koios'][data-theme='dark'] .board-card-head,
+:root[data-look='koios'][data-theme='dark'] .chat-set-title,
+:root[data-look='koios'][data-theme='dark'] .doc-menu-group { color: var(--gold); font-family: var(--mono); font-weight: 500; letter-spacing: 0.14em; }
+:root[data-look='koios'][data-theme='dark'] .home-eyebrow.accent { color: var(--gold-soft); }
+
+/* Where a place is marked as the current one: gold, not green. */
+:root[data-look='koios'][data-theme='dark'] .nav-lab.is-active { color: var(--gold); background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
+:root[data-look='koios'][data-theme='dark'] .icon-btn[aria-current='page'],
+:root[data-look='koios'][data-theme='dark'] .icon-btn.is-active { color: var(--gold); }
+:root[data-look='koios'][data-theme='dark'] .home-card { box-shadow: none; }
+:root[data-look='koios'][data-theme='dark'] .chip { border-color: var(--border-soft); }
+:root[data-look='koios'][data-theme='dark'] .chip[aria-pressed='true'] { background: transparent; border-color: var(--accent); color: var(--accent-ink); color: #8fcbb8; }
+
+/* ---------- Where the ground is empty ----------
+   The armillary, one of the Titan's lines, and what to do: the one place
+   inside the app the name shows. */
+.quiet { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 44px 24px 40px; text-align: center; color: var(--muted); }
+.quiet > svg { color: var(--gold); opacity: 0.85; }
+.quiet-line { margin: 0; font: 300 26px/1.2 var(--serif); letter-spacing: -0.01em; color: var(--ink); }
+.quiet-text { margin: 0; max-width: 420px; font-size: 13px; line-height: 1.6; }
+.quiet .btn { margin-top: 6px; }
+.quiet.is-compact { gap: 8px; padding: 20px 16px 24px; }
+.quiet.is-compact .quiet-line { font-size: 20px; }
+.pj-empty-mark { color: var(--gold); opacity: 0.85; margin-bottom: 4px; }
+.cal-empty { background: transparent; border-color: var(--border); box-shadow: none; }
+.cal-empty > svg { color: var(--gold); opacity: 0.85; }
+.cal-empty h2 { font-weight: 400; }
+.settings-mark { flex: none; color: var(--gold); opacity: 0.8; margin: 2px 12px 0 0; }
+
+/* The day: navy ink on the paper, and the gold token on the rail's current place. */
+:root[data-look='koios']:not([data-theme='dark']) .nav-lab.is-active { color: var(--gold); }
+:root[data-look='koios']:not([data-theme='dark']) .icon-btn[aria-current='page'] { color: var(--gold); }
+
+/* One page becomes the next: a cross-fade of 300 ms with a 10 px rise. The
+   rail is named, so it holds still while the page changes. */
+.rail, .nav-rail { view-transition-name: koios-rail; }
+@keyframes koios-page-in { from { transform: translateY(10px); } to { transform: none; } }
+::view-transition-old(root) { animation: 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both -ua-view-transition-fade-out; }
+::view-transition-new(root) { animation: 300ms cubic-bezier(0.2, 0.7, 0.2, 1) both -ua-view-transition-fade-in, 300ms cubic-bezier(0.2, 0.7, 0.2, 1) both koios-page-in; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ---------- The two looks ----------
+   `koios` is the night above; `classic` is the theme before it, which the
+   rules above leave alone. The owner chooses on Usage → The site
+   (src/lib/look.ts); index.html applies the choice before the first paint.
+   Where a page is empty, classic shows the words plainly. */
+:root[data-look='classic'] .quiet > svg, :root[data-look='classic'] .settings-mark, :root[data-look='classic'] .pj-empty-mark, :root[data-look='classic'] .cal-empty > svg { display: none; }
+:root[data-look='classic'] .quiet-line { font-weight: 600; font-size: 20px; }
+:root[data-look='classic'] .cal-empty { background: var(--surface); box-shadow: var(--shadow-sm); }
+:root[data-look='classic'] .cal-empty h2 { font-weight: 600; }
+
+/* The switch itself, on Usage → The site. */
+.look-switch { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+.look-lead { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.look-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.look-option { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.look-option.is-on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.look-option:disabled { cursor: default; opacity: 0.8; }
+.look-swatch { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 12px; }
+.look-swatch[data-look-swatch='koios'] { background: #070a12; color: #d8b46a; box-shadow: inset 0 0 0 1px rgba(216, 180, 106, 0.3); }
+.look-swatch[data-look-swatch='classic'] { background: #1f5e52; color: #f6f4ec; }
+.look-swatch-r { font: 600 26px var(--serif); }
+.look-option-text { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.look-option-text b { font-size: 15px; color: var(--ink); }
+.look-state { font-size: 12px; color: var(--muted); }
+.look-option.is-on .look-state { color: var(--accent); font-weight: 500; }
+@media (max-width: 640px) { .look-options { grid-template-columns: 1fr; } }
+
+/* The opening screen's slideshow: the scene before stays under the plate
+   while the next fades in over 1.6 s; the words come in after it. */
+.night-plate { position: relative; }
+.night-plate img { position: absolute; inset: 0; transition: opacity 1.6s ease; }
+.night-plate img.is-under { opacity: 1; }
+.night-words { display: flex; flex-direction: column; align-items: center; gap: 16px; animation: night-words 1.1s ease 0.5s both; }
+@keyframes night-words { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .night-plate img { transition: none; }
+  .night-words { animation: none; }
+}

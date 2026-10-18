@@ -57,6 +57,7 @@ import { CalendarConnect } from './Calendar';
 import { basePath } from '../lib/route';
 import { startTour } from '../lib/tour';
 import { startShowcase } from '../lib/showcase';
+import { Armillary } from './Quiet';
 import type { SettingsPlace, SettingsTab } from '../lib/openSettings';
 
 /** Whether this computer's Companion keeps an Overleaf account's Git token, and the way to forget it. */
@@ -1061,6 +1062,9 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
           <button type="button" aria-pressed={settings.theme === 'dark'} onClick={() => updateSettings({ theme: 'dark' })}>
             Dark
           </button>
+          <button type="button" aria-pressed={settings.theme === 'system'} onClick={() => updateSettings({ theme: 'system' })} title="Light or dark as the system is">
+            System
+          </button>
         </div>
       </Card>
 
@@ -1636,6 +1640,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
               <h3>{current.label}</h3>
               <p>{current.blurb}</p>
             </div>
+            <Armillary size={52} className="settings-mark" />
             {layoutSwitch}
             {closeButton('settings-close-wide')}
           </header>

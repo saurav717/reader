@@ -639,6 +639,28 @@ export default {
         return json({ error: 'not found' }, 404, headers);
       }
 
+      // The site's look, for everyone: `koios` (the night, the gold, the
+      // Titan where a page is empty) or `classic` (the theme before it).
+      // Anyone may read it; the owner sets it, from Usage → The site. Kept
+      // in the SESSIONS namespace, so a Worker without one keeps the default.
+      if (path === '/site/look') {
+        if (request.method === 'GET') {
+          const kept = env.SESSIONS ? await env.SESSIONS.get('site:look').catch(() => null) : null;
+          return json({ look: kept === 'classic' ? 'classic' : 'koios', stored: Boolean(env.SESSIONS) }, 200, { ...headers, 'Cache-Control': 'public, max-age=60' });
+        }
+        if (request.method === 'PUT') {
+          const who = await ownerAuthorized(request, env);
+          if (!who?.owner) return json({ error: 'the look is the owner’s to set: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+          if (!env.SESSIONS) return json({ error: 'no SESSIONS namespace is bound here, so the look cannot be kept — see wrangler.toml' }, 501, headers);
+          const asked = await request.json().catch(() => ({}));
+          const look = asked?.look === 'classic' ? 'classic' : asked?.look === 'koios' ? 'koios' : null;
+          if (!look) return json({ error: 'look must be "koios" or "classic"' }, 400, headers);
+          await env.SESSIONS.put('site:look', look);
+          return json({ look, stored: true }, 200, { ...headers, 'Cache-Control': 'no-store' });
+        }
+        return json({ error: 'GET or PUT' }, 405, headers);
+      }
+
       // Who uses this Worker's paid accounts, and how much: worker/usage.js.
       // The owner's alone — READER_TOKEN itself, or the pass of someone named
       // in READER_OWNERS; not anyone else's pass.

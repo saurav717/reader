@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor">
+  <!-- G · Armillary — the old instrument for charting the heavens: a sphere on its tilted axis -->
+  <g transform="rotate(22 32 32)"><g fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"><circle cx="32" cy="34" r="19"></circle><ellipse cx="32" cy="34" rx="19" ry="7"></ellipse><path d="M32 11 V61"></path></g><path d="M32 1 L34 6 L39 8 L34 10 L32 15 L30 10 L25 8 L30 6 Z" fill="currentColor"></path></g>
+</svg>

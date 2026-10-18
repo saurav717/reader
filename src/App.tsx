@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
 import { HIGHLIGHT_COLORS, type NavStyle } from './types';
@@ -37,6 +38,8 @@ import type { SettingsPlace } from './lib/openSettings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import { isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
+import { LoadingScreen } from './components/NightScene';
+import { syncLook } from './lib/look';
 import GoogleRenewal from './components/GoogleRenewal';
 import Home from './components/Home';
 import { readHomePrefs, startVisit } from './lib/homeViews';
@@ -222,7 +225,24 @@ export default function App() {
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
-  const [view, setView] = useState<View>(readView);
+  // The site's look, as the Worker keeps it (lib/look.ts): asked once, after the first paint.
+  useEffect(() => {
+    void syncLook();
+  }, []);
+
+  const [view, setViewNow] = useState<View>(readView);
+  // One page becomes the next by a short cross-fade, where the browser can do
+  // it (view transitions); elsewhere, and with motion reduced, at once.
+  const setView = useCallback((next: View) => {
+    const doc = document as Document & { startViewTransition?: (update: () => void) => unknown };
+    if (!doc.startViewTransition || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setViewNow(next);
+      return;
+    }
+    doc.startViewTransition(() => {
+      flushSync(() => setViewNow(next));
+    });
+  }, []);
   /** For the keys, which are set up before openPaper is. */
   const openPaperRef = useRef<(id: string) => void>(() => {});
   /** The paper read last in this tab: what G, and the button under R, go back to from Home. */
@@ -1020,13 +1040,10 @@ export default function App() {
   // on it.
   if (!ready) {
     return (
-      <div className="app">
-        <div className="main" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
-          <span className="spinner" aria-label="Loading your library" />
-          {user && driveConnected ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>Reading your library from Drive…</span> : null}
-        </div>
+      <>
+        <LoadingScreen label={user && driveConnected ? 'Reading your library from Drive' : 'Reading your library'} />
         {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
-      </div>
+      </>
     );
   }
 
@@ -1320,7 +1337,7 @@ export default function App() {
       className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && fullscreen ? ' is-fullscreen' : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
-{navStyle === 'classic' ? (
+{showWelcome ? null : navStyle === 'classic' ? (
       <nav className="rail" aria-label="Primary">
         <button
           type="button"

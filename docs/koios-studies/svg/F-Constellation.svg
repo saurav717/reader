@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor">
+  <!-- F · Constellation K — five stars joined into a K, the way a constellation is drawn -->
+  <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" opacity="0.9"><path d="M19 11 V53"></path><path d="M19 34 L45 13"></path><path d="M19 34 L45 53"></path></g><g fill="currentColor"><circle cx="19" cy="11" r="4"></circle><circle cx="19" cy="34" r="4.6"></circle><circle cx="19" cy="53" r="4"></circle><circle cx="45" cy="53" r="4"></circle></g><path d="M45 4 L47.4 10.6 L54 13 L47.4 15.4 L45 22 L42.6 15.4 L36 13 L42.6 10.6 Z" fill="currentColor"></path>
+</svg>

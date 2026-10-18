@@ -8,7 +8,7 @@
  * here too.
  */
 
-export type UsageTab = 'overview' | 'people' | 'invites' | 'ai' | 'search' | 'mail' | 'cloudflare' | 'cloud';
+export type UsageTab = 'overview' | 'people' | 'invites' | 'ai' | 'search' | 'mail' | 'cloudflare' | 'cloud' | 'look';
 
 export interface ServiceGuide {
   id: UsageTab;
@@ -36,9 +36,23 @@ export const GROUPS: { title: string; about: string; tabs: UsageTab[] }[] = [
   { title: 'People', about: 'who uses Reader, and who brought whom', tabs: ['people', 'invites'] },
   { title: 'Paid services', about: 'the accounts Reader spends on when people use it', tabs: ['ai', 'search', 'mail'] },
   { title: 'Infrastructure', about: 'what Reader itself runs on', tabs: ['cloudflare', 'cloud'] },
+  { title: 'The site', about: 'how it looks to everyone', tabs: ['look'] },
 ];
 
 export const GUIDES: Record<UsageTab, ServiceGuide> = {
+  look: {
+    id: 'look',
+    tab: 'Look',
+    title: 'The look',
+    subtitle: 'which of the site’s two looks every visitor gets: Koios, or the theme before it',
+    purpose: 'One switch for the whole site: the Koios night, or Classic.',
+    summary:
+      'The site has two looks. Koios is the night: navy ground, gold hairlines and labels, headings in the light serif, and the armillary with one of the Titan’s lines where a page is empty. Classic is the theme before it. The choice made here is kept on the Worker and reaches every visitor on their next page load; the loading screen and the sign-in are the same either way.',
+    notes: [
+      'The choice is kept in the Worker’s SESSIONS namespace (wrangler.toml). Without one, the switch changes only the browser it is clicked in.',
+      'Each visitor’s own Light, Dark or System choice in Settings → Appearance stands under either look.',
+    ],
+  },
   overview: {
     id: 'overview',
     tab: 'Overview',
