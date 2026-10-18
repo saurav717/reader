@@ -1514,7 +1514,7 @@ export default function Reader({
 
       <div
         ref={bodyRef}
-        className="paper-body"
+        className={`paper-body${loading ? ' is-waiting' : ''}`}
         onMouseUp={(event) => {
           // A right-click opens the lookup card; its mouseup can land after
           // the context menu has, and must not bring the toolbar back over it.
