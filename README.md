@@ -4981,7 +4981,10 @@ away, the project says so with the last checkpoint it reported (step, time,
 metrics) and offers **Resume** there or on another machine, which runs the
 command again with `KOIOS_RESUME` set for the helper to pick up. Section 6 of
 [docs/compute-continuity.md](docs/compute-continuity.md) has the helper's API
-and where a checkpoint can be resumed from.
+and where a checkpoint can be resumed from; section 7 walks the whole thing
+through — the app on two computers of yours and a Colab GPU behind one
+project, run on all three, picked up from another browser, one machine lost,
+and the job resumed.
 
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:

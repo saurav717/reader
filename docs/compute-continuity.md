@@ -402,3 +402,165 @@ it one click when the checkpoint is somewhere the next machine can read.
 | The notice and Resume | `src/components/PlaygroundWorkspace.tsx`: `gone`, `resume`, the banner; `ensureHelper` writes the helper |
 | Under a run's output | `src/components/Colab.tsx`, `CellRunOutput` (`.cell-checkpoint`) |
 | Tests | `scripts/checkpoints.test.mjs` (the lines, and the helper run for real), `companion/tests/test_jobs.py` |
+
+## 7. Walkthrough: three machines, one project, from anywhere
+
+The scenario, step by step: the Koios app on your laptop, the app on a second
+computer of yours, and a Colab GPU, all behind one project; you run on all
+three, walk away, open the project on another browser while it runs, lose
+one machine, and resume. Each step names where to click. The Companion's own
+set-up, pairing and keeping it running are in [companion.md](companion.md);
+the pool's limits are in [compute-pool.md](compute-pool.md).
+
+```mermaid
+flowchart LR
+  subgraph you["Any browser signed in as you"]
+    B["the project page<br/>pool row · console · Runtime"]
+  end
+  subgraph acct["Your Google account, on the proxy"]
+    D[(devices: your Companions,<br/>their tunnel addresses)]
+    K[(kernels: which kernel,<br/>what runs, where it logs)]
+  end
+  L["Laptop · Koios app<br/>Companion + tunnel"]
+  S["Second computer · Koios app<br/>Companion + tunnel"]
+  C["Colab · a machine of its own"]
+  B <--> D
+  B <--> K
+  B -- "https tunnel" --> L
+  B -- "https tunnel" --> S
+  B -- "Colab's runtime proxy" --> C
+```
+
+*Figure 9. The three machines are reached three ways; the two stores under
+your account are what let any browser find them and pick up what runs.*
+
+### Step 1 · Each computer: install the app, sign in, connect it
+
+On the laptop and on the second computer:
+
+1. Install the **Koios app** (the site's *Get the app*, or `pip install reader-companion` and `reader-companion start`; [companion.md § 1](companion.md#1--connect-this-computer)).
+2. Open the site in it and **sign in with Google** — the same account on every machine. Signing in means Drive: the project's record, its files when kept in Drive, and the two stores above all follow this account.
+3. Under **Your compute → Connect this computer**, pair the Companion (one click on the same computer; a code from another). Paired while signed in, the Companion is **claimed for your account**: it changes its token, opens its HTTPS tunnel, and keeps its address on your account's list. Every browser signed in as you now sees this computer under *Your compute*, from anywhere.
+4. Leave the Companion running when you leave the computer: **Keep running when the window is shut** (the machine chip's menu, or Settings → Compute). A Companion that stops with the app is not reachable from elsewhere.
+
+Nothing of the computer's files goes anywhere; only how to reach it.
+
+### Step 2 · Make the project, on the first machine
+
+From a paper (**Implement → open as a project**) or from the Playground's home:
+
+- **Where it runs**: pick the laptop's Companion (*This PC*), or Colab. With Colab, pick **A machine of its own**: a pool needs machines of their own, and a project you will open from elsewhere needs its own notebook id (section 4).
+- **Where the files are kept**: **Google Drive** when you will open the project from several computers. Files kept on one computer's disk are only there.
+- Colab's **idle stop** (30 min by default): each Colab machine of the pool stops on its own after that long with nothing running.
+
+### Step 3 · Add the other machines
+
+In the project, the machine chip in the bar → **Run on more machines…**, or the pool row's **Add a machine**:
+
+- the **second computer** (listed by name, through its tunnel);
+- a **Colab** machine of its own, of the kind you want (T4 free when one is free; L4, A100 on a plan).
+
+The row shows the three with a rank each: `0` the first machine, `1`, `2`.
+Each chip connects, interrupts, restarts, stops or takes its machine out.
+On the free Colab tier a second Colab machine lands on the shared runtime
+and its chip says so: one Colab machine beside your computers is the free
+tier's shape.
+
+### Step 4 · Write the job so it can be stopped and resumed
+
+In the project's folder, a `train.py` that takes its place and saves as it goes:
+
+```python
+import koios, os
+
+ck = koios.checkpoint("checkpoints", every_steps=500, every_minutes=10)
+ck.on_save(lambda path: torch.save({"model": model.state_dict(), "opt": opt.state_dict()}, path))
+
+def load(path):
+    state = torch.load(path)
+    model.load_state_dict(state["model"]); opt.load_state_dict(state["opt"])
+
+start = ck.resume(load)                      # 0, or the step of the checkpoint to continue from
+seed = 1000 + koios.rank()                   # this machine's seed
+shard = dataset.shard(num_shards=koios.world(), index=koios.rank())
+
+for step in range(start, steps):
+    loss = train_step(shard, seed)
+    ck.step(step, loss=loss)                 # saves when due, and at once if the machine is stopping
+```
+
+`koios` is there without installing anything: the page writes it to the
+folder on each machine before a command runs (section 6). Checkpoints go to
+`checkpoints/` **on the machine the job runs on**; put the folder on a path
+both computers see (a shared drive, the project kept on one Companion's
+folder) if you want to resume one machine's job on the other.
+
+### Step 5 · Run on all three
+
+The console's **on** selector → **on all 3 machines**; type the command:
+
+```
+python train.py
+```
+
+Each machine gets it in its own kernel with `KOIOS_RANK` 0, 1, 2 and
+`KOIOS_WORLD` 3. The output shows a machine. The **Runtime** tab on the
+right stacks one pane a machine — GPU, VRAM, CPU, RAM, disk, the last ten
+minutes — read every two seconds while the project is open. Each
+checkpoint shows under its run as ⛁ *Checkpoint · step N*.
+
+### Step 6 · Walk away, come back from another browser
+
+Close the laptop's browser, or the laptop. Each job runs on where it is: a
+Companion's kernel on that computer, Colab's on its runtime (until Colab's
+idle limit, section 4). Then, on any other machine — a phone's browser
+will do for watching:
+
+1. Open the site, sign in with the same Google account.
+2. Open the project (Home → the project; its record came from Drive).
+3. Each machine's chip connects to **the same kernel** the first browser had
+   (section 5: the row under your account names it). The console shows
+   each command with its output so far, read from the log it writes on its
+   machine, and the rest as it comes. Stop works. The Runtime panes fill
+   from now.
+
+Nothing to do on the first browser; it need not be open.
+
+### Step 7 · A machine goes away
+
+Say the second computer's Koios app is quit (or the laptop is shut):
+
+- **Quit on purpose**: the Companion asks the job to stop, the job saves a
+  checkpoint and leaves, the Companion goes (section 6, up to a minute).
+- **Shut without warning**: the job is gone; what is there is the last
+  cadence save.
+
+In the project, that machine's chip goes red and a banner says: *my-mac
+disconnected at 23:08 — the connection closed… Last checkpoint: step 4200 at
+23:05 · step-00004200.pt · loss 0.41*, with **Resume from step 4200** and a
+choice of machine.
+
+### Step 8 · Resume
+
+- **On the same machine**, once it is back (start the Companion: the Koios
+  app, `reader-companion start`, or the chip's *Start the Companion*): press
+  Resume. The command runs again with `KOIOS_RESUME` set to that file;
+  `ck.resume(load)` loads it and returns 4200, and the loop goes on from
+  there.
+- **On another machine**: the same button with that machine picked — if
+  the checkpoint's path exists there. If not, the helper says so and the
+  run starts from 0; move the checkpoint folder somewhere shared first.
+
+### What to expect, in one table
+
+| | |
+| --- | --- |
+| Reach a computer of mine from anywhere | yes, while its Companion runs and it is paired to the account |
+| Colab beside my computers in one project | yes, one job each |
+| One job across the three GPUs | no — separate machines ([compute-pool.md](compute-pool.md)) |
+| Open the project elsewhere while it runs | same kernel, same runs, output from the log, Stop works |
+| A machine quit on purpose | its job saves and leaves; the project says so with the checkpoint |
+| A machine lost without warning | the last cadence save; the project says so |
+| Resume on the same machine | yes, once it is back |
+| Resume on another machine | if the checkpoint's path exists there |
+| Checkpoints copied to Drive as they are saved | not built (the sync is text-only) |
