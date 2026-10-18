@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Koios — Ask AI reads the page: how it works, step by step</title>
+<!--
+  The source of docs/ask-page.pdf. Print it again after a change:
+
+      node scripts/ask-page-pdf.mjs
+
+  (Chromium through Playwright, A4, with the page numbers in the footer.)
+  The screenshots beside this file are written by scripts/ask-page-smoke.mjs
+  with DOCS_OUT=docs/ask-page: the real app, a seeded library, and a stand-in
+  for Anthropic's API that answers each question from a table — so the window
+  and what goes into it are real, and the model's prose is not. The diagrams
+  and the chart are drawn inline.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..500&display=swap" rel="stylesheet" />
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root { --ink: #1a1a17; --ink-2: #4b4a44; --muted: #7a776d; --line: #d9d4c6; --panel: #f4f1e8; --accent: #1f5e52; --gold: #a9853f; --red: #a33f3f; --navy: #0e1116; --blue: #3b5f8a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; color: var(--ink); background: #fff; }
+  body { font: 10.5pt/1.5 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; }
+  h1 { font: 600 26pt/1.15 'Newsreader', Georgia, serif; margin: 0 0 6pt; letter-spacing: -0.01em; }
+  h2 { font: 600 16pt/1.2 'Newsreader', Georgia, serif; margin: 22pt 0 8pt; padding-top: 10pt; border-top: 1px solid var(--line); break-after: avoid; }
+  h3 { font: 600 11.5pt/1.3 'IBM Plex Sans', sans-serif; margin: 14pt 0 5pt; break-after: avoid; }
+  p { margin: 0 0 7pt; }
+  ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  code { font: 9.2pt 'IBM Plex Mono', Menlo, monospace; background: var(--panel); border: 1px solid #e6e1d3; border-radius: 3px; padding: 0 3px; }
+  pre { font: 8.6pt/1.45 'IBM Plex Mono', Menlo, monospace; background: var(--panel); border: 1px solid #e6e1d3; border-radius: 6px; padding: 8pt 10pt; margin: 6pt 0 10pt; white-space: pre-wrap; break-inside: avoid; }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.4pt; margin: 6pt 0 12pt; break-inside: auto; }
+  th, td { padding: 5pt 7pt; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { font-size: 8.4pt; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--panel); }
+  tr { break-inside: avoid; }
+  .cap { font-size: 8.4pt; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); font-weight: 600; margin: 0 0 8pt; }
+  .lede { font: italic 400 12.5pt/1.45 'Newsreader', Georgia, serif; color: var(--ink-2); margin: 0 0 10pt; }
+  .meta { color: var(--muted); font-size: 9pt; margin-bottom: 18pt; }
+  .toc { columns: 2; column-gap: 24pt; font-size: 9.6pt; margin: 0 0 6pt; }
+  .toc li { break-inside: avoid; }
+  .note { border-left: 3px solid var(--accent); background: var(--panel); padding: 7pt 10pt; margin: 8pt 0 10pt; break-inside: avoid; }
+  .warn { border-left-color: var(--red); }
+  figure { margin: 10pt 0 14pt; break-inside: avoid; }
+  figure img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  figure.shot img { max-height: 118mm; width: auto; }
+  figure.tall img { max-height: 150mm; width: auto; margin: 0 auto; }
+  figcaption { font-size: 8.8pt; color: var(--ink-2); margin-top: 5pt; }
+  figcaption b { color: var(--ink); }
+  svg { display: block; max-width: 100%; height: auto; }
+  svg text { font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; fill: var(--ink); }
+  svg .mono { font-family: 'IBM Plex Mono', Menlo, monospace; }
+  svg .box { fill: #fff; stroke: var(--ink); stroke-width: 1.1; }
+  svg .soft { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+  svg .dark { fill: var(--navy); stroke: var(--navy); }
+  svg .dark text, svg text.light { fill: #e6e1d6; stroke: none; }
+  svg .arrow { fill: none; stroke: var(--ink-2); stroke-width: 1.2; marker-end: url(#ah); }
+  svg .dashed { stroke-dasharray: 3 3; }
+  svg .label { font-size: 9px; fill: var(--ink-2); }
+  svg .small { font-size: 8.4px; fill: var(--muted); }
+  svg .t { font-size: 10.5px; font-weight: 600; }
+  svg .gold { fill: var(--gold); }
+  svg .green { fill: var(--accent); }
+  svg .red { fill: var(--red); }
+  svg .blue { fill: var(--blue); }
+  svg .bar { stroke: none; }
+  .step { display: grid; grid-template-columns: 26pt 1fr; gap: 0 8pt; margin: 0 0 8pt; break-inside: avoid; }
+  .step .n { width: 22pt; height: 22pt; border-radius: 50%; background: var(--navy); color: #e6e1d6; font: 600 10.5pt/22pt 'IBM Plex Mono', monospace; text-align: center; }
+  .step h4 { margin: 2pt 0 2pt; font-size: 10.8pt; }
+  .step p { margin: 0 0 4pt; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; }
+  .pb { break-before: page; }
+  .files td:first-child { font-family: 'IBM Plex Mono', Menlo, monospace; font-size: 8.8pt; white-space: nowrap; }
+  .pass { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<p class="cap">Koios · docs/ask-page</p>
+<h1>Ask AI reads the page: how it works, step by step</h1>
+<p class="lede">How the Ask AI window comes to see whatever page of Koios you are on — Home, the Library, a project, the Playground, the Calendar, Settings, a panel, a dialog — and knows the app well enough to say where to click; what goes with each question, what is kept out, and what it costs.</p>
+<p class="meta">Written 18 October 2026, for the branch <code>claude/relaxed-brown-ypw4gm</code>. Code references are to the repository at that commit. The screenshots are of the real app in the Koios theme, taken by <code>scripts/ask-page-smoke.mjs</code>; the model's answers in them come from a stand-in, not from Claude.</p>
+
+<h3>Contents</h3>
+<ol class="toc">
+  <li>What changed, in one picture</li>
+  <li>What goes with a question</li>
+  <li>Reading the page: the walk through the DOM</li>
+  <li>What is kept out, and why</li>
+  <li>From the page to the model: the path of a question</li>
+  <li>The map of the app in the system prompt</li>
+  <li>The switch under ⚙</li>
+  <li>A worked example: the block as sent</li>
+  <li>What it costs</li>
+  <li>Limits</li>
+  <li>How it was checked</li>
+  <li>The files</li>
+</ol>
+
+<h2>1. What changed, in one picture</h2>
+<p>Before this change the Ask AI window read the <em>paper</em>: the open paper's details and text, the passage in view, the selection, the highlights, the Explain page and the Colab notebook. Anywhere else in the app it was told only a one-line <code>&lt;where&gt;</code> ("Browsing all papers") and, on a list, the titles on screen. Ask it <em>how do I share this project?</em> from a project's overview and it had never seen the page.</p>
+<p>Now every question carries the rest of the window too, read off the page the way a person beside you would read it: headings, text, every button, tab and menu with whether it is on, open or disabled, and every field with what is typed in it. The model is also given a map of the app in its instructions, so it can answer with the control to press, named as it is on the screen.</p>
+
+<figure class="shot">
+<img src="fig-project-ask.png" alt="A project's overview with the Ask AI window open over it; the question 'How do I share this project?' and an answer naming the Share button on the project bar" />
+<figcaption><b>Figure 1.</b> The window over a project's overview. The question was sent with the page — its bar (<code>[Overview] (on) [Read] [Code] [Write] [Logbook] [Share]</code>), the question the project asks, its to-do as a tick box — so an answer can name <b>Share</b> on the bar. <i>The answer shown is the smoke test's stand-in, not the model's.</i></figcaption>
+</figure>
+
+<h2>2. What goes with a question</h2>
+<p>At the moment a question is sent, <code>readScreen</code> in <code>src/App.tsx</code> gathers a <code>Screen</code> (<code>src/lib/assistant.ts</code>) and <code>screenBlock</code> turns it into the <code>&lt;screen&gt;</code> block that leads the newest user message. Each part has a switch under ⚙; a part that is off is never assembled. The new part is <code>page</code>, written as <code>&lt;page_on_screen address="…" title="…"&gt;</code>.</p>
+
+<figure>
+<svg viewBox="0 0 680 318" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <!-- the window -->
+  <rect class="box" x="10" y="14" width="400" height="290" rx="6"/>
+  <text class="small" x="18" y="28">the browser window</text>
+  <rect class="soft" x="18" y="34" width="34" height="262" rx="3"/>
+  <text class="small" x="22" y="48">rail</text>
+  <rect class="soft" x="58" y="34" width="344" height="22" rx="3"/>
+  <text class="small" x="64" y="48">top bar · panels · the paper's bar</text>
+  <rect class="soft" x="58" y="62" width="96" height="234" rx="3"/>
+  <text class="small" x="64" y="76">Library /</text>
+  <text class="small" x="64" y="88">Discover /</text>
+  <text class="small" x="64" y="100">Notes panel</text>
+  <rect x="160" y="62" width="150" height="234" rx="3" fill="#fff" stroke="#1f5e52" stroke-width="1.4"/>
+  <text class="label green" x="166" y="76" font-weight="600">the paper's column</text>
+  <text class="small" x="166" y="90">.paper-body / .pdf-book</text>
+  <rect x="316" y="62" width="86" height="110" rx="3" fill="#fff" stroke="#3b5f8a" stroke-width="1.4"/>
+  <text class="label blue" x="322" y="76" font-weight="600">Explain page</text>
+  <text class="small" x="322" y="90">.explain-scroll</text>
+  <rect x="316" y="180" width="86" height="116" rx="3" fill="#fff" stroke="#a9853f" stroke-width="1.4"/>
+  <text class="label gold" x="322" y="194" font-weight="600">notebook</text>
+  <text class="small" x="322" y="208">.nb-cells</text>
+  <rect x="246" y="200" width="150" height="90" rx="5" fill="#fff" stroke="#a33f3f" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text class="label red" x="254" y="216" font-weight="600">Ask AI window</text>
+  <text class="small" x="254" y="229">.assistant-win</text>
+  <text class="small" x="254" y="242">never read</text>
+  <!-- blocks -->
+  <g font-size="9.4">
+    <rect class="soft" x="440" y="30" width="230" height="40" rx="4"/>
+    <text class="mono green" x="448" y="46" font-weight="600">&lt;paper_text&gt; (system, cached)</text>
+    <text class="mono green" x="448" y="60">&lt;passage_in_view&gt; · pages as pictures</text>
+    <rect class="soft" x="440" y="80" width="230" height="40" rx="4"/>
+    <text class="mono blue" x="448" y="96" font-weight="600">&lt;explanation_text&gt; (system, cached)</text>
+    <text class="mono blue" x="448" y="110">&lt;explain_page&gt; &lt;explanation_in_view&gt;</text>
+    <rect class="soft" x="440" y="130" width="230" height="28" rx="4"/>
+    <text class="mono gold" x="448" y="148" font-weight="600">&lt;colab_notebook&gt;</text>
+    <rect x="440" y="168" width="230" height="68" rx="4" fill="#fff" stroke="#1a1a17" stroke-width="1.2"/>
+    <text class="mono" x="448" y="184" font-weight="600">&lt;page_on_screen address title&gt;</text>
+    <text class="small" x="448" y="198">everything else in view: the rail, the</text>
+    <text class="small" x="448" y="210">bars, the panels, the page, any dialog —</text>
+    <text class="small" x="448" y="222">new in this change</text>
+    <rect class="soft" x="440" y="246" width="230" height="28" rx="4"/>
+    <text class="mono red" x="448" y="264" font-weight="600">— nothing —</text>
+  </g>
+  <path class="arrow" d="M310 110 C 380 110, 400 50, 438 50"/>
+  <path class="arrow" d="M402 100 L 438 100"/>
+  <path class="arrow" d="M402 240 C 420 240, 420 144, 438 144"/>
+  <path class="arrow" d="M58 300 C 200 312, 380 300, 438 202"/>
+  <path class="arrow dashed" d="M396 250 C 420 262, 420 260, 438 260"/>
+</svg>
+<figcaption><b>Figure 2.</b> Where each region of the window goes. The paper's column, the Explain page and the notebook's cells already had blocks of their own; they are <em>subtracted</em> from the page block so nothing is sent twice. The chat window is never read.</figcaption>
+</figure>
+
+<table>
+<tr><th>Part (⚙ switch)</th><th>Tag in <code>&lt;screen&gt;</code></th><th>Read from</th><th>When</th></tr>
+<tr><td>Paper details</td><td><code>&lt;paper&gt;</code> <code>&lt;abstract&gt;</code></td><td>the library record</td><td>a paper is open</td></tr>
+<tr><td>Full text</td><td><code>&lt;paper_text&gt;</code> — a system block behind a cache breakpoint</td><td>the Reflow column, or the PDF's text through pdf.js</td><td>a paper is open</td></tr>
+<tr><td>Passage in view</td><td><code>&lt;passage_in_view&gt;</code> + pictures of the pages or figures on screen</td><td>the column's paragraphs on screen; the book's canvases</td><td>a paper is open</td></tr>
+<tr><td>Your selection</td><td><code>&lt;selected_text in="…"&gt;</code></td><td>the last selection in the paper or the explanation</td><td>something is selected</td></tr>
+<tr><td>Highlights and notes</td><td><code>&lt;highlights&gt;</code></td><td>the highlight records</td><td>the paper has any</td></tr>
+<tr><td>The explanation</td><td><code>&lt;explanation_text&gt;</code> (system) · <code>&lt;explain_page&gt;</code> · <code>&lt;explanation_in_view&gt;</code></td><td>the Explain page's sections on screen</td><td>an explanation is written and open</td></tr>
+<tr><td>The Colab notebook</td><td><code>&lt;colab_notebook&gt;</code></td><td>the notebook's cells and what they printed</td><td>the paper has a notebook</td></tr>
+<tr><td>The list on screen</td><td><code>&lt;list_on_screen&gt;</code></td><td>the <code>.paper-name</code> elements on the page</td><td>no paper is open</td></tr>
+<tr><td><b>The rest of the page</b> <i>(new)</i></td><td><code>&lt;page_on_screen address="…" title="…"&gt;</code></td><td>the DOM, walked top to bottom (<code>pageOnScreen</code>, <code>src/lib/screen.ts</code>)</td><td>always — every page, every panel, every dialog</td></tr>
+</table>
+
+<p>Two lines are also sharper than before. <code>&lt;where&gt;</code> now says when the Explain page is open with nothing written on it yet ("…the page offers to start"), and names the owner's Usage page. And the chat's empty state, when no paper is open, suggests <i>What can I do on this page?</i> and <i>How do I start a project and add papers to it?</i>.</p>
+
+<h2>3. Reading the page: the walk through the DOM</h2>
+<p><code>pageOnScreen(skip, max)</code> in <code>src/lib/screen.ts</code> walks <code>document.body</code> once, depth first, and writes lines. It takes the list of selectors to leave out (<code>skip</code>; the chat window is always on it) and a size limit (16,000 characters). At each element it makes one of seven decisions:</p>
+
+<figure>
+<svg viewBox="0 0 680 352" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <g class="dark"><rect x="250" y="10" width="180" height="26" rx="13"/><text x="340" y="27" text-anchor="middle" font-size="10" class="light">visit(element)</text></g>
+  <path class="arrow" d="M340 36 L340 50"/>
+  <!-- row of decisions -->
+  <g font-size="8.8">
+    <rect class="soft" x="8" y="52" width="146" height="54" rx="5"/>
+    <text class="t" x="16" y="68">1 · skipped</text>
+    <text x="16" y="82">script, style, svg, canvas, iframe,</text>
+    <text x="16" y="94">in <tspan class="mono">skip</tspan>, hidden, aria-hidden → <tspan class="red" font-weight="600">stop</tspan></text>
+
+    <rect class="soft" x="160" y="52" width="166" height="54" rx="5"/>
+    <text class="t" x="168" y="68">2 · a field</text>
+    <text x="168" y="82">input, textarea, select → one line</text>
+    <text x="168" y="94"><tspan class="mono">[field “Label”: “value”]</tspan> → <tspan class="red" font-weight="600">stop</tspan></text>
+
+    <rect class="soft" x="332" y="52" width="196" height="54" rx="5"/>
+    <text class="t" x="340" y="68">3 · a control</text>
+    <text x="340" y="82">button, tab, menuitem, switch, option,</text>
+    <text x="340" y="94">summary → <tspan class="mono">[Name] (on)</tspan> → <tspan class="red" font-weight="600">stop</tspan></text>
+
+    <rect class="soft" x="534" y="52" width="138" height="54" rx="5"/>
+    <text class="t" x="542" y="68">4 · a picture</text>
+    <text x="542" y="82">img with alt text →</text>
+    <text x="542" y="94"><tspan class="mono">[picture: alt]</tspan> → <tspan class="red" font-weight="600">stop</tspan></text>
+
+    <rect class="soft" x="8" y="120" width="150" height="54" rx="5"/>
+    <text class="t" x="16" y="136">5 · a heading</text>
+    <text x="16" y="150">h1–h6, role=heading →</text>
+    <text x="16" y="162">its own line, <tspan class="mono">## Title</tspan> → <tspan class="red" font-weight="600">stop</tspan></text>
+
+    <rect class="soft" x="166" y="120" width="170" height="54" rx="5"/>
+    <text class="t" x="174" y="136">6 · a dialog</text>
+    <text x="174" y="150">role=dialog, aria-modal →</text>
+    <text x="174" y="162"><tspan class="mono">— a window: Settings —</tspan>, then on</text>
+
+    <rect class="soft" x="344" y="120" width="328" height="54" rx="5"/>
+    <text class="t" x="352" y="136">7 · anything else</text>
+    <text x="352" y="150">a block (p, div, li, tr, section…) ends the line before and after it;</text>
+    <text x="352" y="162">then each child: text if any part of it is on screen, an element visited</text>
+  </g>
+  <!-- the only-on-screen rule -->
+  <rect class="box" x="8" y="192" width="664" height="60" rx="5"/>
+  <text class="t" x="16" y="208">Only what is on screen</text>
+  <text class="label" x="16" y="222">A field, control, picture or heading goes only if its box is inside the window (<tspan class="mono">getBoundingClientRect</tspan>); a text node only if one of its</text>
+  <text class="label" x="16" y="234"><tspan class="mono">Range.getClientRects()</tspan> is — so the half of a paragraph scrolled off is left out, and the whole DOM of a long list costs nothing to the model.</text>
+  <text class="label" x="16" y="246">Hidden things are judged by <tspan class="mono">checkVisibility({checkOpacity, checkVisibilityCSS})</tspan>, with <tspan class="mono">display</tspan>/<tspan class="mono">visibility</tspan> as the fallback.</text>
+  <!-- the joining rule -->
+  <rect class="box" x="8" y="262" width="664" height="80" rx="5"/>
+  <text class="t" x="16" y="278">Joining the words</text>
+  <text class="label" x="16" y="292">Text is appended <tspan font-style="italic">as it is</tspan> when it runs on from the text before it — the same parent, or both parents inline — so "paper" and "s" set as two nodes of</text>
+  <text class="label" x="16" y="304">one span read as <tspan class="mono">papers</tspan>. It gets a space when it starts a new box, as a flex item or a block does, so two labels side by side keep apart</text>
+  <text class="label" x="16" y="316">(<tspan class="mono">Reading Beside the page</tspan>, not <tspan class="mono">ReadingBeside</tspan>). A control or a field always stands apart. A line that repeats the one before it is dropped,</text>
+  <text class="label" x="16" y="328">runs of whitespace collapse to one space, and the whole is cut at the limit with a note saying so.</text>
+</svg>
+<figcaption><b>Figure 3.</b> The seven decisions of <code>visit()</code>, and the two rules under them. Decisions 1–5 stop the walk at that element; 6 and 7 go on into its children.</figcaption>
+</figure>
+
+<h3>How a field is written</h3>
+<table>
+<tr><th>Kind</th><th>Written as</th><th>Notes</th></tr>
+<tr><td>text, search, url, email, number, textarea</td><td><code>[field “Label”: “what is typed”]</code> or <code>(empty)</code></td><td>the value is cut at 300 characters; key-shaped text in it is replaced</td></tr>
+<tr><td>password, or named/labelled <i>key</i>, <i>token</i>, <i>secret</i>, <i>password</i>, <i>passcode</i></td><td><code>[field “Proxy token”: (filled in, withheld)]</code></td><td>the value never leaves the page — see §4</td></tr>
+<tr><td>checkbox / radio</td><td><code>[tick box “Dark”: on]</code> · <code>[choice “Week”: off]</code></td><td></td></tr>
+<tr><td>range</td><td><code>[slider “Opacity”: 80]</code></td><td></td></tr>
+<tr><td>select</td><td><code>[menu “Save to collection”: Reading list]</code></td><td>the chosen option's text</td></tr>
+<tr><td>hidden, file</td><td>—</td><td>left out</td></tr>
+</table>
+<p>The label is the first that exists of: <code>aria-label</code>; a <code>&lt;label for&gt;</code>; the words of a wrapping <code>&lt;label&gt;</code> <em>before</em> the field (so the hint under it is not taken as its name); the placeholder; the title; the <code>name</code>. A control's name is its <code>aria-label</code>, else its text, else its title; its state is read from <code>aria-pressed</code>/<code>aria-checked</code> ("on"), <code>aria-selected</code>/<code>aria-current</code> ("current"), <code>aria-expanded</code> ("open") and <code>disabled</code>.</p>
+
+<h2>4. What is kept out, and why</h2>
+<table>
+<tr><th>Left out</th><th>How</th><th>Why</th></tr>
+<tr><td>The Ask AI window itself</td><td><code>.assistant-win</code> is always in <code>skip</code></td><td>the question being typed, the thread, the drawer and the key boxes in it are not "the page"; the model has the thread already</td></tr>
+<tr><td>The paper's column</td><td><code>.paper-body</code>, <code>.pdf-book</code> added to <code>skip</code> when the paper's text was read</td><td>it goes as <code>&lt;paper_text&gt;</code> (cached) and <code>&lt;passage_in_view&gt;</code>; the pages as pictures</td></tr>
+<tr><td>The Explain page's sections</td><td><code>.explain-scroll</code> added when an explanation is on screen</td><td>it goes as <code>&lt;explanation_text&gt;</code> and <code>&lt;explanation_in_view&gt;</code>. Its <em>start page</em>, before anything is written, is not an explanation, so it <b>is</b> read</td></tr>
+<tr><td>The notebook's cells</td><td><code>.nb-cells</code> added when the paper has a notebook</td><td>they go as <code>&lt;colab_notebook&gt;</code>, every cell with its output, whether the tab is on screen or not</td></tr>
+<tr><td>Anything off screen or hidden</td><td>the on-screen test in Figure 3</td><td>the block describes what the reader sees; the rest would be cost without meaning</td></tr>
+<tr><td>Scripts, styles, SVG, canvas, iframes, media</td><td><code>SKIP_TAGS</code></td><td>no words in them worth reading; an iframe's document is another origin anyway</td></tr>
+<tr><td>Passwords and keys</td><td>three guards, below</td><td>a key pasted into Settings must never reach a model, the site's or anyone's</td></tr>
+</table>
+
+<div class="note warn">
+<p><b>The three guards on secrets.</b> (1) A field of <code>type="password"</code>, or whose <code>name</code>, <code>id</code>, <code>autocomplete</code> or label says <i>key</i>, <i>token</i>, <i>secret</i>, <i>password</i> or <i>passcode</i>, is written as <code>(filled in, withheld)</code> or <code>(empty)</code> — never its value. (2) Any text on the page, and any field value that does go, is passed through <code>unkeyed()</code>, which replaces what is shaped like an API key — <code>sk-…</code>, <code>sk-ant-…</code>, <code>AIza…</code>, <code>ghp_</code>/<code>github_pat_…</code>, <code>xox…</code>, <code>ya29.…</code> — with <code>[a key, withheld]</code>. (3) The Ask AI window's own key boxes are inside <code>.assistant-win</code>, which is never read. The system prompt also tells the model that keys are withheld on purpose and never to ask the reader to paste one into the chat.</p>
+</div>
+
+<h2>5. From the page to the model: the path of a question</h2>
+
+<figure>
+<svg viewBox="0 0 680 236" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <g font-size="9">
+    <rect class="box" x="8" y="20" width="118" height="58" rx="5"/>
+    <text class="t" x="16" y="36">Assistant.tsx</text>
+    <text x="16" y="50">↵ in the box →</text>
+    <text class="mono" x="16" y="63">send(text, screen())</text>
+
+    <rect class="box" x="146" y="20" width="150" height="58" rx="5"/>
+    <text class="t" x="154" y="36">App.tsx · readScreen()</text>
+    <text x="154" y="50">paper, pages, explanation,</text>
+    <text x="154" y="63">notebook, then <tspan class="mono">pageNow(covered)</tspan></text>
+
+    <rect class="box" x="316" y="20" width="150" height="58" rx="5"/>
+    <text class="t" x="324" y="36">screen.ts · pageOnScreen()</text>
+    <text x="324" y="50">walks the DOM (Figure 3)</text>
+    <text x="324" y="63">→ text, ≤ 16,000 chars</text>
+
+    <rect class="box" x="486" y="20" width="186" height="58" rx="5"/>
+    <text class="t" x="494" y="36">assistant.ts · screenBlock()</text>
+    <text x="494" y="50">each part on its switch →</text>
+    <text class="mono" x="494" y="63">&lt;screen&gt;…&lt;page_on_screen&gt;…&lt;/screen&gt;</text>
+
+    <rect class="box" x="486" y="110" width="186" height="58" rx="5"/>
+    <text class="t" x="494" y="126">buildMessages()</text>
+    <text x="494" y="140">the block leads the <tspan font-style="italic">newest</tspan> user turn</text>
+    <text x="494" y="153">only; earlier turns keep just their words</text>
+
+    <rect class="box" x="316" y="110" width="150" height="58" rx="5"/>
+    <text class="t" x="324" y="126">systemBlocks()</text>
+    <text x="324" y="140">SYSTEM (with the map, §6) +</text>
+    <text x="324" y="153">paper text, explanation: cached</text>
+
+    <rect class="dark" x="146" y="110" width="150" height="58" rx="5"/>
+    <text class="t light" x="154" y="126">streamModel()</text>
+    <text class="light" x="154" y="140">Claude · DeepSeek · Gemini —</text>
+    <text class="light" x="154" y="153">the same block to each</text>
+
+    <rect class="soft" x="8" y="110" width="118" height="58" rx="5"/>
+    <text class="t" x="16" y="126">the answer</text>
+    <text x="16" y="140">streamed into the thread;</text>
+    <text x="16" y="153">filed without the screen</text>
+  </g>
+  <path class="arrow" d="M126 49 L144 49"/>
+  <path class="arrow" d="M296 49 L314 49"/>
+  <path class="arrow" d="M466 49 L484 49"/>
+  <path class="arrow" d="M579 78 L579 108"/>
+  <path class="arrow" d="M486 139 L468 139"/>
+  <path class="arrow" d="M316 139 L298 139"/>
+  <path class="arrow" d="M146 139 L128 139"/>
+  <text class="small" x="8" y="196">Read fresh at every send: "what does this mean?" is about the page on screen now, not the one from ten minutes ago. The stored chat keeps the</text>
+  <text class="small" x="8" y="208">words of each turn only (<tspan class="mono">HISTORY_MAX_CHARS</tspan>); no <tspan class="mono">&lt;screen&gt;</tspan> block is ever written to localStorage, so a page you were on is not kept.</text>
+  <text class="small" x="8" y="226">The page block rides in the user message, so it is not in the prompt cache; the paper's text and the explanation, which do not change between questions, are.</text>
+</svg>
+<figcaption><b>Figure 4.</b> The path of one question. <code>pageNow</code> in <code>App.tsx</code> hands <code>pageOnScreen</code> the selectors already covered by other blocks, and adds the address (<code>location.pathname + search</code>) and <code>document.title</code>.</figcaption>
+</figure>
+
+<div class="step"><div class="n">1</div><div>
+<h4>The window asks App for the screen</h4>
+<p><code>Assistant</code> is given <code>screen: () =&gt; Screen | Promise&lt;Screen&gt;</code>. On ↵ it calls <code>send(text, screen())</code>; the promise is awaited inside <code>send</code>, after the question is already on screen, because reading a PDF's text the first time can take a moment.</p>
+</div></div>
+<div class="step"><div class="n">2</div><div>
+<h4>App reads the paper first, then the rest</h4>
+<p><code>readScreen</code> (<code>src/App.tsx</code>) gathers the paper's parts as before. Then it lists what those parts already cover — <code>.paper-body</code> and <code>.pdf-book</code> if the text was read, <code>.explain-scroll</code> if an explanation is on screen, <code>.nb-cells</code> if there is a notebook — and calls <code>pageNow(covered)</code>. Off a paper, it is <code>pageNow()</code> with nothing covered.</p>
+</div></div>
+<div class="step"><div class="n">3</div><div>
+<h4>The block is assembled only if its switch is on</h4>
+<p><code>screenBlock(screen, on)</code> writes <code>&lt;page_on_screen&gt;</code> last, after the highlights and the list, with <code>address</code> and <code>title</code> as attributes, cut at <code>PAGE_MAX_CHARS</code> (16,000) with a note. With the switch off the text is read but never put in the message; with it on and nothing on screen, no empty tag is written.</p>
+</div></div>
+<div class="step"><div class="n">4</div><div>
+<h4>The same block goes to every provider</h4>
+<p><code>send</code> builds one set of messages and system blocks for Claude, DeepSeek and Gemini alike; the page needs no pictures, so text-only models get it in full.</p>
+</div></div>
+
+<h2>6. The map of the app in the system prompt</h2>
+<p>Reading the page tells the model what is <em>there</em>; it does not tell it what a button does or where to go when the thing needed is on another page. So <code>SYSTEM</code> in <code>src/lib/assistant.ts</code> now opens by saying the reader may be anywhere in the app and the model is its guide, explains how to read <code>&lt;page_on_screen&gt;</code>, and ends with a map: the pages in the rail and their keys (G, P, H, ⌘\, ⌘K, E, Z, R), the panels, Home's views, how papers are found and added, reading as PDF or Reflow, Explain and its three tabs, the Library's view controls and selection, a project's Board / Overview / Workspace / Logbook / Share, the Playground's six starts and three machines, the Calendar, and the Ask AI window's own controls. The whole prompt is 12,865 characters, about 3,200 tokens.</p>
+<pre><code>When &lt;page_on_screen&gt; is in the &lt;screen&gt; block:
+- It is the rest of the window as the reader sees it now, read off the page top to
+  bottom: whatever page is open, the panels beside it (Library, Discover, Notes),
+  Settings or any other dialog. Headings start with #, a button, tab or menu item is in
+  [brackets] with "(on)", "(current)", "(open)" or "(disabled)" after it when it is, and a
+  field shows what is typed in it. Its "address" is the page's path in the app. …
+- Use it to answer about anything they are looking at … and to guide them: name the
+  button or tab exactly as it is written there, say where it is ("the Workspace tab at
+  the top of the project"), one step per line when there are several. If what they need
+  is not on this page, say which page or panel to go to first and how. Never invent a
+  control that is neither on the page nor in the map below; if you are not sure the app
+  can do something, say so.
+- Passwords and keys are withheld from it on purpose; never ask the reader to paste one
+  into the chat.</code></pre>
+<p>The rule "never invent a control" is the one that matters most: a guide that names a button that is not there is worse than none. The page block gives the model the exact labels; the map gives it the rest of the app only in broad strokes, and tells it to say so when unsure.</p>
+
+<h2>7. The switch under ⚙</h2>
+<p>The ⚙ drawer's <b>What the model sees</b> section lists every part with a switch. <b>The rest of the page</b> is the ninth row and is on by default — for a visitor who had the window before this change too, since <code>loadPrefs</code> fills a missing switch from the defaults. Off, the text is never assembled.</p>
+<figure class="tall">
+<img src="fig-gear.png" alt="The ⚙ drawer of the Ask AI window: nine switches under 'What the model sees', the last one 'The rest of the page'" />
+<figcaption><b>Figure 5.</b> The drawer (<code>ChatSettings</code> in <code>src/components/Assistant.tsx</code>), scrolled to the switches: "9 of 9 on · read fresh each time you send". The rows come from <code>CONTEXT_ROWS</code> in <code>src/lib/assistant.ts</code>.</figcaption>
+</figure>
+
+<h2>8. A worked example: the block as sent</h2>
+<p>From the project overview of Figure 1, the question <i>How do I share this project?</i> went with this (the model's instructions and the answer aside; cut where marked). Every line is what the smoke test captured from the request to the API:</p>
+<pre><code>&lt;screen&gt;
+&lt;where&gt;Looking over the research project “Mixture of experts”, which asks: Do the experts in
+a sparse MoE specialise, and can routing be learned without load-balancing losses?&lt;/where&gt;
+
+&lt;page_on_screen address="/project/?id=c-moe" title="Mixture of experts · Koios"&gt;
+[Home] [MO Mixture of experts ⌄ switch]
+[Home]
+[Reading]
+[Library]
+[Projects]
+[Code]
+[Compute] [Sign in and settings] [Settings]
+## Library
+[Close the library panel]
+Mixture of experts 0 papers · [whole library]
+…
+Projects Beside the page
+[Library] (on) [Discover] (on) [Notes] [Ask AI] (on)
+[MO Mixture of experts]
+[Overview] (on)
+[Read] [Code] [Write]
+[Logbook]
+[Share]
+[New project]
+Project · since Oct 18, 2026
+# Mixture of experts
+[Do the experts in a sparse MoE specialise, and can routing be learned without load-balancing losses?]
+[Add papers] [Open workspace →]
+Nothing to read yet
+Add the papers this project needs: search from Discover, or from Home, and pick this project in “Add to”.
+[Add papers]
+Code
+No code yet. Give the project a folder of files, an editor and a console — on Colab, this computer or a GPU elsewhere.
+[Set up code]
+Next up
+[tick box “Reproduce the routing ablation”: off] Reproduce the routing ablation
+[field “Add a step — “replicate Table 2””: (empty)]
+Collaborators
+Just you. Share it and the people you work with see the project — and where each of you is in it, as it happens.
+[Share this project]
+…
+[Project settings]
+[Discover] (current) [Notes]
+## Discover
+[Close the discover panel]
+Search papers and people
+[field “Search papers and people”: (empty)]
+[arXiv] [OpenAlex] [Semantic Scholar] [Crossref] [Google Scholar] (on) [Books & PDFs]
+…
+&lt;/page_on_screen&gt;
+&lt;/screen&gt;
+
+How do I share this project?</code></pre>
+<p>Three things to notice. The rail comes first, so the model knows which page is current. Controls carry their state — <code>[Overview] (on)</code>, <code>[Google Scholar] (on)</code>, the tick box <code>off</code> — so "is X on?" is answerable. And the two places to share are both there by their exact labels, <code>[Share]</code> on the bar and <code>[Share this project]</code> in the Collaborators card, which is what lets the answer point at either.</p>
+
+<p>With a paper open the same block is shorter, because the paper is subtracted. As a PDF, the pages in view went as two pictures and <code>&lt;passage_in_view&gt;</code> held their text, while the page block held the bar — <code>[Reflow] [PDF] (on)</code>, <code>[Read as a book, two pages side by side] [✂ Snip] [Explain]</code>, the hints line — and the Discover panel; not one <code>[Page N]</code> marker was in it. Reflowed, the same, with <code>[Reflow] (on)</code> and none of the column's sentences.</p>
+<figure class="shot">
+<img src="fig-paper-ask.png" alt="A paper open as a PDF with the Ask AI window over it" />
+<figcaption><b>Figure 6.</b> The paper as a PDF, Discover beside it, the window over both. The paper went in its own blocks — the two pages as pictures — and the page block carried the bars and the panel.</figcaption>
+</figure>
+
+<h2>9. What it costs</h2>
+<p>Measured by the smoke test on a 1500 × 950 window, in characters of the request. A token is roughly four characters, so the page block adds about 250–1,500 tokens to a question, on top of a system prompt that grew from about 2,000 to about 3,200 tokens with the map. It is not cached (it changes every send); the paper's 36–40 thousand characters are, as before.</p>
+
+<figure>
+<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+  <g font-size="9">
+    <!-- axis: 0..6000 chars over 420px from x=200 -->
+    <g class="small">
+      <text x="200" y="22" text-anchor="middle">0</text>
+      <text x="340" y="22" text-anchor="middle">2,000</text>
+      <text x="480" y="22" text-anchor="middle">4,000</text>
+      <text x="620" y="22" text-anchor="middle">6,000 chars</text>
+    </g>
+    <g stroke="#d9d4c6" stroke-width="1"><line x1="200" y1="26" x2="200" y2="266"/><line x1="340" y1="26" x2="340" y2="266"/><line x1="480" y1="26" x2="480" y2="266"/><line x1="620" y1="26" x2="620" y2="266"/></g>
+    <!-- rows: page block (dark) and the rest of the screen block (soft) -->
+    <!-- home 1193 / 1347 -->
+    <text x="192" y="42" text-anchor="end">Home</text>                     <rect class="bar" x="200" y="33" width="83.5" height="12" fill="#0e1116"/><rect class="bar" x="283.5" y="33" width="10.8" height="12" fill="#a9853f"/><text class="small" x="300" y="43">1,193</text>
+    <text x="192" y="62" text-anchor="end">Library + Discover</text>       <rect class="bar" x="200" y="53" width="174.9" height="12" fill="#0e1116"/><rect class="bar" x="374.9" y="53" width="21.2" height="12" fill="#a9853f"/><text class="small" x="402" y="63">2,498</text>
+    <text x="192" y="82" text-anchor="end">Project overview</text>         <rect class="bar" x="200" y="73" width="197" height="12" fill="#0e1116"/><rect class="bar" x="397" y="73" width="19.9" height="12" fill="#a9853f"/><text class="small" x="422" y="83">2,814</text>
+    <text x="192" y="102" text-anchor="end">Project workspace</text>       <rect class="bar" x="200" y="93" width="63.8" height="12" fill="#0e1116"/><rect class="bar" x="263.8" y="93" width="21.4" height="12" fill="#a9853f"/><text class="small" x="291" y="103">911</text>
+    <text x="192" y="122" text-anchor="end">Playground</text>               <rect class="bar" x="200" y="113" width="172.5" height="12" fill="#0e1116"/><rect class="bar" x="372.5" y="113" width="11.3" height="12" fill="#a9853f"/><text class="small" x="390" y="123">2,464</text>
+    <text x="192" y="142" text-anchor="end">Paper, PDF + Discover</text>   <rect class="bar" x="200" y="133" width="161.6" height="12" fill="#0e1116"/><rect class="bar" x="361.6" y="133" width="351.2" height="12" fill="#a9853f"/><text class="small light" x="372" y="143">2,309 + 5,017 (pages' text, highlights) + 2 pictures</text>
+    <text x="192" y="162" text-anchor="end">Paper, reflowed</text>          <rect class="bar" x="200" y="153" width="156.9" height="12" fill="#0e1116"/><rect class="bar" x="356.9" y="153" width="145.8" height="12" fill="#a9853f"/><text class="small" x="508" y="163">2,242 + 2,083</text>
+    <text x="192" y="182" text-anchor="end">+ Notes panel</text>             <rect class="bar" x="200" y="173" width="118.7" height="12" fill="#0e1116"/><rect class="bar" x="318.7" y="173" width="145.8" height="12" fill="#a9853f"/><text class="small" x="470" y="183">1,695 + 2,083</text>
+    <text x="192" y="202" text-anchor="end">+ Explain start page</text>      <rect class="bar" x="200" y="193" width="241.9" height="12" fill="#0e1116"/><rect class="bar" x="441.9" y="193" width="151.6" height="12" fill="#a9853f"/><text class="small" x="599" y="203">3,456 + 2,165</text>
+    <text x="192" y="222" text-anchor="end">Settings over the paper</text>  <rect class="bar" x="200" y="213" width="249.3" height="12" fill="#0e1116"/><rect class="bar" x="449.3" y="213" width="351.2" height="12" fill="#a9853f"/><text class="small light" x="460" y="223">3,562 + 5,017</text>
+    <text x="192" y="242" text-anchor="end">Settings → Proxy &amp; access</text><rect class="bar" x="200" y="233" width="397.4" height="12" fill="#0e1116"/><rect class="bar" x="597.4" y="233" width="80" height="12" fill="#a9853f"/><text class="small light" x="470" y="243">5,677 + 5,017 →</text>
+    <!-- legend -->
+    <rect x="200" y="272" width="10" height="10" fill="#0e1116"/><text class="small" x="214" y="281">the page block, &lt;page_on_screen&gt; (new)</text>
+    <rect x="420" y="272" width="10" height="10" fill="#a9853f"/><text class="small" x="434" y="281">the rest of &lt;screen&gt; (as before)</text>
+  </g>
+</svg>
+<figcaption><b>Figure 7.</b> The size of the page block, per page, beside the rest of the <code>&lt;screen&gt;</code> block that was already sent. The paper's own text (36–40 thousand characters, cached) and the system prompt (12,865) are not drawn. The widest page block seen, Settings' Proxy tab with its long explanations, is still a third of the 16,000 limit.</figcaption>
+</figure>
+
+<p>Reading the page is cheap for the browser: 1–3 ms on the Library page with Discover open (five runs, measured by the smoke test), most of it in <code>getClientRects</code> and <code>getComputedStyle</code>.</p>
+
+<h2>10. Limits</h2>
+<ul>
+  <li><b>What is on screen, not what is scrolled past.</b> A long list sends its visible part. The paper is the exception, as it always was: its whole text goes as a system block.</li>
+  <li><b>Not inside frames.</b> A PDF shown in the browser's own viewer, or any other iframe, is a different document; the 📷 button's screenshot covers it.</li>
+  <li><b>Words, not pictures.</b> The whiteboard, a chart, an icon-only button with no <code>aria-label</code> and no title, are not described. Icon buttons in the app carry labels, so the common ones read well ("Close the library panel"); a new one without a label would read as nothing.</li>
+  <li><b>Titles twice on a list.</b> On a library page the titles go both as <code>&lt;list_on_screen&gt;</code> and inside the page block. The list's switch is kept for anyone who turns the page off; the duplication costs a few hundred characters.</li>
+  <li><b>The 16,000-character cut is from the top.</b> On a page longer than that, what is at the bottom of the DOM — usually a dialog, since dialogs are rendered last — could be cut. No page in the smoke test came within a third of it.</li>
+  <li><b>The map is broad.</b> It names pages, panels and the main actions; it does not know every setting. The prompt tells the model to say when it is unsure rather than guess.</li>
+  <li><b>Secrets are matched by shape and by name.</b> A field with no label, no name and no <code>type="password"</code>, holding a secret of an unknown shape, would be read. None in the app is like that; a new one should get a label with <i>key</i>, <i>token</i> or <i>password</i> in it.</li>
+</ul>
+
+<h2>11. How it was checked</h2>
+<table>
+<tr><th>Check</th><th>Where</th><th>Result</th></tr>
+<tr><td>Typecheck</td><td><code>npx tsc -b</code></td><td class="pass">clean</td></tr>
+<tr><td>The screen block: the page part goes with its address and title, on its own switch, with or without a paper, cut at 16,000 with a note; the prompt explains the block and carries the map</td><td><code>scripts/assistant.test.mjs</code> (node, no browser)</td><td class="pass">56 pass</td></tr>
+<tr><td>The DOM reader on a test page: hidden and off-screen text left out, the chat window left out, a <code>skip</code> honoured, controls with their state, every field kind, a password and a key-named field withheld, a key in prose replaced, a wrapping label's hint not taken as its name, a dialog announced</td><td>a bundled <code>pageOnScreen</code> in Chromium (Playwright)</td><td class="pass">as expected</td></tr>
+<tr><td>End to end, the real app: Home, Library + Discover, a project's overview and workspace, the Playground, the paper as PDF (pages as pictures, text cached, column subtracted) and reflowed, Settings announced as a window with the Proxy tab's token withheld, the Notes panel, the Explain start page, the ⚙ switch off and on, the cost in ms</td><td><code>scripts/ask-page-smoke.mjs</code> — 53 checks against the request as sent to the API</td><td class="pass">all pass</td></tr>
+<tr><td>The rest of the unit suite</td><td><code>npm run test:unit</code></td><td>unchanged: 6 failures in <code>glass</code> and <code>google-signin</code> that fail the same way on <code>main</code></td></tr>
+</table>
+<p>Two flaws were found by the end-to-end run and fixed before this was written: words set in two spans came out as "paper s", and then, after the first fix, text in sibling boxes ran together ("ReadingBeside the page") — the joining rule in Figure 3 is the result. A third came from the Settings page: a wrapping <code>&lt;label&gt;</code> gave its whole hint as the field's name, and a token field with no <code>name</code> would have been withheld only by its <code>type</code>; the label is now cut at the field and counted in the secret test.</p>
+
+<h2>12. The files</h2>
+<table class="files">
+<tr><th>File</th><th>What changed</th></tr>
+<tr><td>src/lib/screen.ts</td><td><code>pageOnScreen(skip, max)</code> and its helpers: the walk, the on-screen tests, the joining rule, fields and controls, the secret guards</td></tr>
+<tr><td>src/App.tsx</td><td><code>pageNow(covered)</code>; <code>readScreen</code> adds <code>page</code> on every view, subtracting what other blocks cover; the sharper <code>where</code> lines</td></tr>
+<tr><td>src/lib/assistant.ts</td><td><code>Screen.page</code>; the <code>page</code> switch in <code>ContextKey</code>, <code>CONTEXT_ROWS</code> and the defaults; <code>PAGE_MAX_CHARS</code>; <code>&lt;page_on_screen&gt;</code> in <code>screenBlock</code>; the prompt's opening, its reading of the block, and the map</td></tr>
+<tr><td>src/components/Assistant.tsx</td><td>the empty state's wording and suggestions off a paper</td></tr>
+<tr><td>scripts/assistant.test.mjs</td><td>the page part of the screen block, and the prompt</td></tr>
+<tr><td>scripts/ask-page-smoke.mjs</td><td>the end-to-end run; <code>DOCS_OUT=docs/ask-page</code> writes this document's screenshots</td></tr>
+<tr><td>scripts/ask-page-pdf.mjs</td><td>prints this page to <code>docs/ask-page.pdf</code></td></tr>
+<tr><td>README.md</td><td>Ask AI → <i>It sees the page you are on, and knows its way round the app</i></td></tr>
+</table>
+
+</body>
+</html>

@@ -987,7 +987,7 @@ export default function App() {
         ];
         return {
           page: pageNow(covered),
-          where: notebook?.open ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
+          where: notebook?.open ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : explainPage ? 'Reading a paper, with its Explain page open — nothing written on it yet; the page offers to start' : 'Reading a paper',
           paper: {
             id: paper.id,
             title: paper.title,

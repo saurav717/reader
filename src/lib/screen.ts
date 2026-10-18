@@ -446,11 +446,21 @@ function controlState(el: Element): string {
   return states.length ? ` (${states.join(', ')})` : '';
 }
 
+/** The words of a label that wraps its field: what comes before the field, not the hint after it. */
+function labelBefore(label: HTMLLabelElement, field: Element): string {
+  let text = '';
+  for (const node of Array.from(label.childNodes)) {
+    if (node === field || (node.nodeType === Node.ELEMENT_NODE && (node as Element).contains(field))) break;
+    text += node.textContent ?? '';
+  }
+  return squash(text) || squash(label.textContent ?? '');
+}
+
 /** A field's label: its <label>, its aria-label, its placeholder or its name. */
 function fieldLabel(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
   const byFor = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null;
   const wrapping = el.closest('label');
-  const from = el.getAttribute('aria-label') || (byFor && squash(byFor.textContent ?? '')) || (wrapping && squash(wrapping.textContent ?? '')) || el.getAttribute('placeholder') || el.getAttribute('title') || el.name || '';
+  const from = el.getAttribute('aria-label') || (byFor && squash(byFor.textContent ?? '')) || (wrapping && labelBefore(wrapping, el)) || el.getAttribute('placeholder') || el.getAttribute('title') || el.name || '';
   return squash(from).slice(0, 100);
 }
 
@@ -465,8 +475,8 @@ function fieldLine(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElemen
   if (type === 'checkbox' || type === 'radio') return `[${type === 'radio' ? 'choice' : 'tick box'}${label ? ` “${label}”` : ''}: ${(el as HTMLInputElement).checked ? 'on' : 'off'}]`;
   if (type === 'range') return `[slider${label ? ` “${label}”` : ''}: ${el.value}]`;
   if (type === 'button' || type === 'submit' || type === 'reset') return `[${squash(el.value) || label || type}]`;
-  // A password, or anything that looks like a key, is never read out.
-  const secret = type === 'password' || /key|token|secret|password/i.test(`${el.name} ${el.id} ${el.getAttribute('autocomplete') ?? ''}`);
+  // A password, or a field named for a key, is never read out — by its type, its name, or what it is labelled.
+  const secret = type === 'password' || /key|token|secret|password|passcode/i.test(`${el.name} ${el.id} ${el.getAttribute('autocomplete') ?? ''} ${label}`);
   const value = secret ? (el.value ? '(filled in, withheld)' : '(empty)') : el.value ? `“${unkeyed(el.value).slice(0, FIELD_MAX_CHARS)}”` : '(empty)';
   return `[field${label ? ` “${label}”` : ''}: ${value}]`;
 }
@@ -489,10 +499,22 @@ export function pageOnScreen(skip: string[] = [], max = PAGE_MAX_CHARS): string 
     lines.push(text);
     length += text.length + 1;
   };
+  // A control or a field stands apart from the words round it. Text is appended
+  // as it is when it runs on from the text before it — "paper" and "s" set as two
+  // nodes of one span still read as "papers" — and after a space when it starts a
+  // new box, as a flex item or a block does, so two labels side by side keep apart.
   const say = (text: string, own = false) => {
     if (own) flush();
-    line += ` ${text}`;
+    line += ` ${text} `;
     if (own) flush();
+  };
+  let lastParent: Element | null = null;
+  const inline = (el: Element | null) => Boolean(el) && getComputedStyle(el!).display.startsWith('inline');
+  const word = (node: Node) => {
+    const parent = node.parentElement;
+    const runsOn = parent === lastParent || (inline(parent) && inline(lastParent));
+    line += `${runsOn ? '' : ' '}${unkeyed(node.textContent ?? '')}`;
+    lastParent = parent;
   };
 
   const visit = (el: Element) => {
@@ -522,7 +544,10 @@ export function pageOnScreen(skip: string[] = [], max = PAGE_MAX_CHARS): string 
       return;
     }
     const block = BLOCK_TAGS.has(el.tagName);
-    if (block) flush();
+    if (block) {
+      flush();
+      lastParent = null;
+    }
     if (el.tagName === 'DIALOG' || el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true') {
       const name = el.getAttribute('aria-label');
       say(`— a window${name ? `: ${squash(name)}` : ''} —`, true);
@@ -533,7 +558,7 @@ export function pageOnScreen(skip: string[] = [], max = PAGE_MAX_CHARS): string 
         if (!text.trim()) continue;
         const range = document.createRange();
         range.selectNodeContents(node);
-        if (Array.from(range.getClientRects()).some(inView)) say(unkeyed(text));
+        if (Array.from(range.getClientRects()).some(inView)) word(node);
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         visit(node as Element);
       }

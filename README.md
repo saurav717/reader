@@ -2772,7 +2772,9 @@ The model is also given a map of the app — its pages, panels and keys, and
 how to find, read, explain, implement and run a paper, and run a project — so
 *how do I share this project?* or *what does this setting do?* is answered
 with the button to press, named as it is on your screen. **The rest of the
-page** under ⚙ switches it off.
+page** under ⚙ switches it off. How it all works, step by step, with the
+block as it is sent and what it costs, is in `docs/ask-page.pdf`;
+`scripts/ask-page-smoke.mjs` runs the whole thing against the real app.
 
 ### Choosing a model: Claude, DeepSeek or Gemini
 
