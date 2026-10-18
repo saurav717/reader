@@ -8774,21 +8774,35 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 }
 .night-scene.is-loading { position: fixed; inset: 0; z-index: 60; }
 .night-scene.main { flex: 1; min-height: 0; }
-.night-img {
+/* A scene is two pictures in one layer: the blurred, mirrored copy filling
+   the window, and the picture itself at its full height on the right, its
+   left edge masked so it melts into the copy. The layer fades in whole. */
+.night-layer { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity 3s ease; }
+.night-layer.is-in { opacity: 1; }
+.night-ambient {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
   object-fit: cover;
   object-position: var(--focus, 78% 50%);
-  opacity: 0;
-  transition: opacity 0.9s ease;
+  transform: scaleX(-1);
+  filter: blur(42px) saturate(1.15) brightness(0.9);
 }
-.night-img.is-in { opacity: 1; }
+.night-img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: auto;
+  max-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 16%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 16%);
+}
 .night-veil {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(7, 10, 18, 0.95) 0%, rgba(7, 10, 18, 0.84) 36%, rgba(7, 10, 18, 0.22) 62%, rgba(7, 10, 18, 0) 82%);
+  background: linear-gradient(90deg, rgba(7, 10, 18, 0.86) 0%, rgba(7, 10, 18, 0.72) 36%, rgba(7, 10, 18, 0.18) 62%, rgba(7, 10, 18, 0) 82%);
 }
 .night-mark {
   position: absolute;
@@ -8857,8 +8871,8 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
   .night-scene { padding: 96px 20px 120px; justify-content: flex-end; }
   .night-scene.is-welcome { padding-top: 88px; justify-content: flex-start; }
   .night-mark { top: 28px; left: 20px; }
-  .night-img { object-position: 70% 0; }
-  .night-veil { background: linear-gradient(180deg, rgba(7, 10, 18, 0.35) 0%, rgba(7, 10, 18, 0.78) 40%, rgba(7, 10, 18, 0.96) 70%); }
+  .night-img { height: 72%; -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%); mask-image: linear-gradient(180deg, #000 60%, transparent 100%); }
+  .night-veil { background: linear-gradient(180deg, rgba(7, 10, 18, 0.3) 0%, rgba(7, 10, 18, 0.7) 45%, rgba(7, 10, 18, 0.94) 72%); }
   .night-foot { left: 20px; bottom: 36px; width: calc(100% - 40px); }
 }
 
@@ -9034,8 +9048,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
    the next fades in over 3 s; the words come in after it. */
 .night-plate { position: relative; }
 .night-plate img { position: absolute; inset: 0; transition: opacity 3s ease; }
-.night-plate img.is-under, .night-img.is-under { opacity: 1; }
-.night-img { transition: opacity 3s ease; }
+.night-plate img.is-under { opacity: 1; }
 /* The words of one scene give way to the next's the way the pictures do: the
    old fade out while the new fade in over them, stacked in one cell so the
    sign-in below does not move while both are there. */
@@ -9051,6 +9064,6 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .night-scene.is-welcome:not(.is-centred) .night-signin { max-width: 520px; }
 .night-scene.is-welcome:not(.is-centred) .night-why { max-width: 480px; }
 @media (prefers-reduced-motion: reduce) {
-  .night-plate img, .night-img { transition: none; }
+  .night-plate img, .night-layer { transition: none; }
   .night-words.is-arriving, .night-words.is-leaving { animation: none; }
 }
