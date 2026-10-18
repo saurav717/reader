@@ -9350,3 +9350,58 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .usage-tabs .segmented button { padding: 4px 0 10px; font-size: 13px; color: var(--ink-2); border-bottom: 1px solid transparent; }
 :root[data-koios='on'] .usage-tabs .segmented button:hover { color: var(--ink); }
 :root[data-koios='on'] .usage-tabs .segmented button[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--gold); }
+
+/* ---------- Koios II: one way to move through every page ----------
+   Every tab bar takes the Usage bar's form: words on one rule, the current
+   one marked in gold on it, a group's name in small capitals over its
+   words. Side lists (Settings, the library) mark the current place with a
+   gold rule at the left instead. The rule under a bar is an inset shadow,
+   never a border, so a bar that scrolls sideways cannot clip the mark. */
+:root[data-koios='on'] [role='tablist'] [role='tab'] { border-radius: 0; background: transparent; box-shadow: none; }
+:root[data-koios='on'] [role='tablist'] [role='tab']:hover { background: transparent; color: var(--ink); }
+:root[data-koios='on'] [role='tablist'] [role='tab'][aria-selected='true'] { background: transparent; color: var(--ink); font-weight: 400; box-shadow: inset 0 -1px 0 var(--gold); }
+
+/* Home: the views stand on their own rule beside the greeting. */
+:root[data-koios='on'] .home-tabs { align-self: flex-end; gap: 22px; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .home-tab { padding: 6px 0 10px; margin-bottom: 0; border-bottom: 1px solid transparent; }
+:root[data-koios='on'] .home-tab.is-on { border-bottom-color: var(--gold); }
+
+/* The dock beside the page: Library, Discover, Notes, Ask. */
+:root[data-koios='on'] .dock-tabs { gap: 20px; padding: 12px 18px 0; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .dock-tabs button { flex-grow: 0; height: auto; padding: 4px 0 10px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; font-size: 12.5px; color: var(--muted); }
+:root[data-koios='on'] .dock-tabs button:hover { background: transparent; color: var(--ink); }
+:root[data-koios='on'] .dock-tabs button[aria-selected='true'] { background: transparent; color: var(--ink); font-weight: 400; border-bottom-color: var(--gold); box-shadow: none; }
+
+/* A project: Overview, Read, Code, Write, Logbook on the bar's own rule. */
+:root[data-koios='on'] .pj-bar { border-bottom: 0; box-shadow: inset 0 -1px 0 var(--border-soft); }
+:root[data-koios='on'] .pj-bar .pj-views { gap: 20px; align-self: stretch; }
+:root[data-koios='on'] .pj-bar .pj-views button { height: 100%; padding: 0; border-bottom: 1px solid transparent; font-size: 13px; }
+:root[data-koios='on'] .pj-bar .pj-views button[aria-pressed='true'] { border-bottom-color: var(--gold); }
+:root[data-koios='on'] .lb-tabs { gap: 20px; box-shadow: inset 0 -1px 0 var(--border-soft); }
+:root[data-koios='on'] .lb-tab { padding: 0; border-bottom-width: 1px; font-weight: 400; }
+:root[data-koios='on'] .lb-tab.is-on { border-bottom-color: var(--gold); }
+
+/* Settings: the side list plain, the current place marked at the left; the
+   row form and the group bar as ruled words. */
+:root[data-koios='on'] .settings-group-label { padding-left: 12px; font: 500 10px var(--mono); letter-spacing: 0.18em; }
+:root[data-koios='on'] .settings-tabs button { border-radius: 0; padding: 7px 10px 7px 12px; }
+:root[data-koios='on'] .settings-tabs button:hover { background: transparent; }
+:root[data-koios='on'] .settings-tabs button.is-on { background: transparent; box-shadow: inset 1px 0 0 var(--gold); font-weight: 400; }
+:root[data-koios='on'] .settings-tab-icon { display: none; }
+:root[data-koios='on'] .settings-groups { gap: 24px; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .settings-groups button { padding: 10px 0; margin-bottom: 0; border-bottom-width: 1px; font-weight: 400; }
+:root[data-koios='on'] .settings-groups button.is-on { border-bottom-color: var(--gold); }
+:root[data-koios='on'] .settings-tabs.is-row { gap: 20px; background: transparent; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); padding: 10px 28px 0; }
+:root[data-koios='on'] .settings-tabs.is-row button { padding: 4px 0 10px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; }
+:root[data-koios='on'] .settings-tabs.is-row button.is-on { border-bottom-color: var(--gold); box-shadow: none; }
+
+/* Notes beside the page, and the smaller bars: the same words on a rule. */
+:root[data-koios='on'] .notes-tabs { gap: 18px; padding: 0 18px 0; box-shadow: inset 0 -1px 0 var(--border-soft); }
+:root[data-koios='on'] .notes-tabs [role='tab'] { padding: 4px 0 10px; border: 0; border-bottom: 1px solid transparent; }
+:root[data-koios='on'] .notes-tabs [role='tab'][aria-selected='true'] { border-bottom-color: var(--gold); box-shadow: none; }
+:root[data-koios='on'] .hc-tabs { gap: 14px; }
+:root[data-koios='on'] .hc-tabs button { border-color: transparent; border-radius: 0; padding-left: 0; padding-right: 0; }
+:root[data-koios='on'] .hc-tabs button[aria-selected='true'] { background: transparent; border-color: transparent; color: var(--ink); box-shadow: inset 0 -1px 0 var(--gold); }
+:root[data-koios='on'] .explain-pages button[aria-pressed='true'] svg { color: var(--gold); }
+/* Side lists that are tab lists keep the mark at their left, not under. */
+:root[data-koios='on'] .settings-tabs:not(.is-row) [role='tab'][aria-selected='true'] { box-shadow: inset 1px 0 0 var(--gold); }

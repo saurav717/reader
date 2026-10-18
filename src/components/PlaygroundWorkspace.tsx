@@ -199,7 +199,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   }, []);
 
   useEffect(() => {
-    document.title = `${playground.title} · Playground · Reader`;
+    document.title = `${playground.title} · Playground · Koios`;
   }, [playground.title]);
   // Off the playground, the paper pages' cells run in their own Colab kernel again, as their buttons say. This
   // playground's kernel stays connected behind, running or idle, and comes back to the front when it opens again.

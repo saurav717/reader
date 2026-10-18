@@ -592,7 +592,7 @@ export default function App() {
         : view.kind === 'collection' || view.kind === 'project'
           ? collections.find((collection) => collection.id === view.id)?.name
           : lists[view.kind];
-    document.title = name ? `${name} · Reader` : 'Reader';
+    document.title = name ? `${name} · Koios` : 'Koios';
   }, [view, usageOpen, papers, collections]);
   // Settings asked for from a page that has no handle on it (a project's code, needing Colab set up).
   useEffect(() => {
