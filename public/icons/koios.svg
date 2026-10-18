@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor">
-  <!-- Koios: a bookmark with a star cut out of it. Drawn as one path, so the star
-       shows whatever is behind the mark. -->
-  <path fill-rule="evenodd" d="M17 5 H47 V59 L32 46 L17 59 Z M32 12 L34.6 20.4 L43 23 L34.6 25.6 L32 34 L29.4 25.6 L21 23 L29.4 20.4 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Koios: a bookmark with a star cut out of it, gold on the rail's navy tile,
+       as the tab shows it. The path is the mark's (components/Nav.tsx). -->
+  <rect x="0.5" y="0.5" width="63" height="63" rx="14" fill="#151c30" stroke="#3a4664"/>
+  <path fill="#d8b46a" fill-rule="evenodd" transform="translate(10.88 10.88) scale(0.66)" d="M17 5 H47 V59 L32 46 L17 59 Z M32 12 L34.6 20.4 L43 23 L34.6 25.6 L32 34 L29.4 25.6 L21 23 L29.4 20.4 Z"/>
 </svg>

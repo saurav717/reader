@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode, SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
@@ -223,26 +223,55 @@ export default function App() {
   useMoveGitHubToken();
   const draftDock = useDraftDock();
   const [layout] = useState(readLayout);
-  const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
-  const [dock, setDock] = useState<Dock>(layout.dock);
   // The site's look, as the Worker keeps it (lib/look.ts): asked once, after the first paint.
   useEffect(() => {
     void syncLook();
   }, []);
 
-  const [view, setViewNow] = useState<View>(readView);
-  // One page becomes the next by a short cross-fade, where the browser can do
-  // it (view transitions); elsewhere, and with motion reduced, at once.
-  const setView = useCallback((next: View) => {
+  // Every change of page, and every pane put away or brought out, is one short
+  // move where the browser can draw it (view transitions): the page cross-fades
+  // and widens or narrows, the panes slide off and on at their edges
+  // (styles.css, `data-moving`). Elsewhere, with motion reduced, or in zen
+  // mode, whose panes slide by their own rules, at once. Changes made in the
+  // same moment — a paper opened and the library put away — share one move.
+  const moveQueue = useRef<(() => void)[] | null>(null);
+  /** Set while a move applies its changes: what they set off in turn joins them. */
+  const inMove = useRef(false);
+  /** The latest move: only it takes the panes' names away when it ends. */
+  const moving = useRef(0);
+  const move = useCallback((update: () => void) => {
     const doc = document as Document & { startViewTransition?: (update: () => void) => unknown };
-    if (!doc.startViewTransition || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      setViewNow(next);
-      return;
-    }
-    doc.startViewTransition(() => {
-      flushSync(() => setViewNow(next));
-    });
+    if (inMove.current) return update();
+    if (moveQueue.current) return void moveQueue.current.push(update);
+    if (!doc.startViewTransition || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || document.querySelector('.app.is-zen')) return update();
+    moveQueue.current = [update];
+    // The panes are named only for the move: named for good, each would hold
+    // the popovers placed inside it.
+    const root = document.documentElement;
+    const current = ++moving.current;
+    root.dataset.moving = 'on';
+    const transition = doc.startViewTransition(() => {
+      const updates = moveQueue.current ?? [];
+      moveQueue.current = null;
+      inMove.current = true;
+      try {
+        flushSync(() => updates.forEach((each) => each()));
+      } finally {
+        inMove.current = false;
+      }
+    }) as { finished?: Promise<unknown> } | undefined;
+    const done = () => {
+      if (moving.current === current) delete root.dataset.moving;
+    };
+    if (transition?.finished) transition.finished.then(done, done);
+    else done();
   }, []);
+  const [libraryOpen, setLibraryOpenNow] = useState(layout.libraryOpen);
+  const setLibraryOpen = useCallback((next: SetStateAction<boolean>) => move(() => setLibraryOpenNow(next)), [move]);
+  const [dock, setDockNow] = useState<Dock>(layout.dock);
+  const setDock = useCallback((next: SetStateAction<Dock>) => move(() => setDockNow(next)), [move]);
+  const [view, setViewNow] = useState<View>(readView);
+  const setView = useCallback((next: View) => move(() => setViewNow(next)), [move]);
   /** For the keys, which are set up before openPaper is. */
   const openPaperRef = useRef<(id: string) => void>(() => {});
   /** The paper read last in this tab: what G, and the button under R, go back to from Home. */
@@ -262,7 +291,8 @@ export default function App() {
   const [settingsAt, setSettingsAt] = useState<SettingsPlace>({});
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
-  const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(currentAddress())?.usage));
+  const [usageOpen, setUsageOpenNow] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(currentAddress())?.usage));
+  const setUsageOpen = useCallback((next: SetStateAction<boolean>) => move(() => setUsageOpenNow(next)), [move]);
   // Usage is for the owner signed in now. A pass outlives the Google sign-in it
   // came from (weeks against an hour), so while the page asks to sign in or to
   // reconnect, Usage is neither offered nor shown; and a pass is only used for
@@ -633,7 +663,9 @@ export default function App() {
   }, [libraryOpen, dock]);
 
   const onHome = view.kind === 'home';
-  useEffect(() => {
+  // Layout effects, here and below: the panes step aside in the same frame as
+  // the page changes, so the move between pages carries them off with it.
+  useLayoutEffect(() => {
     if (onHome) {
       if (!readHomePrefs().clearPanels || isNarrow() || panelsBeforeHome.current) return;
       panelsBeforeHome.current = { libraryOpen, dock };
@@ -655,7 +687,7 @@ export default function App() {
   // stays as it was, so notes asked for beside the page are there.
   const onPaper = view.kind === 'paper';
   const libraryBeforePaper = useRef<boolean | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (onPaper) {
       if (libraryBeforePaper.current !== null || isNarrow()) return;
       libraryBeforePaper.current = libraryOpen;
@@ -674,7 +706,7 @@ export default function App() {
   // back as they were on the way out.
   const inWorkspace = view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write');
   const panelsBeforeWorkspace = useRef<Layout | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (inWorkspace) {
       if (panelsBeforeWorkspace.current || isNarrow()) return;
       panelsBeforeWorkspace.current = { libraryOpen, dock };
@@ -1132,7 +1164,9 @@ export default function App() {
       return;
     }
     setNotesWindow(false);
-    setDock('notes');
+    // Only a page with nothing either side of it slides; otherwise the dock opens in a move, as every pane does.
+    const slides = !inZen && !libraryOpen && (!dockPane || dockSlide === 'out') && pageCanMove();
+    (slides ? setDockNow : setDock)('notes');
     if (inZen) {
       if (!notesBeside) dockBeforeBeside.current = dock;
       setNotesBeside(true);
@@ -1140,8 +1174,7 @@ export default function App() {
       setDockSlide(null);
       return;
     }
-    // Only a page with nothing either side of it slides; otherwise the dock opens as it always has.
-    if (!libraryOpen && (!dockPane || dockSlide === 'out') && pageCanMove()) {
+    if (slides) {
       setDockSlide('in');
       slideTimer.current = window.setTimeout(() => setDockSlide(null), SLIDE_MS);
     } else {
@@ -1162,7 +1195,7 @@ export default function App() {
     if (dockPane && !libraryOpen && pageCanMove()) {
       setDockSlide('out');
       slideTimer.current = window.setTimeout(() => {
-        setDock(null);
+        setDockNow(null);
         setDockSlide(null);
       }, SLIDE_MS);
     } else {
