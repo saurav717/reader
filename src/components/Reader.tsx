@@ -134,6 +134,9 @@ function describePiece(element: HTMLElement): { label: string; text: string; quo
   return { label, text, quote: caption.slice(0, 80) || undefined };
 }
 
+/** Once the hints under the PDF have been seen in the Koios theme, they wait under a ?. */
+const HINT_SEEN_KEY = 'koios:hint:reader';
+
 export default function Reader({
   paperId,
   notesOpen,
@@ -1247,6 +1250,14 @@ export default function Reader({
   // for a few seconds (PassageFlash). In the browser's own PDF viewer only the
   // page can be shown, by the #page= the viewer understands.
   const [flash, setFlash] = useState<Flash | null>(null);
+  // In the Koios theme the paragraph of hints under the page shows once, then waits under a ? at the foot.
+  const quiet = typeof document !== 'undefined' && document.documentElement.dataset.koios === 'on';
+  const [hintShown, setHintShown] = useState(() => !quiet || localStorage.getItem(HINT_SEEN_KEY) !== 'true');
+  const hideHint = () => {
+    localStorage.setItem(HINT_SEEN_KEY, 'true');
+    setHintShown(false);
+  };
+  const showHint = () => setHintShown(true);
   const [pdfPage, setPdfPage] = useState<number | null>(null);
   const flashKey = useRef(0);
   const locateState = useRef({ mode, layout, pdfBlob, pdfObjectUrl });
@@ -2007,8 +2018,13 @@ export default function Reader({
         />
       ) : null}
 
-      {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
+      {mode === 'pdf' && !pdfError && pdfLookup !== 'none' && hintShown ? (
         <p className="pdf-hint" style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
+          {quiet ? (
+            <button type="button" className="pdf-hint-close" onClick={() => hideHint()} aria-label="Hide these hints; the ? at the foot brings them back">
+              ×
+            </button>
+          ) : null}
           {pdfBlob ? (
             <>
               Select text to highlight or underline it (keys 1–4, U to underline) — the same marks show in Reflow mode and are saved with the paper. Anything can be snipped into your notes with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys. A pinch, or ⌘ with the wheel, zooms in round the pointer (0 fits the page again); L is a loupe over the page, and C a close-up of a figure, table or equation.
@@ -2037,6 +2053,10 @@ export default function Reader({
             </>
           )}
         </p>
+      ) : mode === 'pdf' && !pdfError && pdfLookup !== 'none' && quiet ? (
+        <button type="button" className="pdf-hint-ask" onClick={() => showHint()} aria-label="How the reader works" title="How the reader works">
+          ?
+        </button>
       ) : null}
 
       {pending && !lookup ? (

@@ -70,8 +70,8 @@ export default function LookSwitch() {
         One look for the whole site. Whichever you choose here is what every visitor gets on their next page load; this browser changes as you click. The loading screen and the sign-in stand either way: this is the app behind them.
       </p>
       <div className="look-options">
-        {option('koios', 'Koios', ['Navy ground with the sky’s glow, gold hairlines and labels, headings in the light serif.', 'The armillary and one of the Titan’s lines where a page is empty.'])}
-        {option('classic', 'Classic', ['The theme before Koios: grey dark mode, green accents, bold serif headings.', 'Plain notices where a page is empty.'])}
+        {option('koios', 'Koios', ['Offers the Koios theme beside Light and Dark, and makes it the default: the night, gold hairlines, the quiet chrome.', 'The armillary and one of the Titan’s lines where a page is empty.'])}
+        {option('classic', 'Classic', ['Light and Dark only, as before Koios: grey dark mode, green accents, bold serif headings.', 'Anyone set to Koios reads in Dark until the look is switched back.'])}
       </div>
       {problem ? <p className="banner error">{problem}</p> : null}
       {kept === false ? (

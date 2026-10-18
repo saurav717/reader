@@ -3130,8 +3130,14 @@ is reduced.
 
 ![the library with nothing in it yet: the armillary in gold hairlines, "Every paper is a star.", and the Find papers button](docs/night-empty.png)
 
-**Settings → Appearance → Theme** has Light, Dark and System, the last
-following the operating system as it changes.
+**Settings → Appearance → Theme** offers Light, Dark and Koios, with a
+switch to follow the operating system between the first two. Koios is a
+theme of its own, not the dark mode: the night's colours, and the same
+pages with less on them at once. The rail's labels, the library's counts
+and the reader's lesser buttons appear when the pointer is near; panels
+keep a hairline and lose their fills; the paragraph of hints under a PDF
+shows once and then waits under a ? at the foot of the page; the notes
+pane's empty state is one line.
 
 The night is one of two looks, and the owner chooses which the site wears:
 **Usage → The site → Look** switches every visitor between **Koios** and

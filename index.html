@@ -14,9 +14,19 @@
       // The site's look, as this browser last heard it from the Worker
       // (src/lib/look.ts), applied before the first paint.
       try {
-        document.documentElement.dataset.look = localStorage.getItem('reader.look') === 'classic' ? 'classic' : 'koios';
+        var look = localStorage.getItem('reader.look') === 'classic' ? 'classic' : 'koios';
+        document.documentElement.dataset.look = look;
+        // The theme too, so the first paint is already in it (lib/store.tsx applies it again, and follows changes).
+        var kept = JSON.parse(localStorage.getItem('reader.settings') || '{}').theme;
+        var theme = kept || (look === 'classic' ? 'dark' : 'koios');
+        if (theme === 'system') theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        if (theme === 'koios' && look === 'classic') theme = 'dark';
+        if (theme === 'koios') { document.documentElement.dataset.koios = 'on'; theme = 'dark'; }
+        document.documentElement.dataset.theme = theme;
       } catch (e) {
         document.documentElement.dataset.look = 'koios';
+        document.documentElement.dataset.koios = 'on';
+        document.documentElement.dataset.theme = 'dark';
       }
     </script>
     <meta name="apple-mobile-web-app-title" content="Reader" />

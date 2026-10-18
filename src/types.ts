@@ -390,8 +390,8 @@ export interface Settings {
    * to the proxy, as a header.
    */
   proxyToken: string;
-  /** `system` follows the operating system's choice, and changes with it. */
-  theme: 'light' | 'dark' | 'system';
+  /** `system` follows the operating system between light and dark; `koios` is the night, a theme of its own. */
+  theme: 'light' | 'dark' | 'system' | 'koios';
   /**
    * The glass material: the window's panes turn into frosted, nearly clear
    * sheets over a soft wash of colour, in either theme. Off, every surface is
