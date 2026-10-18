@@ -167,6 +167,13 @@ describe('the console', () => {
   it('runs a command in a bash cell, in the folder, quoting it', () => {
     assert.equal(pg.shellCell("/root/pg/it's", 'python main.py'), "%%bash\nmkdir -p '/root/pg/it'\\''s' && cd '/root/pg/it'\\''s' || exit 1\npython main.py");
   });
+  it('logs a command on the machine when asked, under the folder, before the command', () => {
+    const cell = pg.shellCell('/content/pg', 'python train.py', {}, pg.runLogPath('/content/pg', 'c1'));
+    assert.equal(pg.runLogPath('/content/pg/', 'c1'), '/content/pg/.reader/runs/c1.log');
+    assert.match(cell, /\nmkdir -p '\/content\/pg\/\.reader\/runs' && exec > >\(tee -a '\/content\/pg\/\.reader\/runs\/c1\.log'\) 2>&1\npython train\.py$/);
+    // Without a log, nothing of it.
+    assert.equal(pg.shellCell('/content/pg', 'ls').includes('tee'), false);
+  });
   it('tells a command its place in a pool, before the cd, quoted', () => {
     const cell = pg.shellCell('/root/pg', 'python main.py', { KOIOS_RANK: '2', KOIOS_MACHINE: "Colab · T4 (it's)" });
     assert.match(cell, /^%%bash\nexport KOIOS_RANK='2'\nexport KOIOS_MACHINE='Colab · T4 \(it'\\''s\)'\nmkdir -p/);

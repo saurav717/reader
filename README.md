@@ -4956,6 +4956,19 @@ data; each has its own terminals and its own row in the Runtime pane. What a
 pool is not — one big GPU — and why Colab's network rules that out, is in
 [docs/compute-pool.md](docs/compute-pool.md).
 
+**From another computer, while it runs.** Start a command in a project on one
+computer, sign in on another, open the project, and it is the same kernel
+and the same run: the browser that started it keeps, under your account on
+the proxy, which machine the project is on, the kernel on it and what is
+running there (the request, and where the command logs its output on the
+machine) — never the output itself, and no tokens. The browser that opens
+the project elsewhere joins that kernel instead of starting a second Python,
+shows the command's output so far from its log, follows the rest as the
+kernel sends it, and can stop it. The same holds for a reload. A notebook
+cell started elsewhere is followed from the moment you join; its earlier
+output stays with the browser that ran it. Rows go when the machine stops,
+and after two days untouched.
+
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:
 - **On a Companion**, the Companion says exactly what each terminal runs

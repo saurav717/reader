@@ -111,6 +111,10 @@ export async function eraseAccount(env, email, { client, browserSession, rooms: 
   if (devices) done.devices = devices.devices;
   else if (env.DEVICES) done.skipped.push('devices');
 
+  const kernels = await call(env.KERNELS, `kernels:${who}`, '/erase', {});
+  if (kernels) done.kernels = kernels.scopes;
+  else if (env.KERNELS) done.skipped.push('kernels');
+
   try {
     done.github = await forgetGithub(env, who);
   } catch {

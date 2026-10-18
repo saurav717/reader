@@ -20,6 +20,8 @@
 
 import { replaying } from './replayFlag';
 import { api, apiFetch, hasProxy } from './api';
+import { forget as forgetElsewhere, noteRun, recall, remember } from './continuity';
+import type { RunNote, ScopeRecord } from './continuity';
 import { colabToken, connectColab, dropColab, hasColabAccess } from './google';
 import type { MachineSample, MachineSpecs } from './telemetry';
 import { MACHINE_PROBE, parseMachineSample, specsOf } from './telemetry';
@@ -113,6 +115,8 @@ export interface CellRun {
   where: string;
   /** Set when the runtime it ran on has since gone. */
   stale?: boolean;
+  /** Started from another browser of the account, and followed from here (src/lib/continuity.ts). */
+  elsewhere?: boolean;
   /** The machine's use while it ran — GPU, CPU, memory, disk — sampled every couple of seconds while the watch is on. */
   samples?: MachineSample[];
 }
@@ -294,6 +298,8 @@ interface Session {
   lastActivity: number;
   /** On Colab: the notebook whose machine it is on — its own, or the browser's when the tier allowed no more. */
   notebook?: string;
+  /** The account's row for this scope, read as the kernel was joined: the runs still going in it are taken up once the session is idle (adoptRuns). */
+  recalled?: ScopeRecord | null;
 }
 
 const backendKey = (backend: Backend) => (backend.kind === 'colab' ? (backend.notebook ? `colab:${backend.notebook}` : 'colab') : `jupyter:${backend.server.id}`);
@@ -334,7 +340,17 @@ function keepColabKernel(endpoint: string, scope: string, kernelId: string | und
   if (kernelId) mine[scope] = kernelId;
   else delete mine[scope];
   write(session(), COLAB_KERNELS_KEY, { ...all, [endpoint]: mine });
+  // The account's row, for a browser that opens the project elsewhere: a playground's kernel under its scope, and
+  // the machine's monitor under every playground scope on it (the paper pages' kernel is this browser's alone).
+  if (scope === MONITOR) {
+    for (const other of Object.keys(mine)) if (other !== PAGES && other !== MONITOR && kernelId) remember(other, endpoint, { [MONITOR]: kernelId });
+  } else if (scope !== PAGES) {
+    if (kernelId) remember(scope, endpoint, { [scope]: kernelId, ...(mine[MONITOR] ? { [MONITOR]: mine[MONITOR] } : {}) });
+    else forgetElsewhere(scope);
+  }
 }
+/** The row's endpoint for a session's machine: Colab's runtime, or the server by its Companion's id (the same in every browser) or its own. */
+const rowEndpoint = (s: Session, runtime: Runtime) => (s.state.backend.kind === 'jupyter' ? `jupyter:${s.state.backend.server.companionId ?? s.state.backend.server.id}` : runtime.endpoint);
 function forgetColabKernels(endpoint: string) {
   const all = allColabKernels();
   delete all[endpoint];
@@ -635,6 +651,8 @@ class Kernel {
   private readonly waiting = new Map<string, OnMessage>();
   /** The cells running, each told when the socket closes under it. */
   private closers = new Set<() => void>();
+  /** Told whenever the kernel says it is idle, whatever it was running: a run followed from another browser ends then. */
+  private idlers = new Set<() => void>();
   private keepAlive: number | null = null;
   private lastKeepAlive: string | null = null;
   private reconnecting: Promise<void> | null = null;
@@ -802,6 +820,7 @@ class Kernel {
         const parent = message.parent_header?.msg_id;
         const handler = parent ? this.waiting.get(parent) : undefined;
         handler?.(message);
+        if (message.header.msg_type === 'status' && message.content.execution_state === 'idle') for (const idle of [...this.idlers]) idle();
       });
       socket.addEventListener('error', () => {
         if (!opened) {
@@ -829,7 +848,32 @@ class Kernel {
    * for each message meant for this request on the way. The reply's status
    * says whether it ended in an error; the count is In [n].
    */
-  async execute(code: string, onOutput: (message: JupyterMessage) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
+  /**
+   * The kernel's messages for a request this page did not make — a run
+   * started from another browser of the account, whose msg_id its row kept.
+   * They reach the handler as they come from now on; what came before is
+   * the run's log on the machine. The function given back stops following.
+   */
+  follow(msgId: string, handler: OnMessage): () => void {
+    this.waiting.set(msgId, handler);
+    return () => {
+      if (this.waiting.get(msgId) === handler) this.waiting.delete(msgId);
+    };
+  }
+
+  /** Told when the kernel goes idle — any request's end. */
+  onIdle(listener: () => void): () => void {
+    this.idlers.add(listener);
+    return () => this.idlers.delete(listener);
+  }
+
+  /** Told when the socket closes under what runs, as a running cell is. */
+  onClosed(listener: () => void): () => void {
+    this.closers.add(listener);
+    return () => this.closers.delete(listener);
+  }
+
+  async execute(code: string, onOutput: (message: JupyterMessage) => void, onSent?: (msgId: string) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
     // A cell run while the socket is being opened again waits for it, rather than failing for a pipe that is a moment away.
     if (!this.connected && this.reconnecting) await this.reconnecting.catch(() => undefined);
     return new Promise((resolve, reject) => {
@@ -875,6 +919,7 @@ class Kernel {
         }
         onOutput(message);
       });
+      onSent?.(request.header.msg_id);
       socket.send(JSON.stringify(request));
     });
   }
@@ -899,7 +944,8 @@ class Kernel {
 
 interface Host {
   runtime: Runtime;
-  listKernels(): Promise<{ id: string }[]>;
+  /** The kernels on the machine; `state` (the relay's) or `execution_state` (Jupyter's own) says whether one is busy. */
+  listKernels(): Promise<{ id: string; state?: string; execution_state?: string }[]>;
   startKernel(): Promise<string>;
   interrupt(kernelId: string): Promise<void>;
   restart(kernelId: string): Promise<void>;
@@ -1045,7 +1091,7 @@ const runtimeOfServer = (server: JupyterServer): Runtime => ({
 function jupyterHost(server: JupyterServer): Host {
   return {
     runtime: runtimeOfServer(server),
-    listKernels: () => jupyterFetch<{ id: string }[]>(server, 'api/kernels'),
+    listKernels: () => jupyterFetch<{ id: string; execution_state?: string }[]>(server, 'api/kernels'),
     startKernel: async () => (await jupyterFetch<{ id: string }>(server, 'api/kernels', { method: 'POST', body: { name: 'python3' } })).id,
     interrupt: async (id) => {
       await jupyterFetch(server, `api/kernels/${encodeURIComponent(id)}/interrupt`, { method: 'POST', body: {} });
@@ -1061,7 +1107,7 @@ function jupyterHost(server: JupyterServer): Host {
 function colabHost(runtime: Runtime, token: () => Promise<string>): Host {
   return {
     runtime,
-    listKernels: async () => (await relay<{ kernels: { id: string }[] }>('/colab/kernels/list', await token(), { method: 'POST', body: { proxy: runtime.proxy } })).kernels ?? [],
+    listKernels: async () => (await relay<{ kernels: { id: string; state?: string }[] }>('/colab/kernels/list', await token(), { method: 'POST', body: { proxy: runtime.proxy } })).kernels ?? [],
     startKernel: async () => (await relay<{ kernel: { id: string } }>('/colab/kernels', await token(), { method: 'POST', body: { proxy: runtime.proxy } })).kernel.id,
     interrupt: async (id) => {
       await relay('/colab/kernels/interrupt', await token(), { method: 'POST', body: { proxy: runtime.proxy, kernel: id } });
@@ -1347,15 +1393,24 @@ async function attach(s: Session, host: Host): Promise<Kernel> {
   // The session's kernel, if the machine still has it — a second kernel would be a second Python with none of the first's variables.
   const listed = await host.listKernels().catch(() => null);
   const has = (id: string | undefined) => Boolean(id && listed?.some((k) => k.id === id));
+  // The account's row for the scope (src/lib/continuity.ts): the kernel another browser of the account has on this very
+  // machine, and the runs it has going — so a project picked up on a second computer joins the first's Python.
+  const row = s.scope === PAGES ? null : await recall(s.scope).catch(() => null);
+  const elsewhere = row && row.endpoint === rowEndpoint(s, host.runtime) ? row : null;
   let id: string | undefined;
-  if (s.state.backend.kind === 'jupyter') id = has(s.state.kernel) ? s.state.kernel : undefined;
+  if (s.state.backend.kind === 'jupyter') id = has(s.state.kernel) ? s.state.kernel : has(elsewhere?.kernels[s.scope]) ? elsewhere!.kernels[s.scope] : undefined;
   else {
     const kept = colabKernels(host.runtime.endpoint);
-    id = has(s.state.kernel) ? s.state.kernel : has(kept[s.scope]) ? kept[s.scope] : undefined;
+    id = has(s.state.kernel) ? s.state.kernel : has(kept[s.scope]) ? kept[s.scope] : has(elsewhere?.kernels[s.scope]) ? elsewhere!.kernels[s.scope] : undefined;
     // The paper pages' kernel from before kernels were kept by scope: the runtime's first, if no other scope claims it.
     if (!id && s.scope === PAGES && !Object.keys(kept).length) id = listed?.[0]?.id;
+    // The other browser's monitor on this machine, too, so its shells (KernelTerminal) are this browser's as well.
+    if (!kept[MONITOR] && has(elsewhere?.kernels[MONITOR])) keepColabKernel(host.runtime.endpoint, MONITOR, elsewhere!.kernels[MONITOR]);
   }
   if (!id) id = await host.startKernel();
+  // The runs the row says are going in this kernel are taken up once the session stands (adoptRuns); a kernel of this
+  // tab's own, or another kernel than the row's, has none to take.
+  s.recalled = elsewhere && elsewhere.kernels[s.scope] === id ? elsewhere : null;
   if (s.state.backend.kind === 'colab') keepColabKernel(host.runtime.endpoint, s.scope, id);
   const attached = new Kernel(
     host.runtime.proxy,
@@ -1450,8 +1505,10 @@ async function connectSession(s: Session, machine: Machine = s.state.machine): P
       if (!s.state.kernel) s.state = { ...s.state, kernel: keptKernel(server.id, s.scope) };
       s.kernel = await attach(s, host);
       keepKernel(server.id, s.scope, s.kernel.id);
+      if (s.scope !== PAGES) remember(s.scope, rowEndpoint(s, host.runtime), { [s.scope]: s.kernel.id });
       const same = s.state.runtime?.endpoint === host.runtime.endpoint;
       set(s, { status: 'idle', runtime: host.runtime, kernel: s.kernel.id, via: 'direct', reconnecting: false, startedAt: same && s.state.startedAt ? s.state.startedAt : Date.now(), error: undefined, history: same ? s.state.history : [] });
+      void adoptRuns(s, host);
       void probeSession(s).finally(() => schedulePulse(s));
     } catch (error) {
       set(s, { status: s.state.runtime ? 'lost' : 'error', error: message(error) });
@@ -1492,6 +1549,7 @@ async function connectSession(s: Session, machine: Machine = s.state.machine): P
     writeRuntime(notebook, runtime);
     const same = s.state.runtime?.endpoint === runtime.endpoint;
     set(s, { status: 'idle', runtime, kernel: s.kernel.id, via: s.kernel.via, reconnecting: false, startedAt: same && s.state.startedAt ? s.state.startedAt : Date.now(), error: undefined, history: same ? s.state.history : [], sharing });
+    void adoptRuns(s, colabHost(runtime, quietToken));
     void refreshUnits(googleToken);
     // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
     void probeSession(s).finally(() => schedulePulse(s));
@@ -1564,12 +1622,17 @@ export const probeIn = (scope: string): Promise<MachineSample | null> => {
  * this is called from a click. The run belongs to its session: it goes on,
  * and is kept, whatever the page shows next.
  */
-export const runCell = (key: string, code: string): Promise<void> => runIn(current, key, code);
+export const runCell = (key: string, code: string, meta?: RunMeta): Promise<void> => runIn(current, key, code, meta);
 
 /** Runs one cell in a scope's own kernel on `backend` — a playground's, from a page that is not it — without bringing it to the foreground. */
-export const runCellFor = (backend: Backend, scope: string, key: string, code: string): Promise<void> => runIn(sessionFor(backend, scope), key, code);
+export const runCellFor = (backend: Backend, scope: string, key: string, code: string, meta?: RunMeta): Promise<void> => runIn(sessionFor(backend, scope), key, code, meta);
 
-async function runIn(s: Session, key: string, code: string): Promise<void> {
+/** What the account's row is told about a run beside the run itself: where the cell logs its output on the machine, when it does (a console command's shell cell). */
+export interface RunMeta {
+  log?: string;
+}
+
+async function runIn(s: Session, key: string, code: string, meta: RunMeta = {}): Promise<void> {
   if (s.state.running) return;
   if (!s.kernel || s.state.status === 'off' || s.state.status === 'lost' || s.state.status === 'error') await connectSession(s, s.state.machine);
   const runtime = s.state.runtime;
@@ -1583,22 +1646,39 @@ async function runIn(s: Session, key: string, code: string): Promise<void> {
   setRun(s, key, { state: 'running', outputs: [], startedAt: started, where });
   const host = hostOf(s, true);
   if (s.state.gpuWatch && host) void watchMachine(s, key, host, started).catch(() => undefined);
+  // The account's row: the run by its request, so a browser that joins this kernel later follows it to its end.
+  let note: RunNote | null = null;
+  const tell = (patch: Partial<RunNote>) => {
+    if (s.scope === PAGES || !note) return;
+    note = { ...note, ...patch };
+    noteRun(s.scope, rowEndpoint(s, runtime), key, note);
+  };
   let outputs: Output[] = [];
   let cut = false;
   try {
-    const reply = await kernel.execute(code, (incoming) => {
-      if (cut) return;
-      outputs = reduceOutputs(outputs, incoming);
-      if (outputSize(outputs) > OUTPUT_LIMIT) {
-        cut = true;
-        outputs = [...outputs, { type: 'stream', name: 'stderr', text: '\n[output cut here: more than 200 KB — run it in Colab to see the rest]' }];
-        void interruptSession(s);
-      }
-      setRun(s, key, { ...runs[key], state: 'running', outputs, startedAt: started, where });
-    });
-    setRun(s, key, { ...runs[key], state: reply.status === 'ok' ? 'ran' : reply.status === 'aborted' ? 'interrupted' : 'failed', outputs, startedAt: started, ms: Date.now() - started, executionCount: reply.executionCount, where });
+    const reply = await kernel.execute(
+      code,
+      (incoming) => {
+        if (cut) return;
+        outputs = reduceOutputs(outputs, incoming);
+        if (outputSize(outputs) > OUTPUT_LIMIT) {
+          cut = true;
+          outputs = [...outputs, { type: 'stream', name: 'stderr', text: '\n[output cut here: more than 200 KB — run it in Colab to see the rest]' }];
+          void interruptSession(s);
+        }
+        setRun(s, key, { ...runs[key], state: 'running', outputs, startedAt: started, where });
+      },
+      (msgId) => {
+        note = { startedAt: started, state: 'running', msgId, kernelId: kernel.id, where, ...(meta.log ? { log: meta.log } : {}) };
+        tell({});
+      },
+    );
+    const state = reply.status === 'ok' ? 'ran' : reply.status === 'aborted' ? 'interrupted' : 'failed';
+    setRun(s, key, { ...runs[key], state, outputs, startedAt: started, ms: Date.now() - started, executionCount: reply.executionCount, where });
+    tell({ state: 'done', ms: Date.now() - started, outcome: state });
   } catch (error) {
     setRun(s, key, { ...runs[key], state: 'interrupted', outputs, startedAt: started, ms: Date.now() - started, where, stale: true });
+    tell({ state: 'done', ms: Date.now() - started, outcome: 'interrupted' });
     if (s.state.status !== 'lost') set(s, { error: message(error) });
   } finally {
     s.lastActivity = Date.now();
@@ -1607,6 +1687,116 @@ async function runIn(s: Session, key: string, code: string): Promise<void> {
     else set(s, { running: undefined });
     schedulePulse(s);
   }
+}
+
+// --------------------------------------- runs started from elsewhere -----
+//
+// The account's row for a scope (src/lib/continuity.ts) names the runs going
+// in its kernel, each by the request it is and where it logs its output on
+// the machine. A browser that has just joined that kernel takes them up: the
+// log so far as the run's output, then the kernel's messages for the request
+// as they come, and the end when the kernel goes idle. The run looks and
+// works as one started here — its output grows, Stop interrupts it — with a
+// word that it was started elsewhere.
+
+/** The last of a log file on the machine, read through the session's monitor kernel; empty when there is none. */
+async function readLog(s: Session, path: string): Promise<string> {
+  const answer = await runQuietly(`import base64, os\np = ${JSON.stringify(path)}\nif os.path.isfile(p):\n    with open(p, 'rb') as f:\n        f.seek(max(0, os.path.getsize(p) - ${OUTPUT_LIMIT}))\n        print(base64.b64encode(f.read()).decode())\nelse:\n    print('-')`, s.scope).catch(() => null);
+  const line = answer?.ok ? (answer.text.trim().split('\n').pop() ?? '-') : '-';
+  if (line === '-' || !line) return '';
+  try {
+    return new TextDecoder().decode(Uint8Array.from(atob(line), (c) => c.charCodeAt(0)));
+  } catch {
+    return '';
+  }
+}
+
+/** The runs the row says are still going in the session's kernel, taken up here. */
+async function adoptRuns(s: Session, host: Host): Promise<void> {
+  const row = s.recalled;
+  s.recalled = undefined;
+  const kernel = s.kernel;
+  if (!row || !kernel) return;
+  const going = Object.entries(row.runs).filter(([key, note]) => note.state === 'running' && note.kernelId === kernel.id && !runs[key]);
+  if (!going.length) return;
+  // Whether the kernel is at work now: idle, and every run the row calls going is over.
+  const listed = await host.listKernels().catch(() => null);
+  const mine = listed?.find((k) => k.id === kernel.id);
+  const busy = (mine?.state ?? mine?.execution_state) === 'busy';
+  for (const [key, note] of going) {
+    if (s.kernel !== kernel) return;
+    const where = note.where || whereOf(s, host.runtime);
+    if (!busy) {
+      // Over while nobody was attached: what it printed is in its log, if it kept one.
+      const text = note.log ? await readLog(s, note.log) : '';
+      const outputs: Output[] = text ? [{ type: 'stream', name: 'stdout', text }] : [];
+      setRun(s, key, { state: 'ran', outputs, startedAt: note.startedAt, ms: note.ms ?? Math.max(0, row.updatedAt - note.startedAt), where, elsewhere: true });
+      if (s.scope !== PAGES) noteRun(s.scope, rowEndpoint(s, host.runtime), key, { ...note, state: 'done', outcome: 'ran' });
+      continue;
+    }
+    await followRun(s, kernel, host, key, note, where);
+  }
+}
+
+/** One run going in the kernel, followed from here as if started here. */
+async function followRun(s: Session, kernel: Kernel, host: Host, key: string, note: RunNote, where: string): Promise<void> {
+  const started = note.startedAt;
+  s.lastActivity = started;
+  stopPulse(s);
+  set(s, { status: 'busy', running: key });
+  setRun(s, key, { state: 'running', outputs: [], startedAt: started, where, elsewhere: true });
+  // The kernel's messages from now on, held while the log is read, so none is lost between the two.
+  let outputs: Output[] = [];
+  let held: JupyterMessage[] | null = [];
+  let sawError = false;
+  let finished = false;
+  const show = () => setRun(s, key, { ...runs[key], state: 'running', outputs, startedAt: started, where, elsewhere: true });
+  const take = (incoming: JupyterMessage) => {
+    if (incoming.header.msg_type === 'error') sawError = true;
+    outputs = reduceOutputs(outputs, incoming);
+  };
+  const finish = (state: 'ran' | 'failed' | 'interrupted') => {
+    if (finished) return;
+    finished = true;
+    unfollow();
+    offIdle();
+    offClose();
+    stopWatching(s);
+    setRun(s, key, { ...runs[key], state, outputs, startedAt: started, ms: Date.now() - started, where, elsewhere: true, ...(state === 'interrupted' ? { stale: true } : {}) });
+    if (s.scope !== PAGES) noteRun(s.scope, rowEndpoint(s, host.runtime), key, { ...note, state: 'done', ms: Date.now() - started, outcome: state });
+    s.lastActivity = Date.now();
+    if (s.state.running === key) set(s, { status: s.state.status === 'busy' ? 'idle' : s.state.status, running: undefined });
+    schedulePulse(s);
+  };
+  const unfollow = kernel.follow(note.msgId, (incoming) => {
+    const type = incoming.header.msg_type;
+    if (type === 'status') {
+      if (incoming.content.execution_state === 'idle') finish(sawError ? 'failed' : 'ran');
+      return;
+    }
+    if (type === 'input_request' || type === 'execute_reply') return;
+    if (held) held.push(incoming);
+    else {
+      take(incoming);
+      show();
+    }
+  });
+  const offIdle = kernel.onIdle(() => finish(sawError ? 'failed' : 'ran'));
+  const offClose = kernel.onClosed(() => finish('interrupted'));
+  if (s.state.gpuWatch) void watchMachine(s, key, host, started).catch(() => undefined);
+  // What it printed before this browser came: its log on the machine. The messages held meanwhile follow it, less
+  // the ones the log already has (the log is written by the same tee that feeds the kernel, so the last of it is them).
+  const logged = note.log ? await readLog(s, note.log) : '';
+  if (finished) return;
+  if (logged) outputs = [{ type: 'stream', name: 'stdout', text: logged }];
+  const tail = logged.slice(-4096);
+  for (const incoming of held ?? []) {
+    const text = incoming.header.msg_type === 'stream' ? asText(incoming.content.text) : '';
+    if (text && tail.includes(text)) continue;
+    take(incoming);
+  }
+  held = null;
+  show();
 }
 
 // ------------------------------------------------------------ run all -----
@@ -1728,9 +1918,15 @@ async function stopSessionRuntime(s: Session): Promise<void> {
     // This machine stops, and every session on it with it — the other Colab machines go on.
     if (runtime) forgetRuntime(runtime.endpoint);
     writeRuntime(s.notebook ?? notebookOf(backend)!, null);
-    for (const other of sessions.values()) if (other === s || (runtime && other.state.runtime?.endpoint === runtime.endpoint)) released(other);
+    for (const other of sessions.values()) {
+      if (other === s || (runtime && other.state.runtime?.endpoint === runtime.endpoint)) {
+        if (other.scope !== PAGES) forgetElsewhere(other.scope);
+        released(other);
+      }
+    }
   } else {
     keepKernel(backend.server.id, s.scope, undefined);
+    if (s.scope !== PAGES) forgetElsewhere(s.scope);
     released(s);
   }
   if (!runtime) return;

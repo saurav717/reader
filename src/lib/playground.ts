@@ -1193,11 +1193,18 @@ export async function readMeta(host: FileHost, name: string): Promise<string | n
 }
 
 /** The console's command as the kernel takes it: a bash cell, in the playground's folder on the machine. */
-export function shellCell(root: string, command: string, env: Record<string, string> = {}): string {
-  const quoted = `'${root.replace(/'/g, `'\\''`)}'`;
-  const exports = Object.entries(env).map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'\n`).join('');
-  return `%%bash\n${exports}mkdir -p ${quoted} && cd ${quoted} || exit 1\n${command}`;
+export function shellCell(root: string, command: string, env: Record<string, string> = {}, log?: string): string {
+  const q = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
+  const quoted = q(root);
+  const exports = Object.entries(env).map(([name, value]) => `export ${name}=${q(value)}\n`).join('');
+  // Logged as it runs, when asked: everything the command prints goes to the kernel as before and to a file on the
+  // machine too, so a browser that picks the project up elsewhere while it runs can read what came before it joined.
+  const logged = log ? `mkdir -p ${q(log.replace(/\/[^/]*$/, ''))} && exec > >(tee -a ${q(log)}) 2>&1\n` : '';
+  return `%%bash\n${exports}mkdir -p ${quoted} && cd ${quoted} || exit 1\n${logged}${command}`;
 }
+
+/** Where a console command logs its output on the machine: under the folder's .reader/runs, which the sync rules leave there. */
+export const runLogPath = (folder: string, entryId: string) => `${folder.replace(/\/$/, '')}/.reader/runs/${entryId}.log`;
 
 /**
  * What a command started on every machine of a pool is told about its place

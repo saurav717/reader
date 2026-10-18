@@ -11,7 +11,7 @@ import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, c
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, SyncReport } from '../lib/playground';
-import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -1491,7 +1491,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       }
       if (split && !(await push())) return;
       const folder = await folderOnMachine();
-      await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env));
+      // Logged on the machine as it runs, so the project picked up from another computer shows it from the start.
+      const log = runLogPath(folder, entry.id);
+      await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env, log), { log });
       if (split) await pull();
       return;
     }
@@ -1504,7 +1506,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       // The folder kept elsewhere: copied to this machine first (the edits on screen were saved by `run`).
       if (split) await pushFolder(playground, machineHostFor(playground, machine));
       const folder = await folderOnMachine(machine);
-      await runCellFor(machine.backend, machine.scope, memberKey(consoleKey(playground.id, entry.id), machine.member), shellCell(folder, trimmed, env));
+      const log = runLogPath(folder, entry.id);
+      await runCellFor(machine.backend, machine.scope, memberKey(consoleKey(playground.id, entry.id), machine.member), shellCell(folder, trimmed, env, log), { log });
       if (split) await pullBack(playground, machineHostFor(playground, machine));
     } catch (error) {
       setProblem(`${machine.label}: ${error instanceof Error ? error.message : String(error)}`);

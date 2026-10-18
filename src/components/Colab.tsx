@@ -419,6 +419,7 @@ export function RunState({ run }: { run: CellRun }) {
     return (
       <span className="cell-state is-busy">
         <span className="spinner" /> Running on {run.where.replace(/^Colab · /, '')}
+        {run.elsewhere ? ' · started from another browser of yours, followed here' : ''}
       </span>
     );
   }
@@ -474,7 +475,7 @@ export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude'
     <div className={`cell-output is-run${live ? ' is-live' : ''}${run.stale ? ' is-stale' : ''}`}>
       <div className="cell-output-label">
         {live ? <span className="spinner" /> : null}
-        <span>{live ? 'Output · streaming from Colab' : `Output · ${run.where} · ${time(run.startedAt)}${run.stale ? ' · that runtime has ended' : ''}`}</span>
+        <span>{live ? `Output · streaming from ${run.where.replace(/^Colab · .*/, 'Colab')}${run.elsewhere ? ' · started elsewhere, followed here' : ''}` : `Output · ${run.where} · ${time(run.startedAt)}${run.elsewhere ? ' · started from another browser of yours' : ''}${run.stale ? ' · that runtime has ended' : ''}`}</span>
         <span className="spacer" />
         {!live ? (
           failed ? (
