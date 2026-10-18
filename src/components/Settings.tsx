@@ -22,6 +22,7 @@ import { thisComputer } from '../lib/thisComputer';
 import { overleafViewOf } from '../lib/overleaf';
 import OverleafAccounts from './OverleafAccounts';
 import InviteSomeone from './InviteSomeone';
+import DeleteAccount from './DeleteAccount';
 import { WriteGuideLink } from './WriteGuide';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
@@ -480,6 +481,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
   const [proxyCheck, setProxyCheck] = useState<{ ok: boolean; message: string } | null>(null);
   // "Invite someone": a mail from the site to a colleague or anyone who may never have opened it (components/InviteSomeone.tsx).
   const [inviting, setInviting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [checking, setChecking] = useState(false);
   /** Whether the proxy can open a sign-in window, asked once the page opens. */
   const [access, setAccess] = useState<AccessStatus | null>(null);
@@ -626,6 +628,13 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
               </button>
             </div>
             {inviting ? <InviteSomeone onClose={() => setInviting(false)} /> : null}
+            <div className="set-danger">
+              <span>Delete everything Koios keeps about you: on its server, in this browser, and — if you choose — your Koios files in Drive.</span>
+              <button type="button" className="btn sm danger-ghost" onClick={() => setDeleting(true)}>
+                Delete my account…
+              </button>
+            </div>
+            {deleting ? <DeleteAccount email={user.email} googleClientId={settings.googleClientId} onClose={() => setDeleting(false)} /> : null}
           </>
         ) : (
           <button type="button" className="btn" onClick={() => void signIn()} style={{ height: 40, padding: '0 16px', fontSize: 13.5 }}>

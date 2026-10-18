@@ -465,6 +465,12 @@ export class BrowserSession {
         return new Response(bytes, { headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(bytes.length) } });
       }
       if (path === '/close') return json({ ok: true, ...(await this.release()) });
+      // An account deleted (worker/account.js): the browser closed, and its log and remembered walls with it.
+      if (path === '/erase') {
+        await this.release().catch(() => undefined);
+        await this.state.storage.deleteAll();
+        return json({ ok: true });
+      }
       return json({ error: 'not found' }, 404);
     } catch (error) {
       if (error?.code === 'closed') return json({ error: 'no browser is open' }, 409);

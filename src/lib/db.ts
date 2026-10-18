@@ -62,6 +62,24 @@ export function switchDb(email: string | null | undefined): void {
   void previous?.then((db) => db.close()).catch(() => undefined);
 }
 
+/**
+ * The browser's copy of `email`'s library deleted, and the one that belongs to
+ * nobody too when `andGuest` (it was claimed by this account): "Delete my
+ * account" (lib/account.ts). What is open is closed first; the page reloads after.
+ */
+export async function deleteLibraries(email: string, andGuest: boolean): Promise<void> {
+  const previous = dbPromise;
+  dbPromise = null;
+  current = GUEST_DB;
+  await previous?.then((db) => db.close()).catch(() => undefined);
+  for (const name of andGuest ? [accountDbName(email), GUEST_DB] : [accountDbName(email)]) {
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.deleteDatabase(name);
+      request.onsuccess = request.onerror = request.onblocked = () => resolve();
+    });
+  }
+}
+
 export function currentDbName(): string {
   return current;
 }

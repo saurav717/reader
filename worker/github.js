@@ -124,6 +124,15 @@ async function revokeWithGithub(env, record) {
   }).catch(() => undefined);
 }
 
+/** The connection forgotten: the grant given back to GitHub, and the record deleted (DELETE /github/token, and an account deleted: worker/account.js). */
+export async function forgetGithub(env, owner) {
+  if (!env.SESSIONS || !secretsReady(env)) return false;
+  const record = await readRecord(env, env.SESSIONS, owner);
+  if (record && !record.gone) await revokeWithGithub(env, record);
+  await env.SESSIONS.delete(await secretsKey(env, 'github', owner));
+  return Boolean(record);
+}
+
 const looksLikeToken = (token) => typeof token === 'string' && token.length >= 20 && token.length <= 255 && /^(github_pat_|ghp_|gho_|ghu_|ghs_)[A-Za-z0-9_]+$/.test(token);
 const kindOf = (token) => (token.startsWith('github_pat_') ? 'fine-grained' : token.startsWith('ghp_') ? 'classic' : token.startsWith('gho_') ? 'oauth' : 'app');
 
@@ -284,9 +293,7 @@ export async function handleGithub(request, env, path, { json, headers, authoriz
 
   if (path === '/github/token') {
     if (request.method === 'DELETE') {
-      const record = await readRecord(env, kv, owner);
-      if (record && !record.gone) await revokeWithGithub(env, record);
-      await kv.delete(await secretsKey(env, 'github', owner));
+      await forgetGithub(env, owner);
       return json({ connected: false, methods: githubMethods(env) }, 200, noStore);
     }
     if (request.method === 'PUT') {
