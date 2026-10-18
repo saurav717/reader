@@ -233,7 +233,7 @@ export async function companionVsCode(server: { url: string; token: string }, in
   try {
     response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/vscode`, { method: install ? 'POST' : 'GET', headers: { Authorization: `token ${server.token}` }, cache: 'no-store' });
   } catch {
-    throw new Error('The Companion isn’t answering. Open the Reader app, or start it again.');
+    throw new Error('The Companion isn’t answering. Open the Koios app, or start it again.');
   }
   const body = (await response.json().catch(() => ({}))) as Partial<VsCodeStatus> & { error?: string };
   if (response.status === 404 && !body.error) throw new Error('This Companion is older than the VS Code button: run the installer again to update it.');
@@ -340,7 +340,7 @@ export async function updateCompanion(server: { url: string; token: string }): P
   try {
     response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/update`, { method: 'POST', headers: { Authorization: `token ${server.token}` } });
   } catch {
-    throw new Error('The Companion isn’t answering. Open the Reader app, or start it again.');
+    throw new Error('The Companion isn’t answering. Open the Koios app, or start it again.');
   }
   const body = (await response.json().catch(() => ({}))) as { version?: string; updated?: boolean; error?: string };
   if (!response.ok || typeof body.version !== 'string') throw new Error(body.error || `The Companion said ${response.status}.`);

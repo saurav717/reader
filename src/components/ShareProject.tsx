@@ -265,8 +265,8 @@ export default function ShareProject({ project, onClose }: { project: Project; o
             ) : null}
             {error ? <p className="pj-share-error">{error}</p> : null}
             <div className="dialog-actions">
-              <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setSomeone(true)} title="Not for this project — just an email saying what Reader is, with the site's address">
-                Just want to show someone Reader?
+              <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setSomeone(true)} title="Not for this project — just an email saying what Koios is, with the site's address">
+                Just want to show someone Koios?
               </button>
               {owner ? (
                 <button type="button" className="link-btn" disabled={busy} onClick={() => void stopSharing()} title="Take everyone out and keep the project to yourself">

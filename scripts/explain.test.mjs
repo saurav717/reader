@@ -80,8 +80,8 @@ describe('reading the page', () => {
   });
   it('signs the notebook’s header with the model that wrote the page', () => {
     const header = (writer) => JSON.parse(explain.notebook('Attention', sections, writer)).cells[0].source.join('');
-    assert.match(header(), /Explained by Claude in Reader/);
-    assert.match(header('DeepSeek Flash'), /Explained by DeepSeek Flash in Reader\. The outputs under each cell were written by DeepSeek Flash, not run/);
+    assert.match(header(), /Explained by Claude in Koios/);
+    assert.match(header('DeepSeek Flash'), /Explained by DeepSeek Flash in Koios\. The outputs under each cell were written by DeepSeek Flash, not run/);
     assert.doesNotMatch(header('DeepSeek Flash'), /Claude/);
   });
 });

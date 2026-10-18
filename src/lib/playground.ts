@@ -614,7 +614,7 @@ export async function deletePlayground(id: string) {
 // --------------------------------------------------------- first cells ----
 
 export function blankCells(title: string): NbCell[] {
-  return [newCell('markdown', `# ${title}\n\n*A playground of your own in Reader. Its cells run on the machine named in the bar; what they print is kept under them.*`), newCell('code', '')];
+  return [newCell('markdown', `# ${title}\n\n*A playground of your own in Koios. Its cells run on the machine named in the bar; what they print is kept under them.*`), newCell('code', '')];
 }
 
 export function paperCells(title: string, paper: Cite & { abstract?: string; authors?: string[] }): NbCell[] {
@@ -768,7 +768,7 @@ export function reachOf(
     needs: `${homeName ?? 'That computer'} specifically: its code is there, and nowhere else`,
     blocked: ctx.serverName(home.serverId)
       ? undefined
-      : `Its code is on ${computer}, which isn’t connected to this browser. Connect ${homeName ?? 'it'} here (Your compute → + Add a server, with the Reader app open on it), or sign in with the Google account it is under — or open the project on ${homeName ?? 'that computer'} itself. Once its code is reachable, any machine can run it.`,
+      : `Its code is on ${computer}, which isn’t connected to this browser. Connect ${homeName ?? 'it'} here (Your compute → + Add a server, with the Koios app open on it), or sign in with the Google account it is under — or open the project on ${homeName ?? 'that computer'} itself. Once its code is reachable, any machine can run it.`,
     warn: ctx.serverName(home.serverId) && ctx.down(home.serverId) ? `${homeName} isn’t answering now: its code opens once its Companion is started (the project’s machine menu can start it).` : undefined,
   };
 }

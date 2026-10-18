@@ -126,9 +126,9 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
           <p className="nt-text">
             <span>
               {session.armed ? (
-                <>Reader will take its notes from this computer once the meeting opens — no bot joins — and file them in <b>{project?.name}</b>, for everyone in the project.</>
+                <>Koios will take its notes from this computer once the meeting opens — no bot joins — and file them in <b>{project?.name}</b>, for everyone in the project.</>
               ) : (
-                <>Reader can take its notes from this computer once the meeting opens — no bot joins — and file them in the project{session.projectId ? '' : ' you pick'}.</>
+                <>Koios can take its notes from this computer once the meeting opens — no bot joins — and file them in the project{session.projectId ? '' : ' you pick'}.</>
               )}
             </span>
           </p>
@@ -157,7 +157,7 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
 
       {session.status === 'found' ? (
         <>
-          <p className="nt-text">Reader can take its notes from this computer — no bot joins the call — and file them in the project{session.projectId ? '' : ' you pick'}.</p>
+          <p className="nt-text">Koios can take its notes from this computer — no bot joins the call — and file them in the project{session.projectId ? '' : ' you pick'}.</p>
           <div className="nt-row">
             {picker}
             <button type="button" className="btn primary sm" onClick={() => void startRecording(session.windowId, session.projectId)}>
@@ -176,7 +176,7 @@ function NotetakerCard({ session, projects, now, onOpen }: { session: Session; p
               <i aria-hidden="true" /> Stop
             </button>
           </div>
-          {session.auto ? <p className="nt-fine">Started by itself: this meeting is set to Reader notes. Everyone in the call should know it is being recorded.</p> : null}
+          {session.auto ? <p className="nt-fine">Started by itself: this meeting is set to Koios notes. Everyone in the call should know it is being recorded.</p> : null}
         </>
       ) : null}
 

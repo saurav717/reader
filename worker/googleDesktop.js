@@ -44,12 +44,12 @@ const escape = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&
 function callbackPage(params) {
   const link = `${PROTOCOL}://google-code?${new URLSearchParams(params).toString()}`;
   const failed = Boolean(params.error);
-  const text = failed ? `Google didn’t sign you in: ${params.error_description || params.error}. Go back to Reader and try again.` : 'Signed in. Go back to Reader: you can close this tab. (If your browser asked, allow it to open Reader.)';
-  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reader · Google</title>
+  const text = failed ? `Google didn’t sign you in: ${params.error_description || params.error}. Go back to Koios and try again.` : 'Signed in. Go back to Koios: you can close this tab. (If your browser asked, allow it to open Reader.)';
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Koios · Google</title>
 <body style="font:15.5px/1.6 system-ui,sans-serif;margin:48px auto;max-width:420px;padding:0 16px;color:#1a1a17;background:#fbfaf6">
 <h1 style="font-size:20px;margin:0 0 8px">${failed ? 'Not signed in' : 'Signed in'}</h1>
 <p style="color:#6f6c63">${escape(text)}</p>
-${failed ? '' : `<p><a href="${escape(link)}" style="display:inline-block;font-weight:600;border-radius:8px;padding:10px 18px;background:#1f5e52;color:#f6f4ec;text-decoration:none">Open Reader</a></p>`}
+${failed ? '' : `<p><a href="${escape(link)}" style="display:inline-block;font-weight:600;border-radius:8px;padding:10px 18px;background:#1f5e52;color:#f6f4ec;text-decoration:none">Open Koios</a></p>`}
 <script>location.href=${JSON.stringify(link).replace(/</g, '\\u003c')}</script></body>`;
   return new Response(html, {
     status: failed ? 400 : 200,
@@ -76,7 +76,7 @@ export async function handleGoogleDesktop(request, env, path, { json, headers, o
     if (request.method !== 'GET') return json({ error: 'GET' }, 405, headers);
     const url = new URL(request.url);
     const state = url.searchParams.get('state') || '';
-    if (!STATE.test(state)) return callbackPage({ error: 'invalid_state', error_description: 'this sign-in isn’t one the Reader app started' });
+    if (!STATE.test(state)) return callbackPage({ error: 'invalid_state', error_description: 'this sign-in isn’t one the Koios app started' });
     const error = url.searchParams.get('error');
     if (error) return callbackPage({ state, error: error.slice(0, 80), error_description: (url.searchParams.get('error_description') || '').slice(0, 300) });
     const code = url.searchParams.get('code') || '';
@@ -87,7 +87,7 @@ export async function handleGoogleDesktop(request, env, path, { json, headers, o
   if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
   const origin = request.headers.get('Origin');
   if (origin && !origins.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
-  if (!googleDesktopConfigured(env)) return json({ error: 'this Worker does not sign the Reader app in: it needs GOOGLE_CLIENT_ID and the GOOGLE_CLIENT_SECRET secret — see wrangler.toml' }, 501, headers);
+  if (!googleDesktopConfigured(env)) return json({ error: 'this Worker does not sign the Koios app in: it needs GOOGLE_CLIENT_ID and the GOOGLE_CLIENT_SECRET secret — see wrangler.toml' }, 501, headers);
   if (await overLimit(env, request)) return json({ error: 'too many sign-ins from this address; wait a minute and try again', limited: true }, 429, { ...headers, 'Retry-After': '60' });
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') return json({ error: 'a JSON body' }, 400, headers);

@@ -48,7 +48,7 @@ export interface InvitesReport {
 
 async function answer<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error || `Reader’s server answered ${response.status}.`);
+  if (!response.ok) throw new Error(body.error || `Koios’s server answered ${response.status}.`);
   return body;
 }
 
@@ -127,13 +127,13 @@ export function installInviteClaim(nameOf: () => string | undefined): void {
 
 // ---- the message, for your own mail app
 
-/** The invitation as plain text, for `mailto:`: what Reader is, your note, the address. The site's own mail says the same (server/mail.js). */
+/** The invitation as plain text, for `mailto:`: what Koios is, your note, the address. The site's own mail says the same (server/mail.js). */
 export function tryItText(name: string, note: string, link: string): { subject: string; body: string } {
   const said = note.trim();
   const body = [
     'Hi,',
     '',
-    `I'd like to show you Reader — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people.`,
+    `I'd like to show you Koios — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people.`,
     ...(said ? ['', said] : []),
     '',
     `Try it: ${link}`,
@@ -142,7 +142,7 @@ export function tryItText(name: string, note: string, link: string): { subject: 
     '',
     name ? `— ${name}` : '',
   ].join('\n');
-  return { subject: `${name ? `${name} thinks you'd like` : 'Try'} Reader`, body };
+  return { subject: `${name ? `${name} thinks you'd like` : 'Try'} Koios`, body };
 }
 
 /** A `mailto:` address that opens the mail app with the message filled in. */

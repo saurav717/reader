@@ -777,8 +777,8 @@ export default {
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json({ error: 'an address to send the test to' }, 400, noStore);
           const sent = await sendMail(env, {
             to,
-            subject: 'Reader: a test of the site’s mail',
-            text: `This is a test from Reader's Usage page, sent at ${new Date().toISOString()}. If it arrived, invitations by email reach people.`,
+            subject: 'Koios: a test of the site’s mail',
+            text: `This is a test from Koios's Usage page, sent at ${new Date().toISOString()}. If it arrived, invitations by email reach people.`,
           });
           logMail(env, ctx, { kind: 'test', to, by: who.email || to, ok: sent.ok, error: sent.error });
           return json(sent.ok ? { ok: true, to } : { ok: false, error: sent.error }, sent.ok ? 200 : 502, noStore);

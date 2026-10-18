@@ -58,7 +58,7 @@ export default function VsCodeExtension({ server, compact = false }: { server: J
     if (!missing.length) return null;
     return (
       <button type="button" className="btn sm ghost" onClick={() => void install()} disabled={busy} title={problem ?? 'Installs the Reader extension into VS Code on this computer, through the Companion: the projects, the papers they cite and this Python in its side bar'}>
-        <VsCodeMark /> {busy ? 'Adding…' : problem ? 'Try again' : 'Add Reader to VS Code'}
+        <VsCodeMark /> {busy ? 'Adding…' : problem ? 'Try again' : 'Add Koios to VS Code'}
       </button>
     );
   }
@@ -71,7 +71,7 @@ export default function VsCodeExtension({ server, compact = false }: { server: J
         <>
           <small>VS Code is here without the Reader extension.</small>
           <button type="button" className="btn sm primary" onClick={() => void install()} disabled={busy}>
-            {busy ? 'Adding…' : 'Add Reader to VS Code'}
+            {busy ? 'Adding…' : 'Add Koios to VS Code'}
           </button>
         </>
       ) : (

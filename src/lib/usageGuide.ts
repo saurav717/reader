@@ -33,9 +33,9 @@ export interface ServiceGuide {
 /** The tab bar, in groups: the Overview alone, then people, the services Reader pays for, and what it runs on. */
 export const GROUPS: { title: string; about: string; tabs: UsageTab[] }[] = [
   { title: '', about: '', tabs: ['overview'] },
-  { title: 'People', about: 'who uses Reader, and who brought whom', tabs: ['people', 'invites'] },
-  { title: 'Paid services', about: 'the accounts Reader spends on when people use it', tabs: ['ai', 'search', 'mail'] },
-  { title: 'Infrastructure', about: 'what Reader itself runs on', tabs: ['cloudflare', 'cloud'] },
+  { title: 'People', about: 'who uses Koios, and who brought whom', tabs: ['people', 'invites'] },
+  { title: 'Paid services', about: 'the accounts Koios spends on when people use it', tabs: ['ai', 'search', 'mail'] },
+  { title: 'Infrastructure', about: 'what Koios itself runs on', tabs: ['cloudflare', 'cloud'] },
   { title: 'The site', about: 'how it looks to everyone', tabs: ['look'] },
 ];
 
@@ -57,7 +57,7 @@ export const GUIDES: Record<UsageTab, ServiceGuide> = {
     id: 'overview',
     tab: 'Overview',
     title: 'Overview',
-    subtitle: 'every service Reader runs on, how each stands against its plan, and what needs you',
+    subtitle: 'every service Koios runs on, how each stands against its plan, and what needs you',
     purpose: '',
     summary: '',
   },
@@ -230,7 +230,7 @@ export const GUIDES: Record<UsageTab, ServiceGuide> = {
     setup: [
       'Make a free Brevo account and verify your sender (Senders, domains & dedicated IPs).',
       'Create an API key (SMTP & API → API keys) and give it to the Worker: `npx wrangler secret put MAIL_API_KEY`.',
-      'Set `MAIL_FROM = "Reader <you@example.org>"` in wrangler.toml, exactly as verified, and deploy.',
+      'Set `MAIL_FROM = "Koios <you@example.org>"` in wrangler.toml, exactly as verified, and deploy.',
       'On a paid plan, set `MAIL_DAILY_LIMIT` / `MAIL_MONTHLY_LIMIT` so the meters use it.',
       'Press Send a test mail below to check it.',
     ],
@@ -247,9 +247,9 @@ export const GUIDES: Record<UsageTab, ServiceGuide> = {
     subtitle: 'your Cloudflare account: today’s use against the Free plan’s limits',
     purpose: 'The Worker every request goes through, its storage, and the browser.',
     summary:
-      'Reader’s proxy is a Cloudflare Worker: every search, PDF, sign-in and AI answer goes through it. It keeps its state in Durable Objects (the tally, project rooms, invitations, the email log) and KV (kept sign-ins), and runs the in-reader browser on Browser Rendering. All of it is on the Workers Free plan, whose allowances are per day.',
+      'Koios’s proxy is a Cloudflare Worker: every search, PDF, sign-in and AI answer goes through it. It keeps its state in Durable Objects (the tally, project rooms, invitations, the email log) and KV (kept sign-ins), and runs the in-reader browser on Browser Rendering. All of it is on the Workers Free plan, whose allowances are per day.',
     limits: [
-      { what: 'Workers requests', allowance: '100,000 a day', past: 'The Worker answers with an error page until 00:00 UTC: Reader stops working.' },
+      { what: 'Workers requests', allowance: '100,000 a day', past: 'The Worker answers with an error page until 00:00 UTC: Koios stops working.' },
       { what: 'Durable Objects', allowance: '100,000 requests, 13,000 GB-s, 5M rows read, 100,000 written a day; 5 GB stored', past: 'Operations fail until midnight UTC: tally, rooms and invitations stop.' },
       { what: 'KV', allowance: '100,000 reads; 1,000 writes, deletes and lists a day; 1 GB stored', past: 'Operations fail: kept sign-ins are not saved.' },
       { what: 'Browser Rendering', allowance: '10 minutes a day, 3 browsers at once, a few new ones a minute', past: 'The browser will not start (429); the pane says why and, when it is busy, retries.' },

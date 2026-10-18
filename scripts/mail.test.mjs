@@ -29,8 +29,8 @@ describe('which provider', () => {
 describe('the invitation', () => {
   it('names who asked, the project, the link, the steps, and that signing in is the account', () => {
     const mail = invitationMail({ to: 'dana@ethz.ch', inviter: 'Saurav C', inviterEmail: 's@x.org', project: 'Sparse-gated MoE', question: 'Why?', role: 'viewer', link: 'https://site/reader/project/?id=p&room=r' });
-    assert.equal(mail.subject, 'Saurav C invited you to “Sparse-gated MoE” on Reader');
-    assert.match(mail.text, /Saurav C has invited you to work together on “Sparse-gated MoE” in Reader/);
+    assert.equal(mail.subject, 'Saurav C invited you to “Sparse-gated MoE” on Koios');
+    assert.match(mail.text, /Saurav C has invited you to work together on “Sparse-gated MoE” in Koios/);
     assert.match(mail.text, /The project's question: Why\?/);
     assert.match(mail.text, /1\. Open the project: https:\/\/site\/reader\/project\/\?id=p&room=r/);
     assert.match(mail.text, /2\. Sign in with Google as dana@ethz\.ch/);
@@ -44,7 +44,7 @@ describe('the invitation', () => {
   });
   it('escapes what people typed, does without a name or a question, and tells an editor what they may do', () => {
     const mail = invitationMail({ to: 'a@b', inviterEmail: 'x@y', project: '<b>x</b>', role: 'editor', link: 'https://site/' });
-    assert.equal(mail.subject, 'x@y invited you to “<b>x</b>” on Reader');
+    assert.equal(mail.subject, 'x@y invited you to “<b>x</b>” on Koios');
     assert.match(mail.html, /&lt;b&gt;x&lt;\/b&gt;/);
     assert.doesNotMatch(mail.text, /The project's question/);
     assert.match(mail.text, /As an editor you can change the project/);
@@ -52,11 +52,11 @@ describe('the invitation', () => {
   });
 });
 
-describe('an invitation to try Reader', () => {
-  it('says what Reader is, quotes the note, and gives the site', () => {
+describe('an invitation to try Koios', () => {
+  it('says what Koios is, quotes the note, and gives the site', () => {
     const mail = tryItMail({ to: 'c@uni.edu', inviter: 'Saurav C', inviterEmail: 's@x.org', note: 'Have a look\nbefore Thursday?', link: 'https://site/reader/' });
-    assert.equal(mail.subject, "Saurav C thinks you'd like Reader");
-    assert.match(mail.text, /Saurav C invited you to try Reader — a reading room for research papers/);
+    assert.equal(mail.subject, "Saurav C thinks you'd like Koios");
+    assert.match(mail.text, /Saurav C invited you to try Koios — a reading room for research papers/);
     assert.match(mail.text, /Saurav C says:\n\n    Have a look\n    before Thursday\?/);
     assert.match(mail.text, /Try it: https:\/\/site\/reader\//);
     assert.match(mail.text, /nothing to install, nothing to create/);

@@ -456,7 +456,7 @@ function Sidebar({ model, onFold }: { model: NavModel; onFold: () => void }) {
     <nav className="rail nav-sidebar" aria-label="Primary">
       <div className="nav-sb-head">
         <Brand model={model} />
-        <b>Reader</b>
+        <b>Koios</b>
         <button type="button" className="icon-btn sm" onClick={onFold} aria-label="Fold the sidebar" title="Fold to a narrow rail">
           <PanelLeftIcon size={15} />
         </button>

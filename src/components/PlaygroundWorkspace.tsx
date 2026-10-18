@@ -427,7 +427,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
       await stopRuntime();
       await shutdownCompanion(companion);
       setPower('down');
-      onNote(`The Reader Companion on ${name} is shut down: no Jupyter server, no kernels. It stays off, at your next login too, until you start it — Start the Companion in this menu, the Reader app, or reader-companion start in a terminal.`);
+      onNote(`The Koios Companion on ${name} is shut down: no Jupyter server, no kernels. It stays off, at your next login too, until you start it — Start the Companion in this menu, the Koios app, or reader-companion start in a terminal.`);
     } catch (error) {
       setPower('unknown');
       onNote(error instanceof Error ? error.message : String(error));
@@ -440,7 +440,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
     const info = await startCompanion(companion.url);
     if (!info) {
       setPower('down');
-      onNote(`The Companion didn’t start from here. Open the Reader app on ${name}, or run reader-companion start in a terminal there. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer: update it in Settings → Updates.)`);
+      onNote(`The Companion didn’t start from here. Open the Koios app on ${name}, or run reader-companion start in a terminal there. (The page can start a Companion from ${STARTABLE} on, installed with the Koios app or the installer: update it in Settings → Updates.)`);
       return;
     }
     setPower('up');
@@ -498,7 +498,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
               type="button"
               role="menuitem"
               disabled={power === 'starting'}
-              title="Starts the Reader Companion (the Jupyter server on this computer) through the Reader app. Your browser asks once whether to open it."
+              title="Starts the Koios Companion (the Jupyter server on this computer) through the Koios app. Your browser asks once whether to open it."
               onClick={() => {
                 setOpen(false);
                 void startUp();
@@ -619,7 +619,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
                 <button
                   type="button"
                   role="menuitem"
-                  title="Stops the Reader Companion, the Jupyter server on this computer, and every kernel in it. It stays off until you start it again from this menu or the Reader app."
+                  title="Stops the Koios Companion, the Jupyter server on this computer, and every kernel in it. It stays off until you start it again from this menu or the Koios app."
                   onClick={() => {
                     setOpen(false);
                     void shutDown();
@@ -723,7 +723,7 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
     }
   }, [session]);
 
-  if (!server) return <p className="pg-note pg-pad">An agent runs in a terminal on the machine: choose a Jupyter server of yours — a Reader Companion — from the machine menu.</p>;
+  if (!server) return <p className="pg-note pg-pad">An agent runs in a terminal on the machine: choose a Jupyter server of yours — a Koios Companion — from the machine menu.</p>;
   const start = (line: string) => {
     if (session) forgetTerminal(server, session.id);
     const next = { agent: chosen.id, id: `${playgroundId}~agent~${shortId()}`, command: line };
@@ -1617,7 +1617,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const agentChoices: { id: AgentMode; label: string; mark: string; title: string }[] = [
     { id: 'claude', label: 'Claude Code', mark: '✳', title: `Anthropic’s Claude Code, on ${machineName}, signed in to your account` },
     { id: 'codex', label: 'Codex', mark: '◎', title: `OpenAI’s Codex, on ${machineName}, signed in to your account` },
-    { id: 'reader', label: 'Reader AI', mark: '✦', title: 'The page’s own agent, answered by the model you pick in Settings → AI' },
+    { id: 'reader', label: 'Koios AI', mark: '✦', title: 'The page’s own agent, answered by the model you pick in Settings → AI' },
     ...(cliAgents ? [{ id: 'cli' as const, label: 'Terminal', mark: '$', title: `Any agent with a command line, in a terminal on ${machineName}` }] : []),
   ];
   const sideKey = mode === 'cli' ? 'agent' : 'side';

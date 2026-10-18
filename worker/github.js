@@ -214,9 +214,9 @@ function callbackPage(origin, outcome) {
   const target = JSON.stringify(origin || '').replace(/</g, '\\u003c');
   const text = outcome.ok ? `Connected to GitHub as ${outcome.login}. You can close this window.` : `GitHub sign-in didn’t finish: ${outcome.error}`;
   const escape = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reader · GitHub</title>
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Koios · GitHub</title>
 <body style="font:15px system-ui,sans-serif;margin:48px auto;max-width:420px;padding:0 16px;color:#1a1a17;background:#fbfaf6">
-<p>${escape(text)}</p>${origin ? `<p><a href="${escape(origin)}">Back to Reader</a></p>` : ''}
+<p>${escape(text)}</p>${origin ? `<p><a href="${escape(origin)}">Back to Koios</a></p>` : ''}
 <script>try{if(window.opener&&${target}){window.opener.postMessage(${message},${target});window.close()}}catch(e){}</script></body>`;
   return new Response(html, { status: outcome.ok ? 200 : 400, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'", 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' } });
 }
@@ -231,11 +231,11 @@ export async function handleGithub(request, env, path, { json, headers, authoriz
   if (path === '/github/callback') {
     const url = new URL(request.url);
     const state = url.searchParams.get('state') || '';
-    if (!/^[0-9a-f]{64}$/.test(state) || !env.SESSIONS || !secretsReady(env)) return callbackPage('', { ok: false, error: 'this sign-in isn’t one Reader started' });
+    if (!/^[0-9a-f]{64}$/.test(state) || !env.SESSIONS || !secretsReady(env)) return callbackPage('', { ok: false, error: 'this sign-in isn’t one Koios started' });
     const kept = await env.SESSIONS.get(stateKey(state));
     await env.SESSIONS.delete(stateKey(state));
     const started = kept ? JSON.parse((await openSecret(env, 'state', 'github-state', kept)) || 'null') : null;
-    if (!started) return callbackPage('', { ok: false, error: 'this sign-in has expired or was already used: start it again from Reader' });
+    if (!started) return callbackPage('', { ok: false, error: 'this sign-in has expired or was already used: start it again from Koios' });
     if (url.searchParams.get('error')) return callbackPage(started.origin, { ok: false, error: url.searchParams.get('error_description') || url.searchParams.get('error') });
     try {
       const got = await tokenFromGithub(env, started.via, { code: url.searchParams.get('code') || '', redirect_uri: `${url.origin}/github/callback`, code_verifier: started.verifier });
@@ -299,7 +299,7 @@ export async function handleGithub(request, env, path, { json, headers, authoriz
       try {
         user = await whoseToken(token);
       } catch (error) {
-        return json({ error: error?.refused ? error.message : `Reader’s server couldn’t check the token with GitHub (${error?.message || error}).` }, error?.refused ? 400 : 502, noStore);
+        return json({ error: error?.refused ? error.message : `Koios’s server couldn’t check the token with GitHub (${error?.message || error}).` }, error?.refused ? 400 : 502, noStore);
       }
       const now = new Date().toISOString();
       const previous = await readRecord(env, kv, owner);
@@ -329,7 +329,7 @@ export async function handleGithub(request, env, path, { json, headers, authoriz
       return json({ error: 'a JSON body' }, 400, noStore);
     }
   }
-  if (!allowedCall(method, call, body)) return json({ error: 'Reader’s server doesn’t make that GitHub call with your token.' }, 403, noStore);
+  if (!allowedCall(method, call, body)) return json({ error: 'Koios’s server doesn’t make that GitHub call with your token.' }, 403, noStore);
   const record = await readRecord(env, kv, owner);
   if (!record || record.gone) return json({ error: record?.gone === 'expired' ? 'Your GitHub token expired: connect GitHub again with a new one.' : 'Connect GitHub first (Projects → Connections).', needToken: true }, 401, noStore);
   let answer;
@@ -341,7 +341,7 @@ export async function handleGithub(request, env, path, { json, headers, authoriz
       signal: AbortSignal.timeout(60_000),
     });
   } catch (error) {
-    return json({ error: `Reader’s server couldn’t reach GitHub (${error?.message || error}).` }, 502, noStore);
+    return json({ error: `Koios’s server couldn’t reach GitHub (${error?.message || error}).` }, 502, noStore);
   }
   // GitHub no longer takes it (revoked, expired early): forgotten, and said.
   if (answer.status === 401) {

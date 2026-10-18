@@ -105,7 +105,7 @@ export function ComputeList({ compact = false }: { compact?: boolean }) {
     setPower((current) => ({ ...current, [server.id]: 'starting' }));
     const info = await startCompanion(server.url, 60_000);
     setPower((current) => ({ ...current, [server.id]: info ? 'up' : 'down' }));
-    say(server.id, info ? '' : `It didn’t start from here. Open the Reader app on this computer, or run reader-companion start. (A Companion starts from the page from ${STARTABLE} on.)`);
+    say(server.id, info ? '' : `It didn’t start from here. Open the Koios app on this computer, or run reader-companion start. (A Companion starts from the page from ${STARTABLE} on.)`);
   };
 
   return (

@@ -496,7 +496,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
             <div className="pg-section-head">
               <span className="eyebrow">Your playgrounds</span>
-              <span className="pg-aside" title={where === 'drive' ? 'Each playground’s name, machine, folder and notebook are in your Google Drive (playgrounds.json in your Reader folder); its files stay where they are.' : undefined}>
+              <span className="pg-aside" title={where === 'drive' ? 'Each playground’s name, machine, folder and notebook are in your Google Drive (playgrounds.json in your Koios folder); its files stay where they are.' : undefined}>
                 {where === 'drive' ? 'kept in your Drive' : where === 'error' ? 'kept in this browser · Drive didn’t answer' : 'kept in this browser · sign in with Drive to keep them there'}
               </span>
             </div>
@@ -644,7 +644,7 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
       try {
         await shutdownCompanion(server);
         setPower('down');
-        setNote('Shut down: no Jupyter server, no kernels. It stays off, at your next login too, until you turn it on here, open the Reader app, or run reader-companion start.');
+        setNote('Shut down: no Jupyter server, no kernels. It stays off, at your next login too, until you turn it on here, open the Koios app, or run reader-companion start.');
       } catch (error) {
         setPower('up');
         setNote(error instanceof Error ? error.message : String(error));
@@ -654,7 +654,7 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
     setPower('starting');
     const info = await startCompanion(server.url);
     setPower(info ? 'up' : 'down');
-    if (!info) setNote(`It didn’t start from here. Open the Reader app on this computer, or run reader-companion start in a terminal. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer.)`);
+    if (!info) setNote(`It didn’t start from here. Open the Koios app on this computer, or run reader-companion start in a terminal. (The page can start a Companion from ${STARTABLE} on, installed with the Koios app or the installer.)`);
   };
   const test = async () => {
     setChecking(true);
@@ -671,12 +671,12 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
-      {offline === 'elsewhere' ? <p className="pg-machine-seen">It runs, but it isn’t connected to {server.account} any more (released on that computer, or connected to another account). Connect it again from that computer — open the Reader app there — or Remove it here.</p> : offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Reader app.' : 'Start it on that computer: the Reader app, or reader-companion start.'}</p> : null}
+      {offline === 'elsewhere' ? <p className="pg-machine-seen">It runs, but it isn’t connected to {server.account} any more (released on that computer, or connected to another account). Connect it again from that computer — open the Koios app there — or Remove it here.</p> : offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Koios app.' : 'Start it on that computer: the Koios app, or reader-companion start.'}</p> : null}
       {companion && server.account ? <p>Yours as {server.account}{server.where === 'pc' ? '' : ' · on another computer, through its tunnel'}. Its files stay on it.</p> : null}
       {note ? <p>{note}</p> : null}
       {state && !state.ok && companion ? (
         <div className="pg-howto">
-          <small>It’s the Companion: open the <b>Reader</b> app on this computer, or start it again in a terminal. Either opens a link here that reconnects it.</small>
+          <small>It’s the Companion: open the <b>Koios</b> app on this computer, or start it again in a terminal. Either opens a link here that reconnects it.</small>
           <CopyBlock code={companionCommands(siteBase(), { tunnel: isSafari() }).unix} />
         </div>
       ) : null}
@@ -707,7 +707,7 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
         {companion ? <PowerSwitch power={power} canStart={companionPort(server.url) !== null} onChange={(on) => void toggle(on)} /> : null}
       </div>
       {companion && local && stopWithApp !== undefined ? (
-        <label className="pg-stop-with-app" title="The Reader app opens this site in a window of its own and starts the Companion; with this on, closing that window shuts the Companion down too, until you open the app again. Turn it off to keep reaching this computer from your other devices while its window is closed.">
+        <label className="pg-stop-with-app" title="The Koios app opens this site in a window of its own and starts the Companion; with this on, closing that window shuts the Companion down too, until you open the app again. Turn it off to keep reaching this computer from your other devices while its window is closed.">
           <input
             type="checkbox"
             checked={stopWithApp}
@@ -717,7 +717,7 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
               void setStopWithApp(server, on).then(setStopWithAppState, (error) => (setStopWithAppState(!on), setNote(error instanceof Error ? error.message : String(error))));
             }}
           />
-          <span>Shut down when the Reader window closes</span>
+          <span>Shut down when the Koios window closes</span>
         </label>
       ) : null}
     </div>
@@ -821,7 +821,7 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
       </div>
       {across ? (
         <div className="pg-howto pg-across">
-          <p>The browser here, your code on one computer, the GPU on another: a Reader Companion on each of the two, reached through its HTTPS tunnel from wherever you are.</p>
+          <p>The browser here, your code on one computer, the GPU on another: a Koios Companion on each of the two, reached through its HTTPS tunnel from wherever you are.</p>
           {acrossMachinesSteps(siteBase()).map((step) => (
             <div key={step.label}>
               <small>{step.label}</small>
@@ -908,7 +908,7 @@ function PowerSwitch({ power, onChange, canStart = true }: { power: Power; onCha
       className={`pg-power is-${power}`}
       disabled={power === 'unknown' || power === 'stopping' || power === 'starting' || stuck}
       onClick={() => onChange(!on)}
-      title={stuck ? 'It is off. Start it on that computer: open the Reader app there, or run reader-companion start.' : on ? 'Shut the Companion down: its kernels and Jupyter server stop, and it stays off until it is turned on again.' : 'Start the Companion on this computer. Your browser asks once whether to open the Reader app.'}
+      title={stuck ? 'It is off. Start it on that computer: open the Koios app there, or run reader-companion start.' : on ? 'Shut the Companion down: its kernels and Jupyter server stop, and it stays off until it is turned on again.' : 'Start the Companion on this computer. Your browser asks once whether to open the Koios app.'}
     >
       <span className="pg-power-track" aria-hidden="true">
         <span className="pg-power-knob" />
@@ -980,7 +980,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
       setFoundAt(stopped.base);
       setStopped(null);
     } else {
-      setProblem(`It didn’t start from here. Open the Reader app on this computer, or run reader-companion start in a terminal. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer.)`);
+      setProblem(`It didn’t start from here. Open the Koios app on this computer, or run reader-companion start in a terminal. (The page can start a Companion from ${STARTABLE} on, installed with the Koios app or the installer.)`);
     }
   };
   const askForCode = async () => {
@@ -1049,7 +1049,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
               {asking ? 'Asking…' : 'Show the code on this computer'}
             </button>
             {shown === true ? <small className="pg-companion-note">It’s in a window on this computer’s screen.</small> : null}
-            {shown === false ? <small className="pg-companion-note">This computer can’t show it in a window. Open the <b>Reader</b> app instead, which connects with no code, or run <span className="mono">reader-companion pair</span>.</small> : null}
+            {shown === false ? <small className="pg-companion-note">This computer can’t show it in a window. Open the <b>Koios</b> app instead, which connects with no code, or run <span className="mono">reader-companion pair</span>.</small> : null}
           </div>
           <label className="pg-companion-code">
             <span>Type the code it shows</span>
@@ -1060,7 +1060,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
               </button>
             </span>
           </label>
-          <small className="pg-companion-note">Or open the Reader app, or the link the terminal printed: both connect with no code.</small>
+          <small className="pg-companion-note">Or open the Koios app, or the link the terminal printed: both connect with no code.</small>
         </>
       ) : stopped ? (
         <>
@@ -1072,7 +1072,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
             </div>
             <PowerSwitch power={power} onChange={(on) => void toggle(on)} />
           </div>
-          <small className="pg-companion-note">It stays off, at your next login too, until you turn it on here, open the Reader app, or run <span className="mono">reader-companion start</span>.</small>
+          <small className="pg-companion-note">It stays off, at your next login too, until you turn it on here, open the Koios app, or run <span className="mono">reader-companion start</span>.</small>
         </>
       ) : (
         <>
@@ -1080,9 +1080,9 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
           <div className="pg-companion-ways" role="radiogroup" aria-label="How to start the Companion">
             <button type="button" role="radio" aria-checked={way === 'app'} className={`pg-companion-way${way === 'app' ? ' is-on' : ''}`} onClick={() => setWay('app')}>
               <b>
-                1 · Download the Reader app <small>recommended</small>
+                1 · Download the Koios app <small>recommended</small>
               </b>
-              <span>Install once, then open Reader from the Dock or Start menu; it starts the Companion each time, and connects by itself.</span>
+              <span>Install once, then open Koios from the Dock or Start menu; it starts the Companion each time, and connects by itself.</span>
             </button>
             <button type="button" role="radio" aria-checked={way === 'cli'} className={`pg-companion-way${way === 'cli' ? ' is-on' : ''}`} onClick={() => setWay('cli')}>
               <b>2 · Use the command line</b>
@@ -1320,7 +1320,7 @@ function PairFromLink() {
         ) : info === null ? (
           isSafari() && !pending.via ? (
             <>
-              <p className="lede">Safari reaches the Companion only over https, and nothing answers on https://127.0.0.1:{pending.tls ?? COMPANION_TLS_PORT}. On this Mac, run this once (macOS asks for your password, to trust the Companion’s certificate for this Mac’s own address), then open the Reader app or this link again:</p>
+              <p className="lede">Safari reaches the Companion only over https, and nothing answers on https://127.0.0.1:{pending.tls ?? COMPANION_TLS_PORT}. On this Mac, run this once (macOS asks for your password, to trust the Companion’s certificate for this Mac’s own address), then open the Koios app or this link again:</p>
               <CopyBlock code="reader-companion trust" />
               <p className="lede">Or run the Companion with an HTTPS tunnel instead; the link it opens then works here:</p>
               <CopyBlock code={companionCommands(siteBase(), { tunnel: true }).unix} />
@@ -1331,7 +1331,7 @@ function PairFromLink() {
         ) : (
           <>
             <p className="lede">
-              A Reader Companion on this computer asked to pair with this browser, with the code <b className="mono">{pending.code}</b>.
+              A Koios Companion on this computer asked to pair with this browser, with the code <b className="mono">{pending.code}</b>.
             </p>
             <div className="pg-pair-kv">
               <span>Computer</span>
@@ -1648,7 +1648,7 @@ export function WhereDialog({
             <p className="pg-mode-what">The computer you are using right now, reached directly — only from this browser, on this computer. Pick it to work here and nowhere else.</p>
             <ul>
               <li className="good">Your files, your GPU, no session clock; nothing leaves this computer</li>
-              <li className="good">Any Jupyter server here works, the Reader Companion or one started by hand</li>
+              <li className="good">Any Jupyter server here works, the Koios Companion or one started by hand</li>
               <li className="bad">Not from your phone or another laptop — for that, pick “Your computer, from anywhere”</li>
             </ul>
             {mode === 'pc' ? serverPicker(pcs, pcId, setPcId, 'pc') : null}
@@ -1664,7 +1664,7 @@ export function WhereDialog({
               <i>⇄ its HTTPS tunnel ⇄</i>
               <span>that computer · files, kernel, shell</span>
             </div>
-            <p className="pg-mode-what">A computer of yours with the Reader Companion, connected to your Google account — this one or another. Every browser you sign in to reaches it. Pick it to open the same project from your phone, another laptop, or here.</p>
+            <p className="pg-mode-what">A computer of yours with the Koios Companion, connected to your Google account — this one or another. Every browser you sign in to reaches it. Pick it to open the same project from your phone, another laptop, or here.</p>
             <ul>
               <li className="good">Code and compute both stay on that computer</li>
               <li className="good">It shows up in every browser signed in as you — nothing to pair again</li>
@@ -1679,7 +1679,7 @@ export function WhereDialog({
                     <small className="mono">{server.where === 'pc' ? 'this computer' : `from here, through ${safeHost(server.url)}`}</small>
                   </button>
                 ))}
-                {!devices.length ? <small className="pg-note">None of your computers is connected yet. Open the Reader app on the one you want, signed in as you: it shows up here, on every device you sign in to.</small> : null}
+                {!devices.length ? <small className="pg-note">None of your computers is connected yet. Open the Koios app on the one you want, signed in as you: it shows up here, on every device you sign in to.</small> : null}
               </div>
             ) : null}
           </section>

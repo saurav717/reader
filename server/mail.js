@@ -1,14 +1,14 @@
 /**
  * Mail from the site: the invitation to a shared project (worker/index.js,
  * the /rooms/<id>/invite route), sent to the address invited whether or not
- * it has ever opened Reader. A Worker sends no mail itself, so it goes
+ * it has ever opened Koios. A Worker sends no mail itself, so it goes
  * through a transactional provider's API — Brevo, SendGrid, Postmark or
  * Resend, whichever the key is for — from an address the provider has
  * verified: a domain, or (Brevo, SendGrid, Postmark) one address of your
  * own, which is what a personal email is. Three settings, the key a secret:
  *
  *     npx wrangler secret put MAIL_API_KEY       # the provider's API key
- *     MAIL_FROM = "Reader <noreply@example.org>"  # a var: the sender, as verified with the provider
+ *     MAIL_FROM = "Koios <noreply@example.org>"  # a var: the sender, as verified with the provider
  *     MAIL_PROVIDER = "brevo"                     # optional: brevo, sendgrid, postmark or resend; guessed from the key otherwise
  *
  * With none of them set, nothing is sent and the share dialog says to send
@@ -55,7 +55,7 @@ const PROVIDERS = {
   },
 };
 
-/** "Reader <noreply@x.org>" as SendGrid wants it: { email, name }. */
+/** "Koios <noreply@x.org>" as SendGrid wants it: { email, name }. */
 function address(value) {
   const match = /^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/.exec(value);
   return match ? { email: match[2].trim(), ...(match[1]?.trim() ? { name: match[1].trim() } : {}) } : { email: String(value).trim() };
@@ -82,7 +82,7 @@ const escape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;
 
 /**
  * The invitation: who asked, to what, and the link that joins it, for
- * someone who may never have heard of Reader. The link works only signed in
+ * someone who may never have heard of Koios. The link works only signed in
  * with Google as the address invited, and signing in is all an account is —
  * so the steps say exactly that, and nothing to create.
  */
@@ -90,11 +90,11 @@ export function invitationMail({ to, inviter, inviterEmail, project, question, r
   const name = inviter || inviterEmail || 'Someone';
   const what = project || 'a project';
   const may = role === 'viewer' ? 'As a viewer you can see the project, and where everyone in it is.' : 'As an editor you can change the project — its papers, to-do list and question — and see where everyone in it is.';
-  const subject = `${name} invited you to “${what}” on Reader`;
+  const subject = `${name} invited you to “${what}” on Koios`;
   const text = [
     'Hi,',
     '',
-    `${name} has invited you to work together on “${what}” in Reader — a reading room for research papers, where a project keeps its papers, its code and the paper being written in one place, with everyone's place in it shown as it happens.`,
+    `${name} has invited you to work together on “${what}” in Koios — a reading room for research papers, where a project keeps its papers, its code and the paper being written in one place, with everyone's place in it shown as it happens.`,
     ...(question ? ['', `The project's question: ${question}`] : []),
     '',
     'To join:',
@@ -111,7 +111,7 @@ export function invitationMail({ to, inviter, inviterEmail, project, question, r
   const html = [
     '<div style="font:15px/1.55 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a17;max-width:560px">',
     '<p>Hi,</p>',
-    `<p><b>${escape(name)}</b> has invited you to work together on <b>${escape(what)}</b> in Reader — a reading room for research papers, where a project keeps its papers, its code and the paper being written in one place, with everyone's place in it shown as it happens.</p>`,
+    `<p><b>${escape(name)}</b> has invited you to work together on <b>${escape(what)}</b> in Koios — a reading room for research papers, where a project keeps its papers, its code and the paper being written in one place, with everyone's place in it shown as it happens.</p>`,
     ...(question ? [`<p style="color:#55524a">The project's question: <i>${escape(question)}</i></p>`] : []),
     '<p style="margin:22px 0 6px"><b>To join</b></p>',
     '<ol style="margin:0 0 18px;padding-left:22px">',
@@ -129,7 +129,7 @@ export function invitationMail({ to, inviter, inviterEmail, project, question, r
 }
 
 /**
- * An invitation to try Reader, from someone who uses it to a colleague, a
+ * An invitation to try Koios, from someone who uses it to a colleague, a
  * student, anyone they know, who may not: what it is in a few lines, a note of the sender's own, and the site's
  * address. Nothing to accept: the link is the site, and signing in is the
  * account.
@@ -137,11 +137,11 @@ export function invitationMail({ to, inviter, inviterEmail, project, question, r
 export function tryItMail({ to, inviter, inviterEmail, note, link }) {
   const name = inviter || inviterEmail || 'Someone';
   const said = String(note || '').trim().slice(0, 1000);
-  const subject = `${name} thinks you'd like Reader`;
+  const subject = `${name} thinks you'd like Koios`;
   const text = [
     'Hi,',
     '',
-    `${name} invited you to try Reader — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.`,
+    `${name} invited you to try Koios — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.`,
     ...(said ? ['', `${name} says:`, '', ...said.split('\n').map((line) => `    ${line}`)] : []),
     '',
     `Try it: ${link}`,
@@ -154,9 +154,9 @@ export function tryItMail({ to, inviter, inviterEmail, note, link }) {
   const html = [
     '<div style="font:15px/1.55 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a17;max-width:560px">',
     '<p>Hi,</p>',
-    `<p><b>${escape(name)}</b> invited you to try <b>Reader</b> — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.</p>`,
+    `<p><b>${escape(name)}</b> invited you to try <b>Koios</b> — a reading room for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref in one go; read with highlights and notes that stay in your own Google Drive; keep a project's papers, its code and the paper you're writing in one place; and work on it with other people, seeing where each of you is.</p>`,
     ...(said ? [`<blockquote style="margin:16px 0;padding:10px 14px;border-left:3px solid #1f5e52;background:#f4f1e8;color:#1a1a17;white-space:pre-wrap">${escape(said)}</blockquote>`] : []),
-    `<p><a href="${escape(link)}" style="display:inline-block;margin:6px 0;padding:10px 16px;border-radius:8px;background:#1f5e52;color:#f6f4ec;text-decoration:none;font-weight:600">Try Reader</a></p>`,
+    `<p><a href="${escape(link)}" style="display:inline-block;margin:6px 0;padding:10px 16px;border-radius:8px;background:#1f5e52;color:#f6f4ec;text-decoration:none;font-weight:600">Try Koios</a></p>`,
     '<p style="color:#55524a">Sign in with Google and your library is yours, in your own Drive — nothing to install, nothing to create.</p>',
     ...(inviterEmail ? [`<p style="color:#55524a">Questions? Just reply — it goes to ${escape(name)} (${escape(inviterEmail)}).</p>`] : []),
     '<p style="color:#6f6c63;font-size:13px">Not expecting this? You can ignore it.</p>',

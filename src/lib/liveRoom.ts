@@ -108,7 +108,7 @@ export function fromSummary(summary: SharedProject, shared: SharedWith, had?: Pr
 
 async function answer<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error || `Reader’s server answered ${response.status}.`);
+  if (!response.ok) throw new Error(body.error || `Koios’s server answered ${response.status}.`);
   return body;
 }
 

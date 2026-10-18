@@ -559,15 +559,15 @@ describe('a notebook of the reader’s own', () => {
     assert.ok(cells.every((c) => /^[\w-]{8}$/.test(c.id)));
   });
   it('signs the header with the model that wrote the page, Claude when nothing says', () => {
-    assert.match(seedCells('A paper', sections, 'DeepSeek Flash')[0].source, /Explained by DeepSeek Flash in Reader\. The outputs under each cell were written by DeepSeek Flash, not run/);
-    assert.match(seedCells('A paper', sections)[0].source, /Explained by Claude in Reader/);
+    assert.match(seedCells('A paper', sections, 'DeepSeek Flash')[0].source, /Explained by DeepSeek Flash in Koios\. The outputs under each cell were written by DeepSeek Flash, not run/);
+    assert.match(seedCells('A paper', sections)[0].source, /Explained by Claude in Koios/);
     assert.doesNotMatch(seedCells('A paper', sections, 'Gemini 3.8 Flash')[0].source, /Claude/);
   });
   it('with no page written yet, is one text cell that names no model: the model is picked on the tab', () => {
     const cells = seedCells('A paper', []);
     assert.equal(cells.length, 1);
     assert.equal(cells[0].type, 'markdown');
-    assert.match(cells[0].source, /^# A paper\n\n\*A notebook of your own in Reader/);
+    assert.match(cells[0].source, /^# A paper\n\n\*A notebook of your own in Koios/);
     assert.doesNotMatch(cells[0].source, /Claude|Explained by/);
     assert.ok(nbLib.isSeedOnly(cells), 'and is known as the blank notebook’s one cell');
     assert.ok(!nbLib.isSeedOnly([{ ...cells[0], source: `${cells[0].source}\n\nMy notes.` }]), 'until it is written in');

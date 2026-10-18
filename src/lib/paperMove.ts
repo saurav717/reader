@@ -92,7 +92,7 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
     const clone = gitUrl ? Boolean((await paperRemote(here.server, local.path).catch(() => null))?.url) : false;
     if (clone) {
       step('Sending what was written on this computer to Overleaf…');
-      const sent = await syncPaper(here.server, local.path, 'Edits from Reader, before the paper moved to Drive');
+      const sent = await syncPaper(here.server, local.path, 'Edits from Koios, before the paper moved to Drive');
       if (!sent.ok) {
         // Overleaf's Git down for a while (a 5xx, or not reached): said as such, and tried again later — nothing moved, nothing lost.
         if (overleafDown(sent.error)) throw Object.assign(new Error('Overleaf’s Git isn’t answering right now (it’s down for a moment on Overleaf’s side). Nothing was moved or lost: try again in a few minutes.'), { transient: true });
@@ -119,7 +119,7 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
       const there = new Set(await filesOf(drive));
       if (paths.every((path) => there.has(path))) {
         step('Removing the folder from this computer…');
-        await removeFolder(here.server, local.path).catch((error) => console.warn(`Reader: ${local.path} couldn’t be removed from this computer:`, error));
+        await removeFolder(here.server, local.path).catch((error) => console.warn(`Koios: ${local.path} couldn’t be removed from this computer:`, error));
       }
     }
     return folder;
@@ -127,11 +127,11 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
   if (gitUrl) {
     // Nothing of it here: brought in from Overleaf by Reader's server.
     step('Bringing the paper in from Overleaf…');
-    const done = await cloudSync(drive, gitUrl, 'From Reader', options.token);
+    const done = await cloudSync(drive, gitUrl, 'From Koios', options.token);
     if (!done.ok) throw Object.assign(new Error(done.needToken ? 'Your Overleaf Git token is needed.' : done.error ?? 'It didn’t come in.'), { needToken: Boolean(done.needToken) });
     return folder;
   }
-  throw new Error('The paper’s folder is on another computer: open Reader there to move it.');
+  throw new Error('The paper’s folder is on another computer: open Koios there to move it.');
 }
 
 /** The link with the paper in Drive at `folder`, and this computer's folder for it, removed with the move, forgotten. */

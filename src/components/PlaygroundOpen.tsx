@@ -191,7 +191,7 @@ export default function OpenDialog({ onClose, onOpen, onUploadFile, onUploadFold
       const folder = picked.dir ? picked.path : parentOf(picked.path);
       // The folder as the Companion serves it: linked in from anywhere on the computer, or already under its folder.
       const root = mode === 'disk' ? (await linkFolder(server, folder)).root : picked.dir ? picked.path : picked.path.split('/').slice(0, -1).join('/');
-      if (!root) throw new Error(`Pick a folder inside ${server.root ?? 'the Reader folder'}, not the Reader folder itself.`);
+      if (!root) throw new Error(`Pick a folder inside ${server.root ?? 'the Koios folder'}, not the Koios folder itself.`);
       const host = serverHost(server, root);
       const compute: Compute = runOn === 'colab' ? { kind: 'colab', machine: { accelerator: 'NONE' } } : { kind: 'server', serverId: runOn || server.id };
       const title = name.trim() || nameOf(folder);
@@ -226,20 +226,20 @@ export default function OpenDialog({ onClose, onOpen, onUploadFile, onUploadFold
   const companions = servers.filter(isCompanion);
   const accountLine = !account ? (
     <>
-      <b>Not signed in.</b> Only the computers paired with this browser are listed. Sign in with Google (top of Settings) to see every computer that has the Reader app signed in as you, from any browser.
+      <b>Not signed in.</b> Only the computers paired with this browser are listed. Sign in with Google (top of Settings) to see every computer that has the Koios app signed in as you, from any browser.
     </>
   ) : devices === 'loading' ? (
     <>Looking up the computers signed in as {maskEmail(account)}…</>
   ) : devices && devices.length === 0 ? (
     <>
-      <b>No computer has the Reader app signed in as {maskEmail(account)}.</b> Install it on the computer that has your files and it shows here, from any browser you sign in to.{' '}
+      <b>No computer has the Koios app signed in as {maskEmail(account)}.</b> Install it on the computer that has your files and it shows here, from any browser you sign in to.{' '}
       <button type="button" className="link" onClick={onConnect}>
         Connect this computer
       </button>
     </>
   ) : devices ? (
     <>
-      Signed in as {maskEmail(account)} · the Reader app is on {devices.length} {devices.length === 1 ? 'computer' : 'computers'}:{' '}
+      Signed in as {maskEmail(account)} · the Koios app is on {devices.length} {devices.length === 1 ? 'computer' : 'computers'}:{' '}
       {devices.map((d, i) => (
         <span key={d.id}>
           {i ? ', ' : ''}
@@ -329,7 +329,7 @@ export default function OpenDialog({ onClose, onOpen, onUploadFile, onUploadFold
                 <p>The browser reads the file or folder and the project gets a copy; where that copy is kept — your Drive, a folder on a computer of yours — is the next step. Data, checkpoints, caches and files over 200 KB are left out.</p>
                 {localId ? (
                   <p className="op-tip">
-                    This computer has the Reader app: pick <b>{servers.find((s) => s.companionId === localId)?.name ?? 'it'}</b> on the left to open a folder <b>where it is</b>, with nothing copied — edits change the folder itself.
+                    This computer has the Koios app: pick <b>{servers.find((s) => s.companionId === localId)?.name ?? 'it'}</b> on the left to open a folder <b>where it is</b>, with nothing copied — edits change the folder itself.
                   </p>
                 ) : null}
                 <div className="op-acts">
@@ -345,7 +345,7 @@ export default function OpenDialog({ onClose, onOpen, onUploadFile, onUploadFold
               <div className="op-guide">
                 <h3>Files in your Google Drive</h3>
                 <p>
-                  Reader sees only the files it made in your Drive (Google’s <i>drive.file</i> permission), so other Drive folders can’t be browsed from here. Projects already kept in Drive are in your list, and open on any computer.
+                  Koios sees only the files it made in your Drive (Google’s <i>drive.file</i> permission), so other Drive folders can’t be browsed from here. Projects already kept in Drive are in your list, and open on any computer.
                 </p>
                 <ul>
                   <li>To work on a Drive folder with Colab: start a <b>Blank notebook</b> on Colab and mount Drive in it — <code>from google.colab import drive; drive.mount('/content/drive')</code>.</li>
@@ -368,7 +368,7 @@ export default function OpenDialog({ onClose, onOpen, onUploadFile, onUploadFold
               <div className="op-guide">
                 <h3>{server.name} isn’t answering</h3>
                 <p>
-                  It may be off or asleep, or its Companion has stopped{server.seen ? ` — last seen ${since(server.seen)}` : ''}. On {server.name}, open the Reader app (or run <code>reader-companion</code>); it shows here as online, and its folders can be opened.
+                  It may be off or asleep, or its Companion has stopped{server.seen ? ` — last seen ${since(server.seen)}` : ''}. On {server.name}, open the Koios app (or run <code>reader-companion</code>); it shows here as online, and its folders can be opened.
                 </p>
                 <p className="op-tip">Its files can’t be opened from here until it answers: nothing of it is kept anywhere else.</p>
               </div>
@@ -479,7 +479,7 @@ export default function OpenDialog({ onClose, onOpen, onUploadFile, onUploadFold
                 <input type="radio" checked={how === 'here'} onChange={() => setHow('here')} />
                 <span>
                   <b>Use it where it is</b>
-                  <small>{mode === 'disk' ? `Edits change the folder on ${server.name} itself; it is linked into the Reader folder, nothing copied.` : `The project is that folder on ${server.name}.`}</small>
+                  <small>{mode === 'disk' ? `Edits change the folder on ${server.name} itself; it is linked into the Koios folder, nothing copied.` : `The project is that folder on ${server.name}.`}</small>
                 </span>
               </label>
               <label className={how === 'drive' ? 'is-on' : ''} title={drive ? undefined : 'Sign in with Google, with Drive, first'}>
