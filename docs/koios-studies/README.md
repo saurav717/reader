@@ -36,3 +36,11 @@ Rounds 1 and 2 (A–H) widen; round 3 (I–L) looks at search, the page, orbit a
 the needle; round 4 (M–P) is the space-navigation set. Of the sixteen, A, J and
 I say what the product does (find, read, keep); M, N, L and P say what the name
 means.
+
+## Loading-page samples
+
+`loading/` holds six loading-screen samples drawn by gpt-image-2 with the
+copy set exactly: a two-line serif headline, a two-sentence introduction to
+Koios in the stoic register, and the "Reading your library" rule. `sheet.png`
+lays the six out together. The same copy is on the design canvas's vector
+boards, which are the ones to build from.
