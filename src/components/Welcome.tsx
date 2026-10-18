@@ -68,7 +68,7 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
   // its words fading in after it. `side` fills the screen with the picture
   // from the right and keeps the words and the way in on the left; `centred`
   // frames the picture as a plate in the middle with everything under it.
-  const { scene, previous, turn, fading } = useSlides(pickScene());
+  const { scene, previous, turn, fading, at, count, go } = useSlides(pickScene());
   const centred = WELCOME_LAYOUT === 'centred';
 
   return (
@@ -79,6 +79,15 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
         <span>koios</span>
       </div>
       {centred ? <ScenePlate scene={scene} previous={previous} /> : null}
+      <div className="night-steps" role="group" aria-label="Scenes">
+        <button type="button" className="night-step" onClick={() => go(-1)} aria-label="Previous scene" title="Previous scene">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 L5 8 L10 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
+        <span className="night-step-count">{at + 1} / {count}</span>
+        <button type="button" className="night-step" onClick={() => go(1)} aria-label="Next scene" title="Next scene">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3 L11 8 L6 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
+      </div>
       <div className={`night-copy${centred ? ' is-centred' : ''}`}>
         <div className="night-words-stack">
           {previous && fading ? (

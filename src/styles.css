@@ -8802,7 +8802,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .night-veil {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(7, 10, 18, 0.86) 0%, rgba(7, 10, 18, 0.72) 36%, rgba(7, 10, 18, 0.18) 62%, rgba(7, 10, 18, 0) 82%);
+  background: linear-gradient(90deg, rgba(7, 10, 18, 0.7) 0%, rgba(7, 10, 18, 0.56) 36%, rgba(7, 10, 18, 0.14) 62%, rgba(7, 10, 18, 0) 82%);
 }
 .night-mark {
   position: absolute;
@@ -9056,8 +9056,8 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .night-words-stack > .night-words { grid-area: 1 / 1; }
 .night-words { display: flex; flex-direction: column; gap: 26px; }
 .night-copy.is-centred .night-words { align-items: center; gap: 16px; }
-.night-words.is-arriving { animation: night-words-in 1.8s ease 1s both; }
-.night-words.is-leaving { animation: night-words-out 1.2s ease both; pointer-events: none; }
+.night-words.is-arriving { animation: night-words-in 2.4s ease 1.2s both; }
+.night-words.is-leaving { animation: night-words-out 2.2s ease both; pointer-events: none; }
 @keyframes night-words-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes night-words-out { from { opacity: 1; } to { opacity: 0; } }
 .night-scene.is-welcome:not(.is-centred) .night-copy { max-width: 600px; }
@@ -9082,3 +9082,14 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 @media (max-height: 720px) {
   .night-scene.is-welcome:not(.is-centred) { padding-top: 64px; padding-bottom: 56px; }
 }
+
+/* The scenes' controls: a step either way and where you are, at the foot of
+   the words' column, quiet until reached. */
+.night-steps { position: absolute; left: var(--edge); bottom: 40px; display: flex; align-items: center; gap: 10px; color: var(--muted); font: 500 11px/1 var(--mono); letter-spacing: 0.14em; opacity: 0.7; transition: opacity 0.4s ease; }
+.night-steps:hover, .night-steps:focus-within { opacity: 1; }
+.night-step { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid rgba(216, 180, 106, 0.3); background: rgba(7, 10, 18, 0.5); color: var(--gold); cursor: pointer; }
+.night-step:hover { border-color: var(--gold); background: rgba(216, 180, 106, 0.1); }
+.night-step:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.night-step-count { min-width: 44px; text-align: center; color: var(--muted); }
+.night-scene.is-centred .night-steps { left: 50%; transform: translateX(-50%); bottom: 24px; }
+@media (max-width: 760px) { .night-steps { left: 20px; bottom: 24px; } }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { basePath } from '../lib/route';
 
 /**
@@ -116,7 +116,7 @@ function SceneLayer({ scene, shown, onArrive }: { scene: Scene; shown: boolean; 
 }
 
 /** How long each scene stands on the opening screen before the next fades in (the fade itself is 3 s, in styles.css). */
-const SLIDE_MS = 11000;
+const SLIDE_MS = 16000;
 
 /**
  * The scenes one after another, starting from this visit's: the current one,
@@ -124,40 +124,39 @@ const SLIDE_MS = 11000;
  * picture is fetched a moment before its turn, so the fade never waits on
  * the network. With motion reduced, the first scene stands alone.
  */
-export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number; fading: boolean } {
-  const [turn, setTurn] = useState(0);
+export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number; fading: boolean; at: number; count: number; go: (delta: number) => void } {
+  // Which scene stands, which it took over from, and a count that goes up on
+  // every change: the keys the words are mounted under, so each change is a
+  // fresh fade even when the same scene comes round again.
+  const [state, setState] = useState(() => ({ at: SCENES.indexOf(first), last: null as number | null, turn: 0 }));
   // True while a scene is still giving way to the next: as long as the cross-fade and the words' own fades take.
   const [fading, setFading] = useState(false);
   const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const go = useCallback((delta: number) => {
+    setState((was) => ({ at: (((was.at + delta) % SCENES.length) + SCENES.length) % SCENES.length, last: was.at, turn: was.turn + 1 }));
+  }, []);
   useEffect(() => {
-    if (!turn) return;
+    if (!state.turn) return;
     setFading(true);
-    const done = window.setTimeout(() => setFading(false), 3200);
+    const done = window.setTimeout(() => setFading(false), 3800);
     return () => window.clearTimeout(done);
-  }, [turn]);
+  }, [state.turn]);
+  // The next turn comes a whole interval after the last change, a click included.
   useEffect(() => {
     if (still) return;
-    const start = SCENES.indexOf(first);
-    const timer = window.setInterval(() => setTurn((at) => at + 1), SLIDE_MS);
-    const warm = window.setTimeout(() => {
-      const next = new Image();
-      next.src = sceneUrl(SCENES[(start + 1) % SCENES.length]);
-    }, SLIDE_MS - 4000);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(warm);
-    };
-  }, [first, still]);
+    const timer = window.setTimeout(() => go(1), SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [still, state.turn, go]);
+  // The scenes either side are fetched ahead, so a fade never waits on the network.
   useEffect(() => {
-    if (still || !turn) return;
-    const start = SCENES.indexOf(first);
-    const next = new Image();
-    next.src = sceneUrl(SCENES[(start + turn + 1) % SCENES.length]);
-  }, [first, still, turn]);
-  const start = SCENES.indexOf(first);
-  const scene = SCENES[(start + turn) % SCENES.length];
-  const previous = turn ? SCENES[(start + turn - 1) % SCENES.length] : null;
-  return { scene, previous, turn, fading };
+    for (const delta of [1, -1]) {
+      const near = new Image();
+      near.src = sceneUrl(SCENES[(((state.at + delta) % SCENES.length) + SCENES.length) % SCENES.length]);
+    }
+  }, [state.at]);
+  const scene = SCENES[state.at];
+  const previous = state.last === null ? null : SCENES[state.last];
+  return { scene, previous, turn: state.turn, fading, at: state.at, count: SCENES.length, go };
 }
 
 /**

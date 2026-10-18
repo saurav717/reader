@@ -3097,9 +3097,11 @@ not the same twice running.
 The opening screen, where Drive is connected, keeps the scene the loading
 screen chose: the picture fills the screen from the right, and the words
 and the sign-in sit on the left. The rail stays away until someone is in.
-While the page waits the scenes go round: each stands for eleven seconds,
-then the next fades in over it across three, and its words fade in after
-it; with motion reduced, the first scene stands alone. The same screen can
+While the page waits the scenes go round: each stands for sixteen seconds,
+then the next fades in over it across three, its words giving way to the
+next's the same way; a step either way at the foot of the words' column
+goes to the next or the last scene at once. With motion reduced, the first
+scene stands alone and the steps still work. The same screen can
 be laid out with the picture framed in the middle instead, by one constant
 in `src/components/Welcome.tsx`.
 
