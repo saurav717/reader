@@ -94,7 +94,8 @@ const defaultSettings: Settings = {
   syncOnOpen: true,
   proxyBase: '',
   proxyToken: '',
-  theme: 'dark',
+  // The night where the site wears the Koios look (lib/look.ts), the plain dark where it is classic.
+  theme: (typeof document !== 'undefined' && document.documentElement.dataset.look === 'classic' ? 'dark' : 'koios') as Settings['theme'],
   glass: false,
   glassFrost: 0.5,
   glassWall: 'spotlight',
@@ -457,7 +458,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // `system` is whichever the operating system says, and follows it as it changes.
     const dark = window.matchMedia?.('(prefers-color-scheme: dark)');
     const apply = () => {
-      root.dataset.theme = settings.theme === 'system' ? (dark?.matches ? 'dark' : 'light') : settings.theme;
+      // Koios is the dark mode's tokens with the night's rules over them (data-koios), so every dark rule holds under it;
+      // on a site wearing the classic look it stands down to dark.
+      const koios = settings.theme === 'koios' && root.dataset.look !== 'classic';
+      root.dataset.theme = settings.theme === 'system' ? (dark?.matches ? 'dark' : 'light') : settings.theme === 'koios' ? 'dark' : settings.theme;
+      if (koios) root.dataset.koios = 'on';
+      else delete root.dataset.koios;
     };
     apply();
     if (settings.theme === 'system') dark?.addEventListener('change', apply);

@@ -3130,8 +3130,14 @@ is reduced.
 
 ![the library with nothing in it yet: the armillary in gold hairlines, "Every paper is a star.", and the Find papers button](docs/night-empty.png)
 
-**Settings → Appearance → Theme** has Light, Dark and System, the last
-following the operating system as it changes.
+**Settings → Appearance → Theme** offers Light, Dark and Koios, with a
+switch to follow the operating system between the first two. Koios is a
+theme of its own, not the dark mode: the night's colours, and the same
+pages with less on them at once. The rail's labels, the library's counts
+and the reader's lesser buttons appear when the pointer is near; panels
+keep a hairline and lose their fills; the paragraph of hints under a PDF
+shows once and then waits under a ? at the foot of the page; the notes
+pane's empty state is one line.
 
 The night is one of two looks, and the owner chooses which the site wears:
 **Usage → The site → Look** switches every visitor between **Koios** and
@@ -3150,8 +3156,11 @@ and the empty states are `src/components/Quiet.tsx`.
 
 ## Glass
 
-**Settings → Appearance → Glass** swaps the solid paper for glass, in either
-theme. The window becomes rounded panes floating over a wallpaper, which you
+**Settings → Appearance → Glass** swaps the solid paper for glass, in any
+theme. Under Koios the panes are navy with gold rims, and the wallpapers
+are the night: the spotlight a blue glow in the dark, the sage a green one.
+
+![Home under Koios with Glass on: navy panes with gold rims over the night](docs/night-glass.png) The window becomes rounded panes floating over a wallpaper, which you
 see through the rail, the library and the dock. The page you read is a sheet that
 stays nearly solid, because the text is the one thing that must never swim.
 

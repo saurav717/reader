@@ -50,7 +50,7 @@ export const GUIDES: Record<UsageTab, ServiceGuide> = {
       'The site has two looks. Koios is the night: navy ground, gold hairlines and labels, headings in the light serif, and the armillary with one of the Titan’s lines where a page is empty. Classic is the theme before it. The choice made here is kept on the Worker and reaches every visitor on their next page load; the loading screen and the sign-in are the same either way.',
     notes: [
       'The choice is kept in the Worker’s SESSIONS namespace (wrangler.toml). Without one, the switch changes only the browser it is clicked in.',
-      'Each visitor’s own Light, Dark or System choice in Settings → Appearance stands under either look.',
+      'Under the Koios look, Settings → Appearance offers Light, Dark and Koios, with Koios the default; under Classic it offers Light and Dark, and anyone set to Koios reads in Dark.',
     ],
   },
   overview: {

@@ -1052,20 +1052,37 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
     </>
   );
 
+  // What the operating system prefers now, for the Light/Dark pair; and whether the site wears the Koios look at all.
+  const systemDark = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  const koiosOffered = typeof document === 'undefined' || document.documentElement.dataset.look !== 'classic';
   const appearanceTab = (
     <>
       <Card title="Theme">
-        <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Theme">
-          <button type="button" aria-pressed={settings.theme === 'light'} onClick={() => updateSettings({ theme: 'light' })}>
+        <div className="theme-pick" role="group" aria-label="Theme">
+          <button type="button" className="theme-option" aria-pressed={settings.theme === 'light' || (settings.theme === 'system' && !systemDark)} onClick={() => updateSettings({ theme: 'light' })}>
+            <span className="theme-swatch is-light" aria-hidden="true"><i /></span>
             Light
           </button>
-          <button type="button" aria-pressed={settings.theme === 'dark'} onClick={() => updateSettings({ theme: 'dark' })}>
+          <button type="button" className="theme-option" aria-pressed={settings.theme === 'dark' || (settings.theme === 'system' && systemDark)} onClick={() => updateSettings({ theme: 'dark' })}>
+            <span className="theme-swatch is-dark" aria-hidden="true"><i /></span>
             Dark
           </button>
-          <button type="button" aria-pressed={settings.theme === 'system'} onClick={() => updateSettings({ theme: 'system' })} title="Light or dark as the system is">
-            System
-          </button>
+          {koiosOffered ? (
+            <button type="button" className="theme-option" aria-pressed={settings.theme === 'koios'} onClick={() => updateSettings({ theme: 'koios' })} title="The night: a theme of its own, not the dark mode">
+              <span className="theme-swatch is-koios" aria-hidden="true"><i /></span>
+              Koios
+            </button>
+          ) : null}
         </div>
+        <label className="theme-follow">
+          <input
+            type="checkbox"
+            checked={settings.theme === 'system'}
+            disabled={settings.theme === 'koios'}
+            onChange={(event) => updateSettings({ theme: event.target.checked ? 'system' : systemDark ? 'dark' : 'light' })}
+          />
+          Follow the system between Light and Dark{settings.theme === 'koios' ? ' (not while Koios is on)' : ''}
+        </label>
       </Card>
 
       <Card title="Material">
