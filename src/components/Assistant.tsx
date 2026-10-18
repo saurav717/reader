@@ -947,7 +947,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
 
   const ideas = reading
     ? ['What is the main contribution, in two sentences?', 'Explain the passage I am looking at.', 'What would I need to know to follow section 3?']
-    : ['Which of these papers should I read first?', 'What do these papers have in common?'];
+    : ['What can I do on this page?', 'How do I start a project and add papers to it?', 'Which of these papers should I read first?'];
 
   const model = modelSpec(s.prefs.model);
   const provider = PROVIDERS[model.provider];
@@ -1141,8 +1141,8 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         {s.hasKey && !s.turns.length ? (
           <div className="chat-empty">
             <p>
-              Just ask — {model.label} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
-              go along with the question, so there is nothing to paste. The ⚙ menu says exactly what, and lets you hold anything back.
+              Just ask — {model.label} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected, your highlights and the rest of the page' : 'Whatever page you are on — its text, buttons and fields —'}{' '}
+              go along with the question, and it can tell you where to click, so there is nothing to paste. The ⚙ menu says exactly what, and lets you hold anything back.
             </p>
             <ul>
               {ideas.map((idea) => (

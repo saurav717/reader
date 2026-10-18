@@ -7,7 +7,7 @@ import { HIGHLIGHT_COLORS, type NavStyle } from './types';
 import type { Screen } from './lib/assistant';
 import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
-import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, figureImages, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
+import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, figureImages, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, pageOnScreen, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import MoveToDrive from './components/MoveToDrive';
 import Explain from './components/Explain';
@@ -121,6 +121,12 @@ const BESIDE_MIN_WIDTH = 1080;
  * Whether the paper is shown as its PDF, drawn as a book or in the browser's
  * viewer. A PDF is not made to move for the notes: they float over it instead.
  */
+/** The rest of the window, for Ask AI: what is on screen outside `covered`, with the page's address and title. */
+function pageNow(covered: string[] = []): Screen['page'] {
+  const text = pageOnScreen(covered);
+  return text ? { address: `${location.pathname}${location.search}`, title: document.title, text } : undefined;
+}
+
 function showingPdf(): boolean {
   return Boolean(document.querySelector('.main :is(.pdf-book, .pdf-frame)'));
 }
@@ -973,7 +979,14 @@ export default function App() {
         const runningAt = colab.running ? (nb?.cells.findIndex((cell) => runKey(cell.id) === colab.running) ?? -1) : -1;
         const running = !colab.running ? undefined : runningAt >= 0 ? `cell ${runningAt + 1}` : colab.running.startsWith('nb:') ? 'a cell of the notebook' : 'a code cell of the Explanation or Implementation page, not the notebook';
         const notebook = nb ? { text: cellsBlock(nb.cells, colab.runs), runtime: colab.runtime && (colab.status === 'idle' || colab.status === 'busy') ? (colab.backend.kind === 'jupyter' ? colab.backend.server.name : machineLabel(colab.runtime)) : undefined, open: nbOpen, running } : undefined;
+        // Everything else in the window — the top bars, the dock, the Implementation page, a dialog — less what already goes in its own block.
+        const covered = [
+          ...(fullText ? ['.paper-body', '.pdf-book'] : []),
+          ...(explanation?.visible ? ['.explain-scroll'] : []),
+          ...(notebook ? ['.nb-cells'] : []),
+        ];
         return {
+          page: pageNow(covered),
           where: notebook?.open ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
           paper: {
             id: paper.id,
@@ -1012,8 +1025,8 @@ export default function App() {
             ? 'Looking over every research project side by side'
             : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper', calendar: 'On the Calendar page — their meetings, by day, week or month' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
-    return { where, library };
-  }, [view, papers, collections, highlights, explainOpen, paperInWorkspace]);
+    return { where: usageOpen ? 'On the Usage page — who has signed in, and what they used of the site’s accounts' : where, library, page: pageNow() };
+  }, [view, papers, collections, highlights, explainOpen, paperInWorkspace, usageOpen]);
 
   const closeAssistant = useCallback(() => setAssistantOpen(false), []);
 

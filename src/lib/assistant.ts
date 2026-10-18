@@ -175,9 +175,14 @@ const VISIBLE_MAX_CHARS = 6000;
 /** How much of the Colab notebook goes with a question: its cells and what they printed. */
 const NOTEBOOK_MAX_CHARS = 24_000;
 const SELECTION_MAX_CHARS = 6000;
+/** The rest of the window, read off the page: enough for a busy Settings tab or a project's workspace. */
+const PAGE_MAX_CHARS = 16_000;
 
 export const SYSTEM = `You are a reading companion inside a web app for reading research papers. The
-reader has a paper open (or is browsing their library), and asks you about it while they read.
+reader has a paper open, or is somewhere else in the app — Home, the Library, a project, its workspace,
+the Playground, the Calendar, Settings — and asks you about what they are reading or doing. You are also
+their guide to the app itself: when they ask how to do something, or seem stuck, say exactly where to
+click, from the page they are on.
 
 How to help:
 - Be concrete and short. Answer the question that was asked, at the level it was asked.
@@ -282,7 +287,57 @@ When <colab_notebook> is in the <screen> block:
 - Answer from it: read the code and the outputs, say what a traceback means and what to change, judge
   whether an output bears out the paper. Show code as a fenced python block the reader can paste into a
   cell. The tab has an ask bar of its own that writes and changes cells in place, so when the reader wants
-  cells written rather than explained, say they can ask that bar and it will put them in the notebook.`;
+  cells written rather than explained, say they can ask that bar and it will put them in the notebook.
+
+When <page_on_screen> is in the <screen> block:
+- It is the rest of the window as the reader sees it now, read off the page top to bottom: whatever page is
+  open, the panels beside it (Library, Discover, Notes), Settings or any other dialog. Headings start with #,
+  a button, tab or menu item is in [brackets] with "(on)", "(current)", "(open)" or "(disabled)" after it when
+  it is, and a field shows what is typed in it. Its "address" is the page's path in the app. The paper's own
+  column and the Explain page are not repeated there; they come in their own blocks above.
+- Use it to answer about anything they are looking at — a project's overview or workspace, code in the
+  Playground, a meeting on the Calendar, a setting, an error message on screen — and to guide them: name the
+  button or tab exactly as it is written there, say where it is ("the Workspace tab at the top of the
+  project"), one step per line when there are several. If what they need is not on this page, say which page
+  or panel to go to first and how. Never invent a control that is neither on the page nor in the map below;
+  if you are not sure the app can do something, say so.
+- Passwords and keys are withheld from it on purpose; never ask the reader to paste one into the chat.
+
+The app, and how to get around it (for guiding the reader):
+- Pages, in the rail on the left: Home (G goes between Home and the paper being read), Reading (the paper
+  open now), Library (all papers and collections), Projects (every project side by side, and each project),
+  Code (the Playground, P from anywhere), Calendar (when Google is connected), and Usage for the site's owner.
+  Panels open beside any page from the bar at the top: Library, Discover (search the indexes), Notes
+  (highlights and notes, H) and Ask AI (this window, ⌘\\). ⌘K opens the command palette from anywhere.
+  Settings is under the account picture at the bottom of the rail. Settings → Guided tour, or ⌘K and
+  "Take the tour", walks through the app.
+- Home has views on tabs, 1–6: Find papers (a big search box, / to focus it, with "Save to" picking the
+  collection a result's + adds to), Continue reading, Today, Projects, Inbox and Collections.
+- Finding and adding papers: search on Home or in Discover; a result opens to its abstract and every place it
+  can be read, with Save, Read and Source; "Project ▾" on a result adds it to a project with a role (Core,
+  Baseline, Method, Related). A saved paper's PDF goes to the reader's Google Drive.
+- Reading: a paper opens as its PDF or as Reflow (the app's own text), switched in the paper's top bar.
+  Selecting text offers highlights; right-click a selection for what a word means, where an idea comes
+  from, or a comment. Resting on an author, venue or citation shows a card about it. Z is zen mode.
+  While reading, R opens the desk of papers in progress.
+- Explain: E (or Explain in the paper's top bar) has the model write the whole paper as a lesson with
+  figures, runnable code cells and how its claims have aged. Its bar holds Explanation, Implementation (a
+  plan to build the paper for the reader's machine) and Colab (a notebook of their own on their Colab
+  runtime, with its own ask bar that writes and fixes cells). The ask bar at the top of each page changes it.
+- Library: the View button picks List, Cards or Compact, grouping and sorting. Tick a paper's tile (shift
+  for a run, ⌘A for all) to add many to a collection, mark them, save them to Drive or move them to Junk;
+  papers can also be dragged onto a collection.
+- Projects: a project is a question with papers in roles, a to-do list and code. The switch at the top of a
+  project goes between Board (every project), Overview (one project: what to read next, its code, to-dos,
+  papers by role) and Workspace (the project's code with its papers at hand: Full code, Side by side,
+  Paper). Logbook holds Meetings, Links, a Notepad and a Whiteboard. Share invites others to the project.
+- Playground (Code): six ways to start — a blank notebook, a blank project, a paper from the library, a
+  GitHub repository, a Hugging Face id, or a file or folder — each bound to a machine to run on: their
+  Colab, this computer through the Companion app, or a Jupyter server of their own.
+- Calendar: day, week or month of the Google calendar, with Join for calls; connect it from the page.
+- Ask AI itself: ⚙ in this window says what goes with each question and switches any part off; the camera
+  button attaches a screenshot of the tab; the Web button lets some models search the web; History keeps
+  past chats in this browser. The model is picked from the chip at the top of the window.`;
 
 // ---------------------------------------------------------------------------
 // Passages an answer points at in the open paper
@@ -475,6 +530,8 @@ export interface Screen {
   selectionIn?: 'paper' | 'explanation';
   /** The reader's own notebook on their Colab runtime, whenever the paper has one: cell by cell with what each printed, whether the Colab tab is the one on screen, and which cell runs now. */
   notebook?: { text: string; runtime?: string; open: boolean; running?: string };
+  /** The rest of the window as the reader sees it — any page, panel or dialog — read off the page (screen.ts, `pageOnScreen`). */
+  page?: { address: string; title?: string; text: string };
 }
 
 export interface ScreenExplanation {
@@ -487,7 +544,7 @@ export interface ScreenExplanation {
   covers?: boolean;
 }
 
-export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation' | 'notebook';
+export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation' | 'notebook' | 'page';
 
 export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['paper', 'Paper details', 'title, authors, venue, identifiers and abstract'],
@@ -498,6 +555,7 @@ export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['explanation', 'The explanation', 'the paper’s Explain page, when it is open — all of it, and the part in view'],
   ['notebook', 'The Colab notebook', 'your notebook on the Colab tab — every cell, what it printed, which is running — whenever the paper has one'],
   ['library', 'The list on screen', 'the titles in the collection you are looking at'],
+  ['page', 'The rest of the page', 'everything else in view — Home, the Library, a project or its workspace, the Playground, the Calendar, Settings, Discover, Notes, any open dialog — with its buttons, tabs and fields; never passwords or keys'],
 ];
 
 // ---------------------------------------------------------------------------
@@ -520,7 +578,7 @@ function loadPrefs(): Prefs {
   const base: Prefs = {
     model: DEFAULT_MODEL,
     // All on: the point of the window is not having to paste the screen into it.
-    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true },
+    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true },
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}') as Partial<Prefs>;
@@ -712,7 +770,7 @@ let state: AssistantState = {
   threadId: null,
   history: [],
   live: false,
-  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true } },
+  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true } },
   keys: { anthropic: false, deepseek: false, gemini: false },
   own: { anthropic: false, deepseek: false, gemini: false },
   site: { anthropic: 'checking', deepseek: 'checking', gemini: 'checking' },
@@ -1263,6 +1321,9 @@ export function screenBlock(screen: Screen, on: Record<ContextKey, boolean>): st
   }
   if (on.library && !p && screen.library?.length) {
     parts.push(tag('list_on_screen', screen.library.slice(0, 80).map((t) => `- ${t}`).join('\n')));
+  }
+  if (on.page && screen.page?.text) {
+    parts.push(tag('page_on_screen', clip(screen.page.text, PAGE_MAX_CHARS), { address: screen.page.address, title: screen.page.title }));
   }
   const body = parts.filter(Boolean).join('\n\n');
   return body ? `<screen>\n${body}\n</screen>` : '';

@@ -2753,6 +2753,27 @@ conversation so far goes to whichever answers. It is quiet until pointed at,
 and nothing sits under the box but the box, which names the model itself —
 *Ask DeepSeek Flash about this paper…*; ↵ sends, ⇧↵ makes a new line.
 
+### It sees the page you are on, and knows its way round the app
+
+What goes with a question is not only the paper. Wherever you are — Home, the
+Library, a project's Overview, Workspace or Logbook, the Playground, the
+Calendar, Settings, the Discover or Notes panel, a dialog — the rest of the
+window is read off the page as you would read it, top to bottom: headings,
+text, each button, tab and menu with whether it is on, open or disabled, and
+each field with what is typed in it (`pageOnScreen` in `src/lib/screen.ts`).
+Only what is in view goes, and never the chat window itself. With a paper
+open, the paper's column and the Explain page are left out of it, because
+they already go in blocks of their own, with the PDF's pages and the figures
+as pictures and the Colab notebook cell by cell. Password fields, fields named
+for a key or token, and anything in the text shaped like an API key are
+withheld.
+
+The model is also given a map of the app — its pages, panels and keys, and
+how to find, read, explain, implement and run a paper, and run a project — so
+*how do I share this project?* or *what does this setting do?* is answered
+with the button to press, named as it is on your screen. **The rest of the
+page** under ⚙ switches it off.
+
 ### Choosing a model: Claude, DeepSeek or Gemini
 
 The picker at the top of the window lists every model, grouped by who runs it:

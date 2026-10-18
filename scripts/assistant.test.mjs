@@ -16,7 +16,7 @@ const win = await load('src/lib/floatWindow.ts');
 
 after(cleanup);
 
-const ALL = { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true };
+const ALL = { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true };
 const paperScreen = {
   where: 'Reading a paper',
   paper: {
@@ -73,6 +73,29 @@ describe('the screen block', () => {
     assert.doesNotMatch(assistant.screenBlock(withNotebook, { ...ALL, notebook: false }), /colab_notebook/);
     assert.ok(assistant.CONTEXT_ROWS.some(([key]) => key === 'notebook'));
     assert.doesNotMatch(assistant.screenBlock({ ...paperScreen, library: ['A'] }, ALL), /list_on_screen/);
+  });
+});
+
+describe('the rest of the page', () => {
+  const projectScreen = {
+    where: 'In the workspace of the research project “MoE”',
+    page: { address: '/project/abc?view=workspace', title: 'MoE — Koios', text: '# MoE\n[Overview] [Workspace] (current) [Logbook]\n[field “Search the project”: (empty)]' },
+  };
+  it('goes on any page, with its address, on its own switch', () => {
+    const block = assistant.screenBlock(projectScreen, ALL);
+    assert.match(block, /<page_on_screen address="\/project\/abc\?view=workspace" title="MoE — Koios">\n# MoE\n\[Overview\] \[Workspace\] \(current\)/);
+    assert.doesNotMatch(assistant.screenBlock(projectScreen, { ...ALL, page: false }), /page_on_screen/);
+    assert.match(assistant.screenBlock({ ...paperScreen, page: projectScreen.page }, ALL), /<page_on_screen/);
+    assert.ok(assistant.CONTEXT_ROWS.some(([key]) => key === 'page'));
+  });
+  it('is cut when it runs long, and says so', () => {
+    const block = assistant.screenBlock({ ...projectScreen, page: { address: '/', text: 'y'.repeat(20_000) } }, ALL);
+    assert.match(block, /\[…cut at 16,000 characters\]/);
+  });
+  it('tells the model how to read it, and how to find its way round the app', () => {
+    assert.match(assistant.SYSTEM, /<page_on_screen>/);
+    assert.match(assistant.SYSTEM, /how to get around it/);
+    assert.match(assistant.SYSTEM, /Workspace/);
   });
 });
 

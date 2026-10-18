@@ -394,3 +394,155 @@ export async function captureTab(): Promise<string> {
     stream.getTracks().forEach((track) => track.stop());
   }
 }
+
+// ---------------------------------------------------------------------------
+// The rest of the page
+// ---------------------------------------------------------------------------
+//
+// Everything above reads the paper and its pages. The rest of the window —
+// Home, the Library, a project's overview or workspace, the Playground, the
+// Calendar, Settings, Discover, the Notes dock, a dialog — is read here, as a
+// person would read it: what is on screen, top to bottom, headings marked,
+// buttons and tabs named as the controls they are, a field with what is in
+// it. That is what lets the window say "click Workspace at the top" rather
+// than guess at a page it cannot see. The chat window itself is left out, and
+// so is whatever the callers already send another way (the paper's column,
+// the Explain page). Password fields, and anything shaped like a key, never go.
+
+const PAGE_MAX_CHARS = 16_000;
+const FIELD_MAX_CHARS = 300;
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'CANVAS', 'VIDEO', 'AUDIO', 'IFRAME', 'OBJECT', 'EMBED', 'svg']);
+const CONTROLS = 'button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"], [role="option"], summary';
+const KEYISH = /\b(sk-[\w-]{12,}|sk-ant-[\w-]+|AIza[\w-]{20,}|gh[pousr]_\w{20,}|github_pat_\w+|xox[abp]-[\w-]+|ya29\.[\w-]+)\b/g;
+const BLOCK_TAGS = new Set(['P', 'DIV', 'LI', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV', 'TR', 'TABLE', 'UL', 'OL', 'DL', 'DT', 'DD', 'FORM', 'FIELDSET', 'FIGURE', 'FIGCAPTION', 'BLOCKQUOTE', 'PRE', 'DETAILS', 'DIALOG', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BR', 'HR', 'LABEL']);
+
+const squash = (value: string) => value.replace(/\s+/g, ' ').trim();
+const unkeyed = (value: string) => value.replace(KEYISH, '[a key, withheld]');
+
+function inView(rect: DOMRect): boolean {
+  return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+}
+
+function shown(el: Element): boolean {
+  if (el.getAttribute('aria-hidden') === 'true' || (el as HTMLElement).hidden) return false;
+  const check = (el as HTMLElement).checkVisibility;
+  if (typeof check === 'function') return check.call(el, { checkOpacity: true, checkVisibilityCSS: true });
+  const style = getComputedStyle(el);
+  return style.display !== 'none' && style.visibility !== 'hidden';
+}
+
+/** What a control says it does: its label, else its text, else its tooltip. */
+function controlName(el: Element): string {
+  const named = el.getAttribute('aria-label') || squash((el as HTMLElement).innerText ?? el.textContent ?? '') || el.getAttribute('title') || '';
+  return squash(named).slice(0, 120);
+}
+
+function controlState(el: Element): string {
+  const states: string[] = [];
+  if (el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-checked') === 'true') states.push('on');
+  if (el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-current') && el.getAttribute('aria-current') !== 'false') states.push('current');
+  if (el.getAttribute('aria-expanded') === 'true') states.push('open');
+  if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') states.push('disabled');
+  return states.length ? ` (${states.join(', ')})` : '';
+}
+
+/** A field's label: its <label>, its aria-label, its placeholder or its name. */
+function fieldLabel(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
+  const byFor = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null;
+  const wrapping = el.closest('label');
+  const from = el.getAttribute('aria-label') || (byFor && squash(byFor.textContent ?? '')) || (wrapping && squash(wrapping.textContent ?? '')) || el.getAttribute('placeholder') || el.getAttribute('title') || el.name || '';
+  return squash(from).slice(0, 100);
+}
+
+function fieldLine(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
+  const label = fieldLabel(el);
+  if (el instanceof HTMLSelectElement) {
+    const chosen = el.selectedOptions[0]?.textContent ?? '';
+    return `[menu${label ? ` “${label}”` : ''}: ${squash(chosen)}]`;
+  }
+  const type = (el.getAttribute('type') || (el instanceof HTMLTextAreaElement ? 'textarea' : 'text')).toLowerCase();
+  if (type === 'hidden' || type === 'file') return '';
+  if (type === 'checkbox' || type === 'radio') return `[${type === 'radio' ? 'choice' : 'tick box'}${label ? ` “${label}”` : ''}: ${(el as HTMLInputElement).checked ? 'on' : 'off'}]`;
+  if (type === 'range') return `[slider${label ? ` “${label}”` : ''}: ${el.value}]`;
+  if (type === 'button' || type === 'submit' || type === 'reset') return `[${squash(el.value) || label || type}]`;
+  // A password, or anything that looks like a key, is never read out.
+  const secret = type === 'password' || /key|token|secret|password/i.test(`${el.name} ${el.id} ${el.getAttribute('autocomplete') ?? ''}`);
+  const value = secret ? (el.value ? '(filled in, withheld)' : '(empty)') : el.value ? `“${unkeyed(el.value).slice(0, FIELD_MAX_CHARS)}”` : '(empty)';
+  return `[field${label ? ` “${label}”` : ''}: ${value}]`;
+}
+
+/**
+ * The page on screen, as text, in reading order: what the reader can see
+ * right now outside the chat window and outside `skip`. Headings start with #,
+ * a control is in [brackets] with its state, a field shows what it holds.
+ */
+export function pageOnScreen(skip: string[] = [], max = PAGE_MAX_CHARS): string {
+  if (typeof document === 'undefined') return '';
+  const skipping = ['.assistant-win', ...skip].join(', ');
+  const lines: string[] = [];
+  let line = '';
+  let length = 0;
+  const flush = () => {
+    const text = squash(line);
+    line = '';
+    if (!text || text === lines[lines.length - 1]) return;
+    lines.push(text);
+    length += text.length + 1;
+  };
+  const say = (text: string, own = false) => {
+    if (own) flush();
+    line += ` ${text}`;
+    if (own) flush();
+  };
+
+  const visit = (el: Element) => {
+    if (length >= max) return;
+    if (SKIP_TAGS.has(el.tagName) || el.matches(skipping) || !shown(el)) return;
+    const html = el as HTMLElement;
+    // Fields and controls are read whole, as one thing each.
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      if (inView(el.getBoundingClientRect())) say(fieldLine(el));
+      return;
+    }
+    if (el.matches(CONTROLS)) {
+      if (inView(el.getBoundingClientRect())) {
+        const name = controlName(el);
+        if (name) say(`[${name}]${controlState(el)}`);
+      }
+      return;
+    }
+    if (el.tagName === 'IMG') {
+      const alt = squash(el.getAttribute('alt') ?? '');
+      if (alt && inView(el.getBoundingClientRect())) say(`[picture: ${alt.slice(0, 160)}]`);
+      return;
+    }
+    const heading = /^H([1-6])$/.exec(el.tagName) ?? (el.getAttribute('role') === 'heading' ? [, el.getAttribute('aria-level') || '2'] : null);
+    if (heading) {
+      if (inView(el.getBoundingClientRect())) say(`${'#'.repeat(Number(heading[1]))} ${squash(html.innerText ?? el.textContent ?? '')}`, true);
+      return;
+    }
+    const block = BLOCK_TAGS.has(el.tagName);
+    if (block) flush();
+    if (el.tagName === 'DIALOG' || el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true') {
+      const name = el.getAttribute('aria-label');
+      say(`— a window${name ? `: ${squash(name)}` : ''} —`, true);
+    }
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent ?? '';
+        if (!text.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        if (Array.from(range.getClientRects()).some(inView)) say(unkeyed(text));
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        visit(node as Element);
+      }
+    }
+    if (block) flush();
+  };
+
+  visit(document.body);
+  flush();
+  const text = lines.join('\n');
+  return text.length > max ? `${text.slice(0, max)}\n[…cut at ${max.toLocaleString('en')} characters]` : text;
+}
