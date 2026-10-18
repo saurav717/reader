@@ -39,6 +39,7 @@ import UsageView, { useIsOwner } from './components/UsageView';
 import { isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
 import { LoadingScreen } from './components/NightScene';
+import { syncLook } from './lib/look';
 import GoogleRenewal from './components/GoogleRenewal';
 import Home from './components/Home';
 import { readHomePrefs, startVisit } from './lib/homeViews';
@@ -224,6 +225,11 @@ export default function App() {
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
+  // The site's look, as the Worker keeps it (lib/look.ts): asked once, after the first paint.
+  useEffect(() => {
+    void syncLook();
+  }, []);
+
   const [view, setViewNow] = useState<View>(readView);
   // One page becomes the next by a short cross-fade, where the browser can do
   // it (view transitions); elsewhere, and with motion reduced, at once.

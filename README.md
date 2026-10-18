@@ -3127,6 +3127,16 @@ is reduced.
 **Settings → Appearance → Theme** has Light, Dark and System, the last
 following the operating system as it changes.
 
+The night is one of two looks, and the owner chooses which the site wears:
+**Usage → The site → Look** switches every visitor between **Koios** and
+**Classic**, the theme before it, with the loading screen and the sign-in
+the same under both. The choice is kept on the Worker (`/site/look`, in the
+SESSIONS namespace) and reaches each visitor on their next page load; the
+page applies the last answer it heard before its first paint, so nothing
+changes look as it opens.
+
+![Usage → The site → Look: two cards, Koios with the armillary and Classic with the green R, Koios marked "On for everyone"](docs/night-look-switch.png)
+
 The words are in `src/components/NightScene.tsx`, with the scene chosen
 for the visit; the pictures' lettering was lifted off the renders in
 `docs/koios-studies/loading/` so the app can set its own. The armillary

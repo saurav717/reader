@@ -5,7 +5,7 @@
   --rail: #eeebe1;
   --border: #e2ddce;
   --border-soft: #ede9db;
-  --ink: #0a0e18;
+  --ink: #1a1a17;
   --ink-2: #55524a;
   --muted: #6f6c63;
   --accent: #1f5e52;
@@ -42,17 +42,15 @@
   --viz-3: #2d64a0;
 }
 
-/* Night: the navy the loading screen is painted on, cream ink, and gold
-   hairlines where the lines were grey. Green keeps every action. */
 :root[data-theme='dark'] {
-  --paper: #0b0f1a;
-  --surface: #0f1524;
-  --panel: #0d121b;
-  --rail: #070a12;
-  --border: rgba(216, 180, 106, 0.2);
-  --border-soft: rgba(216, 180, 106, 0.12);
-  --ink: #e9e4d6;
-  --ink-2: #c6c0b0;
+  --paper: #15161a;
+  --surface: #1d1f25;
+  --panel: #1a1c21;
+  --rail: #17181c;
+  --border: #2c2f36;
+  --border-soft: #25272d;
+  --ink: #eae7df;
+  --ink-2: #c3bfb4;
   --muted: #9b978c;
   --gold: #d8b46a;
   --gold-soft: #f0d79a;
@@ -8865,8 +8863,8 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 }
 
 /* The rail's mark, at night: gold on the navy tile, like the opening screen's. */
-:root[data-theme='dark'] .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
-:root[data-theme='dark'] button.brand[aria-current='page'] { box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--rail), 0 0 0 3px var(--gold); }
+:root[data-look='koios'][data-theme='dark'] .brand { background: var(--surface); color: var(--gold); box-shadow: inset 0 0 0 1px var(--border); }
+:root[data-look='koios'][data-theme='dark'] button.brand[aria-current='page'] { box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--rail), 0 0 0 3px var(--gold); }
 
 /* The opening screen, with the scene in the middle: the mark, the picture as
    a tall plate, the two lines, and the way in under them. No rail: nobody is
@@ -8924,7 +8922,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
    sky in the ground, hairlines that read as gold, gold where a label or an
    active place is marked, and headings in the light serif the screens use.
    Green stays on every action. All of it under the dark theme only. */
-:root[data-theme='dark'] {
+:root[data-look='koios'][data-theme='dark'] {
   --paper: #090d17;
   --surface: #0e1322;
   --panel: #0b1019;
@@ -8936,44 +8934,44 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
   --shadow-sm: 0 1px 0 rgba(216, 180, 106, 0.08);
 }
 /* The sky: a glow at the top of the window and a few stars, behind everything. */
-:root[data-theme='dark'] .app { position: relative; z-index: 0; background: radial-gradient(ellipse 80% 55% at 50% -12%, rgba(24, 34, 62, 0.95) 0%, rgba(7, 10, 18, 0) 70%), var(--rail); }
-:root[data-theme='dark'] .main { background: transparent; }
-:root[data-theme='dark'] .rail { background: transparent; }
+:root[data-look='koios'][data-theme='dark'] .app { position: relative; z-index: 0; background: radial-gradient(ellipse 80% 55% at 50% -12%, rgba(24, 34, 62, 0.95) 0%, rgba(7, 10, 18, 0) 70%), var(--rail); }
+:root[data-look='koios'][data-theme='dark'] .main { background: transparent; }
+:root[data-look='koios'][data-theme='dark'] .rail { background: transparent; }
 
 /* Headings in the light serif. */
-:root[data-theme='dark'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
-:root[data-theme='dark'] .home-hello h1 { font-weight: 300; font-size: 30px; }
-:root[data-theme='dark'] .find-hero h2 { font-weight: 300; font-size: 44px; letter-spacing: -0.01em; }
-:root[data-theme='dark'] .find-hero p { color: var(--muted); }
-:root[data-theme='dark'] .panel-head h2 { font-weight: 500; }
+:root[data-look='koios'][data-theme='dark'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
+:root[data-look='koios'][data-theme='dark'] .home-hello h1 { font-weight: 300; font-size: 30px; }
+:root[data-look='koios'][data-theme='dark'] .find-hero h2 { font-weight: 300; font-size: 44px; letter-spacing: -0.01em; }
+:root[data-look='koios'][data-theme='dark'] .find-hero p { color: var(--muted); }
+:root[data-look='koios'][data-theme='dark'] .panel-head h2 { font-weight: 500; }
 
 /* Labels and kickers in gold, tracked, the way the eyebrow on the opening screen is. */
-:root[data-theme='dark'] .home-eyebrow,
-:root[data-theme='dark'] .eyebrow,
-:root[data-theme='dark'] .lib-group,
-:root[data-theme='dark'] .lib-line-head,
-:root[data-theme='dark'] .hc-kicker,
-:root[data-theme='dark'] .hc-label,
-:root[data-theme='dark'] .menu-label,
-:root[data-theme='dark'] .sec-label,
-:root[data-theme='dark'] .notes-paper-eyebrow,
-:root[data-theme='dark'] .passage-eyebrow,
-:root[data-theme='dark'] .pg-tree-head,
-:root[data-theme='dark'] .colab-part-label,
-:root[data-theme='dark'] .rt-part-label,
-:root[data-theme='dark'] .stat-label,
-:root[data-theme='dark'] .board-card-head,
-:root[data-theme='dark'] .chat-set-title,
-:root[data-theme='dark'] .doc-menu-group { color: var(--gold); font-family: var(--mono); font-weight: 500; letter-spacing: 0.14em; }
-:root[data-theme='dark'] .home-eyebrow.accent { color: var(--gold-soft); }
+:root[data-look='koios'][data-theme='dark'] .home-eyebrow,
+:root[data-look='koios'][data-theme='dark'] .eyebrow,
+:root[data-look='koios'][data-theme='dark'] .lib-group,
+:root[data-look='koios'][data-theme='dark'] .lib-line-head,
+:root[data-look='koios'][data-theme='dark'] .hc-kicker,
+:root[data-look='koios'][data-theme='dark'] .hc-label,
+:root[data-look='koios'][data-theme='dark'] .menu-label,
+:root[data-look='koios'][data-theme='dark'] .sec-label,
+:root[data-look='koios'][data-theme='dark'] .notes-paper-eyebrow,
+:root[data-look='koios'][data-theme='dark'] .passage-eyebrow,
+:root[data-look='koios'][data-theme='dark'] .pg-tree-head,
+:root[data-look='koios'][data-theme='dark'] .colab-part-label,
+:root[data-look='koios'][data-theme='dark'] .rt-part-label,
+:root[data-look='koios'][data-theme='dark'] .stat-label,
+:root[data-look='koios'][data-theme='dark'] .board-card-head,
+:root[data-look='koios'][data-theme='dark'] .chat-set-title,
+:root[data-look='koios'][data-theme='dark'] .doc-menu-group { color: var(--gold); font-family: var(--mono); font-weight: 500; letter-spacing: 0.14em; }
+:root[data-look='koios'][data-theme='dark'] .home-eyebrow.accent { color: var(--gold-soft); }
 
 /* Where a place is marked as the current one: gold, not green. */
-:root[data-theme='dark'] .nav-lab.is-active { color: var(--gold); background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
-:root[data-theme='dark'] .icon-btn[aria-current='page'],
-:root[data-theme='dark'] .icon-btn.is-active { color: var(--gold); }
-:root[data-theme='dark'] .home-card { box-shadow: none; }
-:root[data-theme='dark'] .chip { border-color: var(--border-soft); }
-:root[data-theme='dark'] .chip[aria-pressed='true'] { background: transparent; border-color: var(--accent); color: var(--accent-ink); color: #8fcbb8; }
+:root[data-look='koios'][data-theme='dark'] .nav-lab.is-active { color: var(--gold); background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
+:root[data-look='koios'][data-theme='dark'] .icon-btn[aria-current='page'],
+:root[data-look='koios'][data-theme='dark'] .icon-btn.is-active { color: var(--gold); }
+:root[data-look='koios'][data-theme='dark'] .home-card { box-shadow: none; }
+:root[data-look='koios'][data-theme='dark'] .chip { border-color: var(--border-soft); }
+:root[data-look='koios'][data-theme='dark'] .chip[aria-pressed='true'] { background: transparent; border-color: var(--accent); color: var(--accent-ink); color: #8fcbb8; }
 
 /* ---------- Where the ground is empty ----------
    The armillary, one of the Titan's lines, and what to do: the one place
@@ -8992,8 +8990,8 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .settings-mark { flex: none; color: var(--gold); opacity: 0.8; margin: 2px 12px 0 0; }
 
 /* The day: navy ink on the paper, and the gold token on the rail's current place. */
-:root:not([data-theme='dark']) .nav-lab.is-active { color: var(--gold); }
-:root:not([data-theme='dark']) .icon-btn[aria-current='page'] { color: var(--gold); }
+:root[data-look='koios']:not([data-theme='dark']) .nav-lab.is-active { color: var(--gold); }
+:root[data-look='koios']:not([data-theme='dark']) .icon-btn[aria-current='page'] { color: var(--gold); }
 
 /* One page becomes the next: a cross-fade of 300 ms with a 10 px rise. The
    rail is named, so it holds still while the page changes. */
@@ -9004,3 +9002,30 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+
+/* ---------- The two looks ----------
+   `koios` is the night above; `classic` is the theme before it, which the
+   rules above leave alone. The owner chooses on Usage → The site
+   (src/lib/look.ts); index.html applies the choice before the first paint.
+   Where a page is empty, classic shows the words plainly. */
+:root[data-look='classic'] .quiet > svg, :root[data-look='classic'] .settings-mark, :root[data-look='classic'] .pj-empty-mark, :root[data-look='classic'] .cal-empty > svg { display: none; }
+:root[data-look='classic'] .quiet-line { font-weight: 600; font-size: 20px; }
+:root[data-look='classic'] .cal-empty { background: var(--surface); box-shadow: var(--shadow-sm); }
+:root[data-look='classic'] .cal-empty h2 { font-weight: 600; }
+
+/* The switch itself, on Usage → The site. */
+.look-switch { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+.look-lead { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.look-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.look-option { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.look-option.is-on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.look-option:disabled { cursor: default; opacity: 0.8; }
+.look-swatch { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 12px; }
+.look-swatch[data-look-swatch='koios'] { background: #070a12; color: #d8b46a; box-shadow: inset 0 0 0 1px rgba(216, 180, 106, 0.3); }
+.look-swatch[data-look-swatch='classic'] { background: #1f5e52; color: #f6f4ec; }
+.look-swatch-r { font: 600 26px var(--serif); }
+.look-option-text { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.look-option-text b { font-size: 15px; color: var(--ink); }
+.look-state { font-size: 12px; color: var(--muted); }
+.look-option.is-on .look-state { color: var(--accent); font-weight: 500; }
+@media (max-width: 640px) { .look-options { grid-template-columns: 1fr; } }
