@@ -24,7 +24,11 @@
         var theme = kept || (look === 'classic' ? 'dark' : 'koios');
         if (theme === 'system') theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         if (theme === 'koios' && look === 'classic') theme = 'dark';
-        if (theme === 'koios') { document.documentElement.dataset.koios = 'on'; theme = 'dark'; }
+        if (theme === 'koios') {
+          document.documentElement.dataset.koios = 'on';
+          if (saved.koiosSky) document.documentElement.dataset.sky = 'on';
+          theme = 'dark';
+        }
         document.documentElement.dataset.theme = theme;
       } catch (e) {
         document.documentElement.dataset.look = 'koios';

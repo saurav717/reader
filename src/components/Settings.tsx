@@ -1083,6 +1083,12 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
           />
           Follow the system between Light and Dark{settings.theme === 'koios' ? ' (not while Koios is on)' : ''}
         </label>
+        {settings.theme === 'koios' && koiosOffered ? (
+          <label className="theme-follow">
+            <input type="checkbox" checked={Boolean(settings.koiosSky)} onChange={(event) => updateSettings({ koiosSky: event.target.checked })} />
+            A faint sky behind the pages, as on the opening screens
+          </label>
+        ) : null}
       </Card>
 
       <Card title="Material">

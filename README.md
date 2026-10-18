@@ -3107,13 +3107,18 @@ in `src/components/Welcome.tsx`.
 
 ![the opening screen: an engraved marble profile under a gold ring filling the right of the screen, "Ask well. Read slowly. Keep what matters." on the left, and the sign-in under a hairline](docs/night-welcome.png)
 
-The dark theme is the same night: the sky's glow and a few stars in the
-ground, cream ink, gold hairlines where the lines were grey, the section
-labels in gold and tracked, headings in the light serif the opening screens
-use, and the bookmark mark in gold on the rail. Green keeps every action, so
-the tool is still the tool. New visitors start in it; **Settings →
-Appearance** has the day theme, whose paper is unchanged, for reading in
-daylight.
+The Koios theme is the same night, drawn with three things: slate for the
+ground, stone for the ink, and one thread of gold. The gold is spent on the
+place you are (a hairline at the left of the rail's current icon), the
+section labels, and the progress lines; nothing else is coloured. The
+primary button is stone filled with ink, so there is no green anywhere in
+the chrome; the highlighters keep their four colours on the paper, muted.
+Lines are stone at a tenth, felt rather than seen. Headings are in the light
+serif the opening screens use, and the rail is icons alone, 56 px wide. The
+ground is plain by default; **Settings → Appearance** has a switch for a
+faint sky behind the pages, the glow and a few dim stars from the opening
+screens. New visitors start in Koios; the same panel has Light and Dark,
+whose paper is unchanged, for reading in daylight.
 
 ![Home in the night theme: the glow at the top of the sky, "Find your next paper" in a light serif, gold labels over the suggestions and the collections, the gold mark on the rail](docs/night-home.png)
 
@@ -3157,7 +3162,7 @@ and the empty states are `src/components/Quiet.tsx`.
 ## Glass
 
 **Settings → Appearance → Glass** swaps the solid paper for glass, in any
-theme. Under Koios the panes are navy with gold rims, and the wallpapers
+theme. Under Koios the panes are slate with stone rims, and the wallpapers
 are the night: the spotlight a blue glow in the dark, the sage a green one.
 
 ![Home under Koios with Glass on: navy panes with gold rims over the night](docs/night-glass.png) The window becomes rounded panes floating over a wallpaper, which you
