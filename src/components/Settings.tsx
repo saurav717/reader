@@ -1059,16 +1059,16 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
     <>
       <Card title="Theme">
         <div className="theme-pick" role="group" aria-label="Theme">
-          <button type="button" className="theme-option" aria-pressed={settings.theme === 'light' || (settings.theme === 'system' && !systemDark)} onClick={() => updateSettings({ theme: 'light' })}>
+          <button type="button" className="theme-option" aria-pressed={settings.theme === 'light' || (settings.theme === 'system' && !systemDark)} onClick={() => updateSettings({ theme: 'light', themeChosen: true })}>
             <span className="theme-swatch is-light" aria-hidden="true"><i /></span>
             Light
           </button>
-          <button type="button" className="theme-option" aria-pressed={settings.theme === 'dark' || (settings.theme === 'system' && systemDark)} onClick={() => updateSettings({ theme: 'dark' })}>
+          <button type="button" className="theme-option" aria-pressed={settings.theme === 'dark' || (settings.theme === 'system' && systemDark)} onClick={() => updateSettings({ theme: 'dark', themeChosen: true })}>
             <span className="theme-swatch is-dark" aria-hidden="true"><i /></span>
             Dark
           </button>
           {koiosOffered ? (
-            <button type="button" className="theme-option" aria-pressed={settings.theme === 'koios'} onClick={() => updateSettings({ theme: 'koios' })} title="The night: a theme of its own, not the dark mode">
+            <button type="button" className="theme-option" aria-pressed={settings.theme === 'koios'} onClick={() => updateSettings({ theme: 'koios', themeChosen: true })} title="The night: a theme of its own, not the dark mode">
               <span className="theme-swatch is-koios" aria-hidden="true"><i /></span>
               Koios
             </button>
@@ -1079,7 +1079,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
             type="checkbox"
             checked={settings.theme === 'system'}
             disabled={settings.theme === 'koios'}
-            onChange={(event) => updateSettings({ theme: event.target.checked ? 'system' : systemDark ? 'dark' : 'light' })}
+            onChange={(event) => updateSettings({ theme: event.target.checked ? 'system' : systemDark ? 'dark' : 'light', themeChosen: true })}
           />
           Follow the system between Light and Dark{settings.theme === 'koios' ? ' (not while Koios is on)' : ''}
         </label>

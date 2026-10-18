@@ -14,6 +14,7 @@ export default function LookSwitch() {
   const [kept, setKept] = useState<boolean | null>(null);
   const [saving, setSaving] = useState<Look | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [reloadDue, setReloadDue] = useState(false);
 
   useEffect(() => {
     if (!hasProxy()) {
@@ -47,6 +48,17 @@ export default function LookSwitch() {
       return;
     }
     setLook(next);
+    // This browser's own theme follows the look unless one was picked by hand, on the next load.
+    try {
+      const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}') as { themeChosen?: boolean; theme?: string };
+      if (!saved.themeChosen) {
+        saved.theme = next === 'koios' ? 'koios' : 'dark';
+        localStorage.setItem('reader.settings', JSON.stringify(saved));
+        setReloadDue(true);
+      }
+    } catch {
+      // Storage closed to us: the look still applies on the next load.
+    }
   };
 
   const option = (value: Look, title: string, lines: string[]) => (
@@ -74,6 +86,12 @@ export default function LookSwitch() {
         {option('classic', 'Classic', ['Light and Dark only, as before Koios: grey dark mode, green accents, bold serif headings.', 'Anyone set to Koios reads in Dark until the look is switched back.'])}
       </div>
       {problem ? <p className="banner error">{problem}</p> : null}
+      {reloadDue ? (
+        <p className="banner" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>Your own theme follows the look. Reload to see it, or pick one by hand in Settings → Appearance.</span>
+          <button type="button" className="btn sm" onClick={() => window.location.reload()}>Reload</button>
+        </p>
+      ) : null}
       {kept === false ? (
         <p className="banner warn">
           {hasProxy()

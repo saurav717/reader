@@ -392,6 +392,8 @@ export interface Settings {
   proxyToken: string;
   /** `system` follows the operating system between light and dark; `koios` is the night, a theme of its own. */
   theme: 'light' | 'dark' | 'system' | 'koios';
+  /** Set once the theme has been picked by hand; until then it follows the site's look (lib/store.tsx, readSettings). */
+  themeChosen?: boolean;
   /**
    * The glass material: the window's panes turn into frosted, nearly clear
    * sheets over a soft wash of colour, in either theme. Off, every surface is
