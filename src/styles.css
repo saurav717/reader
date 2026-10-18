@@ -8999,7 +8999,60 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
     radial-gradient(1px 1px at 27% 56%, rgba(240, 236, 226, 0.3), transparent 100%);
   --koios-glow: radial-gradient(ellipse 90% 60% at 50% -20%, rgba(30, 40, 62, 0.95) 0%, rgba(14, 17, 22, 0) 70%);
 }
-:root[data-koios='on'][data-sky='on'] .app { background: var(--koios-stars), var(--koios-glow), var(--rail); }
+ 
+/* The stars, behind the panes wherever a page leaves the ground showing:
+   thick at the top of the sky and thinning out toward the bottom, faded by
+   one long mask so there is no edge where they stop. The few drawn before
+   are part of the field now, and the glow stays on the ground under it.
+   The `.app` is its own stack so the stars stay under the panes. While a
+   paper is open they step back, so nothing sits behind the text. */
+.koios-sky { display: none; }
+:root[data-koios='on'][data-sky='on'] .app { isolation: isolate; background: var(--koios-glow), var(--rail); }
+:root[data-glass='on'][data-koios='on'][data-sky='on'] .app { background: transparent; }
+:root[data-koios='on'][data-sky='on'] .koios-sky {
+  display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    var(--koios-stars),
+    radial-gradient(1px 1px at 23px 41px, rgba(240, 236, 226, 0.6), transparent),
+    radial-gradient(1px 1px at 97px 13px, rgba(240, 236, 226, 0.45), transparent),
+    radial-gradient(1px 1px at 151px 87px, rgba(240, 236, 226, 0.55), transparent),
+    radial-gradient(1px 1px at 61px 139px, rgba(240, 236, 226, 0.4), transparent),
+    radial-gradient(1.5px 1.5px at 179px 163px, rgba(240, 236, 226, 0.6), transparent),
+    radial-gradient(1px 1px at 41px 71px, rgba(214, 222, 255, 0.45), transparent),
+    radial-gradient(1px 1px at 131px 37px, rgba(255, 238, 206, 0.45), transparent),
+    radial-gradient(1px 1px at 211px 109px, rgba(240, 236, 226, 0.5), transparent);
+  background-size: 100% 100%, 197px 181px, 233px 211px, 271px 251px, 163px 307px, 311px 277px, 149px 173px, 223px 239px, 257px 199px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.85) 18%, rgba(0, 0, 0, 0.45) 42%, rgba(0, 0, 0, 0.15) 66%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.85) 18%, rgba(0, 0, 0, 0.45) 42%, rgba(0, 0, 0, 0.15) 66%, transparent 92%);
+  transition: opacity 0.4s ease;
+}
+:root[data-koios='on'][data-sky='on'] .app:has(.reader-head) .koios-sky { opacity: 0.35; }
+
+/* Past the page's edges. Safari bounces the whole window when a scroll runs
+   out, and shows the ground behind it: the night's navy, never white. Just
+   beyond the top edge hangs the north star with a line under it, and just
+   below the bottom another, so a scroll pushed too far finds a little sky
+   rather than a gap. Fixed, so they add nothing to scroll to; where a
+   browser does not draw past the edge, only the colour shows. */
+:root[data-koios='on'] { background-color: #0a0e1a; }
+:root[data-koios='on']::before,
+:root[data-koios='on']::after,
+:root[data-koios='on'] body::before,
+:root[data-koios='on'] body::after {
+  position: fixed; left: 0; right: 0;
+  pointer-events: none;
+  text-align: center;
+}
+/* The stars, gold, at the mark's size. */
+:root[data-koios='on']::before,
+:root[data-koios='on']::after { font: 18px/1 var(--sans); color: var(--gold); }
+:root[data-koios='on']::before { content: '\2726'; bottom: calc(100% + 52px); }
+:root[data-koios='on']::after { content: '\2727'; top: calc(100% + 52px); }
+/* The lines, in the light serif, between each star and the page. */
+:root[data-koios='on'] body::before,
+:root[data-koios='on'] body::after { font: italic 300 15px/1.4 var(--serif); letter-spacing: 0.01em; color: rgba(230, 225, 214, 0.55); }
+:root[data-koios='on'] body::before { content: 'Above the page, only Koios and the north.'; bottom: calc(100% + 20px); }
+:root[data-koios='on'] body::after { content: 'The paper ends here. The sky goes on.'; top: calc(100% + 20px); }
 
 /* Headings in the light serif. */
 :root[data-koios='on'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
@@ -9027,6 +9080,44 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .chat-set-title,
 :root[data-koios='on'] .doc-menu-group { color: var(--gold); font-family: var(--mono); font-weight: 500; letter-spacing: 0.14em; }
 :root[data-koios='on'] .home-eyebrow.accent { color: var(--gold-soft); }
+
+/* The floating windows (Ask AI, the notes and the paper popped out): the
+   night's glass rather than grey. Navy under a stone rim, the faint glow at
+   the top the pages have, the mark in gold and the name in the light serif. */
+:root[data-koios='on'] .assistant-win {
+  --win-rgb: 16 21 32;
+  --win-edge: 230 225 214;
+  --win-edge-a: 0.12;
+  --win-shadow: 0 30px 80px -24px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  background-image: radial-gradient(ellipse 120% 55% at 50% -12%, rgba(40, 52, 82, 0.55), transparent 70%);
+}
+:root[data-koios='on'] .assistant-win .win-bar { background: transparent; border-bottom-color: var(--border-soft); }
+:root[data-koios='on'] .assistant-win .win-mark { color: var(--gold); }
+:root[data-koios='on'] .assistant-win .win-name { font: 400 15px/1 var(--serif); letter-spacing: 0; }
+:root[data-koios='on'] .assistant-win .chat-toolbar { border-bottom-color: var(--border-soft); }
+:root[data-koios='on'] .win-tint input:hover::-webkit-slider-thumb { background: var(--gold); }
+/* Before the first question: a gold label, the line, and the starters as
+   quiet rows, each with its star, rather than underlined links. */
+:root[data-koios='on'] .chat-empty { padding: 6px 2px 0; }
+:root[data-koios='on'] .chat-empty::before {
+  content: 'Ask about what you are reading'; display: block; margin-bottom: 10px;
+  color: var(--gold); font: 500 10.5px var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+}
+:root[data-koios='on'] .chat-empty p { color: var(--ink-2); margin-bottom: 16px; }
+:root[data-koios='on'] .chat-empty ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+:root[data-koios='on'] .chat-empty li { margin: 0; }
+:root[data-koios='on'] .chat-empty .link-btn {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 12px;
+  border: 1px solid var(--border-soft); border-radius: 10px; background: rgba(230, 225, 214, 0.02);
+  color: var(--ink); font: 400 14.5px/1.4 var(--serif); text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+:root[data-koios='on'] .chat-empty .link-btn::before { content: '\2726'; flex: none; color: var(--gold); font: 11px/1 var(--sans); opacity: 0.8; }
+:root[data-koios='on'] .chat-empty .link-btn:hover { border-color: rgba(201, 168, 106, 0.45); background: rgba(201, 168, 106, 0.06); }
+/* The box: navy, its focus a gold hairline rather than a green glow. */
+:root[data-koios='on'] .chat-compose { border-top: 1px solid var(--border-soft); padding-top: 10px; }
+:root[data-koios='on'] .chat-compose textarea { background: rgba(10, 14, 26, 0.55); border-color: var(--border); }
+:root[data-koios='on'] .chat-compose textarea:focus { border-color: rgba(201, 168, 106, 0.6); box-shadow: 0 0 0 3px rgba(201, 168, 106, 0.1); }
 
 /* Where a place is marked as the current one: gold, not green. */
 :root[data-koios='on'] .nav-lab.is-active { color: var(--ink); background: transparent; box-shadow: none; }
@@ -9237,7 +9328,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
     linear-gradient(160deg, #0a0e1a, #0b0f1a);
 }
 :root[data-glass='on'][data-koios='on'] .app { background: transparent; }
-:root[data-glass='on'][data-koios='on'][data-sky='on'] body { background: var(--koios-stars), var(--koios-glow), var(--wall); background-attachment: fixed; }
+:root[data-glass='on'][data-koios='on'][data-sky='on'] body { background: var(--koios-glow), var(--wall); background-attachment: fixed; }
 
 /* ---------- Koios II: the pages re-drawn ----------
    The rail is icons alone, 56 px, the current place marked by one gold rule

@@ -1389,6 +1389,8 @@ export default function App() {
       className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && fullscreen ? ' is-fullscreen' : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
+      {/* The stars behind the panes, under Koios with the sky on (styles.css, `.koios-sky`). */}
+      <div className="koios-sky" aria-hidden="true" />
 {showWelcome ? null : navStyle === 'classic' ? (
       <nav className="rail" aria-label="Primary">
         <button
