@@ -161,7 +161,8 @@ export class ProjectRoom {
     // its address.
     if (path === '/erase') {
       if (room.owner === who) return this.fetch(new Request(`https://room/close?email=${encodeURIComponent(who)}`, { method: 'POST' }));
-      if (await this.member(who)) await this.fetch(new Request(`https://room/leave?email=${encodeURIComponent(who)}`, { method: 'POST' }));
+      const left = Boolean(await this.member(who));
+      if (left) await this.fetch(new Request(`https://room/leave?email=${encodeURIComponent(who)}`, { method: 'POST' }));
       await this.state.storage.delete(`invite:${who}`);
       for (const key of await logKeys(this.state.storage)) {
         const item = await this.state.storage.get(key);
@@ -172,7 +173,7 @@ export class ProjectRoom {
       }
       for (const [key, invite] of await this.state.storage.list({ prefix: 'invite:' })) if (invite.by === who) await this.state.storage.put(key, { ...invite, by: '' });
       if (room.updatedBy === who) await this.state.storage.put('room', { ...room, updatedBy: '' });
-      return json({ ok: true, left: true });
+      return json({ ok: true, left });
     }
 
     if (path === '/join') {

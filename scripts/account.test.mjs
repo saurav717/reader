@@ -63,6 +63,8 @@ const call = (e, path, { pass, body, method, google } = {}) =>
   worker.fetch(
     new Request(`https://proxy.example${path}`, {
       method: method ?? (body ? 'POST' : 'GET'),
+      // @ts-ignore a DELETE with a body, as the page sends it
+      duplex: 'half',
       headers: { Origin: ORIGIN, ...(pass ? { Authorization: `Bearer ${pass}` } : {}), ...(google ? { 'X-Google-Token': google } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     }),
@@ -165,6 +167,35 @@ describe('deleting an account', () => {
     assert.equal(await e.SESSIONS.get(await secretsKey(e, 'github', 'dana@x.org')), null);
     assert.notEqual(await e.SESSIONS.get(await secretsKey(e, 'github', 'omar@x.org')), null);
 
+  });
+
+  // The page's own library knows its rooms too: sent along, a record the ledger lost is still seen to.
+  it('sees to the rooms the page sends, when the ledger has lost them', async () => {
+    const { e, omar, dana, omarsRoom, danasRoom } = await twoPeople();
+    await e.INVITES.objects.get('invites').state.storage.delete('rooms:dana@x.org');
+    const done = await (await call(e, '/account', { pass: dana, method: 'DELETE', google: 'google:dana@x.org', body: { rooms: [omarsRoom, danasRoom, 'not-a-room'] } })).json();
+    assert.equal(done.closed, 1);
+    assert.equal(done.left, 1);
+    assert.equal((await call(e, `/rooms/${danasRoom}`, { pass: omar })).status, 404);
+    const state = await (await call(e, `/rooms/${omarsRoom}`, { pass: omar })).json();
+    assert.deepEqual(state.members.map((m) => m.email), ['omar@x.org']);
+  });
+
+  it('is told of a room again by the ledger each time a member opens it', async () => {
+    const { e, dana, omarsRoom, danasRoom } = await twoPeople();
+    await e.INVITES.objects.get('invites').state.storage.delete('rooms:dana@x.org');
+    assert.deepEqual((await (await call(e, '/rooms/mine', { pass: dana })).json()).rooms, []);
+    assert.equal((await call(e, `/rooms/${omarsRoom}`, { pass: dana })).status, 200);
+    // The room opened is back on the list; the one not opened (her own) is not, until it is.
+    const mine = await (await call(e, '/rooms/mine', { pass: dana })).json();
+    assert.deepEqual(mine.rooms.map((r) => [r.room, r.role, r.project]), [[omarsRoom, 'editor', 'Omar’s project']]);
+    await call(e, `/rooms/${danasRoom}`, { pass: dana });
+    assert.deepEqual((await (await call(e, '/rooms/mine', { pass: dana })).json()).rooms.map((r) => [r.room, r.role]).sort(), [[danasRoom, 'owner'], [omarsRoom, 'editor']].sort());
+  });
+
+  it('then, deleting twice, finds nothing the second time', async () => {
+    const { e, dana } = await twoPeople();
+    await call(e, '/account', { pass: dana, method: 'DELETE', google: 'google:dana@x.org' });
     // And a second time there is nothing left to do.
     const again = await (await call(e, '/account', { pass: dana })).json();
     assert.deepEqual([again.owned, again.joined, again.devices, again.usageDays, again.github], [[], [], 0, 0, false]);

@@ -445,7 +445,10 @@ export default {
         const proved = env.GOOGLE_CLIENT_ID ? await googleEmail(request.headers.get('X-Google-Token') || '', env.GOOGLE_CLIENT_ID).catch(() => null) : null;
         if (proved !== who.email) return json({ error: 'sign in with Google again to delete this account', reauth: true }, 403, noStore);
         const client = clientOf(request, url);
-        const done = await eraseAccount(env, who.email, { client, browserSession: client && env.BROWSER_SESSION ? sessionStub(env, client) : null });
+        // The rooms the page's own library says it is in, beside the ledger's: a room one of them lost is still seen to.
+        const body = await request.json().catch(() => ({}));
+        const rooms = Array.isArray(body.rooms) ? body.rooms.filter((id) => /^[0-9a-f]{32}$/.test(String(id))).slice(0, 200) : [];
+        const done = await eraseAccount(env, who.email, { client, rooms, browserSession: client && env.BROWSER_SESSION ? sessionStub(env, client) : null });
         return json({ ok: true, ...done }, 200, noStore);
       }
 
@@ -606,7 +609,13 @@ export default {
           if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426, headers);
           return roomOf(id).fetch(new URL(`https://room/live?email=${encodeURIComponent(who.email)}`), { headers: request.headers });
         }
-        if (action === 'state') return forward(id, '/state');
+        if (action === 'state') {
+          // A member opening the room is also the ledger (worker/invites.js) hearing of them again: a record it lost is put back.
+          const answer = await roomOf(id).fetch(`https://room/state?email=${encodeURIComponent(who.email)}`);
+          const state = await answer.json();
+          if (answer.ok && state.role) ctx?.waitUntil?.(invites(env, '/member', { email: who.email, room: id, role: state.role, project: state.project?.name }));
+          return json(state, answer.status, noStore);
+        }
         // The project's logbook (worker/logbook.js): read with a GET, changed with a POST naming the change.
         if (action === 'log') return forward(id, '/log', request.method === 'POST' ? await request.json().catch(() => ({})) : undefined);
         // An invitation is also a mail to the address, when the site can send one (server/mail.js): the

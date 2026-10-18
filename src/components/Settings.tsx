@@ -23,6 +23,7 @@ import { overleafViewOf } from '../lib/overleaf';
 import OverleafAccounts from './OverleafAccounts';
 import InviteSomeone from './InviteSomeone';
 import DeleteAccount from './DeleteAccount';
+import { projectsOf } from '../lib/projects';
 import { WriteGuideLink } from './WriteGuide';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
@@ -450,6 +451,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
     signIn,
     connectDrive,
     signOut,
+    collections,
     syncAll,
     papers,
     syncLog,
@@ -634,7 +636,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
                 Delete my account…
               </button>
             </div>
-            {deleting ? <DeleteAccount email={user.email} googleClientId={settings.googleClientId} onClose={() => setDeleting(false)} /> : null}
+            {deleting ? <DeleteAccount email={user.email} googleClientId={settings.googleClientId} rooms={projectsOf(collections).flatMap((item) => (item.project.shared?.room ? [item.project.shared.room] : []))} onClose={() => setDeleting(false)} /> : null}
           </>
         ) : (
           <button type="button" className="btn" onClick={() => void signIn()} style={{ height: 40, padding: '0 16px', fontSize: 13.5 }}>

@@ -75,12 +75,16 @@ function clearStorage(storage: Storage): void {
  * out and starts the page again. Throws, having deleted nothing more, when a
  * step that comes before the others fails.
  */
-export async function deleteAccount({ email, googleClientId, trashDriveFiles }: { email: string; googleClientId: string; trashDriveFiles: boolean }): Promise<void> {
+/**
+ * `rooms` are the shared projects this library knows it is in: sent along, so
+ * a room the server's ledger lost is still left or closed.
+ */
+export async function deleteAccount({ email, googleClientId, trashDriveFiles, rooms = [] }: { email: string; googleClientId: string; trashDriveFiles: boolean; rooms?: string[] }): Promise<void> {
   // Trashing needs the Drive scope on the token; proving the account to the server needs any live one.
   const token = trashDriveFiles ? await ensureDriveToken(googleClientId) : (liveAccessToken() ?? (await ensureDriveToken(googleClientId)));
   if (trashDriveFiles) await trashDrive(token);
   if (apiBase() && currentPass()) {
-    const response = await fetch(api('/account'), { method: 'DELETE', headers: apiHeaders({ 'X-Google-Token': token }) });
+    const response = await fetch(api('/account'), { method: 'DELETE', headers: apiHeaders({ 'X-Google-Token': token, 'Content-Type': 'application/json' }), body: JSON.stringify({ rooms }) });
     if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error || `the server answered ${response.status}`);
   }
   const claimedGuest = (localStorage.getItem('reader.guest.claimedBy') || '').toLowerCase() === email.toLowerCase();

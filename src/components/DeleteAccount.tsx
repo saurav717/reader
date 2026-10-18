@@ -9,12 +9,14 @@ import { deleteAccount, readAccount, type AccountSummary } from '../lib/account'
 interface Props {
   email: string;
   googleClientId: string;
+  /** The shared projects this library knows it is in (their room ids), for the server to be sure of. */
+  rooms: string[];
   onClose: () => void;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export default function DeleteAccount({ email, googleClientId, onClose }: Props) {
+export default function DeleteAccount({ email, googleClientId, rooms, onClose }: Props) {
   const [summary, setSummary] = useState<AccountSummary | null | undefined>(undefined);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [trashDriveFiles, setTrashDriveFiles] = useState(false);
@@ -37,7 +39,7 @@ export default function DeleteAccount({ email, googleClientId, onClose }: Props)
     setBusy(true);
     setError(null);
     try {
-      await deleteAccount({ email, googleClientId, trashDriveFiles });
+      await deleteAccount({ email, googleClientId, trashDriveFiles, rooms });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
       setBusy(false);

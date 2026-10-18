@@ -74,22 +74,27 @@ export async function accountSummary(env, email) {
 /**
  * Everything kept about one person deleted. `client` is the browser's id
  * (X-Reader-Client), for what is kept by browser, and `browserSession` that
- * browser's object (sessionStub in worker/index.js). Answers what was done; a
- * store that is not bound here, or does not answer, is skipped and said so.
+ * browser's object (sessionStub in worker/index.js). `rooms` are the shared
+ * projects the page's own library says it is in: seen to beside the
+ * ledger's, so a room either side lost is still left or closed (a room the
+ * person is not in is untouched by the call). Answers what was done; a store
+ * that is not bound here, or does not answer, is skipped and said so.
  */
-export async function eraseAccount(env, email, { client, browserSession } = {}) {
+export async function eraseAccount(env, email, { client, browserSession, rooms: known = [] } = {}) {
   const who = String(email).toLowerCase();
   const done = { closed: 0, left: 0, skipped: [] };
 
   const { rooms, invited } = await roomsOf(env, who);
-  for (const item of [...rooms, ...invited]) {
-    const answer = await call(env.ROOMS, `room:${item.room}`, `/erase?${q(who)}`, {});
+  const ids = new Set([...rooms, ...invited].map((item) => item.room));
+  for (const id of known) if (/^[0-9a-f]{32}$/.test(String(id))) ids.add(id);
+  for (const id of ids) {
+    const answer = await call(env.ROOMS, `room:${id}`, `/erase?${q(who)}`, {});
     if (!answer) continue;
     if (Array.isArray(answer.members)) {
       done.closed += 1;
       // Everyone who was in a closed room is out of it on the ledger too.
-      await call(env.INVITES, 'invites', '/room-closed', { room: item.room, emails: answer.members });
-    } else if (item.role) {
+      await call(env.INVITES, 'invites', '/room-closed', { room: id, emails: answer.members });
+    } else if (answer.left) {
       done.left += 1;
     }
   }
