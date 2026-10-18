@@ -92,18 +92,26 @@ export function SceneBackdrop({ scene, previous }: { scene: Scene; previous?: Sc
   const [arrived, setArrived] = useState<string | null>(null);
   return (
     <>
-      {previous ? <img key={previous.file} className="night-img is-in is-under" src={sceneUrl(previous)} alt="" style={{ objectPosition: previous.focus }} /> : null}
-      <img
-        key={scene.file}
-        className={`night-img${arrived === scene.file ? ' is-in' : ''}`}
-        src={sceneUrl(scene)}
-        alt=""
-        decoding="async"
-        onLoad={() => setArrived(scene.file)}
-        style={{ objectPosition: scene.focus }}
-      />
+      {previous ? <SceneLayer key={previous.file} scene={previous} shown /> : null}
+      <SceneLayer key={scene.file} scene={scene} shown={arrived === scene.file} onArrive={() => setArrived(scene.file)} />
       <div className="night-veil" aria-hidden="true" />
     </>
+  );
+}
+
+/**
+ * One scene, as two pictures: the picture itself at its full height, anchored
+ * to the right so the figure is never cut, and under it the same picture
+ * blurred and mirrored, filling the whole window, so the sky and the glow
+ * carry on across the left where the words are instead of stopping where
+ * the picture does.
+ */
+function SceneLayer({ scene, shown, onArrive }: { scene: Scene; shown: boolean; onArrive?: () => void }) {
+  return (
+    <div className={`night-layer${shown ? ' is-in' : ''}`} aria-hidden="true">
+      <img className="night-ambient" src={sceneUrl(scene)} alt="" decoding="async" style={{ objectPosition: scene.focus }} />
+      <img className="night-img" src={sceneUrl(scene)} alt="" decoding="async" onLoad={onArrive} />
+    </div>
   );
 }
 
@@ -116,9 +124,17 @@ const SLIDE_MS = 11000;
  * picture is fetched a moment before its turn, so the fade never waits on
  * the network. With motion reduced, the first scene stands alone.
  */
-export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number } {
+export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number; fading: boolean } {
   const [turn, setTurn] = useState(0);
+  // True while a scene is still giving way to the next: as long as the cross-fade and the words' own fades take.
+  const [fading, setFading] = useState(false);
   const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    if (!turn) return;
+    setFading(true);
+    const done = window.setTimeout(() => setFading(false), 3200);
+    return () => window.clearTimeout(done);
+  }, [turn]);
   useEffect(() => {
     if (still) return;
     const start = SCENES.indexOf(first);
@@ -141,7 +157,7 @@ export function useSlides(first: Scene): { scene: Scene; previous: Scene | null;
   const start = SCENES.indexOf(first);
   const scene = SCENES[(start + turn) % SCENES.length];
   const previous = turn ? SCENES[(start + turn - 1) % SCENES.length] : null;
-  return { scene, previous, turn };
+  return { scene, previous, turn, fading };
 }
 
 /**

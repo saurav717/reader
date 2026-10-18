@@ -68,7 +68,7 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
   // its words fading in after it. `side` fills the screen with the picture
   // from the right and keeps the words and the way in on the left; `centred`
   // frames the picture as a plate in the middle with everything under it.
-  const { scene, previous, turn } = useSlides(pickScene());
+  const { scene, previous, turn, fading } = useSlides(pickScene());
   const centred = WELCOME_LAYOUT === 'centred';
 
   return (
@@ -80,13 +80,25 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
       </div>
       {centred ? <ScenePlate scene={scene} previous={previous} /> : null}
       <div className={`night-copy${centred ? ' is-centred' : ''}`}>
-        <div key={turn} className="night-words">
-          <h1>
-            {scene.headline[0]}
-            <br />
-            {scene.headline[1]}
-          </h1>
-          <p className="night-intro">{scene.intro}</p>
+        <div className="night-words-stack">
+          {previous && fading ? (
+            <div key={`leaving-${turn}`} className="night-words is-leaving" aria-hidden="true">
+              <h1>
+                {previous.headline[0]}
+                <br />
+                {previous.headline[1]}
+              </h1>
+              <p className="night-intro">{previous.intro}</p>
+            </div>
+          ) : null}
+          <div key={turn} className={`night-words${turn ? ' is-arriving' : ''}`}>
+            <h1>
+              {scene.headline[0]}
+              <br />
+              {scene.headline[1]}
+            </h1>
+            <p className="night-intro">{scene.intro}</p>
+          </div>
         </div>
       <div className="night-signin">
         {invited && !user ? (
