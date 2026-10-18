@@ -137,10 +137,11 @@ export interface Paper extends PaperRef {
  * record by DOI, `acl` the ACL Anthology's, `openreview` the venue's own,
  * `dblp` the CS bibliography's, `arxiv` the preprint's own export,
  * `datacite` the DOI registry's record of the preprint, `semanticscholar`
- * its index's, `pasted` one put in by hand, and `generated` the one made
+ * its index's, `ai` one a language model found on the web when asked
+ * (src/lib/citeAi.ts), `pasted` one put in by hand, and `generated` the one made
  * here from the paper's record — kept only for a paper no source had.
  */
-export type CitationSource = 'crossref' | 'acl' | 'openreview' | 'dblp' | 'arxiv' | 'datacite' | 'semanticscholar' | 'pasted' | 'generated';
+export type CitationSource = 'crossref' | 'acl' | 'openreview' | 'dblp' | 'arxiv' | 'datacite' | 'semanticscholar' | 'ai' | 'pasted' | 'generated';
 
 /** One BibTeX entry for a paper, tagged by where it came from. */
 export interface CitationVariant {

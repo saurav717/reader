@@ -32,7 +32,8 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
-import { lookupCitations, setCitationOptions } from './citeRecord';
+import { askAiForCitation as findWithAi } from './citeAi';
+import { lookupCitations, setCitationOptions, withVariants } from './citeRecord';
 import type { CitationRecord } from '../types';
 import { isPass, passEmail, passExpires, passForGoogle, proxyHealth, setProxyBase, setProxyToken, SignInRefused } from './api';
 import * as google from './google';
@@ -271,6 +272,13 @@ interface StoreValue {
    * Resolves once every paper has been asked for.
    */
   lookupPaperCitations: (ids: string[]) => Promise<void>;
+  /**
+   * Ask a language model — DeepSeek, then Claude, then Gemini, the first with
+   * credit — to find the paper's entry on the web (src/lib/citeAi.ts), keep it
+   * as the paper's `ai` variant and choose it. Throws, saying what each model
+   * said, when none found it.
+   */
+  askAiForCitation: (id: string) => Promise<void>;
   /** The papers whose entries are being looked for right now. */
   citationsLooking: Set<string>;
 
@@ -1384,6 +1392,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
   lookupLater.current = (id: string) => lookupPaperCitations([id]);
 
+  const askAiForCitation = useCallback(
+    async (id: string) => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+      if (!paper) return;
+      setCitationsLooking((now) => new Set([...now, id]));
+      try {
+        const variant = await findWithAi(paper);
+        await setPaperCitation(id, (current) => ({ ...withVariants(current, [variant]), chosen: 'ai' }));
+      } finally {
+        setCitationsLooking((now) => {
+          const next = new Set(now);
+          next.delete(id);
+          return next;
+        });
+      }
+    },
+    [setPaperCitation],
+  );
+
   const setPaperDriveFile = useCallback(
     async (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => {
       const paper = latest.current.papers.find((item) => item.id === id);
@@ -1648,6 +1675,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setPaperAuthors,
       setPaperCitation,
       lookupPaperCitations,
+      askAiForCitation,
       citationsLooking,
       createCollection,
       renameCollection,
@@ -1672,7 +1700,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
-      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors, setPaperCitation, lookupPaperCitations, citationsLooking,
+      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors, setPaperCitation, lookupPaperCitations, askAiForCitation, citationsLooking,
       createCollection, renameCollection, updateCollection, adoptCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signingInSilently, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
