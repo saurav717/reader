@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Koios — Delete my account: how it works, step by step</title>
+<!--
+  The source of docs/delete-account.pdf. Print it again after a change:
+
+      node scripts/delete-account-pdf.mjs
+
+  (Chromium through Playwright, A4, with the page numbers in the footer.)
+  The screenshots beside this file are of the real dialog, mounted alone
+  with a stubbed server; the diagrams are drawn inline.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..500&display=swap" rel="stylesheet" />
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root { --ink: #1a1a17; --ink-2: #4b4a44; --muted: #7a776d; --line: #d9d4c6; --panel: #f4f1e8; --accent: #1f5e52; --gold: #a9853f; --red: #a33f3f; --navy: #0e1116; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; color: var(--ink); background: #fff; }
+  body { font: 10.5pt/1.5 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; }
+  h1 { font: 600 26pt/1.15 'Newsreader', Georgia, serif; margin: 0 0 6pt; letter-spacing: -0.01em; }
+  h2 { font: 600 16pt/1.2 'Newsreader', Georgia, serif; margin: 22pt 0 8pt; padding-top: 10pt; border-top: 1px solid var(--line); break-after: avoid; }
+  h3 { font: 600 11.5pt/1.3 'IBM Plex Sans', sans-serif; margin: 14pt 0 5pt; break-after: avoid; }
+  p { margin: 0 0 7pt; }
+  ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  code { font: 9.2pt 'IBM Plex Mono', Menlo, monospace; background: var(--panel); border: 1px solid #e6e1d3; border-radius: 3px; padding: 0 3px; }
+  pre { font: 8.8pt/1.45 'IBM Plex Mono', Menlo, monospace; background: var(--panel); border: 1px solid #e6e1d3; border-radius: 6px; padding: 8pt 10pt; margin: 6pt 0 10pt; white-space: pre-wrap; break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.4pt; margin: 6pt 0 12pt; break-inside: auto; }
+  th, td { padding: 5pt 7pt; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { font-size: 8.4pt; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--panel); }
+  tr { break-inside: avoid; }
+  .cap { font-size: 8.4pt; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); font-weight: 600; margin: 0 0 8pt; }
+  .lede { font: italic 400 12.5pt/1.45 'Newsreader', Georgia, serif; color: var(--ink-2); margin: 0 0 10pt; }
+  .meta { color: var(--muted); font-size: 9pt; margin-bottom: 18pt; }
+  .toc { columns: 2; column-gap: 24pt; font-size: 9.6pt; margin: 0 0 6pt; }
+  .toc li { break-inside: avoid; }
+  .note { border-left: 3px solid var(--accent); background: var(--panel); padding: 7pt 10pt; margin: 8pt 0 10pt; break-inside: avoid; }
+  .warn { border-left-color: var(--red); }
+  figure { margin: 10pt 0 14pt; break-inside: avoid; }
+  figure img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  figure.shot img { max-height: 118mm; width: auto; }
+  figcaption { font-size: 8.8pt; color: var(--ink-2); margin-top: 5pt; }
+  figcaption b { color: var(--ink); }
+  svg { display: block; max-width: 100%; height: auto; }
+  svg text { font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; fill: var(--ink); }
+  svg .mono { font-family: 'IBM Plex Mono', Menlo, monospace; }
+  svg .box { fill: #fff; stroke: var(--ink); stroke-width: 1.1; }
+  svg .soft { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+  svg .arrow { fill: none; stroke: var(--ink-2); stroke-width: 1.2; marker-end: url(#ah); }
+  svg .label { font-size: 9px; fill: var(--ink-2); }
+  svg .small { font-size: 8.4px; fill: var(--muted); }
+  svg .t { font-size: 10.5px; font-weight: 600; }
+  svg .gold { fill: var(--gold); }
+  .step { display: grid; grid-template-columns: 26pt 1fr; gap: 0 8pt; margin: 0 0 8pt; break-inside: avoid; }
+  .step .n { width: 22pt; height: 22pt; border-radius: 50%; background: var(--navy); color: #e6e1d6; font: 600 10.5pt/22pt 'IBM Plex Mono', monospace; text-align: center; }
+  .step h4 { margin: 2pt 0 2pt; font-size: 10.8pt; }
+  .step p { margin: 0 0 4pt; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; }
+  .pb { break-before: page; }
+  .files td:first-child { font-family: 'IBM Plex Mono', Menlo, monospace; font-size: 8.8pt; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<p class="cap">Koios · docs/delete-account</p>
+<h1>Delete my account: how it works, step by step</h1>
+<p class="lede">What Koios keeps about a person, where, and what happens — in order, with the code that does each part — when they delete their account from Settings.</p>
+<p class="meta">Written 18 October 2026, for pull request #301. Code references are to the repository at that commit. The screenshots are of the real dialog, in the Koios theme.</p>
+
+<h3>Contents</h3>
+<ol class="toc">
+  <li>What Koios keeps, and where</li>
+  <li>Where the option is</li>
+  <li>The dialog, before anything is deleted</li>
+  <li>Pressing Delete: the page's steps, in order</li>
+  <li>The server: proving who is asking</li>
+  <li>The server: deleting from every store</li>
+  <li>Shared projects: finding them three ways</li>
+  <li>When something fails</li>
+  <li>What is deliberately not deleted</li>
+  <li>Security notes</li>
+  <li>Tests, and how to run them</li>
+  <li>Appendix: the API and the files</li>
+</ol>
+
+<h2>1. What Koios keeps, and where</h2>
+<p>Koios has no database of its own and no account to create: signing in with Google is the account. Even so, using the site leaves records in three places, and each has its own owner and its own way of being deleted.</p>
+
+<figure>
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <rect class="box" x="10" y="20" width="200" height="190" rx="8"/>
+  <text class="t" x="22" y="42">Koios's server (Cloudflare)</text>
+  <text class="small" x="22" y="56">worker/ — Durable Objects and KV</text>
+  <g font-size="9.2">
+    <text x="22" y="78">• shared projects (rooms)</text>
+    <text x="22" y="93">• invitations ledger &amp; mail log</text>
+    <text x="22" y="108">• usage counts, by day</text>
+    <text x="22" y="123">• connected computers</text>
+    <text x="22" y="138">• GitHub &amp; Overleaf tokens (sealed)</text>
+    <text x="22" y="153">• browser-pane session &amp; sign-ins</text>
+  </g>
+  <text class="small" x="22" y="180">deleted by DELETE /account</text>
+  <text class="small" x="22" y="193">(worker/account.js)</text>
+
+  <rect class="box" x="240" y="20" width="200" height="190" rx="8"/>
+  <text class="t" x="252" y="42">This browser</text>
+  <text class="small" x="252" y="56">src/lib — IndexedDB and storage</text>
+  <g font-size="9.2">
+    <text x="252" y="78">• a copy of the library</text>
+    <text x="252" y="93">   (IndexedDB reader:&lt;email&gt;)</text>
+    <text x="252" y="108">• settings, saved keys, the pass</text>
+    <text x="252" y="123">   (localStorage reader.*)</text>
+    <text x="252" y="138">• the Google token for the hour</text>
+    <text x="252" y="153">   (sessionStorage)</text>
+  </g>
+  <text class="small" x="252" y="180">deleted by the page itself</text>
+  <text class="small" x="252" y="193">(src/lib/account.ts)</text>
+
+  <rect class="box" x="470" y="20" width="200" height="190" rx="8"/>
+  <text class="t" x="482" y="42">The person's Google Drive</text>
+  <text class="small" x="482" y="56">theirs — the app only sees its own files</text>
+  <g font-size="9.2">
+    <text x="482" y="78">• Papers_collection/</text>
+    <text x="482" y="93">   papers, highlights, notes,</text>
+    <text x="482" y="108">   projects, playgrounds, LaTeX</text>
+    <text x="482" y="123">• hidden app-data copies of</text>
+    <text x="482" y="138">   library.json, playgrounds.json</text>
+  </g>
+  <text class="small gold" x="482" y="180">only if the box is ticked:</text>
+  <text class="small" x="482" y="193">to Drive's trash (30 days)</text>
+</svg>
+<figcaption><b>Figure 1.</b> The three places a person's records live. The server's part is deleted by one request; the browser's by the page; Drive only on request, and reversibly.</figcaption>
+</figure>
+
+<table>
+<tr><th>Store</th><th>Named by</th><th>What is kept about a person</th><th>Code</th></tr>
+<tr><td>Shared projects</td><td>one object per room (<code>room:&lt;id&gt;</code>)</td><td>the room's owner; a member record (email, role, name, picture); invitations by email; "last seen"; and the logbook, where each note, link and stroke says who wrote it (<code>by</code>) and meeting notes list attendees</td><td><code>worker/projectRoom.js</code>, <code>worker/logbook.js</code></td></tr>
+<tr><td>Invitations ledger</td><td>one object for the site</td><td>every invitation sent (by whom, to whom, whether taken up), personal links and who joined from them, which rooms each account is in (<code>rooms:&lt;email&gt;</code>), and the site's mail log</td><td><code>worker/invites.js</code></td></tr>
+<tr><td>Usage tally</td><td>one object for the site</td><td>per day, per email: sign-ins, searches, PDFs fetched, AI calls and their cost — the owner's Usage page</td><td><code>worker/usage.js</code></td></tr>
+<tr><td>Computers</td><td>one object per email (<code>devices:&lt;email&gt;</code>)</td><td>each Koios Companion the account connected: name, hardware, its address and Jupyter token</td><td><code>worker/devices.js</code></td></tr>
+<tr><td>GitHub, Overleaf</td><td>KV keys, the email hashed</td><td>the tokens, sealed with <code>SECRETS_KEY</code>; when added and last used</td><td><code>worker/github.js</code>, <code>worker/latex.js</code>, <code>worker/secrets.js</code></td></tr>
+<tr><td>Browser pane</td><td>per browser (client id), not per email</td><td>the open session, a short log of pages opened, sites that showed a captcha; and in KV the sign-in cookies the pane kept</td><td><code>worker/browserSession.js</code>, <code>worker/browse.js</code></td></tr>
+<tr><td>The pass</td><td>—</td><td><b>nothing</b>: the 30-day pass is signed, not stored (<code>server/passes.js</code>). It stops working only when it expires.</td><td><code>server/passes.js</code></td></tr>
+</table>
+
+<h2>2. Where the option is</h2>
+<p>Signed in, <b>Settings → Account</b> shows the Google account card. Under the account row is a quiet line with the one button that starts the deletion. It is deliberately not red and not large: it is there when wanted, and nowhere near Sign out.</p>
+<figure class="shot">
+<img src="fig-settings-card.png" alt="The Google account card in Settings, with the Delete my account row under it" />
+<figcaption><b>Figure 2.</b> The account card (<code>src/components/Settings.tsx</code>, the <code>set-danger</code> row). The button opens the dialog; nothing happens yet.</figcaption>
+</figure>
+
+<h2>3. The dialog, before anything is deleted</h2>
+<p>The dialog (<code>src/components/DeleteAccount.tsx</code>) is built so that the person knows exactly what will go before they can press anything. Opening it does one read and no writes.</p>
+
+<div class="step"><div class="n">1</div><div>
+<h4>It asks the server what it keeps</h4>
+<p>On opening, the page calls <code>readAccount()</code> (<code>src/lib/account.ts</code>), which is <code>GET /account</code> with the person's pass. The server answers with a summary (<code>accountSummary</code> in <code>worker/account.js</code>): the shared projects they own and the ones they joined (by name), invitations waiting, computers connected, days of usage counted, invitations sent, and whether a GitHub or Overleaf connection exists. Nothing is changed by this call.</p>
+</div></div>
+<div class="step"><div class="n">2</div><div>
+<h4>It lists what will go, under three heads</h4>
+<p><b>On Koios's server</b> — one line per thing the summary found, with project names in quotes so the person can recognise them. <b>In this browser</b> — always the same: the library copy, settings, saved keys; signed out; Google's access revoked. <b>In your Google Drive</b> — a checkbox, <b>off by default</b>.</p>
+</div></div>
+<div class="step"><div class="n">3</div><div>
+<h4>It asks for the address to be typed</h4>
+<p>The Delete button stays disabled until the person types their own email address exactly (case does not matter). Cancel is always available; clicking outside the dialog closes it too, except while deleting.</p>
+</div></div>
+
+<figure class="shot">
+<img src="fig-dialog.png" alt="The Delete my account dialog as it opens" />
+<figcaption><b>Figure 3.</b> The dialog as it opens, for an account that owns one shared project, is in another, has one invitation waiting, two computers and a GitHub connection. The Drive box is unticked and the button disabled.</figcaption>
+</figure>
+
+<figure class="shot">
+<img src="fig-dialog-confirmed.png" alt="The dialog with the Drive box ticked and the email typed" />
+<figcaption><b>Figure 4.</b> The Drive box ticked and the address typed: the button is live. Only now can anything be deleted.</figcaption>
+</figure>
+
+<div class="note"><b>Three states the summary can be in.</b> While it loads: "Looking up what is kept…". If the server cannot be asked (no pass, or no server in this deployment): a line saying nothing of theirs is kept there, and deleting only does the browser's part. If the server answered with an error: the error is shown, and deleting still removes all of it.</div>
+
+<h2 class="pb">4. Pressing Delete: the page's steps, in order</h2>
+<p>Everything from here is <code>deleteAccount()</code> in <code>src/lib/account.ts</code>. The order matters: Drive needs the Google token that signing out revokes, so Drive goes first; the server needs the pass and the token, so it goes before the browser forgets them; the browser's own copy goes last, and only then does the page sign out and start again.</p>
+
+<figure>
+<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <g>
+    <rect class="box" x="10" y="20" width="120" height="58" rx="7"/>
+    <text class="t" x="20" y="40">1 · A token</text>
+    <text class="label" x="20" y="55">Google token with the</text>
+    <text class="label" x="20" y="67">Drive scope if trashing</text>
+  </g>
+  <path d="M130 49 L160 49" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah2)"/>
+  <g>
+    <rect class="box" x="162" y="20" width="120" height="58" rx="7" stroke-dasharray="4 3"/>
+    <text class="t" x="172" y="40">2 · Drive</text>
+    <text class="label" x="172" y="55">only if ticked: trash</text>
+    <text class="label" x="172" y="67">the app's trees</text>
+  </g>
+  <path d="M282 49 L312 49" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah2)"/>
+  <g>
+    <rect class="box" x="314" y="20" width="120" height="58" rx="7"/>
+    <text class="t" x="324" y="40">3 · The server</text>
+    <text class="label" x="324" y="55">DELETE /account</text>
+    <text class="label mono" x="324" y="67">pass + Google token</text>
+  </g>
+  <path d="M434 49 L464 49" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah2)"/>
+  <g>
+    <rect class="box" x="466" y="20" width="120" height="58" rx="7"/>
+    <text class="t" x="476" y="40">4 · This browser</text>
+    <text class="label" x="476" y="55">IndexedDB copy,</text>
+    <text class="label" x="476" y="67">reader.* storage</text>
+  </g>
+  <path d="M526 78 L526 108" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah2)"/>
+  <g>
+    <rect class="box" x="466" y="110" width="120" height="58" rx="7"/>
+    <text class="t" x="476" y="130">5 · Sign out</text>
+    <text class="label" x="476" y="145">Google's access revoked;</text>
+    <text class="label" x="476" y="157">other tabs told</text>
+  </g>
+  <path d="M466 139 L436 139" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah2)"/>
+  <g>
+    <rect class="box" x="314" y="110" width="120" height="58" rx="7"/>
+    <text class="t" x="324" y="130">6 · Start again</text>
+    <text class="label" x="324" y="145">storage cleared once more</text>
+    <text class="label" x="324" y="157">on pagehide; page reloads</text>
+  </g>
+  <rect class="soft" x="10" y="200" width="576" height="84" rx="7"/>
+  <text class="t" x="22" y="220">If a step throws, the ones after it do not run</text>
+  <text class="label" x="22" y="236">A Drive error leaves the account intact (files already trashed can be restored from Drive's trash).</text>
+  <text class="label" x="22" y="250">A server refusal (401, 403) leaves this browser's copy and the sign-in intact. The dialog shows the</text>
+  <text class="label" x="22" y="264">reason with "Nothing more was deleted:" in front, and the person can try again or cancel.</text>
+</svg>
+<figcaption><b>Figure 5.</b> The page's steps. Step 2 is dashed because it runs only when the Drive box was ticked.</figcaption>
+</figure>
+
+<div class="step"><div class="n">1</div><div>
+<h4>Get a Google token</h4>
+<p>If the Drive box is ticked, <code>ensureDriveToken(clientId)</code> is used: it returns the live token when it already carries the Drive scope, and otherwise renews quietly on the existing grant, throwing if Drive was never granted. If the box is not ticked, any live token will do (<code>liveAccessToken()</code>), with the same renewal as a fallback. The token is needed in either case, because the server will ask for it in step 3.</p>
+</div></div>
+
+<div class="step"><div class="n">2</div><div>
+<h4>Drive, only if ticked: <code>trashDrive(token)</code></h4>
+<p>With the <code>drive.file</code> scope, a listing of Drive returns <i>only files the app itself created</i>, wherever the person has since moved them. The page lists them all (<code>fields=id,parents,ownedByMe</code>, following pages), then finds the <b>roots</b>: files whose parent is not itself one of the app's files. Trashing a root takes its whole tree with it, so <code>Papers_collection</code> goes in one request even if it holds hundreds of papers. Files the person does not own (a collaborator's folder shared into their Drive) are skipped: they are not theirs to trash, and trying would fail and stop the deletion.</p>
+<p>Then, if the token has the <code>drive.appdata</code> scope, the hidden copies (<code>library.json</code>, <code>playgrounds.json</code> in the app-data space) are deleted outright: Drive has no trash for app-data files.</p>
+<p>Drive's trash keeps files for 30 days, and the person can restore anything from it themselves.</p>
+</div></div>
+
+<div class="step"><div class="n">3</div><div>
+<h4>The server: <code>DELETE /account</code></h4>
+<p>One request, with three things on it: the pass in <code>Authorization</code>, the Google token in <code>X-Google-Token</code>, and a JSON body <code>{ "rooms": [...] }</code> listing the room ids of every shared project this browser's library knows (see §7). The browser's client id goes along as always, in <code>X-Reader-Client</code>, so the server can also clear what it keeps by browser. If the answer is not OK, the page throws here with the server's reason, and nothing below runs.</p>
+</div></div>
+
+<div class="step"><div class="n">4</div><div>
+<h4>This browser's copy: <code>deleteLibraries(email, andGuest)</code></h4>
+<p>The app's open IndexedDB connection is closed, then the database <code>reader:&lt;email&gt;</code> is deleted (<code>src/lib/db.ts</code>). If the "guest" database — the one a browser uses before anyone signs in — was claimed by this account when it first signed in, it is deleted too; otherwise it is left, since its papers were never this account's. Then every <code>localStorage</code> and <code>sessionStorage</code> key beginning <code>reader.</code> is removed: settings (which hold the pass), saved AI keys, layout, the Google session for the hour.</p>
+</div></div>
+
+<div class="step"><div class="n">5</div><div>
+<h4>Sign out: <code>google.signOut()</code></h4>
+<p>The Google access token is revoked with Google, the desktop app (if the page is in it) hands back the grant it kept, and the other tabs of the site are told to sign out and reload.</p>
+</div></div>
+
+<div class="step"><div class="n">6</div><div>
+<h4>Start again</h4>
+<p>A <code>pagehide</code> listener clears the <code>reader.*</code> keys a second time as the page unloads, so anything the app wrote back in the last moment goes too. The page then navigates to the site's root, signed out, with an empty guest library.</p>
+</div></div>
+
+<h2>5. The server: proving who is asking</h2>
+<p>The route is in <code>worker/index.js</code> (<code>/account</code>). A pass alone would be a weak basis for deleting someone: it lasts 30 days, and a pass that leaked — from a shared computer, say — should not be enough to destroy an account. So deleting needs two proofs that agree.</p>
+
+<figure>
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <rect class="box" x="10" y="30" width="150" height="70" rx="7"/>
+  <text class="t" x="20" y="50">The pass</text>
+  <text class="label mono" x="20" y="66">Authorization: Bearer rp1…</text>
+  <text class="label" x="20" y="80">signed by the Worker; says</text>
+  <text class="label" x="20" y="92">whose it is (email A)</text>
+
+  <rect class="box" x="10" y="120" width="150" height="70" rx="7"/>
+  <text class="t" x="20" y="140">The Google token</text>
+  <text class="label mono" x="20" y="156">X-Google-Token: ya29…</text>
+  <text class="label" x="20" y="170">a live token, checked with</text>
+  <text class="label" x="20" y="182">Google now (tokeninfo)</text>
+
+  <path d="M160 65 L230 65" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah3)"/>
+  <path d="M160 155 L230 155" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah3)"/>
+  <rect class="box" x="232" y="30" width="130" height="70" rx="7"/>
+  <text class="label" x="242" y="52">authorized() →</text>
+  <text class="t" x="242" y="70">who.email = A</text>
+  <text class="label" x="242" y="88">also: allowed by READER_EMAILS</text>
+  <rect class="box" x="232" y="120" width="130" height="70" rx="7"/>
+  <text class="label" x="242" y="142">googleEmail() →</text>
+  <text class="t" x="242" y="160">email B, for this app,</text>
+  <text class="label" x="242" y="176">verified, not expired</text>
+
+  <path d="M362 65 L420 102" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah3)"/>
+  <path d="M362 155 L420 118" stroke="#4b4a44" stroke-width="1.2" fill="none" marker-end="url(#ah3)"/>
+  <polygon points="430,110 490,70 550,110 490,150" fill="#fff" stroke="#1a1a17" stroke-width="1.1"/>
+  <text class="t" x="490" y="106" text-anchor="middle">A = B ?</text>
+  <text class="label" x="490" y="122" text-anchor="middle">same address</text>
+  <path d="M550 110 L600 110" stroke="#1f5e52" stroke-width="1.4" fill="none" marker-end="url(#ah3)"/>
+  <text class="t" x="604" y="106" fill="#1f5e52">yes → delete</text>
+  <text class="label" x="604" y="120">eraseAccount(A)</text>
+  <path d="M490 150 L490 185" stroke="#a33f3f" stroke-width="1.4" fill="none" marker-end="url(#ah3)"/>
+  <text class="t" x="500" y="178" fill="#a33f3f">no, or missing → 403</text>
+  <text class="label" x="500" y="192">"sign in with Google again…", reauth: true</text>
+</svg>
+<figcaption><b>Figure 6.</b> Two proofs that must name the same account. The Google token is checked with Google at request time, never trusted from its contents.</figcaption>
+</figure>
+
+<ol>
+  <li><b>Origin.</b> The request must come from the site itself (<code>ALLOWED_ORIGINS</code>); anything else is refused with 403 before any work.</li>
+  <li><b>The pass.</b> <code>authorized()</code> reads and verifies it. No pass, or a pass for an address that <code>READER_EMAILS</code> no longer allows: 401. The site owner's own secret (<code>READER_TOKEN</code>) names no email, so it cannot delete anyone either.</li>
+  <li><b>The Google token.</b> <code>googleEmail()</code> (<code>server/passes.js</code>) sends it to Google's <code>tokeninfo</code> endpoint and accepts the answer only if the token was issued to this app's client id, the address is verified, and the token has not expired. A token from another site, or an old one, yields nothing.</li>
+  <li><b>They must agree.</b> If the two addresses differ, or the token check failed: 403 with <code>reauth: true</code>, and nothing is deleted. The dialog shows the message and the person can sign in again and retry.</li>
+</ol>
+<p><code>GET /account</code> — the summary — needs only the pass: it reveals nothing that the person's own pages do not already show, and changes nothing.</p>
+
+<h2>6. The server: deleting from every store</h2>
+<p><code>eraseAccount(env, email, { client, rooms, browserSession })</code> in <code>worker/account.js</code> visits each store in turn. Each store has one small internal route for forgetting a person; none of those routes is reachable from the internet (§10). A store that is not bound in this deployment, or that does not answer, is skipped and named in the answer's <code>skipped</code> list, so the rest still happens.</p>
+
+<figure>
+<svg viewBox="0 0 680 330" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <rect class="box" x="250" y="130" width="180" height="70" rx="9" fill="#0e1116"/>
+  <text class="t" x="340" y="158" text-anchor="middle" fill="#e6e1d6">eraseAccount(email)</text>
+  <text class="label" x="340" y="176" text-anchor="middle" fill="#c9a86a">worker/account.js</text>
+  <text class="small" x="340" y="190" text-anchor="middle" fill="#9a978d">in this order, top to bottom</text>
+
+  <g>
+    <rect class="box" x="10" y="20" width="200" height="56" rx="7"/>
+    <text class="t" x="20" y="40">1 · each shared project</text>
+    <text class="label mono" x="20" y="55">ROOMS room:&lt;id&gt; → /erase</text>
+    <text class="label" x="20" y="68">close if owner; else leave &amp; scrub</text>
+    <path d="M250 150 C 220 150, 220 48, 212 48" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+  <g>
+    <rect class="box" x="10" y="100" width="200" height="56" rx="7"/>
+    <text class="t" x="20" y="120">2 · the invitations ledger</text>
+    <text class="label mono" x="20" y="135">INVITES → /forget</text>
+    <text class="label" x="20" y="148">sent, received, links, rooms, mail</text>
+    <path d="M250 160 L212 128" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+  <g>
+    <rect class="box" x="10" y="180" width="200" height="56" rx="7"/>
+    <text class="t" x="20" y="200">3 · the usage tally</text>
+    <text class="label mono" x="20" y="215">USAGE → /forget</text>
+    <text class="label" x="20" y="228">their row out of every day</text>
+    <path d="M250 170 L212 208" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+  <g>
+    <rect class="box" x="10" y="260" width="200" height="56" rx="7"/>
+    <text class="t" x="20" y="280">4 · their computers</text>
+    <text class="label mono" x="20" y="295">DEVICES devices:&lt;email&gt; → /erase</text>
+    <text class="label" x="20" y="308">the object emptied</text>
+    <path d="M250 180 C 220 180, 220 288, 212 288" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+
+  <g>
+    <rect class="box" x="470" y="20" width="200" height="56" rx="7"/>
+    <text class="t" x="480" y="40">5 · GitHub</text>
+    <text class="label mono" x="480" y="55">forgetGithub() — KV</text>
+    <text class="label" x="480" y="68">grant revoked at GitHub, record deleted</text>
+    <path d="M430 150 C 460 150, 460 48, 468 48" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+  <g>
+    <rect class="box" x="470" y="100" width="200" height="56" rx="7"/>
+    <text class="t" x="480" y="120">6 · Overleaf</text>
+    <text class="label mono" x="480" y="135">forgetOverleaf() — KV</text>
+    <text class="label" x="480" y="148">accounts, legacy key, active job</text>
+    <path d="M430 160 L468 128" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+  <g>
+    <rect class="box" x="470" y="180" width="200" height="56" rx="7"/>
+    <text class="t" x="480" y="200">7 · the browser pane</text>
+    <text class="label mono" x="480" y="215">BROWSER_SESSION client:&lt;id&gt; → /erase</text>
+    <text class="label" x="480" y="228">session closed, log &amp; walls gone</text>
+    <path d="M430 170 L468 208" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+  <g>
+    <rect class="box" x="470" y="260" width="200" height="56" rx="7"/>
+    <text class="t" x="480" y="280">8 · the pane's sign-ins</text>
+    <text class="label mono" x="480" y="295">forgetCookies() — KV cookies:&lt;id&gt;</text>
+    <text class="label" x="480" y="308">the jar deleted, after 7 saved it</text>
+    <path d="M430 180 C 460 180, 460 288, 468 288" class="arrow" marker-end="url(#ah4)"/>
+  </g>
+</svg>
+<figcaption><b>Figure 7.</b> One function, eight stores. Steps 7 and 8 are by browser rather than by account, so they use the client id the request carried.</figcaption>
+</figure>
+
+<h3>6.1 Shared projects (<code>worker/projectRoom.js</code>, route <code>/erase</code>)</h3>
+<p>For each room id (from the ledger, the inbox of invitations, and the list the page sent), the room object is asked to erase the person. What it does depends on their part in it:</p>
+
+<figure>
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <rect class="box" x="10" y="70" width="130" height="56" rx="7"/>
+  <text class="t" x="20" y="92">room /erase</text>
+  <text class="label mono" x="20" y="108">?email=A</text>
+  <polygon points="190,98 240,66 290,98 240,130" fill="#fff" stroke="#1a1a17" stroke-width="1.1"/>
+  <text class="label" x="240" y="94" text-anchor="middle">A's part in</text>
+  <text class="label" x="240" y="106" text-anchor="middle">the room?</text>
+  <path d="M140 98 L188 98" class="arrow" marker-end="url(#ah5)"/>
+
+  <path d="M290 98 L340 34" class="arrow" marker-end="url(#ah5)"/>
+  <rect class="soft" x="342" y="10" width="328" height="44" rx="6"/>
+  <text class="t" x="352" y="27">owner → close the room, as Close in the app does</text>
+  <text class="label" x="352" y="42">everyone let go and told; every key deleted; the ledger told whom to drop</text>
+
+  <path d="M290 98 L340 98" class="arrow" marker-end="url(#ah5)"/>
+  <rect class="soft" x="342" y="76" width="328" height="44" rx="6"/>
+  <text class="t" x="352" y="93">member → leave, as Leave does</text>
+  <text class="label" x="352" y="108">member and last-seen records deleted; their sockets closed; others told</text>
+
+  <path d="M290 98 L340 162" class="arrow" marker-end="url(#ah5)"/>
+  <rect class="soft" x="342" y="142" width="328" height="44" rx="6"/>
+  <text class="t" x="352" y="159">only invited, or not in it at all → nothing to leave</text>
+  <text class="label" x="352" y="174">their invitation (if any) deleted; a room A is not in is otherwise untouched</text>
+</svg>
+<figcaption><b>Figure 8.</b> Then, in every case but a closed room, the scrub: A's address comes off what stays.</figcaption>
+</figure>
+
+<p><b>The scrub.</b> What the person wrote in someone else's logbook is that project's record of its meetings and links, so it stays — but their address does not. Every note, link, stroke and the shared pad whose <code>by</code> is their address gets <code>by: ''</code>; meeting notes drop their address from <code>attendees</code>; invitations they sent to others keep the invitation but lose the <code>by</code>; and the room's <code>updatedBy</code> is blanked if it was theirs. After this, the room's storage contains the address nowhere (the test checks the whole object for it).</p>
+<p>When a room was closed, the Worker also tells the ledger (<code>/room-closed</code>) with the list of members, so each of them is taken off that room on their own <code>rooms:</code> record, as happens when an owner closes a room by hand.</p>
+
+<h3>6.2 The invitations ledger (<code>worker/invites.js</code>, route <code>/forget</code>)</h3>
+<ul>
+  <li>Every event the person sent or was sent is deleted — project invitations, "Invite someone" mails, and their personal links (with the <code>link:&lt;token&gt;</code> index, so the link stops resolving).</li>
+  <li>Where they merely joined from <i>someone else's</i> personal link, they are removed from that link's <code>joined</code> list; the link and its owner's tally stay.</li>
+  <li>Their inbox index (<code>to:&lt;email&gt;</code>) and their room list (<code>rooms:&lt;email&gt;</code>) are deleted.</li>
+  <li>Mail-log entries to or from them are deleted. The mail provider's own delivery log is outside Koios (§9).</li>
+</ul>
+
+<h3>6.3 The usage tally (<code>worker/usage.js</code>, route <code>/forget</code>)</h3>
+<p>Counts are kept per day, as one record per day keyed by email. The person's key is removed from every day's record; a day left with nobody in it is deleted. The owner's Usage page simply no longer has the row. (The same object answers <code>/mine</code> with how many days have counts, for the dialog's summary.)</p>
+
+<h3>6.4 Computers (<code>worker/devices.js</code>, route <code>/erase</code>)</h3>
+<p>The account's object — one per email — is emptied with <code>deleteAll()</code>. A Companion still running on one of those computers will find, next time it checks in, that its row is gone and its secret no longer matches; it does nothing further until someone claims it again.</p>
+
+<h3>6.5 GitHub and Overleaf (<code>forgetGithub</code>, <code>forgetOverleaf</code>)</h3>
+<p>These are the same functions the Disconnect buttons use. GitHub: the person's grant to the app is revoked with GitHub first (for sign-in and GitHub-App connections), then the sealed record is deleted from KV. Overleaf: every account's sealed tokens are deleted, the pre-<code>secrets.js</code> legacy key with them, and the marker of a compile in progress. The KV keys are an HMAC of the email, never the email itself, which is why <code>secretsKey()</code> is needed to find them.</p>
+
+<h3>6.6 The browser pane and its sign-ins</h3>
+<p>These are kept by <i>browser</i> (the client id in <code>X-Reader-Client</code>), not by account, because the pane is the browser's. The session object for this client is told to release any open browser and <code>deleteAll()</code> — the session, its short log of pages opened, and the hosts it remembered as having shown a captcha. Releasing saves the pane's cookies to the jar; so the jar (<code>cookies:&lt;client&gt;</code> in KV) is deleted straight after, by <code>forgetCookies()</code>, the same function as "Forget sign-ins".</p>
+
+<h2>7. Shared projects: finding them three ways</h2>
+<p>A room can only be reached by its id, so the deletion needs a list of the rooms the person is in. One index would be a single point of failure — a record lost means a room the deletion never sees — so there are three, and a room is missed only if all three lose it.</p>
+
+<figure>
+<svg viewBox="0 0 680 262" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b4a44"/></marker></defs>
+  <rect class="box" x="10" y="14" width="300" height="64" rx="7"/>
+  <text class="t" x="20" y="34">1 · The ledger</text>
+  <text class="label mono" x="20" y="50">INVITES rooms:&lt;email&gt;</text>
+  <text class="label" x="20" y="66">written as people share, join, leave, are removed, or a room closes</text>
+
+  <rect class="box" x="10" y="98" width="300" height="64" rx="7"/>
+  <text class="t" x="20" y="118">2 · The page's own library</text>
+  <text class="label mono" x="20" y="134">project.shared.room (src/types.ts)</text>
+  <text class="label" x="20" y="150">sent in the DELETE body; a room A isn't in is untouched</text>
+
+  <rect class="box" x="10" y="182" width="300" height="64" rx="7"/>
+  <text class="t" x="20" y="202">3 · The ledger puts itself right</text>
+  <text class="label mono" x="20" y="218">GET /rooms/&lt;id&gt;/state → ledger /member</text>
+  <text class="label" x="20" y="234">every open of a room by a member re-records them, after the answer</text>
+
+  <path d="M330 214 C 360 214, 360 46, 330 46" class="arrow" marker-end="url(#ah6)" stroke-dasharray="4 3"/>
+  <text class="small" x="356" y="190">repairs 1</text>
+
+  <path d="M310 46 C 400 46, 400 118, 470 118" class="arrow" marker-end="url(#ah6)"/>
+  <path d="M310 130 L470 130" class="arrow" marker-end="url(#ah6)"/>
+  <rect class="box" x="472" y="100" width="198" height="60" rx="7" fill="#0e1116"/>
+  <text class="t" x="571" y="124" text-anchor="middle" fill="#e6e1d6">one set of room ids</text>
+  <text class="label" x="571" y="140" text-anchor="middle" fill="#c9a86a">each asked to /erase once</text>
+  <text class="small" x="10" y="258">The ledger and the rooms were added the same day (14 Oct 2026), so there is no "before the ledger" to catch up on; this is insurance against drift.</text>
+</svg>
+<figcaption><b>Figure 9.</b> Three sources, one set. The server-side list and the client-side list are merged and de-duplicated before any room is touched.</figcaption>
+</figure>
+
+<p>Why this is safe even with a wrong id from the page: the room's <code>/erase</code> takes the caller's email from the Worker (not from the page), and on a room where that email is neither owner, member nor invitee it deletes an invitation that does not exist and scrubs nothing — a no-op. So the page can only ever cause its own account to be removed from rooms it is actually in.</p>
+
+<h2>8. When something fails</h2>
+<p>The page deletes in an order such that a failure leaves things recoverable, and it says so plainly.</p>
+<figure class="shot">
+<img src="fig-dialog-error.png" alt="The dialog showing an error after Delete was pressed" />
+<figcaption><b>Figure 10.</b> A step failed — here, the Google window that renews the token was closed before it finished. The dialog keeps the person's choices, says "Nothing more was deleted" with the reason, and the button is live again.</figcaption>
+</figure>
+<table>
+<tr><th>Where it fails</th><th>What has happened by then</th><th>What the person sees and can do</th></tr>
+<tr><td>Getting the token (step 1)</td><td>nothing</td><td>Google's reason (window closed, Drive not granted); retry, or untick Drive</td></tr>
+<tr><td>Drive (step 2)</td><td>some files may be in Drive's trash — restorable there for 30 days</td><td>"Drive request failed (…)"; retry, or untick Drive and the account still deletes</td></tr>
+<tr><td>The server (step 3): 403 <code>reauth</code></td><td>Drive, if ticked</td><td>"sign in with Google again to delete this account"; sign in and retry</td></tr>
+<tr><td>The server: 401</td><td>Drive, if ticked</td><td>the pass has expired or the address is no longer allowed; sign in again</td></tr>
+<tr><td>The server: a store did not answer</td><td>the server deletes the rest and answers OK, naming the store in <code>skipped</code></td><td>the deletion completes; the skipped store's record stays until the owner removes it</td></tr>
+<tr><td>Deleting the browser's copy (step 4)</td><td>everything on the server; Drive, if ticked</td><td>the page still signs out and reloads; a database another tab held open is deleted as soon as that tab closes</td></tr>
+</table>
+
+<h2>9. What is deliberately not deleted</h2>
+<ul>
+  <li><b>The person's Drive files, unless they ticked the box.</b> They are the person's own files in their own Drive, and Koios has no claim on them. Ticked, they go to Drive's trash, not oblivion.</li>
+  <li><b>Other people's copies of a shared project.</b> A project is mirrored into each member's own library. Deleting the owner's account closes the room, but what each member already has in their Drive stays theirs.</li>
+  <li><b>What they wrote in others' logbooks.</b> The notes, links and strokes stay with that project (without the address): they are the project's record of its meetings, and other members rely on them.</li>
+  <li><b>The mail provider's delivery log.</b> When the site emailed an invitation on the person's behalf, the provider (Brevo, SendGrid, …) keeps its own record of that delivery for a time under its own policy. Koios's own log of it is deleted.</li>
+  <li><b>Their Google account</b>, obviously. Koios's access to it is revoked; the person can also check at <code>myaccount.google.com/permissions</code>.</li>
+  <li><b>Rate-limit counters</b> keyed by email are 60-second windows, not a store; they expire on their own.</li>
+</ul>
+<div class="note"><b>Idempotent.</b> Deleting twice is safe: the second summary finds nothing, and every forgetting route tolerates an absent record. The test "deleting twice finds nothing the second time" checks this.</div>
+
+<h2>10. Security notes</h2>
+<ul>
+  <li><b>Two proofs</b> (§5): a leaked 30-day pass alone cannot delete an account; a Google token alone (no pass) cannot either.</li>
+  <li><b>Internal routes are not public.</b> The forgetting routes (<code>/erase</code>, <code>/forget</code>) exist only inside the Worker's objects. The public passthroughs forward only named actions: <code>/rooms/&lt;id&gt;/…</code> an allow-list without <code>erase</code>; <code>/devices/…</code> only <code>claim</code> and <code>forget</code>; and <code>/browse/…</code>, which forwards most paths to the pane's object, now refuses <code>erase</code> with 404 before forwarding (the test script checks this). <code>/account</code> itself is the only way in, and it needs both proofs.</li>
+  <li><b>Origin-bound.</b> <code>/account</code> answers only requests from the site's own origins, like sign-in and sharing.</li>
+  <li><b>No enumeration.</b> The summary is only ever about the account whose pass is presented; there is no way to ask about someone else.</li>
+  <li><b>The page can only harm itself.</b> The room ids it sends are acted on under the caller's own email, and a room the caller is not in is untouched (§7).</li>
+  <li><b>Secrets are never read to delete them.</b> GitHub and Overleaf records are found by the HMAC of the email and deleted sealed; the GitHub token is opened only to hand the grant back to GitHub, as Disconnect does.</li>
+</ul>
+
+<h2>11. Tests, and how to run them</h2>
+<p><code>scripts/account.test.mjs</code> runs the real Worker and the real Durable Object classes against in-memory stand-ins for Cloudflare's storage and KV, with Google's <code>tokeninfo</code> stubbed so a token <code>google:&lt;email&gt;</code> is that account's. It is part of <code>npm run test:api</code>.</p>
+<pre>node --test scripts/account.test.mjs        # just these
+npm run test:api                           # all 532 server tests, these among them</pre>
+<table>
+<tr><th>Case</th><th>What it proves</th></tr>
+<tr><td>says first what is kept about the account</td><td>the summary counts rooms owned and joined by name, computers, days of usage, invitations sent, GitHub</td></tr>
+<tr><td>takes a Google token for the same account, not a pass alone</td><td>no token → 403; the other person's token → 403; no pass → 401; both, agreeing → 200</td></tr>
+<tr><td>then leaves nothing of the account, and the other person's things as they were</td><td>after deleting one of two people who share projects with each other: her room is closed for him and off his list; his room goes on without her, her note stays with <code>by: ''</code> and her address gone from its attendees; the whole storage of his room, the ledger, the tally and KV contain her address nowhere; his counts and his GitHub record are intact; her computers' object is empty</td></tr>
+<tr><td>sees to the rooms the page sends, when the ledger has lost them</td><td>with her ledger record deleted and the ids sent in the body (plus a junk one), the same closing and leaving happens</td></tr>
+<tr><td>is told of a room again by the ledger each time a member opens it</td><td>a lost record comes back on the next <code>/state</code>; a room not opened stays off the list until it is</td></tr>
+<tr><td>then, deleting twice, finds nothing the second time</td><td>idempotence</td></tr>
+</table>
+<p>What the tests do not cover, because it needs a real browser signed in to Google: the Drive trashing and the page's own clean-up (§4, steps 2 and 4–6). Those were reviewed by hand; a click-through with a spare Google account before relying on the feature is still recommended.</p>
+
+<h2>12. Appendix: the API and the files</h2>
+<h3>GET /account</h3>
+<pre>Authorization: Bearer &lt;pass&gt;
+→ 200
+{
+  "email": "dana@example.org",
+  "owned":  [{ "room": "&lt;32 hex&gt;", "project": "Sparse-gated MoE" }],
+  "joined": [{ "room": "&lt;32 hex&gt;", "project": "Omar’s reading group" }],
+  "invited": 1, "devices": 2, "usageDays": 14, "invitationsSent": 3,
+  "github": true, "overleaf": false
+}</pre>
+<h3>DELETE /account</h3>
+<pre>Authorization: Bearer &lt;pass&gt;
+X-Google-Token: &lt;a live Google access token for the same account&gt;
+X-Reader-Client: &lt;this browser's client id&gt;
+Content-Type: application/json
+{ "rooms": ["&lt;32 hex&gt;", …] }          # the shared projects this library knows; optional
+
+→ 200  { "ok": true, "closed": 1, "left": 1, "invitations": 4, "mail": 2,
+         "usageDays": 14, "devices": 2, "github": true, "overleaf": false,
+         "browser": true, "skipped": [] }
+→ 401  no pass, or an address no longer allowed
+→ 403  not from the site; or the Google token is missing, invalid, or for another account
+       { "error": "sign in with Google again to delete this account", "reauth": true }</pre>
+
+<h3>Internal routes (Worker → its own objects; not reachable from outside)</h3>
+<table>
+<tr><th>Object</th><th>Route</th><th>Does</th></tr>
+<tr><td><code>ProjectRoom</code></td><td><code>POST /erase?email=</code></td><td>close (owner) / leave (member) / drop invitation; scrub the address from the logbook, invitations sent, <code>updatedBy</code>. Answers <code>{ ok, members, log }</code> when closed, else <code>{ ok, left }</code></td></tr>
+<tr><td><code>Invites</code></td><td><code>POST /forget { email }</code></td><td>events by or to them, their links, <code>to:</code>, <code>rooms:</code>, mail entries; off others' link <code>joined</code> lists</td></tr>
+<tr><td><code>Usage</code></td><td><code>POST /forget { email }</code> · <code>GET /mine?email=</code></td><td>their key out of every day / how many days have it</td></tr>
+<tr><td><code>Devices</code></td><td><code>POST /erase</code></td><td><code>deleteAll()</code> on the account's object</td></tr>
+<tr><td><code>BrowserSession</code></td><td><code>POST /erase?client=</code></td><td>release the browser, <code>deleteAll()</code></td></tr>
+</table>
+
+<h3>Files</h3>
+<table class="files">
+<tr><th>File</th><th>Part</th></tr>
+<tr><td>src/components/Settings.tsx</td><td>the "Delete my account…" row on the account card; hands the dialog the room ids from the library</td></tr>
+<tr><td>src/components/DeleteAccount.tsx</td><td>the dialog: summary, Drive box, typed confirmation, errors</td></tr>
+<tr><td>src/lib/account.ts</td><td><code>readAccount()</code>, <code>deleteAccount()</code>: Drive, the request, the browser's clean-up, sign-out</td></tr>
+<tr><td>src/lib/db.ts</td><td><code>deleteLibraries()</code>: the IndexedDB copies</td></tr>
+<tr><td>worker/index.js</td><td>the <code>/account</code> route and its two proofs; <code>/rooms/&lt;id&gt;/state</code> re-recording membership; <code>/browse/erase</code> refused</td></tr>
+<tr><td>worker/account.js</td><td><code>accountSummary()</code>, <code>eraseAccount()</code></td></tr>
+<tr><td>worker/projectRoom.js</td><td>the room's <code>/erase</code></td></tr>
+<tr><td>worker/invites.js</td><td>the ledger's <code>/forget</code></td></tr>
+<tr><td>worker/usage.js</td><td><code>/forget</code>, <code>/mine</code></td></tr>
+<tr><td>worker/devices.js</td><td><code>/erase</code></td></tr>
+<tr><td>worker/browserSession.js</td><td><code>/erase</code></td></tr>
+<tr><td>worker/github.js, worker/latex.js</td><td><code>forgetGithub()</code>, <code>forgetOverleaf()</code>, shared with the Disconnect routes</td></tr>
+<tr><td>public/privacy/index.html</td><td>"Deleting your data" describes all of this to the public</td></tr>
+<tr><td>scripts/account.test.mjs</td><td>the six tests above</td></tr>
+</table>
+
+</body>
+</html>

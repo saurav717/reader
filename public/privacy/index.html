@@ -5,62 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Privacy · Koios</title>
   <meta name="description" content="What the paper reader does with your data, and what it never sees." />
-  <link rel="icon" href="../icons/koios-192.png" />
+  <!-- The tab's mark, as index.html gives it: Safari takes the PNGs, the others the SVG. -->
+  <link rel="icon" href="../favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/koios-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="../icons/koios-192.png" />
+  <link rel="icon" type="image/svg+xml" href="../icons/koios.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../icons/koios-180.png" />
+  <meta name="theme-color" content="#0e1116" />
+  <script src="../legal/theme.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..500&display=swap" rel="stylesheet" />
-  <style>
-    :root {
-      color-scheme: light dark;
-      --paper: #fbfaf6; --surface: #fffdf7; --panel: #f4f1e8; --rail: #eeebe1; --border: #e2ddce; --border-soft: #ede9db;
-      --ink: #1a1a17; --ink-2: #55524a; --muted: #6f6c63; --accent: #1f5e52; --accent-soft: #e4efe7; --accent-ink: #14403a; --accent-on: #f6f4ec;
-      --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; --serif: 'Newsreader', Georgia, 'Times New Roman', serif; --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
-      --shadow-sm: 0 1px 2px rgba(26, 26, 23, 0.06);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --paper: #15161a; --surface: #1d1f25; --panel: #1a1c21; --rail: #17181c; --border: #2c2f36; --border-soft: #25272d;
-        --ink: #eae7df; --ink-2: #c3bfb4; --muted: #9b978c; --accent: #57a98f; --accent-soft: #1e3a33; --accent-ink: #8fcbb8; --accent-on: #10201c;
-        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-      }
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--paper); color: var(--ink); }
-    body { font: 15.5px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
-    .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 20px; background: var(--rail); border-bottom: 1px solid var(--border); }
-    .brand { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--accent-on); font: 700 18px/1 var(--serif); text-decoration: none; }
-    .bar b { font: 600 15px var(--sans); color: var(--ink); }
-    .bar nav { margin-left: auto; display: flex; gap: 4px; }
-    .bar nav a { padding: 6px 11px; border-radius: 8px; font-size: 13px; color: var(--ink-2); text-decoration: none; }
-    .bar nav a:hover { background: rgba(127, 127, 127, 0.12); color: var(--ink); }
-    .bar nav a[aria-current] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: var(--shadow-sm); }
-    .bar nav a.go { color: var(--accent-ink); font-weight: 500; }
-    main { max-width: 700px; margin: 0 auto; padding: 44px 20px 90px; }
-    .cap { font: 600 10.5px var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
-    h1 { margin: 0 0 10px; font: 600 38px/1.1 var(--serif); letter-spacing: -0.012em; }
-    .lede { margin: 0 0 8px; font: 400 17px/1.5 var(--serif); font-style: italic; color: var(--ink-2); }
-    .when { margin: 0 0 28px; font-size: 12.5px; color: var(--muted); }
-    .short { margin: 0 0 30px; padding: 16px 20px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); }
-    .short p { margin: 0; }
-    h2 { margin: 36px 0 10px; font: 600 23px/1.25 var(--serif); letter-spacing: -0.01em; }
-    h3 { margin: 22px 0 6px; font: 600 15px/1.3 var(--sans); }
-    p, li { margin: 0 0 12px; color: var(--ink); }
-    li { margin-bottom: 8px; }
-    ul { padding-left: 22px; }
-    a { color: var(--accent-ink); }
-    code { padding: 1px 5px; border-radius: 5px; background: var(--panel); border: 1px solid var(--border-soft); font: 13px var(--mono); }
-    table { width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 14px; }
-    th, td { padding: 9px 10px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
-    th { font: 600 11px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-    td:first-child { white-space: nowrap; font-weight: 500; }
-    .foot { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
-    @media (max-width: 600px) { h1 { font-size: 30px; } td:first-child { white-space: normal; } .bar b { display: none; } }
-  </style>
+  <link rel="stylesheet" href="../legal/legal.css" />
 </head>
 <body>
   <header class="bar">
-    <a class="brand" href="../" aria-label="Koios">K</a>
-    <b>Koios</b>
+    <a class="brand" href="../" aria-label="Koios"><span class="brand-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M17 5 H47 V59 L32 46 L17 59 Z M32 12 L34.6 20.4 L43 23 L34.6 25.6 L32 34 L29.4 25.6 L21 23 L29.4 20.4 Z"/></svg></span><span class="brand-name">Koios</span></a>
     <nav>
       <a href="../privacy/" aria-current="page">Privacy</a>
       <a href="../terms/">Terms</a>
@@ -71,7 +31,7 @@
     <p class="cap">Koios</p>
     <h1>Privacy policy</h1>
     <p class="lede">What the paper reader at koios.dev/ — “the app” below — does with your data, and what it never sees. This page covers the app and nothing else on this site.</p>
-    <p class="when">Last updated 14 October 2026.</p>
+    <p class="when">Last updated 18 October 2026.</p>
 
     <div class="short">
       <p><strong>The short version.</strong> The app runs in your browser. It has no database and no account of its own: your library — the papers you collect, your highlights and notes, your reading progress — lives in your own Google Drive, with a copy cached in your browser. The one server involved is a small proxy that fetches what a browser cannot fetch directly and, for people signed in, runs a few paid features on the site's own keys. Nothing it sees is sold, used for advertising, or used to train anything.</p>
@@ -85,13 +45,15 @@
 
     <h2>What the app receives from Google</h2>
     <p>Signing in with Google is how you open your library, and it is asked for first. Each further permission is asked for only when you first use the feature that needs it, in a window of Google's that names the scope. None of them lets the app see anything beyond what is listed here.</p>
-    <table>
-      <tr><th>When</th><th>Scopes</th><th>What the app does with it</th></tr>
-      <tr><td>Sign in</td><td><code>openid</code>, <code>email</code>, <code>profile</code></td><td>Shows your name, email address and picture so you can see which account is connected, and names your library in Drive as yours. Your email address also goes to the proxy, once per sign-in, to issue you a pass for its routes (below).</td></tr>
-      <tr><td>Sign in</td><td><code>drive.file</code>, <code>drive.appdata</code></td><td>Creates and reads back <strong>only the files the app itself created</strong>: the <code>Papers_collection</code> folder and what is in it, and, in Drive's hidden app-data space where tidying My Drive cannot reach, a spare copy of <code>library.json</code> and the record of your playgrounds. These scopes give no access to anything else in your Drive.</td></tr>
-      <tr><td>Calendar, asked for at sign-in (it can be unticked there)</td><td><code>calendar.events</code>, <code>calendar.calendarlist.readonly</code></td><td>Lists your calendars and reads the events in the span on screen, to show them on the Calendar page by day, week or month. <strong>Your calendar changes only when you change it there</strong>: a meeting you add, change or delete, or an invitation you answer, is written to the calendar you chose, and nothing else is ever written. Calendar data is held in the page while you look at it and is not stored on any server, with three exceptions you choose: <strong>Make one</strong> for a Zoom call sends the meeting's title, time and length through the proxy to Zoom, to make the meeting; with a Granola key in Settings, the proxy passes it to Granola to read the notes of meetings you asked Granola to take, and keeps neither the key nor the notes; and those notes, filed in a <em>shared</em> project, are kept with that project's logbook on the proxy (its meeting notes, links, notepad and whiteboard), for its members to read, until sharing stops. If you tag a meeting with one of your projects, the tag — the meeting's id and title — is kept in <code>library.json</code> in your own Drive, not on the calendar.</td></tr>
-      <tr><td>Colab, on connecting it</td><td><code>colaboratory</code></td><td>Starts and talks to a Colab runtime as you, to run a notebook's cells. Notebooks and their outputs are kept in your Drive.</td></tr>
-    </table>
+    <div class="table">
+      <table>
+        <tr><th>When</th><th>Scopes</th><th>What the app does with it</th></tr>
+        <tr><td>Sign in</td><td><code>openid</code>, <code>email</code>, <code>profile</code></td><td>Shows your name, email address and picture so you can see which account is connected, and names your library in Drive as yours. Your email address also goes to the proxy, once per sign-in, to issue you a pass for its routes (below).</td></tr>
+        <tr><td>Sign in</td><td><code>drive.file</code>, <code>drive.appdata</code></td><td>Creates and reads back <strong>only the files the app itself created</strong>: the <code>Papers_collection</code> folder and what is in it, and, in Drive's hidden app-data space where tidying My Drive cannot reach, a spare copy of <code>library.json</code> and the record of your playgrounds. These scopes give no access to anything else in your Drive.</td></tr>
+        <tr><td>Calendar, asked for at sign-in (it can be unticked there)</td><td><code>calendar.events</code>, <code>calendar.calendarlist.readonly</code></td><td>Lists your calendars and reads the events in the span on screen, to show them on the Calendar page by day, week or month. <strong>Your calendar changes only when you change it there</strong>: a meeting you add, change or delete, or an invitation you answer, is written to the calendar you chose, and nothing else is ever written. Calendar data is held in the page while you look at it and is not stored on any server, with three exceptions you choose: <strong>Make one</strong> for a Zoom call sends the meeting's title, time and length through the proxy to Zoom, to make the meeting; with a Granola key in Settings, the proxy passes it to Granola to read the notes of meetings you asked Granola to take, and keeps neither the key nor the notes; and those notes, filed in a <em>shared</em> project, are kept with that project's logbook on the proxy (its meeting notes, links, notepad and whiteboard), for its members to read, until sharing stops. If you tag a meeting with one of your projects, the tag — the meeting's id and title — is kept in <code>library.json</code> in your own Drive, not on the calendar.</td></tr>
+        <tr><td>Colab, on connecting it</td><td><code>colaboratory</code></td><td>Starts and talks to a Colab runtime as you, to run a notebook's cells. Notebooks and their outputs are kept in your Drive.</td></tr>
+      </table>
+    </div>
     <p>The access token Google issues lasts about an hour and is held in the browser's session storage, beside whose it is. It is never written to disk by the app and never kept on a server; the app holds no refresh token, so it cannot act on your account when you are not using it. When the hour is up the app asks Google for a new token on the grant already given. <strong>Sign out</strong> revokes the token, and <strong>Forget</strong> beside the calendar in Settings drops that permission in the browser. You can withdraw any of these for good at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
     <p><strong>Limited Use.</strong> The app's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. Google user data is used only to provide the features described on this page. It is never sold, never used for advertising, never used to train any model, and never transferred to anyone except as needed to provide those features or as required by law.</p>
 
@@ -116,12 +78,15 @@
     <p>Each of these services has its own privacy policy, and I have no control over what they log. Beyond these requests the app sends nothing anywhere. It carries no analytics, no advertising and no third-party trackers of any kind, and it sets no cookies.</p>
 
     <h2>Deleting your data</h2>
+    <p><strong>All of it, at once:</strong> <em>Settings → Account → Delete my account</em>. Before anything goes, it lists what is kept about you, then deletes:</p>
     <ul>
-      <li><strong>From Drive:</strong> delete the <code>Papers_collection</code> folder. Nothing in the app is needed to do it.</li>
-      <li><strong>From this browser:</strong> clear site data for <code>koios.dev</code>, or sign out, which forgets this browser's copy of the library.</li>
-      <li><strong>The connections:</strong> revoke Google's at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>; disconnect GitHub in Settings, which has the proxy forget the token.</li>
-      <li><strong>On the proxy:</strong> write to the address below and the usage totals under your account are deleted.</li>
+      <li><strong>On the proxy:</strong> your usage totals; the invitations you sent or were sent, and the site's mail to or from you; your connected computers; your GitHub connection (given back to GitHub) and your Overleaf accounts; and this browser's session in the browser pane, with the sign-ins it kept.</li>
+      <li><strong>Shared projects:</strong> one you own is closed for everyone in it; from anyone else's you are removed, and what you wrote in its logbook stays with that project without your address.</li>
+      <li><strong>In this browser:</strong> its copy of your library, your settings and the keys you saved; you are signed out and Google's access for the app is revoked.</li>
+      <li><strong>In your Drive, only if you tick it:</strong> the app's files — <code>Papers_collection</code>, wherever you moved it — are moved to Drive's trash, which keeps them for 30 days, and the hidden app-data copies of <code>library.json</code> and <code>playgrounds.json</code> are deleted. Otherwise they stay yours, untouched.</li>
     </ul>
+    <p>The pass the proxy issues at sign-in is kept nowhere, so nothing of it remains. The mail provider that sent an invitation keeps its own delivery log for a time, under its own policy.</p>
+    <p><strong>Piece by piece:</strong> delete the <code>Papers_collection</code> folder in Drive yourself; clear site data for <code>koios.dev</code> in your browser; revoke Google's access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>; disconnect GitHub or Overleaf in Settings, which has the proxy forget the token. Or write to the address below.</p>
 
     <h2>Children</h2>
     <p>The app is not directed at children under 13 and knowingly collects nothing from anyone.</p>

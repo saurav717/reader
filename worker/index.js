@@ -61,6 +61,7 @@ export { LatexJob } from './latex.js';
 export { ProjectRoom } from './projectRoom.js';
 export { Invites } from './invites.js';
 import { rateLimited, refusal } from './browserSession.js';
+import { accountSummary, eraseAccount } from './account.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -363,7 +364,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -429,6 +430,26 @@ export default {
         const who = await authorized(request, env);
         if (!who?.email) return json({ error: 'sign in with Google first' }, 401, headers);
         return json({ email: who.email }, 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // "Delete my account" (worker/account.js): GET says what is kept about the account signed in, POST deletes it
+      // all. Deleting takes the pass and a Google token for the same account, checked with Google now — a pass
+      // alone, which lasts thirty days, is not enough to delete someone.
+      if (path === '/account') {
+        if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google first' }, 401, noStore);
+        if (request.method === 'GET') return json(await accountSummary(env, who.email), 200, noStore);
+        if (request.method !== 'DELETE') return json({ error: 'GET or DELETE' }, 405, noStore);
+        const proved = env.GOOGLE_CLIENT_ID ? await googleEmail(request.headers.get('X-Google-Token') || '', env.GOOGLE_CLIENT_ID).catch(() => null) : null;
+        if (proved !== who.email) return json({ error: 'sign in with Google again to delete this account', reauth: true }, 403, noStore);
+        const client = clientOf(request, url);
+        // The rooms the page's own library says it is in, beside the ledger's: a room one of them lost is still seen to.
+        const body = await request.json().catch(() => ({}));
+        const rooms = Array.isArray(body.rooms) ? body.rooms.filter((id) => /^[0-9a-f]{32}$/.test(String(id))).slice(0, 200) : [];
+        const done = await eraseAccount(env, who.email, { client, rooms, browserSession: client && env.BROWSER_SESSION ? sessionStub(env, client) : null });
+        return json({ ok: true, ...done }, 200, noStore);
       }
 
       // The computers an account has connected: worker/devices.js. The list
@@ -588,7 +609,13 @@ export default {
           if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426, headers);
           return roomOf(id).fetch(new URL(`https://room/live?email=${encodeURIComponent(who.email)}`), { headers: request.headers });
         }
-        if (action === 'state') return forward(id, '/state');
+        if (action === 'state') {
+          // A member opening the room is also the ledger (worker/invites.js) hearing of them again: a record it lost is put back.
+          const answer = await roomOf(id).fetch(`https://room/state?email=${encodeURIComponent(who.email)}`);
+          const state = await answer.json();
+          if (answer.ok && state.role) ctx?.waitUntil?.(invites(env, '/member', { email: who.email, room: id, role: state.role, project: state.project?.name }));
+          return json(state, answer.status, noStore);
+        }
         // The project's logbook (worker/logbook.js): read with a GET, changed with a POST naming the change.
         if (action === 'log') return forward(id, '/log', request.method === 'POST' ? await request.json().catch(() => ({})) : undefined);
         // An invitation is also a mail to the address, when the site can send one (server/mail.js): the
@@ -908,7 +935,7 @@ export default {
         const withToken = await authorized(request, env);
         if (changes && !withToken) return needsToken(env, headers);
         if (path === '/browse/open') tally(env, ctx, withToken, { browser: 1 });
-        if (path === '/browse/note-check') return json({ error: 'not found' }, 404, headers);
+        if (path === '/browse/note-check' || path === '/browse/erase') return json({ error: 'not found' }, 404, headers);
         const client = clientOf(request, url);
         if (!client && path !== '/browse/status') return json({ error: 'no client id — this site is older than this Worker; reload it' }, 400, headers);
         const scoped = browse.forClient(env, client);

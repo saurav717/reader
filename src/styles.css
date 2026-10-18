@@ -8273,6 +8273,17 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 
 /* Invite someone: the three ways, the link and its QR code */
 .sheet.invite-someone { width: min(600px, calc(100vw - 32px)); }
+/* Delete my account (components/DeleteAccount.tsx): what goes, under three heads, and the one red button. */
+.sheet.delete-account { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.delete-account-head { margin: 18px 0 6px; font: 600 12px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.delete-account-list { margin: 0 0 4px; padding-left: 20px; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+.delete-account-list li { margin-bottom: 4px; }
+.delete-account-check { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; line-height: 1.5; color: var(--ink-2); cursor: pointer; }
+.delete-account-check input { margin-top: 3px; }
+.delete-account-check code { font: 12px var(--mono); }
+.btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger-fill:disabled { opacity: 0.45; }
+.set-danger { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); font-size: 12.5px; color: var(--ink-2); }
 .invite-ways { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; }
 .invite-way { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
 .invite-way b { font-size: 12.5px; font-weight: 600; }

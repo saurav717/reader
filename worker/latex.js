@@ -293,6 +293,16 @@ async function writeAccounts(env, kv, owner, accounts) {
   return kv.put(key, JSON.stringify({ accounts: sealed }));
 }
 
+/** Everything kept here for one person: their Overleaf accounts (the old way too) and the marker of a compile going (worker/account.js). */
+export async function forgetOverleaf(env, owner) {
+  const kv = env.SESSIONS;
+  if (!kv) return false;
+  if (secretsReady(env)) await kv.delete(await secretsKey(env, 'overleaf', owner));
+  await kv.delete(overleafKey(owner));
+  await kv.delete(`latex:active:${owner}`);
+  return true;
+}
+
 /** The accounts as the page sees them: never a token. */
 const shownAccounts = (accounts) => accounts.map(({ id, label, addedAt, lastUsedAt }) => ({ id, label, addedAt, lastUsedAt }));
 

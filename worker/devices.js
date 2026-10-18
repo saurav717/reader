@@ -61,6 +61,12 @@ export class Devices {
       const rows = await this.state.storage.list({ prefix: 'device:' });
       return Response.json({ devices: [...rows.values()].map((row) => shown(row, now)).sort((a, b) => (b.seen || 0) - (a.seen || 0)) });
     }
+    // An account deleted (worker/account.js): every computer off it, with what each was given.
+    if (url.pathname === '/erase') {
+      const rows = await this.state.storage.list({ prefix: 'device:' });
+      await this.state.storage.deleteAll();
+      return Response.json({ ok: true, devices: rows.size });
+    }
     if (!/^[0-9a-f]{8,64}$/.test(id)) return Response.json({ error: 'which computer?' }, { status: 400 });
     const key = `device:${id}`;
     if (url.pathname === '/claim') {

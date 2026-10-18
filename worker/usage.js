@@ -188,6 +188,27 @@ export class Usage {
       await this.prune(at);
       return new Response('ok');
     }
+    // How many of the days kept have counts for one person: what "Delete my account" says it will remove.
+    if (url.pathname === '/mine') {
+      const who = String(url.searchParams.get('email') || '').toLowerCase();
+      const stored = await this.state.storage.list({ prefix: 'day:' });
+      return Response.json({ days: [...stored.values()].filter((value) => value && who in value).length });
+    }
+    // An account deleted (worker/account.js): its counts taken out of every day kept.
+    if (url.pathname === '/forget' && request.method === 'POST') {
+      const { email } = await request.json().catch(() => ({}));
+      if (typeof email !== 'string' || !email) return new Response('no email', { status: 400 });
+      const who = email.toLowerCase();
+      let days = 0;
+      for (const [key, value] of await this.state.storage.list({ prefix: 'day:' })) {
+        if (!value || !(who in value)) continue;
+        const { [who]: _gone, ...rest } = value;
+        if (Object.keys(rest).length) await this.state.storage.put(key, rest);
+        else await this.state.storage.delete(key);
+        days += 1;
+      }
+      return Response.json({ days });
+    }
     if (url.pathname === '/report') {
       const days = Math.min(KEEP_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
       const stored = await this.state.storage.list({ prefix: 'day:' });

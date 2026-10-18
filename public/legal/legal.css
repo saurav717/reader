@@ -1,0 +1,122 @@
+/* The privacy policy and terms (public/privacy/, public/terms/), one look for
+   both. legal/theme.js sets data-theme and data-koios the way the app does,
+   so the pages are in Koios, Light or Dark as Settings → Appearance says;
+   the Koios tokens are the app's (src/styles.css, "The night, deeper"). */
+:root {
+  color-scheme: light dark;
+  --paper: #fbfaf6; --surface: #fffdf7; --panel: #f4f1e8; --rail: #eeebe1; --border: #e2ddce; --border-soft: #ede9db;
+  --ink: #1a1a17; --ink-2: #55524a; --muted: #6f6c63; --accent: #1f5e52; --accent-soft: #e4efe7; --accent-ink: #14403a; --accent-on: #f6f4ec;
+  --link: var(--accent-ink); --mark: var(--accent-on); --label: var(--muted);
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; --serif: 'Newsreader', Georgia, 'Times New Roman', serif; --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  --shadow-sm: 0 1px 2px rgba(26, 26, 23, 0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --paper: #15161a; --surface: #1d1f25; --panel: #1a1c21; --rail: #17181c; --border: #2c2f36; --border-soft: #25272d;
+    --ink: #eae7df; --ink-2: #c3bfb4; --muted: #9b978c; --accent: #57a98f; --accent-soft: #1e3a33; --accent-ink: #8fcbb8; --accent-on: #10201c;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #15161a; --surface: #1d1f25; --panel: #1a1c21; --rail: #17181c; --border: #2c2f36; --border-soft: #25272d;
+  --ink: #eae7df; --ink-2: #c3bfb4; --muted: #9b978c; --accent: #57a98f; --accent-soft: #1e3a33; --accent-ink: #8fcbb8; --accent-on: #10201c;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+:root[data-theme='light'] { color-scheme: light; }
+/* Koios: slate ground, stone ink, gold for the mark, the labels and the links. */
+:root[data-koios='on'] {
+  --paper: #0e1116; --surface: #141920; --panel: #10141a; --rail: #0e1116;
+  --border: rgba(230, 225, 214, 0.12); --border-soft: rgba(230, 225, 214, 0.08);
+  --ink: #e6e1d6; --ink-2: #9a978d; --muted: #6b7078;
+  --gold: #c9a86a; --gold-soft: #dcc08a;
+  --accent: #e6e1d6; --accent-ink: #f0ebe0; --accent-on: #0e1116;
+  --link: var(--gold-soft); --mark: var(--gold); --label: var(--gold);
+  --shadow-sm: none;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body { font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+/* The night's glow at the top, and a few stars in it, when the sky is on. */
+:root[data-koios='on'][data-sky='on'] body {
+  background:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(240, 236, 226, 0.8), transparent 100%),
+    radial-gradient(1px 1px at 31% 7%, rgba(240, 236, 226, 0.6), transparent 100%),
+    radial-gradient(2px 2px at 47% 24%, rgba(240, 236, 226, 0.7), transparent 100%),
+    radial-gradient(1px 1px at 63% 11%, rgba(240, 236, 226, 0.6), transparent 100%),
+    radial-gradient(1.5px 1.5px at 78% 29%, rgba(240, 236, 226, 0.55), transparent 100%),
+    radial-gradient(2px 2px at 88% 6%, rgba(240, 236, 226, 0.8), transparent 100%),
+    radial-gradient(1px 1px at 18% 2%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 93% 34%, rgba(240, 236, 226, 0.45), transparent 100%),
+    radial-gradient(ellipse 90% 60% at 50% -20%, rgba(30, 40, 62, 0.95) 0%, rgba(14, 17, 22, 0) 70%),
+    var(--paper);
+  background-repeat: no-repeat;
+  background-size: 100% 520px, 100% 520px, 100% 520px, 100% 520px, 100% 520px, 100% 520px, 100% 520px, 100% 520px, 100% 520px, auto;
+}
+
+.bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px; background: var(--rail); border-bottom: 1px solid var(--border); }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+.brand-mark { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--mark); }
+.brand-mark svg { width: 22px; height: 22px; }
+.brand-name { font: 600 15px var(--sans); }
+.bar nav { margin-left: auto; display: flex; gap: 4px; }
+.bar nav a { padding: 6px 11px; border-radius: 8px; font-size: 13px; color: var(--ink-2); text-decoration: none; }
+.bar nav a:hover { background: rgba(127, 127, 127, 0.12); color: var(--ink); }
+.bar nav a[aria-current] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: var(--shadow-sm); }
+.bar nav a.go { color: var(--accent-ink); font-weight: 500; }
+/* At night the mark is gold on no tile and the name is set like the opening screen's. */
+:root[data-koios='on'] .bar { background: rgba(14, 17, 22, 0.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+:root[data-koios='on'] .brand-mark { background: transparent; width: 26px; }
+:root[data-koios='on'] .brand-name { font: 500 13px var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); }
+:root[data-koios='on'] .bar nav a[aria-current] { border: 1px solid var(--border); }
+:root[data-koios='on'] .bar nav a.go { color: var(--gold-soft); }
+
+main { max-width: 900px; margin: 0 auto; padding: 52px 28px 96px; }
+.cap { font: 600 10.5px var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--label); margin: 0 0 10px; }
+h1 { margin: 0 0 12px; font: 600 42px/1.1 var(--serif); letter-spacing: -0.012em; }
+.lede { margin: 0 0 8px; font: 400 18px/1.55 var(--serif); font-style: italic; color: var(--ink-2); }
+.when { margin: 0 0 30px; font-size: 12.5px; color: var(--muted); }
+.short { margin: 0 0 32px; padding: 18px 22px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.short p { margin: 0; }
+h2 { margin: 40px 0 12px; font: 600 25px/1.25 var(--serif); letter-spacing: -0.01em; }
+h3 { margin: 24px 0 6px; font: 600 15px/1.3 var(--sans); }
+p, li { margin: 0 0 13px; color: var(--ink); }
+li { margin-bottom: 8px; }
+ul { padding-left: 22px; }
+a { color: var(--link); text-underline-offset: 2px; }
+code { padding: 1px 5px; border-radius: 5px; background: var(--panel); border: 1px solid var(--border-soft); font: 13px var(--mono); white-space: nowrap; }
+:root[data-koios='on'] .cap { font: 500 10.5px var(--mono); letter-spacing: 0.16em; }
+:root[data-koios='on'] h1, :root[data-koios='on'] h2 { font-weight: 400; }
+:root[data-koios='on'] .short { border-left-color: var(--gold); }
+:root[data-koios='on'] strong { color: #f0ebe0; }
+
+/* Tables: room to read. The first column is a label, the second the scopes
+   (each kept whole), the third the explanation, which takes what is left. */
+.table { margin: 8px 0 18px; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; line-height: 1.6; }
+th, td { padding: 12px 16px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 11px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--label); background: var(--panel); }
+td:first-child { width: 20%; font-weight: 500; }
+td:nth-child(2) { width: 25%; }
+td code { display: inline-block; margin: 0 2px 4px 0; }
+:root[data-koios='on'] th { font: 500 10.5px var(--mono); letter-spacing: 0.14em; }
+/* On a wide screen a table reaches past the text on both sides. */
+@media (min-width: 1240px) { .table { margin-left: -90px; margin-right: -90px; } }
+
+.foot { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+@media (max-width: 700px) {
+  main { padding: 36px 16px 80px; }
+  .bar { padding: 0 16px; }
+  h1 { font-size: 32px; }
+  .brand-name { display: none; }
+  /* Each row as a card: what it is, its scopes, then what is done with it. */
+  table, tbody, tr, td { display: block; width: auto !important; }
+  tr:has(th) { display: none; }
+  tr { padding: 14px 16px; border-bottom: 1px solid var(--border-soft); }
+  tr:last-child { border-bottom: 0; }
+  td { padding: 0; border: 0; }
+  td + td { margin-top: 8px; }
+  td code { white-space: normal; word-break: break-all; }
+}

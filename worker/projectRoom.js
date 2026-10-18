@@ -156,6 +156,26 @@ export class ProjectRoom {
     const room = await this.room();
     if (!room) return json({ error: 'no such room' }, 404);
 
+    // An account deleted (worker/account.js). A room it owns is closed, as its owner closing it would. In anyone
+    // else's it is let go and its invitation dropped; what it wrote in the logbook stays with the project, without
+    // its address.
+    if (path === '/erase') {
+      if (room.owner === who) return this.fetch(new Request(`https://room/close?email=${encodeURIComponent(who)}`, { method: 'POST' }));
+      const left = Boolean(await this.member(who));
+      if (left) await this.fetch(new Request(`https://room/leave?email=${encodeURIComponent(who)}`, { method: 'POST' }));
+      await this.state.storage.delete(`invite:${who}`);
+      for (const key of await logKeys(this.state.storage)) {
+        const item = await this.state.storage.get(key);
+        if (!item || typeof item !== 'object') continue;
+        const named = Array.isArray(item.attendees) && item.attendees.some((one) => String(one).toLowerCase() === who);
+        if (item.by !== who && !named) continue;
+        await this.state.storage.put(key, { ...item, ...(item.by === who ? { by: '' } : {}), ...(named ? { attendees: item.attendees.filter((one) => String(one).toLowerCase() !== who) } : {}) });
+      }
+      for (const [key, invite] of await this.state.storage.list({ prefix: 'invite:' })) if (invite.by === who) await this.state.storage.put(key, { ...invite, by: '' });
+      if (room.updatedBy === who) await this.state.storage.put('room', { ...room, updatedBy: '' });
+      return json({ ok: true, left });
+    }
+
     if (path === '/join') {
       const already = await this.member(who);
       if (already) return json(await this.stateFor(who));

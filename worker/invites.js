@@ -253,6 +253,32 @@ export class Invites {
       if (rows.size > KEEP_MAIL) for (const key of [...rows.keys()].sort().slice(0, rows.size - KEEP_MAIL)) await this.state.storage.delete(key);
       return json({ id: entry.id });
     }
+    // An account deleted (worker/account.js): every invitation it sent or was sent, its links, its rooms and
+    // the mail to or from it, gone; where it only joined someone else's link, it comes off that link's list.
+    if (path === '/forget' && request.method === 'POST') {
+      const who = email(body.email);
+      if (!who) return json({ error: 'whose?' }, 400);
+      let events = 0;
+      for (const [key, event] of await this.state.storage.list({ prefix: 'event:' })) {
+        if (event.by === who || event.to === who) {
+          if (event.link?.token) await this.state.storage.delete(`link:${event.link.token}`);
+          await this.state.storage.delete(key);
+          events += 1;
+        } else if (event.link?.joined?.some((person) => person.email === who)) {
+          await this.put({ ...event, link: { ...event.link, joined: event.link.joined.filter((person) => person.email !== who) } });
+        }
+      }
+      let mail = 0;
+      for (const [key, entry] of await this.state.storage.list({ prefix: 'mail:' })) {
+        if (entry.to === who || entry.by === who) {
+          await this.state.storage.delete(key);
+          mail += 1;
+        }
+      }
+      await this.state.storage.delete([`to:${who}`, `rooms:${who}`]);
+      return json({ ok: true, events, mail });
+    }
+
     if (path === '/mail-log') return json({ entries: [...(await this.state.storage.list({ prefix: 'mail:' })).values()] });
 
     return json({ error: 'not found' }, 404);
