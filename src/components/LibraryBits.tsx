@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PaperRef } from '../types';
 import { coverFor } from '../lib/libraryLook';
@@ -93,7 +94,7 @@ export function ProgressRing({ progress, size = 30 }: { progress: number; size?:
   const around = 2 * Math.PI * radius;
   const shown = finished ? 1 : Math.max(0, Math.min(1, progress));
   return (
-    <span className={`ring${finished ? ' is-finished' : progress > 0 ? ' is-reading' : ' is-new'}`} style={{ width: size, height: size }}>
+    <span className={`ring${finished ? ' is-finished' : progress > 0 ? ' is-reading' : ' is-new'}`} style={{ width: size, height: size, '--p': shown } as CSSProperties}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle className="ring-track" cx={size / 2} cy={size / 2} r={radius} />
         {shown > 0 ? (

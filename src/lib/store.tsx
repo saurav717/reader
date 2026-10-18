@@ -468,6 +468,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       root.dataset.theme = settings.theme === 'system' ? (dark?.matches ? 'dark' : 'light') : settings.theme === 'koios' ? 'dark' : settings.theme;
       if (koios) root.dataset.koios = 'on';
       else delete root.dataset.koios;
+      if (koios && settings.koiosSky) root.dataset.sky = 'on';
+      else delete root.dataset.sky;
     };
     apply();
     if (settings.theme === 'system') dark?.addEventListener('change', apply);
