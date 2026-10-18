@@ -4971,6 +4971,18 @@ output stays with the browser that ran it. Rows go when the machine stops,
 and after two days untouched. The design, with the join and the follow drawn
 out: [docs/compute-continuity.md](docs/compute-continuity.md).
 
+**Checkpoints, when a machine goes.** A Companion closed, a laptop shut: the
+job on it is gone, not paused. So a project's code can `import koios`, a small
+helper the page writes into the project's folder on every machine: it saves a
+checkpoint on a cadence and, when the Companion is shut down on purpose, at
+once — the Companion asks each running job to stop and gives it a minute
+before it goes. Each save shows under the run's output. When a machine goes
+away, the project says so with the last checkpoint it reported (step, time,
+metrics) and offers **Resume** there or on another machine, which runs the
+command again with `KOIOS_RESUME` set for the helper to pick up. Section 6 of
+[docs/compute-continuity.md](docs/compute-continuity.md) has the helper's API
+and where a checkpoint can be resumed from.
+
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:
 - **On a Companion**, the Companion says exactly what each terminal runs

@@ -377,3 +377,52 @@ export function short(value: number): string {
   if (abs >= 0.01) return value.toFixed(3).replace(/\.?0+$/, '');
   return value.toExponential(1);
 }
+
+// ------------------------------------------------------ checkpoints ----
+//
+// The koios helper (src/lib/koiosHelper.ts) prints one line a save:
+// "[koios] checkpoint {json}". The page reads them off a run's output, so
+// it knows the last checkpoint a job made — what to offer when the machine
+// the job was on goes away.
+
+export interface Checkpoint {
+  /** The file, as an absolute path on the machine. */
+  path: string;
+  step?: number;
+  /** When it was written, as the helper printed it (ISO-ish, the machine's clock). */
+  at?: string;
+  reason?: string;
+  metrics?: Record<string, number>;
+  rank?: number;
+  gpu?: { util?: number; memUsedMb?: number; memTotalMb?: number } | null;
+}
+
+const CHECKPOINT_LINE = /^\[koios\] checkpoint (\{.*\})\s*$/;
+
+/** Every checkpoint a run's output says it saved, in order. */
+export function checkpointsOf(text: string): Checkpoint[] {
+  const out: Checkpoint[] = [];
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    const match = CHECKPOINT_LINE.exec(line.trim());
+    if (!match) continue;
+    try {
+      const parsed = JSON.parse(match[1]) as Partial<Checkpoint>;
+      if (typeof parsed.path !== 'string' || !parsed.path) continue;
+      out.push({
+        path: parsed.path,
+        step: typeof parsed.step === 'number' ? parsed.step : undefined,
+        at: typeof parsed.at === 'string' ? parsed.at : undefined,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : undefined,
+        metrics: parsed.metrics && typeof parsed.metrics === 'object' ? Object.fromEntries(Object.entries(parsed.metrics).filter(([, v]) => typeof v === 'number')) : undefined,
+        rank: typeof parsed.rank === 'number' ? parsed.rank : undefined,
+        gpu: parsed.gpu && typeof parsed.gpu === 'object' ? parsed.gpu : null,
+      });
+    } catch {
+      // not the helper's line
+    }
+  }
+  return out;
+}
+
+/** The last checkpoint a run's output says it saved, if any. */
+export const latestCheckpoint = (text: string): Checkpoint | undefined => checkpointsOf(text).pop();

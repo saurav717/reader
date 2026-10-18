@@ -7,7 +7,10 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
-import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
+import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
+import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
+import { latestCheckpoint } from '../lib/telemetry';
+import type { Checkpoint } from '../lib/telemetry';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, SyncReport } from '../lib/playground';
@@ -1092,6 +1095,36 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** The machines a command goes to now. */
   const targets = target === 'all' ? machines : [machines.find((m) => (m.member ?? 'first') === target) ?? machines[0]];
   const runningOn = (m: ProjectMachine) => (m.member === null ? colab.running : sessionOf(sessions, m.scope)?.running);
+  /** The machines the koios helper has been written to in this tab (src/lib/koiosHelper.ts), by scope. */
+  const helperOn = useRef(new Set<string>());
+  /**
+   * A machine that went away while connected — the Companion closed, the network gone, the runtime ended — and the
+   * last checkpoint a run on it reported, for the notice and for picking the job up again.
+   */
+  const [gone, setGone] = useState<{ machine: ProjectMachine; at: number; reason?: string; checkpoint?: Checkpoint; entry?: ConsoleEntry } | null>(null);
+  const [resumeOn, setResumeOn] = useState<string>('same');
+  const lastStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    for (const m of machines) {
+      const state = m.member === null ? colab : sessionOf(sessions, m.scope);
+      const now = state?.status ?? 'off';
+      const before = lastStatus.current[m.scope];
+      lastStatus.current[m.scope] = now;
+      if (now !== 'lost' || (before !== 'idle' && before !== 'busy')) continue;
+      // The last checkpoint any command on that machine said it saved (the koios helper's line), newest run first.
+      let best: { checkpoint: Checkpoint; entry: ConsoleEntry; startedAt: number } | undefined;
+      for (const entry of playground.console) {
+        for (const { key, machine: on } of entryRuns(playground.id, machines, entry)) {
+          if (on.scope !== m.scope) continue;
+          const run = colab.runs[key];
+          const checkpoint = run ? latestCheckpoint(outputText(run.outputs)) : undefined;
+          if (checkpoint && (!best || run!.startedAt > best.startedAt)) best = { checkpoint, entry, startedAt: run!.startedAt };
+        }
+      }
+      setGone({ machine: m, at: Date.now(), reason: state?.error, checkpoint: best?.checkpoint, entry: best?.entry });
+      setResumeOn('same');
+    }
+  }, [sessions, colab, machines, playground.console, playground.id]);
   const current = files.find((file) => `${file.where}:${file.path}` === active) ?? null;
   // Where you are, to the others in a shared project (src/lib/liveRoom.ts): the file and the caret, as you move; their
   // carets are drawn in the editor and their names in the tree; a jump from one of them opens their file at their line.
@@ -1477,11 +1510,18 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     return found ?? machineRoot(playground);
   };
 
+  /** The koios helper written to a machine's folder, once per machine in this tab, so `import koios` works there. */
+  const ensureHelper = async (m: ProjectMachine) => {
+    if (helperOn.current.has(m.scope)) return;
+    const host = m.member === null ? machine : machineHostFor(playground, m);
+    await host.write(KOIOS_HELPER_PATH, KOIOS_PY);
+    helperOn.current.add(m.scope);
+  };
   /** One command on one machine of the project: its own kernel connected if need be, the folder copied over when it is kept elsewhere, the command run there, results brought back. */
-  const runOn = async (machine: ProjectMachine, entry: ConsoleEntry, trimmed: string, world: number) => {
+  const runOn = async (m: ProjectMachine, entry: ConsoleEntry, trimmed: string, world: number, extra: Record<string, string> = {}) => {
     // In a pool the command is told its place, so one script can take its seed or slice by KOIOS_RANK.
-    const env = pooled ? poolEnv(machine, world) : {};
-    if (machine.member === null) {
+    const place = pooled ? poolEnv(m, world) : {};
+    if (m.member === null) {
       if (!connected) {
         try {
           await connect();
@@ -1491,27 +1531,44 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       }
       if (split && !(await push())) return;
       const folder = await folderOnMachine();
+      await ensureHelper(m).catch(() => undefined);
+      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...extra };
       // Logged on the machine as it runs, so the project picked up from another computer shows it from the start.
       const log = runLogPath(folder, entry.id);
       await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env, log), { log });
       if (split) await pull();
       return;
     }
-    if (!machine.backend) {
-      setProblem(`${machine.label} isn’t connected to this browser.`);
+    if (!m.backend) {
+      setProblem(`${m.label} isn’t connected to this browser.`);
       return;
     }
     try {
-      if (!isConnected(sessionOf(sessionsNow(), machine.scope))) await connectIn(machine.backend, machine.scope);
+      if (!isConnected(sessionOf(sessionsNow(), m.scope))) await connectIn(m.backend, m.scope);
       // The folder kept elsewhere: copied to this machine first (the edits on screen were saved by `run`).
-      if (split) await pushFolder(playground, machineHostFor(playground, machine));
-      const folder = await folderOnMachine(machine);
+      if (split) await pushFolder(playground, machineHostFor(playground, m));
+      const folder = await folderOnMachine(m);
+      await ensureHelper(m).catch(() => undefined);
+      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...extra };
       const log = runLogPath(folder, entry.id);
-      await runCellFor(machine.backend, machine.scope, memberKey(consoleKey(playground.id, entry.id), machine.member), shellCell(folder, trimmed, env, log), { log });
-      if (split) await pullBack(playground, machineHostFor(playground, machine));
+      await runCellFor(m.backend, m.scope, memberKey(consoleKey(playground.id, entry.id), m.member), shellCell(folder, trimmed, env, log), { log });
+      if (split) await pullBack(playground, machineHostFor(playground, m));
     } catch (error) {
-      setProblem(`${machine.label}: ${error instanceof Error ? error.message : String(error)}`);
+      setProblem(`${m.label}: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
+
+  /** The command a machine that went away was running, run again — there or on another machine — from its last checkpoint (KOIOS_RESUME, which koios.resume takes up). */
+  const resume = async () => {
+    if (!gone?.checkpoint || !gone.entry) return;
+    const on = (resumeOn === 'same' ? machines.find((m) => m.scope === gone.machine.scope) : machines.find((m) => (m.member ?? 'first') === resumeOn)) ?? machines[0];
+    const entry: ConsoleEntry = { id: uid(), command: gone.entry.command, at: Date.now(), ...(on.member ? { machine: on.member } : {}) };
+    updatePlayground(playground.id, (p) => ({ console: [...p.console, entry].slice(-40) }));
+    setGone(null);
+    setPanelOpen(true);
+    setShellView('commands');
+    await runOn(on, entry, gone.entry.command, 1, { KOIOS_RESUME: gone.checkpoint.path });
+    setRefresh((n) => n + 1);
   };
 
   const run = async (text: string) => {
@@ -1998,6 +2055,42 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   return (
     <div className={`vs-shell${zen ? ' is-zen' : ''}`} ref={root}>
+      {gone ? (
+        <div className="pg-banner is-problem pg-gone" role="alert">
+          <span className="pg-gone-text">
+            <b>{gone.machine.member === null ? machineName : gone.machine.label} disconnected</b> at {new Date(gone.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {gone.reason ? ` — ${gone.reason.replace(/\.$/, '')}` : ''}. What was running there stopped with it.{' '}
+            {gone.checkpoint ? (
+              <>
+                Last checkpoint: <b>step {gone.checkpoint.step ?? '?'}</b>
+                {gone.checkpoint.at ? ` at ${gone.checkpoint.at.replace(/^\d{4}-\d{2}-\d{2}T/, '').replace(/[+-]\d{4}$/, '')}` : ''} · <code>{gone.checkpoint.path.split('/').pop()}</code>
+                {gone.checkpoint.reason === 'stop' ? ' · saved as the machine stopped' : ''}
+                {gone.checkpoint.metrics && Object.keys(gone.checkpoint.metrics).length ? ` · ${Object.entries(gone.checkpoint.metrics).slice(0, 3).map(([k, v]) => `${k} ${Number(v).toPrecision(3)}`).join(', ')}` : ''}. It is on that machine's disk: resume there when it is back, or elsewhere if the checkpoint folder is one they share.
+              </>
+            ) : (
+              <>No checkpoint was reported by its runs. A script that uses the koios helper (import koios; see docs/compute-continuity.md) saves one on a cadence and as the machine stops.</>
+            )}
+          </span>
+          {gone.checkpoint && gone.entry ? (
+            <>
+              <select className="pg-console-target" value={resumeOn} onChange={(event) => setResumeOn(event.target.value)} aria-label="Where to resume">
+                <option value="same">on the same machine</option>
+                {machines.filter((m) => m.scope !== gone.machine.scope).map((m) => (
+                  <option key={m.scope} value={m.member ?? 'first'}>
+                    on {m.rank} · {m.label}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn sm primary" onClick={() => void resume()} title={`Runs the command again with KOIOS_RESUME=${gone.checkpoint.path}`}>
+                ▶ Resume from step {gone.checkpoint.step ?? '?'}
+              </button>
+            </>
+          ) : null}
+          <button type="button" className="icon-btn sm" aria-label="Dismiss" onClick={() => setGone(null)}>
+            <CloseIcon size={13} />
+          </button>
+        </div>
+      ) : null}
       <div
         className={`pg-files vs-work${layout.big ? ` is-big-${layout.big}` : ''}${!panelOpen ? ' is-panel-closed' : ''}`}
         style={{ '--pg-tree-w': `${Math.max(layout.tree, 200)}px`, '--pg-side-w': `${layout[sideKey]}px`, '--pg-console-h': `${layout.console}%` } as React.CSSProperties}

@@ -174,6 +174,11 @@ describe('the console', () => {
     // Without a log, nothing of it.
     assert.equal(pg.shellCell('/content/pg', 'ls').includes('tee'), false);
   });
+  it('puts the koios helper on the path when told where it is', () => {
+    const cell = pg.shellCell('/content/pg', 'python train.py', { KOIOS_PYLIB: '/content/pg/.reader/pylib' });
+    assert.match(cell, /export KOIOS_PYLIB='\/content\/pg\/\.reader\/pylib'\nexport PYTHONPATH="\$KOIOS_PYLIB\$\{PYTHONPATH:\+:\$PYTHONPATH\}"\nmkdir -p/);
+    assert.equal(pg.shellCell('/content/pg', 'ls').includes('PYTHONPATH'), false);
+  });
   it('tells a command its place in a pool, before the cd, quoted', () => {
     const cell = pg.shellCell('/root/pg', 'python main.py', { KOIOS_RANK: '2', KOIOS_MACHINE: "Colab · T4 (it's)" });
     assert.match(cell, /^%%bash\nexport KOIOS_RANK='2'\nexport KOIOS_MACHINE='Colab · T4 \(it'\\''s\)'\nmkdir -p/);

@@ -1197,10 +1197,12 @@ export function shellCell(root: string, command: string, env: Record<string, str
   const q = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
   const quoted = q(root);
   const exports = Object.entries(env).map(([name, value]) => `export ${name}=${q(value)}\n`).join('');
+  // The koios helper's folder on the path (src/lib/koiosHelper.ts), so `import koios` works with nothing installed.
+  const pylib = env.KOIOS_PYLIB ? 'export PYTHONPATH="$KOIOS_PYLIB${PYTHONPATH:+:$PYTHONPATH}"\n' : '';
   // Logged as it runs, when asked: everything the command prints goes to the kernel as before and to a file on the
   // machine too, so a browser that picks the project up elsewhere while it runs can read what came before it joined.
   const logged = log ? `mkdir -p ${q(log.replace(/\/[^/]*$/, ''))} && exec > >(tee -a ${q(log)}) 2>&1\n` : '';
-  return `%%bash\n${exports}mkdir -p ${quoted} && cd ${quoted} || exit 1\n${logged}${command}`;
+  return `%%bash\n${exports}${pylib}mkdir -p ${quoted} && cd ${quoted} || exit 1\n${logged}${command}`;
 }
 
 /** Where a console command logs its output on the machine: under the folder's .reader/runs, which the sync rules leave there. */

@@ -548,9 +548,28 @@ async def shut_down(serverapp, why: str) -> None:
     if account.owner():  # the account's list says it is off, so its other browsers don't wait for it
         await IOLoop.current().run_in_executor(None, lambda: account.beat(state.current, off=True))
     print(f"  {why} It stays off until it is started again: the Reader app, or reader-companion start.", flush=True)
+    # The jobs running in the kernels first: asked to stop (SIGTERM), and given a moment — a job that uses the koios
+    # helper saves a checkpoint and leaves; one that does not goes with the kernel, as it would have.
+    await IOLoop.current().run_in_executor(None, lambda: stop_jobs_gently(serverapp))
     # After any answer has gone: the kernels are shut down, the server stops, and the process ends
     # with 0, which launchd and systemd take as "leave it stopped" (KeepAlive/Restart on failure only).
     IOLoop.current().call_later(0.3, serverapp.stop)
+
+
+def stop_jobs_gently(serverapp, grace_s: float = jobs.GRACE_S) -> list:
+    """SIGTERM to each job under the kernels, then up to `grace_s` for them to save and leave; the pids still running after."""
+    manager = getattr(serverapp, "kernel_manager", None)
+    if manager is None:
+        return []
+    pids = jobs.job_pids(manager)
+    if not pids:
+        return []
+    print(f"  {len(pids)} job(s) running in the kernels: asked to stop, up to {int(grace_s)} s to save a checkpoint.", flush=True)
+    jobs.ask_to_stop(pids)
+    left = jobs.wait_gone(pids, grace_s)
+    if left:
+        print(f"  {len(left)} job(s) did not stop in time; they go with the kernels.", flush=True)
+    return left
 
 
 class ShutdownHandler(VsCodeHandler):

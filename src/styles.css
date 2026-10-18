@@ -9572,3 +9572,10 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .pg-console-one { margin-top: 6px; }
 .pg-console-which { display: flex; align-items: center; gap: 6px; font: 500 11px var(--sans); color: var(--muted); margin-bottom: 2px; }
 .pg-console-target { height: 32px; max-width: 220px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 12px var(--sans); }
+
+/* ---- a machine that went away, and checkpoints (src/lib/koiosHelper.ts) ---- */
+.pg-gone { flex-wrap: wrap; row-gap: 6px; }
+.pg-gone-text { flex: 1 1 420px; min-width: 0; line-height: 1.5; }
+.pg-gone code { font: 11.5px var(--mono); background: var(--surface); border: 1px solid var(--border-soft); border-radius: 4px; padding: 0 4px; }
+.cell-checkpoint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px; font: 500 11.5px var(--sans); color: var(--ink-2); }
+.cell-checkpoint code { font: 11px var(--mono); background: var(--panel); border: 1px solid var(--border-soft); border-radius: 4px; padding: 0 4px; }

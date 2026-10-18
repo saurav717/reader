@@ -292,3 +292,113 @@ time, so when it is idle, every request is over.*
 | The shell log | `src/lib/playground.ts`: `shellCell(…, log)`, `runLogPath`; the workspace's `runOn` |
 | Showing it | `src/components/Colab.tsx`: `RunState`, `CellRunOutput` (`run.elsewhere`) |
 | Tests | `scripts/kernels.test.mjs`, `scripts/continuity.test.mjs`, `scripts/playground.test.mjs` |
+
+## 6. Checkpoints, and a machine that goes away
+
+A Companion closed, a laptop shut, a network gone: the Jupyter server and
+every kernel run inside the Companion, so the job is **gone with it**, not
+paused. Nothing on that machine can act after the fact. What can be done is
+done before, in two ways, and the page tells you where things stand.
+
+### The helper
+
+The page writes a small Python module, `koios`, into the project's folder on
+every machine before a command runs there (`.reader/pylib`, which the sync
+rules leave alone), and puts it on `PYTHONPATH`. Nothing to install, on
+Colab or a Companion alike. A training loop uses it so:
+
+```python
+import koios
+
+ck = koios.checkpoint("checkpoints", every_steps=500, every_minutes=10)
+ck.on_save(lambda path: torch.save(model.state_dict(), path))
+start = ck.resume(lambda path: model.load_state_dict(torch.load(path)))  # a step, or 0
+
+for step in range(start, steps):
+    ...
+    ck.step(step, loss=loss.item())
+```
+
+| Call | What it does |
+| --- | --- |
+| `koios.checkpoint(dir, every_steps, every_minutes, keep=3)` | Where and how often; the newest `keep` are kept, older ones removed |
+| `ck.on_save(fn)` | Your function that writes the file at the path given |
+| `ck.resume(load)` | The step to start from: the checkpoint `KOIOS_RESUME` names (the page sets it when you resume), else the newest in the folder; `load` restores it; 0 when there is none |
+| `ck.step(step, **metrics)` | Once a step: saves when due, and **at once when the process was asked to stop**, then leaves with 0 |
+| `ck.save()` | Save now |
+| `koios.rank()`, `koios.world()` | The pool's `KOIOS_RANK` and `KOIOS_WORLD` |
+
+Every save writes the file, a sidecar `<file>.koios.json` (step, metrics,
+time, rank, the GPU's use at that moment) and `latest.json`, and prints one
+line the page reads:
+
+```
+[koios] checkpoint {"path": "/content/…/checkpoints/step-00004200.pt", "step": 4200, "at": "…", "reason": "cadence", "metrics": {"loss": 0.41}, "rank": 1, "gpu": {"util": 93, …}}
+```
+
+### Two ways the machine goes
+
+```mermaid
+flowchart TD
+  subgraph soft["The Companion is closed on purpose (the app quit, Shut down, stop with the app)"]
+    A[shut_down] --> B["SIGTERM to every job under the kernels<br/>(jobs.job_pids: python processes below each kernel)"]
+    B --> C{"job uses koios?"}
+    C -- yes --> D["ck.step(): save · sidecar · '[koios] checkpoint … stop' · exit 0"]
+    C -- no --> E[goes with the kernel, as before]
+    D --> F["up to 60 s grace (jobs.GRACE_S)"]
+    E --> F
+    F --> G[kernels shut down · server stops]
+  end
+  subgraph hard["The machine just goes (lid, battery, network)"]
+    H[nothing can run] --> I["what is there is the last cadence save"]
+  end
+```
+
+*Figure 7. A closed Companion asks its jobs to stop first and waits; a hard
+disconnect leaves only the cadence saves. Both are why `every_minutes`
+defaults to 10.*
+
+### What the page does
+
+```mermaid
+sequenceDiagram
+  participant K as Kernel on the machine
+  participant P as Page
+  participant U as You
+  K-->>P: "[koios] checkpoint {…step 4200…}" in the run's output
+  Note over P: the run shows ⛁ Checkpoint · step 4200 · step-00004200.pt
+  K--xP: socket closes · reconnects fail · session lost
+  Note over P: the machine's chip goes red; its runs are marked interrupted
+  P->>U: banner: "my-mac disconnected at 23:08 — the connection closed… Last checkpoint: step 4200 at 23:05 · step-00004200.pt · loss 0.41"
+  U->>P: Resume from step 4200 · on the same machine / on 1 · Colab T4
+  P->>K: the command again, with KOIOS_RESUME=/…/step-00004200.pt
+  Note over K: koios.resume() loads it and returns 4200
+```
+
+*Figure 8. The notice and the resume. The page knows the last checkpoint
+from the lines the run printed, which it had before the machine went; the
+checkpoint file itself is where the job wrote it.*
+
+### Where the checkpoint is, and where you can resume
+
+| The checkpoint folder is… | Resume on the same machine | Resume on another machine |
+| --- | --- | --- |
+| on the machine's own disk (the default: `checkpoints/` under the project folder on the machine) | **yes**, once it is back | only if that path exists there too; otherwise `koios.resume` says so and starts from 0 |
+| in the project's folder kept on a server both reach (home = a Companion's folder) | yes | **yes** |
+| in Drive | — | the sync brings text files back after a run, not checkpoints (`*.pt`, `*.ckpt` are left on the machine by the ignore rules, and the copy is text-only); copying checkpoints into Drive as they are saved is **not built** |
+
+The honest version of "pause and continue elsewhere" is checkpoint and
+restart, which is what every training framework does. The pieces here make
+it one click when the checkpoint is somewhere the next machine can read.
+
+### Where things are
+
+| | |
+| --- | --- |
+| The helper | `src/lib/koiosHelper.ts` (`KOIOS_PY`, written to `.reader/pylib/koios/__init__.py`) |
+| On the path | `src/lib/playground.ts`, `shellCell` (`KOIOS_PYLIB` → `PYTHONPATH`) |
+| Reading the lines | `src/lib/telemetry.ts`, `checkpointsOf`, `latestCheckpoint` |
+| The Companion's gentle stop | `companion/reader_companion/extension.py`, `shut_down` → `stop_jobs_gently`; `jobs.py`: `kernel_pids`, `job_pids`, `descendants`, `ask_to_stop`, `wait_gone` |
+| The notice and Resume | `src/components/PlaygroundWorkspace.tsx`: `gone`, `resume`, the banner; `ensureHelper` writes the helper |
+| Under a run's output | `src/components/Colab.tsx`, `CellRunOutput` (`.cell-checkpoint`) |
+| Tests | `scripts/checkpoints.test.mjs` (the lines, and the helper run for real), `companion/tests/test_jobs.py` |

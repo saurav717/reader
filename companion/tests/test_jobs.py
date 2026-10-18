@@ -84,3 +84,43 @@ class TerminalJobsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StoppingJobsGently(unittest.TestCase):
+    """Before the Companion shuts down, the jobs under its kernels are asked to stop and given a moment."""
+
+    def test_finds_the_processes_under_one_and_waits_for_them_to_go(self):
+        import signal
+        import subprocess
+        import sys
+
+        # A "kernel": a shell that runs a python child which leaves on SIGTERM after a moment, as the koios helper does.
+        shell = subprocess.Popen(["sh", "-c", f"{sys.executable} -c 'import signal,time,sys; signal.signal(signal.SIGTERM, lambda *a: sys.exit(0)); time.sleep(30)' & wait"])
+        try:
+            self.assertTrue(wait_for(lambda: any("python" in jobs.command_of(p).lower() for p in jobs.descendants(shell.pid))))
+            pythons = [p for p in jobs.descendants(shell.pid) if "python" in jobs.command_of(p).lower()]
+            self.assertEqual(len(pythons), 1)
+            jobs.ask_to_stop(pythons)
+            self.assertEqual(jobs.wait_gone(pythons, seconds=5), [])
+        finally:
+            try:
+                shell.send_signal(signal.SIGTERM)
+                shell.wait(timeout=5)
+            except Exception:
+                pass
+
+    def test_reads_kernel_pids_from_the_manager(self):
+        class Provisioner:
+            pid = 4242
+
+        class Kernel:
+            provisioner = Provisioner()
+
+        class Manager:
+            def list_kernel_ids(self):
+                return ["k1"]
+
+            def get_kernel(self, kernel_id):
+                return Kernel()
+
+        self.assertEqual(jobs.kernel_pids(Manager()), [4242])
