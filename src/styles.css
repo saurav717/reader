@@ -9129,3 +9129,38 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .theme-swatch.is-dark { background: #15161a; border: 1px solid #2c2f36; } .theme-swatch.is-dark i { background: #57a98f; }
 .theme-swatch.is-koios { background: radial-gradient(ellipse at 50% -20%, #1a2440 0%, #090d17 70%); border: 1px solid rgba(216, 180, 106, 0.4); } .theme-swatch.is-koios i { background: #d8b46a; height: 1px; border-radius: 0; }
 .theme-follow { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+
+/* Glass, at night: the panes are navy, the rims gold, and the wallpaper the
+   sky the opening screen is painted on, with a scene faint in it. */
+:root[data-glass='on'][data-koios='on'] {
+  --paper: rgb(9 13 23 / calc(0.7 + 0.22 * var(--frost)));
+  --surface: rgb(216 180 106 / calc(0.04 + 0.05 * var(--frost)));
+  --panel: rgb(12 17 29 / calc(0.28 + 0.44 * var(--frost)));
+  --rail: rgb(216 180 106 / calc(0.03 + 0.04 * var(--frost)));
+  --border: rgb(216 180 106 / 0.28);
+  --border-soft: rgb(216 180 106 / 0.14);
+  --muted: #9b978c;
+  --float-rgb: 13 18 30;
+  --rim-hi: rgb(240 215 154 / 0.3);
+  --rim-lo: rgb(216 180 106 / 0.05);
+  --sheen: rgb(240 215 154 / calc(0.08 * var(--light)));
+  --wall-spotlight:
+    radial-gradient(ellipse 60% 70% at 50% 40%, rgba(38, 50, 92, 0.55), transparent 70%),
+    radial-gradient(ellipse 120% 120% at 50% 45%, transparent 40%, rgba(2, 4, 9, 0.7)),
+    linear-gradient(160deg, #0a0f1d, #060910);
+  --wall-sage:
+    radial-gradient(70% 96% at 10% 10%, rgba(32, 74, 64, 0.5), transparent 65%),
+    radial-gradient(60% 80% at 95% 90%, rgba(28, 42, 80, 0.5), transparent 65%),
+    linear-gradient(160deg, #080d17, #070a12);
+  --wall-paper:
+    radial-gradient(70% 96% at 0% 0%, rgba(120, 96, 50, 0.3), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(40, 52, 96, 0.4), transparent 65%),
+    linear-gradient(160deg, #0b0f1b, #070a12);
+  --wall-spectrum:
+    radial-gradient(62% 83% at 6% 8%, rgba(34, 92, 78, 0.4), transparent 62%),
+    radial-gradient(52% 74% at 96% 4%, rgba(46, 70, 140, 0.5), transparent 64%),
+    radial-gradient(58% 80% at 88% 96%, rgba(110, 50, 90, 0.35), transparent 62%),
+    radial-gradient(50% 67% at 18% 100%, rgba(140, 116, 40, 0.3), transparent 62%),
+    linear-gradient(160deg, #0a0e1a, #0b0f1a);
+}
+:root[data-glass='on'][data-koios='on'] .app { background: transparent; }

@@ -3156,8 +3156,11 @@ and the empty states are `src/components/Quiet.tsx`.
 
 ## Glass
 
-**Settings → Appearance → Glass** swaps the solid paper for glass, in either
-theme. The window becomes rounded panes floating over a wallpaper, which you
+**Settings → Appearance → Glass** swaps the solid paper for glass, in any
+theme. Under Koios the panes are navy with gold rims, and the wallpapers
+are the night: the spotlight a blue glow in the dark, the sage a green one.
+
+![Home under Koios with Glass on: navy panes with gold rims over the night](docs/night-glass.png) The window becomes rounded panes floating over a wallpaper, which you
 see through the rail, the library and the dock. The page you read is a sheet that
 stays nearly solid, because the text is the one thing that must never swim.
 
