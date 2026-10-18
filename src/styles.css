@@ -9054,6 +9054,44 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .doc-menu-group { color: var(--gold); font-family: var(--mono); font-weight: 500; letter-spacing: 0.14em; }
 :root[data-koios='on'] .home-eyebrow.accent { color: var(--gold-soft); }
 
+/* The floating windows (Ask AI, the notes and the paper popped out): the
+   night's glass rather than grey. Navy under a stone rim, the faint glow at
+   the top the pages have, the mark in gold and the name in the light serif. */
+:root[data-koios='on'] .assistant-win {
+  --win-rgb: 16 21 32;
+  --win-edge: 230 225 214;
+  --win-edge-a: 0.12;
+  --win-shadow: 0 30px 80px -24px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  background-image: radial-gradient(ellipse 120% 55% at 50% -12%, rgba(40, 52, 82, 0.55), transparent 70%);
+}
+:root[data-koios='on'] .assistant-win .win-bar { background: transparent; border-bottom-color: var(--border-soft); }
+:root[data-koios='on'] .assistant-win .win-mark { color: var(--gold); }
+:root[data-koios='on'] .assistant-win .win-name { font: 400 15px/1 var(--serif); letter-spacing: 0; }
+:root[data-koios='on'] .assistant-win .chat-toolbar { border-bottom-color: var(--border-soft); }
+:root[data-koios='on'] .win-tint input:hover::-webkit-slider-thumb { background: var(--gold); }
+/* Before the first question: a gold label, the line, and the starters as
+   quiet rows, each with its star, rather than underlined links. */
+:root[data-koios='on'] .chat-empty { padding: 6px 2px 0; }
+:root[data-koios='on'] .chat-empty::before {
+  content: 'Ask about what you are reading'; display: block; margin-bottom: 10px;
+  color: var(--gold); font: 500 10.5px var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+}
+:root[data-koios='on'] .chat-empty p { color: var(--ink-2); margin-bottom: 16px; }
+:root[data-koios='on'] .chat-empty ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+:root[data-koios='on'] .chat-empty li { margin: 0; }
+:root[data-koios='on'] .chat-empty .link-btn {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 12px;
+  border: 1px solid var(--border-soft); border-radius: 10px; background: rgba(230, 225, 214, 0.02);
+  color: var(--ink); font: 400 14.5px/1.4 var(--serif); text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+:root[data-koios='on'] .chat-empty .link-btn::before { content: '\2726'; flex: none; color: var(--gold); font: 11px/1 var(--sans); opacity: 0.8; }
+:root[data-koios='on'] .chat-empty .link-btn:hover { border-color: rgba(201, 168, 106, 0.45); background: rgba(201, 168, 106, 0.06); }
+/* The box: navy, its focus a gold hairline rather than a green glow. */
+:root[data-koios='on'] .chat-compose { border-top: 1px solid var(--border-soft); padding-top: 10px; }
+:root[data-koios='on'] .chat-compose textarea { background: rgba(10, 14, 26, 0.55); border-color: var(--border); }
+:root[data-koios='on'] .chat-compose textarea:focus { border-color: rgba(201, 168, 106, 0.6); box-shadow: 0 0 0 3px rgba(201, 168, 106, 0.1); }
+
 /* Where a place is marked as the current one: gold, not green. */
 :root[data-koios='on'] .nav-lab.is-active { color: var(--ink); background: transparent; box-shadow: none; }
 :root[data-koios='on'] .icon-btn[aria-current='page'],
