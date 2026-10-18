@@ -8971,23 +8971,31 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .rail { background: transparent; }
 /* The sky, when asked for: a faint glow at the top and a sparse field of
    stars, dim enough to sit under a page of text. */
-:root[data-koios='on'][data-sky='on'] .app {
-  background:
-    radial-gradient(1px 1px at 12% 18%, rgba(230, 225, 214, 0.5), transparent 100%),
-    radial-gradient(1px 1px at 31% 7%, rgba(230, 225, 214, 0.4), transparent 100%),
-    radial-gradient(1.5px 1.5px at 47% 24%, rgba(230, 225, 214, 0.45), transparent 100%),
-    radial-gradient(1px 1px at 63% 11%, rgba(230, 225, 214, 0.4), transparent 100%),
-    radial-gradient(1px 1px at 78% 29%, rgba(230, 225, 214, 0.35), transparent 100%),
-    radial-gradient(1.5px 1.5px at 88% 6%, rgba(230, 225, 214, 0.5), transparent 100%),
-    radial-gradient(1px 1px at 22% 41%, rgba(230, 225, 214, 0.25), transparent 100%),
-    radial-gradient(1px 1px at 56% 48%, rgba(230, 225, 214, 0.25), transparent 100%),
-    radial-gradient(1px 1px at 93% 44%, rgba(230, 225, 214, 0.3), transparent 100%),
-    radial-gradient(1px 1px at 40% 72%, rgba(230, 225, 214, 0.18), transparent 100%),
-    radial-gradient(1px 1px at 70% 84%, rgba(230, 225, 214, 0.18), transparent 100%),
-    radial-gradient(1px 1px at 8% 88%, rgba(230, 225, 214, 0.18), transparent 100%),
-    radial-gradient(ellipse 90% 60% at 50% -20%, rgba(28, 36, 56, 0.9) 0%, rgba(14, 17, 22, 0) 70%),
-    var(--rail);
+:root[data-koios='on'] {
+  --koios-stars:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(240, 236, 226, 0.9), transparent 100%),
+    radial-gradient(1px 1px at 31% 7%, rgba(240, 236, 226, 0.7), transparent 100%),
+    radial-gradient(2px 2px at 47% 24%, rgba(240, 236, 226, 0.8), transparent 100%),
+    radial-gradient(1px 1px at 63% 11%, rgba(240, 236, 226, 0.7), transparent 100%),
+    radial-gradient(1.5px 1.5px at 78% 29%, rgba(240, 236, 226, 0.65), transparent 100%),
+    radial-gradient(2px 2px at 88% 6%, rgba(240, 236, 226, 0.9), transparent 100%),
+    radial-gradient(1px 1px at 22% 41%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1.5px 1.5px at 56% 48%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 93% 44%, rgba(240, 236, 226, 0.55), transparent 100%),
+    radial-gradient(1px 1px at 40% 72%, rgba(240, 236, 226, 0.4), transparent 100%),
+    radial-gradient(1.5px 1.5px at 70% 84%, rgba(240, 236, 226, 0.4), transparent 100%),
+    radial-gradient(1px 1px at 8% 88%, rgba(240, 236, 226, 0.4), transparent 100%),
+    radial-gradient(1px 1px at 5% 60%, rgba(240, 236, 226, 0.35), transparent 100%),
+    radial-gradient(1px 1px at 84% 64%, rgba(240, 236, 226, 0.35), transparent 100%),
+    radial-gradient(1px 1px at 36% 94%, rgba(240, 236, 226, 0.3), transparent 100%),
+    radial-gradient(1.5px 1.5px at 97% 90%, rgba(240, 236, 226, 0.45), transparent 100%),
+    radial-gradient(1px 1px at 18% 2%, rgba(240, 236, 226, 0.6), transparent 100%),
+    radial-gradient(1px 1px at 72% 2%, rgba(240, 236, 226, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 50% 60%, rgba(240, 236, 226, 0.3), transparent 100%),
+    radial-gradient(1px 1px at 27% 56%, rgba(240, 236, 226, 0.3), transparent 100%);
+  --koios-glow: radial-gradient(ellipse 90% 60% at 50% -20%, rgba(30, 40, 62, 0.95) 0%, rgba(14, 17, 22, 0) 70%);
 }
+:root[data-koios='on'][data-sky='on'] .app { background: var(--koios-stars), var(--koios-glow), var(--rail); }
 
 /* Headings in the light serif. */
 :root[data-koios='on'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
@@ -9203,6 +9211,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
     linear-gradient(160deg, #0a0e1a, #0b0f1a);
 }
 :root[data-glass='on'][data-koios='on'] .app { background: transparent; }
+:root[data-glass='on'][data-koios='on'][data-sky='on'] body { background: var(--koios-stars), var(--koios-glow), var(--wall); background-attachment: fixed; }
 
 /* ---------- Koios II: the pages re-drawn ----------
    The rail is icons alone, 56 px, the current place marked by one gold rule
@@ -9270,7 +9279,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .panel-head h2 { font-weight: 400; font-family: var(--serif); font-size: 17px; }
 :root[data-koios='on'] .segmented { background: transparent; border: 0; border-radius: 0; padding: 0; gap: 16px; }
 :root[data-koios='on'] .segmented button { border-radius: 0; padding: 4px 0; background: transparent; box-shadow: none; color: var(--muted); }
-:root[data-koios='on'] .segmented button[aria-pressed='true'] { color: var(--ink); background: transparent; border-bottom: 1px solid var(--gold); }
+:root[data-koios='on'] .segmented button[aria-pressed='true'], :root[data-koios='on'] .segmented button[aria-checked='true'], :root[data-koios='on'] .segmented button[aria-selected='true'] { color: var(--ink); background: transparent; box-shadow: none; font-weight: 400; border-bottom: 1px solid var(--gold); }
 :root[data-koios='on'] .btn { border-color: var(--border); background: transparent; }
 :root[data-koios='on'] .btn:hover { border-color: var(--ink-2); }
 :root[data-koios='on'] .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
@@ -9338,3 +9347,81 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 :root[data-koios='on'] .library-panel .paper-row.is-active { background: transparent; box-shadow: inset 1px 0 0 var(--gold); }
 :root[data-koios='on'] .library-panel .paper-row.is-active .paper-row-title { color: var(--ink); font-weight: 400; }
 :root[data-koios='on'] .library-panel .panel-head h2 { font: 300 22px var(--serif); }
+
+/* Koios II, Usage: the tab bar as one ruled line. Each group is its label
+   over its tabs, groups parted by a hairline, the current tab marked in
+   gold on the rule all of them stand on. */
+:root[data-koios='on'] .usage-tabs { gap: 0; margin-top: 18px; padding-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .usage-tab-group { gap: 8px; padding-right: 24px; margin-right: 24px; border-right: 1px solid var(--border-soft); }
+:root[data-koios='on'] .usage-tab-group:last-child { padding-right: 0; margin-right: 0; border-right: 0; }
+:root[data-koios='on'] .usage-tab-group-label { padding-left: 0; font: 500 10px var(--mono); letter-spacing: 0.18em; color: var(--muted); }
+:root[data-koios='on'] .usage-tabs .segmented { gap: 20px; }
+:root[data-koios='on'] .usage-tabs .segmented button { padding: 4px 0 10px; font-size: 13px; color: var(--ink-2); border-bottom: 1px solid transparent; }
+:root[data-koios='on'] .usage-tabs .segmented button:hover { color: var(--ink); }
+:root[data-koios='on'] .usage-tabs .segmented button[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--gold); }
+
+/* ---------- Koios II: one way to move through every page ----------
+   Every tab bar takes the Usage bar's form: words on one rule, the current
+   one marked in gold on it, a group's name in small capitals over its
+   words. Side lists (Settings, the library) mark the current place with a
+   gold rule at the left instead. The rule under a bar is an inset shadow,
+   never a border, so a bar that scrolls sideways cannot clip the mark. */
+:root[data-koios='on'] [role='tablist'] [role='tab'] { border-radius: 0; background: transparent; box-shadow: none; }
+:root[data-koios='on'] [role='tablist'] [role='tab']:hover { background: transparent; color: var(--ink); }
+:root[data-koios='on'] [role='tablist'] [role='tab'][aria-selected='true'] { background: transparent; color: var(--ink); font-weight: 400; box-shadow: inset 0 -1px 0 var(--gold); }
+
+/* Home: the views stand on their own rule beside the greeting. */
+:root[data-koios='on'] .home-tabs { align-self: flex-end; gap: 22px; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .home-tab { padding: 6px 0 10px; margin-bottom: 0; border-bottom: 1px solid transparent; }
+:root[data-koios='on'] .home-tab.is-on { border-bottom-color: var(--gold); }
+
+/* The dock beside the page: Library, Discover, Notes, Ask. */
+:root[data-koios='on'] .dock-tabs { gap: 20px; padding: 12px 18px 0; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .dock-tabs button { flex-grow: 0; height: auto; padding: 4px 0 10px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; font-size: 12.5px; color: var(--muted); }
+:root[data-koios='on'] .dock-tabs button:hover { background: transparent; color: var(--ink); }
+:root[data-koios='on'] .dock-tabs button[aria-selected='true'] { background: transparent; color: var(--ink); font-weight: 400; border-bottom-color: var(--gold); box-shadow: none; }
+
+/* A project: Overview, Read, Code, Write, Logbook on the bar's own rule. */
+:root[data-koios='on'] .pj-bar { border-bottom: 0; box-shadow: inset 0 -1px 0 var(--border-soft); }
+:root[data-koios='on'] .pj-bar .pj-views { gap: 20px; align-self: stretch; }
+:root[data-koios='on'] .pj-bar .pj-views button { height: 100%; padding: 0; border-bottom: 1px solid transparent; font-size: 13px; }
+:root[data-koios='on'] .pj-bar .pj-views button[aria-pressed='true'] { border-bottom-color: var(--gold); }
+:root[data-koios='on'] .lb-tabs { gap: 20px; box-shadow: inset 0 -1px 0 var(--border-soft); }
+:root[data-koios='on'] .lb-tab { padding: 0; border-bottom-width: 1px; font-weight: 400; }
+:root[data-koios='on'] .lb-tab.is-on { border-bottom-color: var(--gold); }
+
+/* Settings: the side list plain, the current place marked at the left; the
+   row form and the group bar as ruled words. */
+:root[data-koios='on'] .settings-group-label { padding-left: 12px; font: 500 10px var(--mono); letter-spacing: 0.18em; }
+:root[data-koios='on'] .settings-tabs button { border-radius: 0; padding: 7px 10px 7px 12px; }
+:root[data-koios='on'] .settings-tabs button:hover { background: transparent; }
+:root[data-koios='on'] .settings-tabs button.is-on { background: transparent; box-shadow: inset 1px 0 0 var(--gold); font-weight: 400; }
+:root[data-koios='on'] .settings-tab-icon { display: none; }
+:root[data-koios='on'] .settings-groups { gap: 24px; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-koios='on'] .settings-groups button { padding: 10px 0; margin-bottom: 0; border-bottom-width: 1px; font-weight: 400; }
+:root[data-koios='on'] .settings-groups button.is-on { border-bottom-color: var(--gold); }
+:root[data-koios='on'] .settings-tabs.is-row { gap: 20px; background: transparent; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); padding: 10px 28px 0; }
+:root[data-koios='on'] .settings-tabs.is-row button { padding: 4px 0 10px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; }
+:root[data-koios='on'] .settings-tabs.is-row button.is-on { border-bottom-color: var(--gold); box-shadow: none; }
+
+/* Notes beside the page, and the smaller bars: the same words on a rule. */
+:root[data-koios='on'] .notes-tabs { gap: 18px; padding: 0 18px 0; box-shadow: inset 0 -1px 0 var(--border-soft); }
+:root[data-koios='on'] .notes-tabs [role='tab'] { padding: 4px 0 10px; border: 0; border-bottom: 1px solid transparent; }
+:root[data-koios='on'] .notes-tabs [role='tab'][aria-selected='true'] { border-bottom-color: var(--gold); box-shadow: none; }
+:root[data-koios='on'] .hc-tabs { gap: 14px; }
+:root[data-koios='on'] .hc-tabs button { border-color: transparent; border-radius: 0; padding-left: 0; padding-right: 0; }
+:root[data-koios='on'] .hc-tabs button[aria-selected='true'] { background: transparent; border-color: transparent; color: var(--ink); box-shadow: inset 0 -1px 0 var(--gold); }
+:root[data-koios='on'] .explain-pages button[aria-pressed='true'] svg { color: var(--gold); }
+/* Side lists that are tab lists keep the mark at their left, not under. */
+:root[data-koios='on'] .settings-tabs:not(.is-row) [role='tab'][aria-selected='true'] { box-shadow: inset 1px 0 0 var(--gold); }
+/* The row on hover: the status column takes the width it needs so the
+   actions never land on it, and the selection box sits in the margin at the
+   left of the year rather than over it. */
+:root[data-koios='on'] .lib-row { grid-template-columns: 44px minmax(0, 1fr) max-content auto; }
+:root[data-koios='on'] .lib-status .ring { width: 72px !important; }
+:root[data-koios='on'] .lib-row .cover { overflow: visible; }
+:root[data-koios='on'] .lib-row .cover-check { inset: auto; left: -30px; top: 1px; width: 20px; height: 16px; background: transparent; }
+:root[data-koios='on'] .lib-row .cover-check::before { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--muted); background: transparent; }
+:root[data-koios='on'] .lib-row .cover.is-selected .cover-check { background: transparent; color: var(--paper); }
+:root[data-koios='on'] .lib-row .cover.is-selected .cover-check::before { background: var(--ink); border-color: var(--ink); }
+:root[data-koios='on'] .lib-row .cover-check svg { width: 10px; height: 10px; }

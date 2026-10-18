@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Reader</title>
+    <title>Koios</title>
     <meta name="description" content="Search arXiv, OpenAlex, Semantic Scholar and Crossref for papers or the people who wrote them, collect them, highlight them, and mirror the collection to Google Drive and a Git repository." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icons/koios.svg" />
-    <link rel="icon" type="image/png" href="/icons/reader-192.png" />
-    <link rel="apple-touch-icon" href="/icons/reader-256.png" />
-    <meta name="theme-color" content="#070a12" />
+    <link rel="icon" type="image/png" href="/icons/koios-192.png" />
+    <link rel="apple-touch-icon" href="/icons/koios-256.png" />
+    <meta name="theme-color" content="#0e1116" />
     <script>
       // The site's look, as this browser last heard it from the Worker
       // (src/lib/look.ts), applied before the first paint.
@@ -26,7 +26,7 @@
         if (theme === 'koios' && look === 'classic') theme = 'dark';
         if (theme === 'koios') {
           document.documentElement.dataset.koios = 'on';
-          if (saved.koiosSky) document.documentElement.dataset.sky = 'on';
+          if (saved.koiosSky !== false) document.documentElement.dataset.sky = 'on';
           theme = 'dark';
         }
         document.documentElement.dataset.theme = theme;
@@ -36,7 +36,7 @@
         document.documentElement.dataset.theme = 'dark';
       }
     </script>
-    <meta name="apple-mobile-web-app-title" content="Reader" />
+    <meta name="apple-mobile-web-app-title" content="Koios" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
