@@ -9029,3 +9029,15 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .look-state { font-size: 12px; color: var(--muted); }
 .look-option.is-on .look-state { color: var(--accent); font-weight: 500; }
 @media (max-width: 640px) { .look-options { grid-template-columns: 1fr; } }
+
+/* The opening screen's slideshow: the scene before stays under the plate
+   while the next fades in over 1.6 s; the words come in after it. */
+.night-plate { position: relative; }
+.night-plate img { position: absolute; inset: 0; transition: opacity 1.6s ease; }
+.night-plate img.is-under { opacity: 1; }
+.night-words { display: flex; flex-direction: column; align-items: center; gap: 16px; animation: night-words 1.1s ease 0.5s both; }
+@keyframes night-words { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .night-plate img { transition: none; }
+  .night-words { animation: none; }
+}

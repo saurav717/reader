@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { basePath } from '../lib/route';
 
 /**
@@ -101,16 +101,63 @@ export function SceneBackdrop({ scene }: { scene: Scene }) {
   );
 }
 
+/** How long each scene stands on the opening screen before the next fades in. */
+const SLIDE_MS = 6500;
+
+/**
+ * The scenes one after another, starting from this visit's: the current one,
+ * and the one before it for as long as the cross-fade needs. Each next
+ * picture is fetched a moment before its turn, so the fade never waits on
+ * the network. With motion reduced, the first scene stands alone.
+ */
+export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number } {
+  const [turn, setTurn] = useState(0);
+  const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    if (still) return;
+    const start = SCENES.indexOf(first);
+    const timer = window.setInterval(() => setTurn((at) => at + 1), SLIDE_MS);
+    const warm = window.setTimeout(() => {
+      const next = new Image();
+      next.src = sceneUrl(SCENES[(start + 1) % SCENES.length]);
+    }, SLIDE_MS - 2500);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(warm);
+    };
+  }, [first, still]);
+  useEffect(() => {
+    if (still || !turn) return;
+    const start = SCENES.indexOf(first);
+    const next = new Image();
+    next.src = sceneUrl(SCENES[(start + turn + 1) % SCENES.length]);
+  }, [first, still, turn]);
+  const start = SCENES.indexOf(first);
+  const scene = SCENES[(start + turn) % SCENES.length];
+  const previous = turn ? SCENES[(start + turn - 1) % SCENES.length] : null;
+  return { scene, previous, turn };
+}
+
 /**
  * The scene as a plate: a tall crop around its subject, framed by a hairline,
  * for a page that keeps it in the middle. Every scene keeps its subject on
- * the right, so the crop is taken from the right edge.
+ * the right, so the crop is taken from the right edge. Given the scene
+ * before, that one stays underneath while the new one fades in over it.
  */
-export function ScenePlate({ scene }: { scene: Scene }) {
-  const [arrived, setArrived] = useState(false);
+export function ScenePlate({ scene, previous }: { scene: Scene; previous?: Scene | null }) {
+  const [arrived, setArrived] = useState<string | null>(null);
   return (
     <figure className="night-plate">
-      <img className={arrived ? 'is-in' : undefined} src={sceneUrl(scene)} alt="" decoding="async" onLoad={() => setArrived(true)} style={{ objectPosition: '100% 50%' }} />
+      {previous ? <img key={previous.file} src={sceneUrl(previous)} alt="" className="is-in is-under" style={{ objectPosition: '100% 50%' }} /> : null}
+      <img
+        key={scene.file}
+        className={arrived === scene.file ? 'is-in' : undefined}
+        src={sceneUrl(scene)}
+        alt=""
+        decoding="async"
+        onLoad={() => setArrived(scene.file)}
+        style={{ objectPosition: '100% 50%' }}
+      />
     </figure>
   );
 }

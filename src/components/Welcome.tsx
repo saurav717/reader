@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { KoiosMark, pickScene, ScenePlate } from './NightScene';
+import { KoiosMark, pickScene, ScenePlate, useSlides } from './NightScene';
 import { basePath, currentAddress, placeFor } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
@@ -61,7 +61,9 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
   // The opening screen keeps the scene the loading screen stood on — the same
   // picture, as a plate in the middle, the same words under it — and under
   // them the way in. The rail stays away until someone is in (App.tsx).
-  const scene = pickScene();
+  // The scenes go round while the page waits, each fading in over the last,
+  // its words fading in after it.
+  const { scene, previous, turn } = useSlides(pickScene());
 
   return (
     <div className="main night night-scene is-welcome is-centred">
@@ -69,14 +71,16 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
         <KoiosMark />
         <span>koios</span>
       </div>
-      <ScenePlate scene={scene} />
+      <ScenePlate scene={scene} previous={previous} />
       <div className="night-copy is-centred">
-        <h1>
-          {scene.headline[0]}
-          <br />
-          {scene.headline[1]}
-        </h1>
-        <p className="night-intro">{scene.intro}</p>
+        <div key={turn} className="night-words">
+          <h1>
+            {scene.headline[0]}
+            <br />
+            {scene.headline[1]}
+          </h1>
+          <p className="night-intro">{scene.intro}</p>
+        </div>
       <div className="night-signin">
         {invited && !user ? (
           <div className="welcome-greeting">

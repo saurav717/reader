@@ -3097,7 +3097,9 @@ not the same twice running.
 The opening screen, where Drive is connected, keeps the scene the loading
 screen chose, as a plate in the middle of the page: the mark above it, the
 two lines and the introduction under it, then the sign-in. The rail stays
-away until someone is in.
+away until someone is in. While the page waits the scenes go round: every
+six and a half seconds the next fades in over the last, and its words fade
+in after it; with motion reduced, the first scene stands alone.
 
 ![the opening screen: an engraved marble profile under a gold ring, framed as a plate in the middle, "Ask well. Read slowly. Keep what matters." beneath it, and the sign-in under a hairline](docs/night-welcome.png)
 
