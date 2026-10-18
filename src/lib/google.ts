@@ -70,13 +70,31 @@ export const COLAB_SCOPE = 'https://www.googleapis.com/auth/colaboratory';
  * signed-in account's calendars and, when the person asks, make, change or
  * delete one and answer an invitation. Two, the narrowest pair that does it:
  * the events of a calendar, to read and write, and the list of calendars,
- * to read. Asked for on their own, like Colab, the first time the page is
- * connected.
+ * to read. Asked for with the sign-in, in the same consent as Drive, so
+ * the page is connected from the start; the Calendar page still connects it
+ * on its own for a sign-in that left it out.
  */
 export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 export const CALENDAR_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
 const CALENDAR_SCOPES = `${CALENDAR_SCOPE} ${CALENDAR_LIST_SCOPE}`;
 const hasCalendar = (scopes: string[]) => scopes.includes(CALENDAR_SCOPE) && scopes.includes(CALENDAR_LIST_SCOPE);
+/** Set when the calendar is forgotten in Settings: the sign-in then leaves it out, until it is connected again. */
+const CALENDAR_OFF_KEY = 'reader.calendar.off';
+function calendarAtSignIn(): string {
+  try {
+    return localStorage.getItem(CALENDAR_OFF_KEY) === 'true' ? '' : CALENDAR_SCOPES;
+  } catch {
+    return CALENDAR_SCOPES;
+  }
+}
+function setCalendarOff(off: boolean): void {
+  try {
+    if (off) localStorage.setItem(CALENDAR_OFF_KEY, 'true');
+    else localStorage.removeItem(CALENDAR_OFF_KEY);
+  } catch {
+    // only a preference
+  }
+}
 
 interface TokenResponse {
   access_token?: string;
@@ -498,14 +516,15 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
 }
 
 /**
- * Sign-in, with Drive in the same window: the library is kept in the
- * account's own Drive, so signing in without it would open a library that
- * has nowhere to live. Google lets the person untick Drive on its consent
- * screen; then the sign-in still stands, and `hasDriveAccess` says Drive is
- * not there, for the app to offer it again.
+ * Sign-in, with Drive and the calendar in the same window: the library is
+ * kept in the account's own Drive, so signing in without it would open a
+ * library that has nowhere to live, and the Calendar page should not ask a
+ * second time. Google lets the person untick either on its consent screen;
+ * then the sign-in still stands, and `hasDriveAccess` or `hasCalendarAccess`
+ * says what is not there, for the app to offer it again.
  */
 export function signIn(clientId: string): Promise<GoogleUser> {
-  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, '')
+  return tokenFor(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES, calendarAtSignIn()].filter(Boolean).join(' '), '')
     .then(adopt)
     .then((held) => held.user);
 }
@@ -521,7 +540,8 @@ export function signIn(clientId: string): Promise<GoogleUser> {
  * inside a click.
  */
 export function connectDrive(clientId: string, quiet = false): Promise<GoogleUser> {
-  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, quiet ? '' : 'consent')
+  // The calendar rides along, as at sign-in: the opening screen's one click connects both.
+  return tokenFor(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES, calendarAtSignIn()].filter(Boolean).join(' '), quiet ? '' : 'consent')
     .then(adopt)
     .then((held) => {
       // The sign-in stands either way; without Drive it is one the app offers Drive to again.
@@ -730,6 +750,7 @@ export async function colabToken(clientId: string): Promise<string | null> {
  */
 export function connectCalendar(clientId: string): Promise<string> {
   const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', hasColabAccess() ? COLAB_SCOPE : '', CALENDAR_SCOPES].filter(Boolean);
+  setCalendarOff(false);
   return renewQuietly(clientId, scopes).then((granted) => {
     if (!hasCalendar(granted.scopes)) throw new Error('Calendar access was not granted');
     return granted.accessToken;
@@ -747,6 +768,7 @@ export async function calendarToken(clientId: string): Promise<string | null> {
 
 /** Forget the calendar in this tab, as `dropColab` forgets Colab: the token goes, and Drive asks quietly for itself next. */
 export function dropCalendar(): void {
+  setCalendarOff(true);
   if (token && (token.scopes.includes(CALENDAR_SCOPE) || token.scopes.includes(CALENDAR_LIST_SCOPE))) forgetToken();
 }
 

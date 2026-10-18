@@ -202,8 +202,8 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
         ) : null}
 
         <p style={{ margin: '20px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          One consent covers both: your name and address, and the <code>drive.file</code> scope — which reaches
-          only the files this app creates, never the rest of your Drive.{' '}
+          One consent covers everything: your name and address; the <code>drive.file</code> scope, which reaches
+          only the files this app creates, never the rest of your Drive; and your calendar, for the Calendar page.{' '}
           {mustSignIn
             ? 'Signing in with Google is the way in.'
             : "Without signing in the app works the same, with a library in this browser that belongs to no account; signing in opens your own, from your Drive."}{' '}
