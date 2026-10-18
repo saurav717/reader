@@ -9001,6 +9001,32 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 }
 :root[data-koios='on'][data-sky='on'] .app { background: var(--koios-stars), var(--koios-glow), var(--rail); }
 
+/* Past the page's edges. Safari bounces the whole window when a scroll runs
+   out, and shows the ground behind it: the night's navy, never white. Just
+   beyond the top edge hangs the north star with a line under it, and just
+   below the bottom another, so a scroll pushed too far finds a little sky
+   rather than a gap. Fixed, so they add nothing to scroll to; where a
+   browser does not draw past the edge, only the colour shows. */
+:root[data-koios='on'] { background-color: #0a0e1a; }
+:root[data-koios='on']::before,
+:root[data-koios='on']::after,
+:root[data-koios='on'] body::before,
+:root[data-koios='on'] body::after {
+  position: fixed; left: 0; right: 0;
+  pointer-events: none;
+  text-align: center;
+}
+/* The stars, gold, at the mark's size. */
+:root[data-koios='on']::before,
+:root[data-koios='on']::after { font: 18px/1 var(--sans); color: var(--gold); }
+:root[data-koios='on']::before { content: '\2726'; bottom: calc(100% + 52px); }
+:root[data-koios='on']::after { content: '\2727'; top: calc(100% + 52px); }
+/* The lines, in the light serif, between each star and the page. */
+:root[data-koios='on'] body::before,
+:root[data-koios='on'] body::after { font: italic 300 15px/1.4 var(--serif); letter-spacing: 0.01em; color: rgba(230, 225, 214, 0.55); }
+:root[data-koios='on'] body::before { content: 'Above the page, only Koios and the north.'; bottom: calc(100% + 20px); }
+:root[data-koios='on'] body::after { content: 'The paper ends here. The sky goes on.'; top: calc(100% + 20px); }
+
 /* Headings in the light serif. */
 :root[data-koios='on'] .main h1 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
 :root[data-koios='on'] .home-hello h1 { font-weight: 300; font-size: 30px; }
