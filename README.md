@@ -3101,13 +3101,17 @@ away until someone is in.
 
 ![the opening screen: an engraved marble profile under a gold ring, framed as a plate in the middle, "Ask well. Read slowly. Keep what matters." beneath it, and the sign-in under a hairline](docs/night-welcome.png)
 
-The dark theme is the same night: a navy ground instead of grey, cream ink,
-gold hairlines where the lines were grey, and the bookmark mark in gold on
-the rail. Green keeps every action, so the tool is still the tool. New
-visitors start in it; **Settings → Appearance** has the day theme, whose
-paper is unchanged, for reading in daylight.
+The dark theme is the same night: the sky's glow and a few stars in the
+ground, cream ink, gold hairlines where the lines were grey, the section
+labels in gold and tracked, headings in the light serif the opening screens
+use, and the bookmark mark in gold on the rail. Green keeps every action, so
+the tool is still the tool. New visitors start in it; **Settings →
+Appearance** has the day theme, whose paper is unchanged, for reading in
+daylight.
 
-![Home in the night theme: navy ground, gold hairlines around the search and the collections, the gold mark on the rail](docs/night-home.png)
+![Home in the night theme: the glow at the top of the sky, "Find your next paper" in a light serif, gold labels over the suggestions and the collections, the gold mark on the rail](docs/night-home.png)
+
+![the library in the night theme: the month's label in gold, the papers' rings, the Discover pane beside](docs/night-library.png)
 
 The words are in `src/components/NightScene.tsx`, with the scene chosen
 for the visit; the pictures' lettering was lifted off the renders in
