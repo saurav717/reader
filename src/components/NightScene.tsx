@@ -116,9 +116,17 @@ const SLIDE_MS = 11000;
  * picture is fetched a moment before its turn, so the fade never waits on
  * the network. With motion reduced, the first scene stands alone.
  */
-export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number } {
+export function useSlides(first: Scene): { scene: Scene; previous: Scene | null; turn: number; fading: boolean } {
   const [turn, setTurn] = useState(0);
+  // True while a scene is still giving way to the next: as long as the cross-fade and the words' own fades take.
+  const [fading, setFading] = useState(false);
   const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    if (!turn) return;
+    setFading(true);
+    const done = window.setTimeout(() => setFading(false), 3200);
+    return () => window.clearTimeout(done);
+  }, [turn]);
   useEffect(() => {
     if (still) return;
     const start = SCENES.indexOf(first);
@@ -141,7 +149,7 @@ export function useSlides(first: Scene): { scene: Scene; previous: Scene | null;
   const start = SCENES.indexOf(first);
   const scene = SCENES[(start + turn) % SCENES.length];
   const previous = turn ? SCENES[(start + turn - 1) % SCENES.length] : null;
-  return { scene, previous, turn };
+  return { scene, previous, turn, fading };
 }
 
 /**

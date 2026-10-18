@@ -9036,13 +9036,21 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .night-plate img { position: absolute; inset: 0; transition: opacity 3s ease; }
 .night-plate img.is-under, .night-img.is-under { opacity: 1; }
 .night-img { transition: opacity 3s ease; }
-.night-words { display: flex; flex-direction: column; gap: 26px; animation: night-words 1.6s ease 1.2s both; }
+/* The words of one scene give way to the next's the way the pictures do: the
+   old fade out while the new fade in over them, stacked in one cell so the
+   sign-in below does not move while both are there. */
+.night-words-stack { display: grid; }
+.night-words-stack > .night-words { grid-area: 1 / 1; }
+.night-words { display: flex; flex-direction: column; gap: 26px; }
 .night-copy.is-centred .night-words { align-items: center; gap: 16px; }
-@keyframes night-words { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.night-words.is-arriving { animation: night-words-in 1.8s ease 1s both; }
+.night-words.is-leaving { animation: night-words-out 1.2s ease both; pointer-events: none; }
+@keyframes night-words-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes night-words-out { from { opacity: 1; } to { opacity: 0; } }
 .night-scene.is-welcome:not(.is-centred) .night-copy { max-width: 600px; }
 .night-scene.is-welcome:not(.is-centred) .night-signin { max-width: 520px; }
 .night-scene.is-welcome:not(.is-centred) .night-why { max-width: 480px; }
 @media (prefers-reduced-motion: reduce) {
   .night-plate img, .night-img { transition: none; }
-  .night-words { animation: none; }
+  .night-words.is-arriving, .night-words.is-leaving { animation: none; }
 }
