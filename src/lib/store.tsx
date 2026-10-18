@@ -150,6 +150,10 @@ function readSettings(): Settings {
     saved.awayShows = { ...defaultSettings.awayShows, ...saved.awayShows };
     // Settings from before the Write tab: Overleaf beside was only the default then, and the Write tab is now.
     if (!stored.write && stored.overleafView === 'beside') saved.overleafView = 'tab';
+    // A theme nobody picked follows the site's look: Dark was the default
+    // before Koios was a theme of its own, so a browser from then still says
+    // Dark, and under the Koios look that is not what it was given.
+    if (!stored.themeChosen && (stored.theme === 'dark' || stored.theme === undefined)) saved.theme = defaultSettings.theme;
     saved.write = { ...defaultSettings.write, ...(stored.write && typeof stored.write === 'object' ? stored.write : {}) };
     return saved;
   } catch {

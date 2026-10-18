@@ -17,7 +17,10 @@
         var look = localStorage.getItem('reader.look') === 'classic' ? 'classic' : 'koios';
         document.documentElement.dataset.look = look;
         // The theme too, so the first paint is already in it (lib/store.tsx applies it again, and follows changes).
-        var kept = JSON.parse(localStorage.getItem('reader.settings') || '{}').theme;
+        var saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
+        var kept = saved.theme;
+        // A theme nobody picked follows the look (lib/store.tsx does the same when it reads the settings).
+        if (!saved.themeChosen && (kept === 'dark' || !kept)) kept = null;
         var theme = kept || (look === 'classic' ? 'dark' : 'koios');
         if (theme === 'system') theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         if (theme === 'koios' && look === 'classic') theme = 'dark';
