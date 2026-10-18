@@ -1,7 +1,7 @@
 // The site's look: `koios` — the night, the gold hairlines, the Titan where
 // a page is empty — or `classic`, the theme before it. One choice for the
 // whole site, made by the owner on Usage → The site and kept on the Worker
-// (GET and PUT /site/look); every visit reads it. index.html applies the
+// (GET and POST /site/look); every visit reads it. index.html applies the
 // last answer before the first paint, from this browser's copy, so the
 // page does not change look as it loads.
 
@@ -40,7 +40,7 @@ export async function syncLook(): Promise<void> {
 
 /** The owner's choice, kept on the Worker and applied here at once. */
 export async function setSiteLook(look: Look): Promise<{ ok: true } | { ok: false; error: string }> {
-  const response = await ownerFetch('/site/look', undefined, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ look }) });
+  const response = await ownerFetch('/site/look', undefined, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ look }) });
   const body = (await response.json().catch(() => ({}))) as { error?: string };
   if (!response.ok) return { ok: false, error: body.error || `The proxy answered ${response.status}.` };
   applyLook(look);
