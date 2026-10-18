@@ -36,7 +36,7 @@ import Reader from './components/Reader';
 import Settings from './components/Settings';
 import type { SettingsPlace } from './lib/openSettings';
 import UsageView, { useIsOwner } from './components/UsageView';
-import { isPass, passEmail } from './lib/api';
+import { currentAccount, isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
 import { LoadingScreen } from './components/NightScene';
 import { syncLook } from './lib/look';
@@ -53,7 +53,7 @@ import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
 import Calendar from './components/Calendar';
 import Notetaker from './components/Notetaker';
-import { OPEN_PLAYGROUND } from './lib/playground';
+import { OPEN_PLAYGROUND, configurePlaygroundDrive } from './lib/playground';
 import { watchPlaygroundRuns } from './lib/playgroundRuns';
 import { startJobWatch } from './lib/jobWatch';
 import { RailRunBadge, RunDock, RunSwitcher, RunTabs } from './components/PlaygroundRuns';
@@ -308,6 +308,14 @@ export default function App() {
   // Colab starts runtimes as the signed-in person, with this client ID: on every
   // page, not only where Explain is open, so a playground's Run has it too.
   useColabClient(settings.googleClientId.trim());
+  // Projects follow the sign-in too: their list, and the choice of keeping a
+  // project's files in Drive, are open from any page (a paper's "Implement"
+  // makes one), so the playground store is told here, not on the Playground
+  // page alone — a tab that never visited it was offered no Drive otherwise.
+  const projectsClientId = settings.googleClientId.trim();
+  useEffect(() => {
+    configurePlaygroundDrive(driveConnected && projectsClientId ? { clientId: projectsClientId, folderName: settings.driveFolderName, account: currentAccount() ?? undefined } : null);
+  }, [driveConnected, projectsClientId, settings.driveFolderName]);
   const signedInNow = !usesGoogle || (Boolean(user) && driveConnected);
   const heldToken = settings.proxyToken.trim();
   const ownToken = isPass(heldToken) && passEmail(heldToken)?.toLowerCase() !== user?.email?.toLowerCase() ? '' : heldToken;

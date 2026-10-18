@@ -342,6 +342,18 @@ class_name = "Invites"
 tag = "v6"
 new_sqlite_classes = ["Invites"]
 
+# The kernels and runs each Google account has going (worker/kernels.js): per
+# project, which machine it is on, the kernel on it and what is running there,
+# so a browser that opens the project elsewhere joins the same kernel and
+# follows the run. No tokens, no output: one object per account.
+[[durable_objects.bindings]]
+name = "KERNELS"
+class_name = "Kernels"
+
+[[migrations]]
+tag = "v7"
+new_sqlite_classes = ["Kernels"]
+
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,
 # worker/tavilyUsage.js). Does nothing until DEEPSEEK_KEY or TAVILY_KEY is set:

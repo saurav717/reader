@@ -4946,6 +4946,46 @@ playground off Colab or to Shared, stops its own machine and only that one.
 When your Colab plan allows no more machines at once, the playground shares the
 browser's for now and says so, until one is stopped in Colab.
 
+**Several machines: a pool.** A project can run on more than one machine —
+more Colab machines of their own, your own computer through its Companion, a
+GPU server, mixed as you like (the machine chip → *Run on more machines…*).
+They are separate machines, one job each: a console command goes to one you
+pick, or to all at once, each told its place as `KOIOS_RANK` and
+`KOIOS_WORLD` so one script can take its own seed, config or slice of the
+data; each has its own terminals and its own row in the Runtime pane. What a
+pool is not — one big GPU — and why Colab's network rules that out, is in
+[docs/compute-pool.md](docs/compute-pool.md); how it is built, with figures,
+in [docs/compute-continuity.md](docs/compute-continuity.md).
+
+**From another computer, while it runs.** Start a command in a project on one
+computer, sign in on another, open the project, and it is the same kernel
+and the same run: the browser that started it keeps, under your account on
+the proxy, which machine the project is on, the kernel on it and what is
+running there (the request, and where the command logs its output on the
+machine) — never the output itself, and no tokens. The browser that opens
+the project elsewhere joins that kernel instead of starting a second Python,
+shows the command's output so far from its log, follows the rest as the
+kernel sends it, and can stop it. The same holds for a reload. A notebook
+cell started elsewhere is followed from the moment you join; its earlier
+output stays with the browser that ran it. Rows go when the machine stops,
+and after two days untouched. The design, with the join and the follow drawn
+out: [docs/compute-continuity.md](docs/compute-continuity.md).
+
+**Checkpoints, when a machine goes.** A Companion closed, a laptop shut: the
+job on it is gone, not paused. So a project's code can `import koios`, a small
+helper the page writes into the project's folder on every machine: it saves a
+checkpoint on a cadence and, when the Companion is shut down on purpose, at
+once — the Companion asks each running job to stop and gives it a minute
+before it goes. Each save shows under the run's output. When a machine goes
+away, the project says so with the last checkpoint it reported (step, time,
+metrics) and offers **Resume** there or on another machine, which runs the
+command again with `KOIOS_RESUME` set for the helper to pick up. Section 6 of
+[docs/compute-continuity.md](docs/compute-continuity.md) has the helper's API
+and where a checkpoint can be resumed from; section 7 walks the whole thing
+through — the app on two computers of yours and a Colab GPU behind one
+project, run on all three, picked up from another browser, one machine lost,
+and the job resumed.
+
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:
 - **On a Companion**, the Companion says exactly what each terminal runs

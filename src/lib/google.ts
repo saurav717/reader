@@ -18,8 +18,11 @@
  *
  * Sign-in asks for identity and `drive.file` together, in one window — the
  * app can only ever see files it created itself, and the library is one of
- * them. `connectDrive` is the same request again, for a sign-in where Drive
- * was left unticked or has lapsed.
+ * them. They are one thing: a grant that comes back without Drive (Google's
+ * consent screen lets it be unticked) is not taken as a sign-in at all, and
+ * every renewal asks for Drive again, so being signed in always means Drive
+ * is connected. `connectDrive` is the same request again, for a sign-in that
+ * has lapsed.
  *
  * Every token is held beside who it is for, and that is never assumed: the
  * profile is read on each grant, a renewal's included. A browser signed in to
@@ -515,22 +518,39 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   };
 }
 
+/** What a sign-in that came back without Drive is told: the library has nowhere to live without it. */
+export const DRIVE_UNTICKED = 'Google Drive was left unticked. Your library is kept in your Drive, so sign in again and leave Drive ticked.';
+
+/**
+ * A grant taken as a sign-in only with Drive on it. Google lets the person
+ * untick Drive on its consent screen; a token that came back that way is
+ * forgotten again, so there is no such thing as signed in without Drive,
+ * and the next click asks for consent from the start.
+ */
+function withDrive(held: StoredToken & { user: GoogleUser }): StoredToken & { user: GoogleUser } {
+  if (held.scopes.includes(DRIVE_SCOPE)) return held;
+  forgetToken();
+  throw new Error(DRIVE_UNTICKED);
+}
+
 /**
  * Sign-in, with Drive and the calendar in the same window: the library is
  * kept in the account's own Drive, so signing in without it would open a
  * library that has nowhere to live, and the Calendar page should not ask a
- * second time. Google lets the person untick either on its consent screen;
- * then the sign-in still stands, and `hasDriveAccess` or `hasCalendarAccess`
- * says what is not there, for the app to offer it again.
+ * second time. Drive is not optional: a grant without it is refused
+ * (`withDrive`). The calendar is — unticked, `hasCalendarAccess` says so,
+ * for the Calendar page to offer it again.
  */
 export function signIn(clientId: string): Promise<GoogleUser> {
   return tokenFor(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES, calendarAtSignIn()].filter(Boolean).join(' '), '')
     .then(adopt)
+    .then(withDrive)
     .then((held) => held.user);
 }
 
 /**
- * Incremental consent: keeps identity, adds Drive.
+ * The sign-in asked for again, for one that has lapsed: identity and Drive,
+ * in the one window — and, as at sign-in, nothing short of Drive is kept.
  *
  * `quiet` is for the visitor who has granted this before. No refresh token can
  * be kept in a page with no backend, so every visit reconnects; an empty prompt
@@ -543,11 +563,8 @@ export function connectDrive(clientId: string, quiet = false): Promise<GoogleUse
   // The calendar rides along, as at sign-in: the opening screen's one click connects both.
   return tokenFor(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES, calendarAtSignIn()].filter(Boolean).join(' '), quiet ? '' : 'consent')
     .then(adopt)
-    .then((held) => {
-      // The sign-in stands either way; without Drive it is one the app offers Drive to again.
-      if (!held.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
-      return held.user;
-    });
+    .then(withDrive)
+    .then((held) => held.user);
 }
 
 // ------------------------------------------------------- renewing quietly ---
@@ -715,14 +732,17 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
 }
 
 /**
- * Incremental consent for Colab: keeps identity and Drive (when Drive has
- * been granted), adds Colab. Google shows its window for the new scope
- * however the prompt is set, so this, too, has to happen inside a click.
- * The token that comes back replaces the one held, and carries every scope
- * granted so far, so Drive keeps working on it.
+ * Incremental consent for Colab: keeps identity and Drive, adds Colab.
+ * Google shows its window for the new scope however the prompt is set, so
+ * this, too, has to happen inside a click. The token that comes back
+ * replaces the one held, and carries every scope granted so far, so Drive
+ * keeps working on it. Drive is always asked for, not only when the token
+ * in hand has it: an hour on, the token has lapsed and says it has nothing,
+ * and a renewal that went by it would come back without Drive — signed in,
+ * with the library's home gone.
  */
 export function connectColab(clientId: string): Promise<string> {
-  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', COLAB_SCOPE, hasCalendarAccess() ? CALENDAR_SCOPES : ''].filter(Boolean);
+  const scopes = [IDENTITY_SCOPES, DRIVE_SCOPES, COLAB_SCOPE, hasCalendarAccess() ? CALENDAR_SCOPES : ''];
   // Once for every caller, and a window only from a click: a run's polling that lost its token waits for the prompt.
   return renewQuietly(clientId, scopes).then((granted) => {
     if (!granted.scopes.includes(COLAB_SCOPE)) throw new Error('Colab access was not granted');
@@ -736,20 +756,20 @@ export async function colabToken(clientId: string): Promise<string | null> {
   if (replaying()) return SHOWCASE_TOKEN;
   if (token && token.expiresAt > Date.now() && token.scopes.includes(COLAB_SCOPE)) return token.accessToken;
   if (!token?.scopes.includes(COLAB_SCOPE)) return null;
-  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE, hasCalendar(token.scopes) ? CALENDAR_SCOPES : ''].filter(Boolean);
+  const scopes = [IDENTITY_SCOPES, DRIVE_SCOPES, COLAB_SCOPE, hasCalendar(token.scopes) ? CALENDAR_SCOPES : ''].filter(Boolean);
   const granted = await renewQuietly(clientId, scopes);
   return granted.scopes.includes(COLAB_SCOPE) ? granted.accessToken : null;
 }
 
 /**
- * Incremental consent for the calendar, as for Colab: keeps identity, Drive
- * and Colab where they have been granted, adds the calendar's two scopes.
+ * Incremental consent for the calendar, as for Colab: keeps identity and
+ * Drive, and Colab where it has been granted, adds the calendar's two scopes.
  * Google shows its window for the new scopes, so this has to happen inside
  * a click. A grant that came back with only one of the two (the chooser
  * lets a person untick) is no use to the page, and is not taken as one.
  */
 export function connectCalendar(clientId: string): Promise<string> {
-  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', hasColabAccess() ? COLAB_SCOPE : '', CALENDAR_SCOPES].filter(Boolean);
+  const scopes = [IDENTITY_SCOPES, DRIVE_SCOPES, hasColabAccess() ? COLAB_SCOPE : '', CALENDAR_SCOPES].filter(Boolean);
   setCalendarOff(false);
   return renewQuietly(clientId, scopes).then((granted) => {
     if (!hasCalendar(granted.scopes)) throw new Error('Calendar access was not granted');
@@ -761,7 +781,7 @@ export function connectCalendar(clientId: string): Promise<string> {
 export async function calendarToken(clientId: string): Promise<string | null> {
   if (token && token.expiresAt > Date.now() && hasCalendar(token.scopes)) return token.accessToken;
   if (!token || !hasCalendar(token.scopes)) return null;
-  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', token.scopes.includes(COLAB_SCOPE) ? COLAB_SCOPE : '', CALENDAR_SCOPES].filter(Boolean);
+  const scopes = [IDENTITY_SCOPES, DRIVE_SCOPES, token.scopes.includes(COLAB_SCOPE) ? COLAB_SCOPE : '', CALENDAR_SCOPES].filter(Boolean);
   const granted = await renewQuietly(clientId, scopes);
   return hasCalendar(granted.scopes) ? granted.accessToken : null;
 }

@@ -57,6 +57,7 @@ import * as browserless from './browserless.js';
 export { BrowserSession } from './browserSession.js';
 export { Usage } from './usage.js';
 export { Devices } from './devices.js';
+export { Kernels } from './kernels.js';
 export { LatexJob } from './latex.js';
 export { ProjectRoom } from './projectRoom.js';
 export { Invites } from './invites.js';
@@ -364,7 +365,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -475,6 +476,27 @@ export default {
           const body = await request.json().catch(() => ({}));
           const answer = await of(who.email).fetch(`https://devices${path.slice('/devices'.length)}`, { method: 'POST', body: JSON.stringify(body) });
           return json({ ...(await answer.json()), email: who.email }, answer.status, noStore);
+        }
+        return json({ error: 'not found' }, 404, headers);
+      }
+
+      // The kernels and runs an account has going (worker/kernels.js): a row per project, read by a browser that
+      // opens the project elsewhere to join the same kernel and follow what runs. The account's pass, every call.
+      if (path === '/kernels' || path.startsWith('/kernels/')) {
+        if (!env.KERNELS) return json({ error: 'no KERNELS object is bound here — see wrangler.toml' }, 501, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google first' }, 401, headers);
+        const object = env.KERNELS.get(env.KERNELS.idFromName(`kernels:${who.email.toLowerCase()}`));
+        if (path === '/kernels') {
+          const answer = await object.fetch('https://kernels/list');
+          return json(await answer.json(), answer.status, noStore);
+        }
+        if (path === '/kernels/put' || path === '/kernels/drop') {
+          if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
+          const body = await request.json().catch(() => ({}));
+          const answer = await object.fetch(`https://kernels${path.slice('/kernels'.length)}`, { method: 'POST', body: JSON.stringify(body) });
+          return json(await answer.json(), answer.status, noStore);
         }
         return json({ error: 'not found' }, 404, headers);
       }

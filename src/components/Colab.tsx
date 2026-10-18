@@ -9,7 +9,7 @@ import type { CellRun, Machine, Output } from '../lib/colab';
 import { backendLabel, colabAvailable, colabNow, compareOutput, connect, differingLines, disconnect, MACHINES, machineLabel, outputText, restartKernel, runAll, setGpuWatch, setMachine, stopRuntime, subscribeColab } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { MachineSample, MachineSpecs } from '../lib/telemetry';
-import { gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
+import { checkpointsOf, gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
 import { LossChart } from './Charts';
 import CopyBlock from './CopyBlock';
 
@@ -165,7 +165,7 @@ export function ConnectCard({
           <ul>
             <li>run anything without a click</li>
             <li>mount your Drive or read your notebooks</li>
-            <li>start more than one runtime</li>
+            <li>start a runtime you did not ask for: one a machine, each from a click</li>
           </ul>
         </div>
       </div>
@@ -419,6 +419,7 @@ export function RunState({ run }: { run: CellRun }) {
     return (
       <span className="cell-state is-busy">
         <span className="spinner" /> Running on {run.where.replace(/^Colab · /, '')}
+        {run.elsewhere ? ' · started from another browser of yours, followed here' : ''}
       </span>
     );
   }
@@ -463,6 +464,9 @@ export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude'
   // A training loop that prints its losses earns a curve. The machine's use while it ran is the Runtime pane's, not the cell's: under every cell it was only in the way.
   const losses = useMemo(() => lossSeries(actual), [actual]);
   const curve = hasCurve(losses);
+  // The checkpoints the run said it saved (the koios helper's lines): the last one, and how many.
+  const checkpoints = useMemo(() => checkpointsOf(actual), [actual]);
+  const lastCheckpoint = checkpoints[checkpoints.length - 1];
   // Line offsets so the tint lands on the right line across several stream outputs.
   const offsets: number[] = [];
   let count = 0;
@@ -474,7 +478,7 @@ export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude'
     <div className={`cell-output is-run${live ? ' is-live' : ''}${run.stale ? ' is-stale' : ''}`}>
       <div className="cell-output-label">
         {live ? <span className="spinner" /> : null}
-        <span>{live ? 'Output · streaming from Colab' : `Output · ${run.where} · ${time(run.startedAt)}${run.stale ? ' · that runtime has ended' : ''}`}</span>
+        <span>{live ? `Output · streaming from ${run.where.replace(/^Colab · .*/, 'Colab')}${run.elsewhere ? ' · started elsewhere, followed here' : ''}` : `Output · ${run.where} · ${time(run.startedAt)}${run.elsewhere ? ' · started from another browser of yours' : ''}${run.stale ? ' · that runtime has ended' : ''}`}</span>
         <span className="spacer" />
         {!live ? (
           failed ? (
@@ -486,6 +490,14 @@ export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude'
           ) : null
         ) : null}
       </div>
+      {lastCheckpoint ? (
+        <div className="cell-checkpoint" title={lastCheckpoint.path}>
+          ⛁ Checkpoint{lastCheckpoint.step !== undefined ? ` · step ${lastCheckpoint.step}` : ''} · <code>{lastCheckpoint.path.split('/').pop()}</code>
+          {lastCheckpoint.at ? ` · ${lastCheckpoint.at.replace(/^\d{4}-\d{2}-\d{2}T/, '').replace(/[+-]\d{4}$/, '')}` : ''}
+          {lastCheckpoint.reason === 'stop' ? ' · saved as the machine stopped' : ''}
+          {checkpoints.length > 1 ? ` · ${checkpoints.length} saved` : ''}
+        </div>
+      ) : null}
       {run.outputs.length ? run.outputs.map((output, index) => <OutputView key={index} output={output} marked={marked} offset={offsets[index]} />) : !live ? <pre className="is-empty">(nothing printed)</pre> : null}
       {live && run.outputs.length ? <span className="caret" aria-hidden="true" /> : null}
       {curve ? <LossChart series={losses} live={live} /> : null}

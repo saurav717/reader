@@ -1556,15 +1556,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      // One window asks for both: who you are, and Drive — the library lives there.
+      // One window asks for both: who you are, and Drive — the library lives
+      // there, so a sign-in is only ever one with Drive (google.ts, `signIn`).
       const signedIn = await google.signIn(clientId);
       setUser(signedIn);
-      const drive = google.hasDriveAccess();
-      setDriveConnected(drive);
-      if (drive) {
-        localStorage.setItem(DRIVE_KEY, 'true');
-        setDriveRemembered(true);
-      }
+      setDriveConnected(true);
+      localStorage.setItem(DRIVE_KEY, 'true');
+      setDriveRemembered(true);
       enterAccount(signedIn);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
@@ -1582,7 +1580,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       const signedIn = await google.connectDrive(clientId, quiet);
       setUser(signedIn);
-      setDriveConnected(google.hasDriveAccess());
+      setDriveConnected(true);
       localStorage.setItem(DRIVE_KEY, 'true');
       setDriveRemembered(true);
       enterAccount(signedIn);

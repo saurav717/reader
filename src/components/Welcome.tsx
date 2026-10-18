@@ -164,8 +164,9 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
               <span className="spinner" aria-hidden="true" /> Signing you in…
             </span>
           ) : !driveConnected ? (
-            // Identity and Drive are asked for together: signing in on its own
-            // saves nothing, and the point of this screen is the saving.
+            // Identity and Drive are one sign-in: a grant that comes back
+            // without Drive is not kept (google.ts), since the point of this
+            // screen is the saving, and the library lives in Drive.
             <button
               type="button"
               className="btn primary"
@@ -175,7 +176,7 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
               style={{ height: 42, padding: '0 16px', fontSize: 14 }}
             >
               <GoogleMark size={18} />
-              {returning ? 'Reconnect Google Drive' : user ? 'Connect Google Drive' : 'Sign in with Google'}
+              {returning ? 'Sign in with Google again' : 'Sign in with Google'}
             </button>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--accent)' }}>

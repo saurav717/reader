@@ -8,18 +8,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
-import { b64, shellCall as call, unb64 } from '../lib/kernelShell';
+import { b64, shellCall, unb64 } from '../lib/kernelShell';
 import { unwatchTerminal, watchKernelTerminal } from '../lib/jobWatch';
 import { pageTerminalTheme, registerTerminal } from './Terminal';
 
 /** Ends a kernel terminal's shell, so the next one starts afresh. */
-export function closeKernelTerminal(name: string) {
+export function closeKernelTerminal(name: string, scope?: string) {
   unwatchTerminal(name);
-  void call(`_rt_close(${JSON.stringify(name)})`).catch(() => undefined);
+  void shellCall(`_rt_close(${JSON.stringify(name)})`, scope).catch(() => undefined);
 }
 
-export default function KernelTerminal({ name, cwd, label, connected, playgroundId }: { name: string; cwd: string; label: string; connected: boolean; /** Whose shell it is: followed from any page while it runs something. */ playgroundId?: string }) {
+export default function KernelTerminal({ name, cwd, label, connected, playgroundId, scope }: { name: string; cwd: string; label: string; connected: boolean; /** Whose shell it is: followed from any page while it runs something. */ playgroundId?: string; /** The kernel it is on: a pool member's scope; the foreground's when unset. */ scope?: string }) {
   const host = useRef<HTMLDivElement>(null);
+  const call = (code: string) => shellCall(code, scope);
   const [state, setState] = useState<'starting' | 'live' | 'closed' | 'failed'>('starting');
   const [problem, setProblem] = useState<string | null>(null);
   const [round, setRound] = useState(0);
@@ -44,7 +45,7 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
           // not laid out yet
         }
         await call(`_rt_open(${JSON.stringify(name)}, ${JSON.stringify(cwd)}, ${term.rows}, ${term.cols})`);
-        if (playgroundId) watchKernelTerminal({ playgroundId, name });
+        if (playgroundId) watchKernelTerminal({ playgroundId, name, scope });
         if (disposed) return term.dispose();
         setState('live');
         term.focus();
@@ -128,7 +129,7 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
       window.clearTimeout(timer);
       cleanup();
     };
-  }, [name, cwd, connected, round]);
+  }, [name, cwd, connected, round, scope]);
 
   return (
     <div className="pg-terminal">
@@ -149,7 +150,7 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
                   type="button"
                   className="btn sm"
                   onClick={() => {
-                    closeKernelTerminal(name);
+                    closeKernelTerminal(name, scope);
                     setRound((n) => n + 1);
                   }}
                 >

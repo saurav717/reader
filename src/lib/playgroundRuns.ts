@@ -20,7 +20,7 @@ import type { CellRun, ColabState, Output } from './colab';
 import { backendLabel, colabNow, keptKernelFor, machineLabel, PAGES, sessionsNow, shutDownScope, stopRunsIn, stripAnsi, subscribeColab } from './colab';
 import { notebookFor, setOutputs, subscribeNotebook } from './notebook';
 import type { Playground } from './playground';
-import { notebookKey, playgroundById, playgroundsNow, serverById, subscribePlaygrounds } from './playground';
+import { machinesOf, notebookKey, playgroundById, playgroundOfScope, playgroundsNow, serverById, subscribePlaygrounds } from './playground';
 
 // ---------------------------------------------------------------- types ----
 
@@ -318,7 +318,7 @@ const kernelRunning = (s: ColabState) => Boolean(s.running || s.queue.length);
 /** Where a playground stands now: its sessions (a kernel on each machine it has run on in this tab), its terminals and agents, its last outcome. */
 export function runOf(p: Playground, all: ColabState[] = sessionsNow()): PlaygroundRun {
   const base = { id: p.id, title: p.title, kind: p.kind, where: whereOf(p) };
-  const mine = all.filter((s) => s.scope === p.id);
+  const mine = all.filter((s) => playgroundOfScope(s.scope) === p.id);
   const jobs = busyJobs(p.id);
   const live = mine.find(kernelRunning) ?? mine.find((s) => s.status === 'connecting');
   if (live) {
@@ -406,7 +406,7 @@ function onColab() {
     const before = previous.get(state.id);
     previous.set(state.id, state);
     let batch = batches.get(state.id);
-    const begin = () => (batch ??= (batches.set(state.id, { id: state.scope, startedAt: Date.now(), keys: [], total: 0 }), batches.get(state.id)!));
+    const begin = () => (batch ??= (batches.set(state.id, { id: playgroundOfScope(state.scope), startedAt: Date.now(), keys: [], total: 0 }), batches.get(state.id)!));
     // Run all marks every cell queued at once, before the first runs: that is how many there are.
     if (state.queue.length > (before?.queue.length ?? 0)) {
       const now = begin();
@@ -429,11 +429,14 @@ function onColab() {
 /** On Colab: a playground's kernel left idle longer than it asks is shut down — the runtime stopped when it is the last — its page open or not. */
 function idleCheck() {
   for (const state of sessionsNow()) {
-    if (state.scope === PAGES || state.status !== 'idle' || state.backend.kind !== 'colab' || mounted.has(state.scope)) continue;
-    const p = playgroundById(state.scope);
-    if (!p || p.compute.kind !== 'colab' || !p.idleStopMin) continue;
+    const owner = playgroundOfScope(state.scope);
+    if (state.scope === PAGES || state.status !== 'idle' || state.backend.kind !== 'colab' || mounted.has(owner)) continue;
+    const p = playgroundById(owner);
+    // The machine the session is on — the project's first, or a pool member's — must be Colab's for the stop to apply.
+    const machine = p ? machinesOf(p).find((m) => m.scope === state.scope) : undefined;
+    if (!p || !machine || machine.compute.kind !== 'colab' || !p.idleStopMin) continue;
     const since = Math.max(outcomes[p.id]?.at ?? 0, state.startedAt ?? 0);
-    if (since && Date.now() - since > p.idleStopMin * 60_000) void shutDownScope(p.id);
+    if (since && Date.now() - since > p.idleStopMin * 60_000) void shutDownScope(state.scope);
   }
 }
 
@@ -470,7 +473,7 @@ export function watchPlaygroundRuns(): () => void {
 /** Stops what a playground is running: its kernels' runs (Run all's queue dropped, the cell interrupted), its terminals' commands, its agents' jobs. */
 export async function stopPlayground(id: string): Promise<void> {
   const work: Promise<unknown>[] = [];
-  for (const state of sessionsNow()) if (state.scope === id && kernelRunning(state)) work.push(stopRunsIn(state.id));
+  for (const state of sessionsNow()) if (playgroundOfScope(state.scope) === id && kernelRunning(state)) work.push(stopRunsIn(state.id));
   for (const job of busyJobs(id)) {
     if (!job.stop) continue;
     stopAsked.set(jobKey(id, job.id), Date.now());
