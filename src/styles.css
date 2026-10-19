@@ -6100,9 +6100,19 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .pg-tab.vs-tab.is-on::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
 .vs-crumbs { flex: none; display: flex; align-items: center; gap: 0; height: 30px; padding: 0 10px 0 14px; background: var(--paper); border-bottom: 1px solid var(--border-soft); font: 12px var(--sans); color: var(--muted); }
 .vs-crumbs > span:not(.spacer) { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.vs-crumbs > span:not(.spacer):not(.is-last)::after { content: '›'; margin: 0 7px; opacity: 0.7; }
+.vs-crumbs > span:not(.spacer):not(.is-last):not(.is-file)::after { content: '›'; margin: 0 7px; opacity: 0.7; }
 .vs-crumbs .is-last { color: var(--ink); }
 .vs-crumbs .pg-editor-switch { margin-left: 6px; }
+/* A long path or heading never runs past the editor into the pane beside it: the folders and the heading give way,
+   the file's name last, each cut with an ellipsis; Save and the editor switch keep their place at the end. */
+.vs-crumbs { min-width: 0; overflow: hidden; }
+.vs-crumbs > span:not(.spacer), .vs-crumbs > .vs-crumb-sym { min-width: 3.5em; flex: 0 1 auto; overflow: hidden; }
+.vs-crumbs > span.is-file { flex-shrink: 0.3; min-width: 5em; }
+.vs-crumbs > .vs-crumb-sym.is-last { min-width: 5em; }
+.vs-crumbs > * > :not(.vs-crumb-text) { flex: none; }
+.vs-crumb-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-crumbs > .spacer { flex: 1 1 0; min-width: 8px; }
+.vs-crumbs > .vs-action, .vs-crumbs > .pg-editor-switch { flex: none; }
 .vs-action { height: 24px; padding: 0 9px; margin-left: 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
 .vs-action:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-ink); }
 .vs-action:disabled { opacity: 0.5; cursor: default; }

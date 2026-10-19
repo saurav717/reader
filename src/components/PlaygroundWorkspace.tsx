@@ -2218,15 +2218,15 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
         {file ? (
           <div className="vs-crumbs">
             {[file.where === 'home' ? homeLabel : machineName, ...file.path.split('/')].map((part, i, all) => (
-              <span key={`${i}-${part}`} className={i === all.length - 1 && !path.length ? 'is-last' : ''}>
+              <span key={`${i}-${part}`} className={`${i === all.length - 1 ? 'is-file' : ''}${i === all.length - 1 && !path.length ? ' is-last' : ''}`} title={part}>
                 {i === all.length - 1 ? <FileIcon path={part} /> : null}
-                {part}
+                <span className="vs-crumb-text">{part}</span>
               </span>
             ))}
             {path.map((symbol, i) => (
               <button key={`${symbol.line}-${symbol.name}`} type="button" className={`vs-crumb-sym is-${symbol.kind}${i === path.length - 1 ? ' is-last' : ''}`} onClick={() => (setFocus(index), setPick('@'))} title="Go to Symbol in Editor">
                 <SymbolMark kind={symbol.kind} />
-                {symbol.name}
+                <span className="vs-crumb-text">{symbol.name}</span>
               </button>
             ))}
             <span className="spacer" />
