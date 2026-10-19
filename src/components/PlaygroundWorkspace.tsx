@@ -1391,6 +1391,15 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     const server = machine.compute.kind === 'server' ? serverById(machine.compute.serverId) : undefined;
     return { machine, server, kernel: !server || !isCompanion(server) };
   };
+  // Files on one computer and the compute on another: two terminals from the start, one by the files and one on the
+  // compute (where the agents and the runs are). Added once a session; a compute tab closed stays closed.
+  const seededKey = `pgshells-compute:${playground.id}`;
+  useEffect(() => {
+    if (!filesHere || shells.some(isComputeTab) || readSession(seededKey, false)) return;
+    writeSession(seededKey, true);
+    keepShells([...shells, `${playground.id}~${shortId()}${COMPUTE_TAB}`]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filesHere?.id, playground.id]);
   const closeShell = (id: string) => {
     const on = shellOn(id);
     if (on.kernel) closeKernelTerminal(id, on.machine.member === null ? undefined : on.machine.scope);
@@ -2218,15 +2227,15 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
         {file ? (
           <div className="vs-crumbs">
             {[file.where === 'home' ? homeLabel : machineName, ...file.path.split('/')].map((part, i, all) => (
-              <span key={`${i}-${part}`} className={i === all.length - 1 && !path.length ? 'is-last' : ''}>
+              <span key={`${i}-${part}`} className={`${i === all.length - 1 ? 'is-file' : ''}${i === all.length - 1 && !path.length ? ' is-last' : ''}`} title={part}>
                 {i === all.length - 1 ? <FileIcon path={part} /> : null}
-                {part}
+                <span className="vs-crumb-text">{part}</span>
               </span>
             ))}
             {path.map((symbol, i) => (
               <button key={`${symbol.line}-${symbol.name}`} type="button" className={`vs-crumb-sym is-${symbol.kind}${i === path.length - 1 ? ' is-last' : ''}`} onClick={() => (setFocus(index), setPick('@'))} title="Go to Symbol in Editor">
                 <SymbolMark kind={symbol.kind} />
-                {symbol.name}
+                <span className="vs-crumb-text">{symbol.name}</span>
               </button>
             ))}
             <span className="spacer" />
@@ -2545,9 +2554,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
                   {shells.map((id, index) => (
                     <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
-                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)} title={filesHere && shellOn(id).machine.member === null ? (shellOn(id).here ? `Terminal ${index + 1}, on ${filesHere.name}, by the files` : `Terminal ${index + 1}, on ${machineName}`) : pooled ? `Terminal ${index + 1}, on machine ${shellOn(id).machine.rank}: ${shellOn(id).machine.label}` : undefined}>
+                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)} title={filesHere && shellOn(id).machine.member === null ? (shellOn(id).here ? `Terminal ${index + 1}: on ${filesHere.name}, in the folder where the code is kept` : `Terminal ${index + 1}: on ${machineName}, where the code runs (and the agents work)`) : pooled ? `Terminal ${index + 1}, on machine ${shellOn(id).machine.rank}: ${shellOn(id).machine.label}` : undefined}>
                         {index + 1}
-                        {filesHere && shellOn(id).machine.member === null ? <small className="pg-shell-on">{shellOn(id).here ? 'here' : playground.compute.kind === 'colab' ? 'colab' : 'gpu'}</small> : pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
+                        {filesHere && shellOn(id).machine.member === null ? <small className="pg-shell-on">{shellOn(id).here ? 'files' : playground.compute.kind === 'colab' ? 'colab' : 'compute'}</small> : pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
                       </button>
                       {shells.length > 1 ? (
                         <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
@@ -2607,11 +2616,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   className={`vs-copy-chip${syncing === 'push' ? ' is-busy' : ''}`}
                   disabled={!connected || Boolean(syncing)}
                   onClick={() => void push()}
-                  title={`${view === 'terminal' ? 'The terminal works in' : 'Commands run in'} ${machineName}’s copy of the folder, which is kept in ${homeLabel}. ▶ Run and Copy & run copy it over first; this copies it now.`}
+                  title={`Your code is kept in ${homeLabel}, and runs on ${machineName} from a copy of the folder there. This sends the files you changed to that copy now. ▶ Run, Copy & run and the agents send them by themselves before they run anything, so you need it only for a command you type into the compute's terminal yourself.`}
                 >
                   <SyncGlyph />
-                  <span>{machineName.split(' · ')[0]}’s copy</span>
-                  <b>{syncing === 'push' ? 'Copying…' : report?.what === 'push' && Date.now() - report.at < 60_000 ? `✓ ${report.sent.length} copied` : '↑ Copy now'}</b>
+                  <span>Send code to {machineName.split(' · ')[0]}</span>
+                  <b>{syncing === 'push' ? 'Sending…' : report?.what === 'push' && Date.now() - report.at < 60_000 ? `✓ ${report.sent.length ? `${report.sent.length} ${report.sent.length === 1 ? 'file' : 'files'} sent` : 'up to date'}` : '↑ Send now'}</b>
                 </button>
               ) : null}
               {view === 'commands' && machines.some((m) => runningOn(m)?.startsWith('pgsh:')) ? (

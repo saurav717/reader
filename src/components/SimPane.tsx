@@ -10,7 +10,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { KOIOS_TELEMETRY_PY } from '../lib/simProject';
 import { SIMULATORS, simulatorById } from '../lib/simulators';
 import type { Doctor, Dream, Media, RunListing, SimRun } from '../lib/simTelemetry';
-import { applyEvents, diagnose, dreamSeries, dreamTrend, evaluationRows, latestEvaluations, lengthSeries, newRun, readMedia, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
+import type { LiveFrame } from '../lib/simTelemetry';
+import { applyEvents, diagnose, dreamSeries, dreamTrend, evaluationRows, latestEvaluations, lengthSeries, newRun, readLive, readMedia, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
 import { short } from '../lib/telemetry';
 
 /** A number for a table: four significant figures, NaN and the infinities as they are. */
@@ -78,6 +79,88 @@ function MediaView({ folder, runDir, media, auto }: { folder: string; runDir: st
         {media.caption ?? `${media.name} · step ${short(media.step)}`}
         {problem ? <span className="is-problem"> · {problem}</span> : null}
       </figcaption>
+    </figure>
+  );
+}
+
+/** How long the live view waits for a first frame before saying why one may not come. */
+const LIVE_FIRST_FRAME_MS = 8000;
+
+/**
+ * The run as it goes: while this is open the run is asked for its live view (koios_telemetry's run.live, which
+ * run.wrap(env) calls by itself) and its newest frame is read as fast as the machine answers. Closed, or the run
+ * ended, nothing is asked and the run stops rendering for it within seconds.
+ */
+function LiveView({ folder, runDir, onClose }: { folder: string; runDir: string; onClose: () => void }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [state, setState] = useState<LiveFrame | null>(null);
+  const [fps, setFps] = useState(0);
+  const [waiting, setWaiting] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    let on = true;
+    let seen = 0;
+    let timer = 0;
+    const started = Date.now();
+    const times: number[] = [];
+    const look = async () => {
+      let fresh = false;
+      try {
+        const got = await readLive(folder, runDir, seen);
+        if (!on) return;
+        setProblem(null);
+        setState(got);
+        if (got.jpeg && got.frame) {
+          seen = got.frame;
+          fresh = true;
+          setSrc(`data:image/jpeg;base64,${got.jpeg}`);
+          const now = Date.now();
+          times.push(now);
+          while (times.length && now - times[0] > 3000) times.shift();
+          setFps(times.length > 1 ? (times.length - 1) / ((now - times[0]) / 1000) : 0);
+        }
+        setWaiting(!seen && Date.now() - started > LIVE_FIRST_FRAME_MS);
+      } catch (error) {
+        if (!on) return;
+        setProblem(error instanceof Error ? error.message : String(error));
+      }
+      // As fast as frames come; a little slower while none do.
+      if (on) timer = window.setTimeout(() => void look(), fresh ? 60 : 400);
+    };
+    void look();
+    return () => {
+      on = false;
+      window.clearTimeout(timer);
+    };
+  }, [folder, runDir]);
+  const info = state?.info ? Object.entries(state.info).filter(([, v]) => typeof v === 'number' || typeof v === 'string') : [];
+  const age = state?.t && state.now ? state.now - state.t : null;
+  return (
+    <figure className="sim-media sim-live">
+      <div className="sim-live-frame">
+        {src ? <img src={src} alt="The simulation, live" /> : <div className="sim-live-empty"><span className="spinner" /> Asking the run for its live view…</div>}
+        <span className={`sim-live-badge${age !== null && age > 3 ? ' is-stale' : ''}`}>● {age !== null && age > 3 ? `${Math.round(age)} s ago` : 'live'}</span>
+      </div>
+      <figcaption>
+        {state?.step !== undefined ? <span>step {short(state.step)}</span> : null}
+        {state?.episode !== undefined ? <span> · episode {state.episode + 1}</span> : null}
+        {info.map(([k, v]) => (
+          <span key={k}>
+            {' '}· {k} {typeof v === 'number' ? short(v) : String(v)}
+          </span>
+        ))}
+        {fps ? <span> · {fps.toFixed(1)} frames/s</span> : null}
+        <button type="button" className="link sim-live-stop" onClick={onClose}>
+          Stop watching
+        </button>
+      </figcaption>
+      {state?.error ? <p className="pg-note is-problem">The run can’t render a frame: {state.error}</p> : null}
+      {waiting && !state?.error ? (
+        <p className="pg-note">
+          No frame yet. A run streams when its code renders for it: <code>run.wrap(env)</code> does (with <code>render_mode="rgb_array"</code>), and any other loop can call <code>run.live(lambda: env.render())</code> each step — the agent can add it. It costs nothing while nobody watches.
+        </p>
+      ) : null}
+      {problem ? <p className="pg-note is-problem">{problem}</p> : null}
     </figure>
   );
 }
@@ -261,6 +344,8 @@ export default function SimPane({ folder, connected, machineName, busy, server, 
   const [filter, setFilter] = useState('');
   const [mediaAt, setMediaAt] = useState<number | null>(null);
   const [dreamAt, setDreamAt] = useState<number | null>(null);
+  /** The run being watched live, by its folder: one at a time, and only while it runs. */
+  const [watching, setWatching] = useState<string | null>(null);
   const runRef = useRef<SimRun | null>(null);
   const focusRef = useRef<string | null>(null);
 
@@ -396,6 +481,15 @@ run.finish()`}</pre>
           </span>
         ) : null}
       </div>
+      {run && (status === 'running' || status === 'stalled') ? (
+        watching === run.dir ? (
+          <LiveView folder={folder} runDir={run.dir} onClose={() => setWatching(null)} />
+        ) : (
+          <button type="button" className="btn sm sim-live-start" onClick={() => setWatching(run.dir)} title="The simulation as it runs, a few frames a second, straight from the machine — nothing stored">
+            ● Watch live
+          </button>
+        )
+      ) : null}
       {run?.truncated ? <p className="pg-note">A long run: its first part is left out here; <code>python koios_telemetry.py summary</code> reads all of it.</p> : null}
       {problem ? <p className="pg-note is-problem">{problem}</p> : null}
 
@@ -411,8 +505,8 @@ run.finish()`}</pre>
         </ul>
       ) : null}
 
-      {returns.length ? <LineChart series={returns} title="Episode return" xLabel="step" marks={marks} /> : null}
-      {success.length ? <LineChart series={success} title="Success rate" xLabel="step" unit="%" marks={marks} /> : null}
+      {returns.length ? <LineChart series={returns} title="Episode return" xLabel={run?.xLabel ?? 'step'} yLabel="return" marks={marks} /> : null}
+      {success.length ? <LineChart series={success} title="Success rate" xLabel={run?.xLabel ?? 'step'} yLabel="episodes succeeding" unit="%" marks={marks} /> : null}
 
       {run?.live3d ? <Live3D folder={folder} run={run} server={server} live={status === 'running'} /> : null}
 
@@ -465,11 +559,11 @@ run.finish()`}</pre>
             <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter (loss, entropy…)" aria-label="Filter the numbers" spellCheck={false} />
           </div>
           {charts.map((chart) => (
-            <LineChart key={chart.title} series={chart.series} title={chart.title} xLabel="step" marks={marks} />
+            <LineChart key={chart.title} series={chart.series} title={chart.title} xLabel={chart.xLabel} yLabel={chart.yLabel} marks={marks} />
           ))}
         </section>
       ) : null}
-      {lengths.length ? <LineChart series={lengths} title="Episode length" xLabel="step" /> : null}
+      {lengths.length ? <LineChart series={lengths} title="Episode length" xLabel={run?.xLabel ?? 'step'} yLabel="steps per episode" /> : null}
 
       {run?.evaluations.length ? (
         <section className="sim-section-open sim-eval">

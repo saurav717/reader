@@ -12,6 +12,9 @@ import { gigabytes, short, ticks } from '../lib/telemetry';
 const W = 420;
 const H = 150;
 const PAD = { top: 10, right: 54, bottom: 22, left: 40 };
+type Pad = typeof PAD;
+/** An x label longer than this goes under the ticks, centred, rather than at the axis's end where it has 46px. */
+const SHORT_X_LABEL = 8;
 const COLOURS = ['var(--viz-1)', 'var(--viz-2)', 'var(--viz-3)', 'var(--muted)'];
 
 interface Drawn {
@@ -22,7 +25,7 @@ interface Drawn {
   points: { x: number; y: number; px: number; py: number }[];
 }
 
-function useScales(series: Series[], xRange?: [number, number]) {
+function useScales(series: Series[], xRange?: [number, number], pad: Pad = PAD) {
   return useMemo(() => {
     const xs = series.flatMap((s) => s.points.map((p) => p.x));
     const ys = series.flatMap((s) => s.points.map((p) => p.y));
@@ -39,30 +42,36 @@ function useScales(series: Series[], xRange?: [number, number]) {
     const air = (yMax - yMin) * 0.06;
     yMin -= air;
     yMax += air;
-    const sx = (x: number) => PAD.left + (xMax === xMin ? 0.5 : (x - xMin) / (xMax - xMin)) * (W - PAD.left - PAD.right);
-    const sy = (y: number) => PAD.top + (1 - (y - yMin) / (yMax - yMin)) * (H - PAD.top - PAD.bottom);
+    const sx = (x: number) => pad.left + (xMax === xMin ? 0.5 : (x - xMin) / (xMax - xMin)) * (W - pad.left - pad.right);
+    const sy = (y: number) => pad.top + (1 - (y - yMin) / (yMax - yMin)) * (H - pad.top - pad.bottom);
     const drawn: Drawn[] = series.map((s, index) => {
       const points = s.points.map((p) => ({ ...p, px: sx(p.x), py: sy(p.y) }));
       return { name: s.name, colour: COLOURS[index] ?? COLOURS[3], path: points.map((p, i) => `${i ? 'L' : 'M'}${p.px.toFixed(1)} ${p.py.toFixed(1)}`).join(' '), last: points[points.length - 1], points };
     });
     return { xMin, xMax, yMin, yMax, sx, sy, drawn, yTicks: ticks(yMin, yMax, 3), xTicks: ticks(xMin, xMax, 4) };
-  }, [series, xRange?.[0], xRange?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [series, xRange?.[0], xRange?.[1], pad]); // eslint-disable-line react-hooks/exhaustive-deps
 }
+
+/** A label cut to what the chart's width holds. */
+const clip = (label: string) => (label.length > 64 ? `${label.slice(0, 63)}…` : label);
 
 /**
  * Lines over a shared x — a step, or the order of the lines — with the
  * value at each line's end and, under the pointer, every series' value at
  * the nearest x.
  */
-export function LineChart({ series, title, xLabel, unit, tableLabel, xRange, marks }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string; xRange?: [number, number]; /** Moments on the x axis to mark with a dashed line: a note on a run's timeline, a change an agent made. */ marks?: { x: number; label: string }[] }) {
-  const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series, xRange);
+export function LineChart({ series, title, xLabel, yLabel, unit, tableLabel, xRange, marks }: { series: Series[]; title: string; xLabel: string; /** What the y axis measures, written above it: "env steps / s", "return". */ yLabel?: string; unit?: string; tableLabel?: string; xRange?: [number, number]; /** Moments on the x axis to mark with a dashed line: a note on a run's timeline, a change an agent made. */ marks?: { x: number; label: string }[] }) {
+  // Room above the plot for the y axis's label, and under the ticks for an x label too long for the axis's end.
+  const xLong = xLabel.length > SHORT_X_LABEL;
+  const pad = useMemo<Pad>(() => ({ ...PAD, top: yLabel ? 24 : PAD.top, bottom: xLong ? 34 : PAD.bottom }), [yLabel, xLong]);
+  const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series, xRange, pad);
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   if (!drawn.length) return null;
   const nearest = (event: React.MouseEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const px = ((event.clientX - rect.left) / rect.width) * W;
-    const x = xMin + ((px - PAD.left) / (W - PAD.left - PAD.right)) * (xMax - xMin);
+    const x = xMin + ((px - pad.left) / (W - pad.left - pad.right)) * (xMax - xMin);
     setHover(Math.max(xMin, Math.min(xMax, x)));
   };
   const under = hover === null ? null : drawn.map((line) => {
@@ -118,24 +127,35 @@ export function LineChart({ series, title, xLabel, unit, tableLabel, xRange, mar
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${title}: ${drawn.map((line) => `${line.name} ends at ${fmt(line.last.y)}`).join(', ')}`} onMouseMove={nearest} onMouseLeave={() => setHover(null)}>
           {yTicks.map((tick) => (
             <g key={tick}>
-              <line className="grid" x1={PAD.left} x2={W - PAD.right} y1={sy(tick)} y2={sy(tick)} />
-              <text className="tick" x={PAD.left - 6} y={sy(tick) + 3} textAnchor="end">
+              <line className="grid" x1={pad.left} x2={W - pad.right} y1={sy(tick)} y2={sy(tick)} />
+              <text className="tick" x={pad.left - 6} y={sy(tick) + 3} textAnchor="end">
                 {fmt(tick)}
               </text>
             </g>
           ))}
           {xTicks.map((tick) => (
-            <text key={tick} className="tick" x={sx(tick)} y={H - 6} textAnchor="middle">
+            <text key={tick} className="tick" x={sx(tick)} y={H - pad.bottom + 16} textAnchor="middle">
               {short(tick)}
             </text>
           ))}
-          <text className="tick axis" x={W - PAD.right + 8} y={H - 6} textAnchor="start">
-            {xLabel}
-          </text>
+          {xLong ? (
+            <text className="tick axis" x={(pad.left + W - pad.right) / 2} y={H - 4} textAnchor="middle">
+              {clip(xLabel)}
+            </text>
+          ) : (
+            <text className="tick axis" x={W - pad.right + 8} y={H - pad.bottom + 16} textAnchor="start">
+              {xLabel}
+            </text>
+          )}
+          {yLabel ? (
+            <text className="tick axis" x={4} y={12} textAnchor="start">
+              {clip(yLabel)}
+            </text>
+          ) : null}
           {(marks ?? [])
             .filter((mark) => mark.x >= xMin && mark.x <= xMax)
             .map((mark, index) => (
-              <line key={`${mark.x}-${index}`} className="mark" x1={sx(mark.x)} x2={sx(mark.x)} y1={PAD.top} y2={H - PAD.bottom}>
+              <line key={`${mark.x}-${index}`} className="mark" x1={sx(mark.x)} x2={sx(mark.x)} y1={pad.top} y2={H - pad.bottom}>
                 <title>{`${xLabel} ${short(mark.x)}: ${mark.label}`}</title>
               </line>
             ))}
@@ -156,11 +176,11 @@ export function LineChart({ series, title, xLabel, unit, tableLabel, xRange, mar
           })}
           {under ? (
             <g className="crosshair">
-              <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={H - PAD.bottom} />
+              <line x1={hoverX} x2={hoverX} y1={pad.top} y2={H - pad.bottom} />
               {under.map(({ line, point }) => (
                 <circle key={line.name} cx={point.px} cy={point.py} r={4} style={{ fill: line.colour }} />
               ))}
-              <g transform={`translate(${hoverX + (hoverX > W / 2 ? -8 : 8)}, ${PAD.top + 4})`}>
+              <g transform={`translate(${hoverX + (hoverX > W / 2 ? -8 : 8)}, ${pad.top + 4})`}>
                 <rect className="tip" x={hoverX > W / 2 ? -118 : 0} y={0} width={118} height={12 + 13 * (under.length + 1)} rx={5} />
                 <text className="tip-text" x={hoverX > W / 2 ? -111 : 7} y={14}>
                   {xLabel} {short(under[0].point.x)}

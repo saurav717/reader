@@ -11,13 +11,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { keyFor } from '../lib/assistant';
 import type { CliAgentId, CliEvent, CliStatus } from '../lib/cliAgent';
 import { reportCliAgent } from '../lib/jobWatch';
-import { CLI_AGENTS, cliStatus, installArgv, loginArgv, loginPrompt, logoutArgv, parseRun, readJob, runArgv, startJob, stopJob, writeJob } from '../lib/cliAgent';
+import { CLI_AGENTS, cliStatus, installArgv, loginArgv, loginPrompt, logoutArgv, parseRun, readJob, runArgv, shownCommand, startJob, stopJob, writeJob } from '../lib/cliAgent';
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import { readMeta, writeMeta } from '../lib/playground';
 import FileIcon from './FileIcon';
 import { KOIOS_PYLIB } from '../lib/koiosHelper';
-import { PAPER_FILES_NOTE } from '../lib/paperFiles';
+import { CHART_LABELS_NOTE, LIVE_VIEW_NOTE, PAPER_FILES_NOTE } from '../lib/paperFiles';
 
 // ------------------------------------------------------------ the store --
 
@@ -157,6 +157,9 @@ const readPrefs = (agent: CliAgentId): Prefs => {
     return { useKey: false, commands: true, model: '' };
   }
 };
+
+/** A thought longer than this shows its start, and opens to the whole of it. */
+const THINK_PREVIEW = 280;
 
 export default function CliAgent({
   agent,
@@ -336,7 +339,7 @@ export default function CliAgent({
     const turn: CliTurn = { at: Date.now(), request: prompt, job, offset: 0, lines: [], done: false };
     setChat(projectId, agent, { ...chat, turns: [...chat.turns, turn].slice(-TURNS_KEPT) });
     try {
-      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). Read AGENTS.md when there is one.${paper ? ` ${PAPER_FILES_NOTE}` : ''}${dataNote ? ` ${dataNote}` : ''}`;
+      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). ${CHART_LABELS_NOTE} ${LIVE_VIEW_NOTE} Read AGENTS.md when there is one.${paper ? ` ${PAPER_FILES_NOTE}` : ''}${dataNote ? ` ${dataNote}` : ''}`;
       // The Koios helpers (koios, koios_telemetry, the catalogue) on the agent's path too, as on the console's.
       const pylib = `${folder.replace(/\/$/, '')}/${KOIOS_PYLIB}`;
       await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context, noWeb: paper }), { cwd: folder, env: { ...env, ...(extraEnv ?? {}), KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);
@@ -620,7 +623,19 @@ function Turn({ agent, turn, folder, onOpen }: { agent: CliAgentId; turn: CliTur
         </div>
         {events.map((event, index) => {
           if (event.kind === 'text') return <div key={index} className="vs-turn-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(event.text)) }} />;
-          if (event.kind === 'thinking') return <p key={index} className="vs-turn-think">{event.text.slice(-300)}</p>;
+          if (event.kind === 'thinking') {
+            const thought = event.text.trim();
+            if (!thought) return null;
+            // A long thought opens to the whole of it, rather than only its last lines.
+            return thought.length <= THINK_PREVIEW ? (
+              <p key={index} className="vs-turn-think">{thought}</p>
+            ) : (
+              <details key={index} className="vs-turn-think cli-think">
+                <summary>{thought.slice(0, THINK_PREVIEW).trimEnd()}…</summary>
+                <p>{thought}</p>
+              </details>
+            );
+          }
           if (event.kind === 'note') return <pre key={index} className="cli-note">{event.text}</pre>;
           if (event.kind === 'tool') {
             const out = outputs.get(event.id);
@@ -641,11 +656,23 @@ function Turn({ agent, turn, folder, onOpen }: { agent: CliAgentId; turn: CliTur
                       <FileIcon path={event.path} /> {event.path.split('/').slice(-2).join('/')}
                     </button>
                   ) : (
-                    <code>{event.detail.length > 120 ? `${event.detail.slice(0, 120)}…` : event.detail}</code>
+                    <span className="cli-tool-line">
+                      {event.why ? <span className="cli-tool-why">{event.why}</span> : null}
+                      <code>{(() => {
+                        const line = event.name === 'Bash' ? shownCommand(event.detail) : event.detail;
+                        return line.length > 160 ? `${line.slice(0, 160)}…` : line;
+                      })()}</code>
+                    </span>
                   )}
                   {!out && !turn.done ? <span className="spinner" /> : null}
                 </summary>
-                {out?.text ? <pre>{out.text.length > 4000 ? `${out.text.slice(0, 4000)}\n…` : out.text}</pre> : null}
+                {/* Opened: all of it — the whole command or the edit — then what it gave back. */}
+                {event.body ? <pre className={`cli-tool-body${edit ? ' is-diff' : ''}`}>{event.body}</pre> : null}
+                {out?.text ? (
+                  <pre>{out.text.length > 4000 ? `${out.text.slice(0, 4000)}\n…` : out.text}</pre>
+                ) : (
+                  <p className="cli-tool-empty">{out ? 'It printed nothing.' : turn.done ? 'No output came back.' : 'Running — its output shows here when it ends.'}</p>
+                )}
               </details>
             );
           }

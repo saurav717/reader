@@ -245,13 +245,37 @@ export function loginPrompt(output: string): { url?: string; code?: string } {
 export type CliEvent =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
-  | { kind: 'tool'; id: string; name: string; detail: string; path?: string }
+  | { kind: 'tool'; id: string; name: string; detail: string; path?: string; /** Why it ran, in the agent's words (Claude Code's description of a command). */ why?: string; /** All of it: the whole command, or what an edit took out and put in. */ body?: string }
   | { kind: 'output'; id: string; text: string; error: boolean }
   | { kind: 'done'; ok: boolean; text: string; cost?: number; ms?: number; turns?: number }
   | { kind: 'note'; text: string };
 
-/** A tool use, in a line: what Claude Code edited, read or ran. */
-function toolDetail(name: string, input: Record<string, unknown>): { detail: string; path?: string } {
+const BODY_MAX = 6000;
+const cut = (text: string) => (text.length > BODY_MAX ? `${text.slice(0, BODY_MAX)}\n…` : text);
+/** An edit as lines taken out and put in. */
+const diffOf = (before: unknown, after: unknown) =>
+  [...String(before ?? '').split('\n').map((l) => `- ${l}`), ...String(after ?? '').split('\n').map((l) => `+ ${l}`)].join('\n');
+
+/** All of a tool use, for when it is opened: the whole command, the edit's lines, the file written. */
+function toolBody(name: string, input: Record<string, unknown>): string | undefined {
+  if (name === 'Bash' && typeof input.command === 'string') return cut(input.command);
+  if (name === 'Edit' && (input.old_string !== undefined || input.new_string !== undefined)) return cut(diffOf(input.old_string, input.new_string));
+  if (name === 'MultiEdit' && Array.isArray(input.edits)) return cut((input.edits as Record<string, unknown>[]).map((e) => diffOf(e.old_string, e.new_string)).join('\n···\n'));
+  if (name === 'Write' && typeof input.content === 'string') return cut(input.content);
+  if (name === 'NotebookEdit' && typeof input.new_source === 'string') return cut(input.new_source);
+  if (name === 'TodoWrite' && Array.isArray(input.todos)) return (input.todos as Record<string, unknown>[]).map((t) => `${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '→' : '·'} ${String(t.content ?? '')}`).join('\n');
+  if (name === 'Task' && typeof input.prompt === 'string') return cut(input.prompt);
+  return undefined;
+}
+
+/** A tool use, in a line: what Claude Code edited, read or ran — with why, when it said, and all of it for when it is opened. */
+function toolDetail(name: string, input: Record<string, unknown>): { detail: string; path?: string; why?: string; body?: string } {
+  const why = typeof input.description === 'string' && input.description.trim() ? input.description.trim() : undefined;
+  const body = toolBody(name, input);
+  return { ...toolLine(name, input), ...(why && name !== 'Task' ? { why } : {}), ...(body ? { body } : {}) };
+}
+
+function toolLine(name: string, input: Record<string, unknown>): { detail: string; path?: string } {
   const path = typeof input.file_path === 'string' ? input.file_path : typeof input.notebook_path === 'string' ? input.notebook_path : typeof input.path === 'string' ? input.path : undefined;
   if (name === 'Bash') return { detail: String(input.command ?? '') };
   if (path) return { detail: path, path };
@@ -334,7 +358,7 @@ export function parseCodex(lines: string[]): { events: CliEvent[]; session?: str
       if (item.type === 'agent_message' && message.type === 'item.completed') events.push({ kind: 'text', text: String(item.text ?? '') });
       else if (item.type === 'reasoning' && message.type === 'item.completed') events.push({ kind: 'thinking', text: String(item.text ?? '') });
       else if (item.type === 'command_execution') {
-        if (message.type === 'item.started') events.push({ kind: 'tool', id, name: 'Bash', detail: String(item.command ?? '') });
+        if (message.type === 'item.started') events.push({ kind: 'tool', id, name: 'Bash', detail: String(item.command ?? ''), body: cut(String(item.command ?? '')) });
         else events.push({ kind: 'output', id, text: String(item.aggregated_output ?? ''), error: typeof item.exit_code === 'number' && item.exit_code !== 0 });
       } else if (item.type === 'file_change' && message.type === 'item.completed') {
         for (const change of (item.changes as { path?: string; kind?: string }[]) ?? []) events.push({ kind: 'tool', id: `${id}:${change.path}`, name: change.kind === 'add' ? 'Write' : change.kind === 'delete' ? 'Delete' : 'Edit', detail: String(change.path ?? ''), path: change.path });
@@ -343,6 +367,17 @@ export function parseCodex(lines: string[]): { events: CliEvent[]; session?: str
     else if (message.type === 'turn.failed' || message.type === 'error') events.push({ kind: 'done', ok: false, text: String((message.error as { message?: string })?.message ?? message.message ?? 'It stopped with an error.') });
   }
   return { events, session };
+}
+
+/**
+ * A command as shown in its line: without the `cd <folder> &&` an agent puts before nearly every one (each would read
+ * the same), and without Codex's shell wrapper.
+ */
+export function shownCommand(command: string): string {
+  let shown = command.trim();
+  const wrapped = shown.match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/);
+  if (wrapped) shown = wrapped[2];
+  return shown.replace(/^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/, '').trim() || command.trim();
 }
 
 export const parseRun = (agent: CliAgentId, lines: string[]) => (agent === 'claude' ? parseClaude(lines) : parseCodex(lines));

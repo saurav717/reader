@@ -65,6 +65,13 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
     run = Run(f"sb3-{args.algo.lower()}", config={**vars(args), "env": ENV_ID}, sim=f"{SIM}/{ENV_ID}")
+    # Every chart in the Sim pane is labelled: what its x counts, and what each of SB3's numbers measures.
+    run.axes({"rollout/ep_rew_mean": "mean episode return", "rollout/ep_len_mean": "mean episode length (steps)", "time/fps": "env steps / s",
+              "train/value_loss": "value loss", "train/policy_gradient_loss": "policy-gradient loss", "train/entropy_loss": "entropy loss (−entropy)",
+              "train/approx_kl": "approx. KL to the old policy", "train/clip_fraction": "fraction of ratios clipped", "train/learning_rate": "learning rate",
+              "train/explained_variance": "explained variance of returns", "train/loss": "total loss", "train/actor_loss": "actor loss",
+              "train/critic_loss": "critic loss", "train/ent_coef": "entropy coefficient", "train/ent_coef_loss": "entropy-coefficient loss",
+              "train/n_updates": "gradient updates so far", "train/std": "action std", "train/clip_range": "PPO clip range"}, x="environment steps")
     env = make_env()
     # Dict observations (a goal beside the state, an image beside numbers) go to SB3's MultiInputPolicy as they are.
     policy = "MultiInputPolicy" if isinstance(env.observation_space, gym.spaces.Dict) else "CnnPolicy" if len(env.observation_space.shape or ()) == 3 else "MlpPolicy"

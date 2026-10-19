@@ -117,11 +117,20 @@ export function latestEvaluations(list: Evaluation[]): Evaluation[] {
   return [...byName.values()];
 }
 
+export interface AxisLabels {
+  x?: string;
+  y?: string;
+}
+
 export interface SimRun {
   /** The run's folder, from the project's. */
   dir: string;
   meta: RunMeta;
   scalars: Map<string, Point[]>;
+  /** What each number's chart measures, from run.axes(): by the number's name, or by its prefix ("loss" for loss/policy). */
+  axes: Map<string, AxisLabels>;
+  /** The x axis's label for every chart that sets none of its own: run.axes(x=...), else "step". */
+  xLabel?: string;
   episodes: Episode[];
   media: Media[];
   dreams: Dream[];
@@ -142,7 +151,7 @@ export interface SimRun {
   truncated: boolean;
 }
 
-export const newRun = (dir: string, meta: RunMeta = {}): SimRun => ({ dir, meta, scalars: new Map(), episodes: [], media: [], dreams: [], notes: [], checkpoints: [], evaluations: [], status: (meta.status as RunStatus) ?? 'running', error: meta.error, step: 0, offset: 0, truncated: false });
+export const newRun = (dir: string, meta: RunMeta = {}): SimRun => ({ dir, meta, scalars: new Map(), axes: new Map(), episodes: [], media: [], dreams: [], notes: [], checkpoints: [], evaluations: [], status: (meta.status as RunStatus) ?? 'running', error: meta.error, step: 0, offset: 0, truncated: false });
 
 /** A number as the module writes it: NaN and the infinities come as strings. */
 export function valueOf(v: unknown): number | null {
@@ -188,6 +197,17 @@ export function applyEvents(run: SimRun, text: string): SimRun {
           if (points.length > MAX_SCALAR_POINTS) run.scalars.set(name, points.filter((_, i) => i % 2 === 0 || i === points!.length - 1));
         }
         break;
+      case 'axes': {
+        if (typeof e.x === 'string' && e.x.trim()) run.xLabel = e.x.trim();
+        for (const [name, raw] of Object.entries((e.axes as Record<string, unknown>) ?? {})) {
+          const said = typeof raw === 'string' ? { y: raw } : raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+          const labels: AxisLabels = { ...run.axes.get(name) };
+          if (typeof said.y === 'string' && said.y.trim()) labels.y = said.y.trim();
+          if (typeof said.x === 'string' && said.x.trim()) labels.x = said.x.trim();
+          run.axes.set(name, labels);
+        }
+        break;
+      }
       case 'episode': {
         const ret = valueOf(e.return);
         if (ret !== null) run.episodes.push({ step, ret, length: typeof e.length === 'number' ? e.length : undefined, success: typeof e.success === 'boolean' ? e.success : undefined });
@@ -305,15 +325,25 @@ export function lengthSeries(run: SimRun): Series[] {
   return [{ name: 'length', stepped: true, points: downsample(eps.map((e, i) => ({ x: e.step, y: rolled[i] }))) }];
 }
 
-/** The run's numbers as charts: those sharing a prefix (loss/policy, loss/value) together, four lines at most a chart. */
-export function scalarCharts(run: SimRun, filter = ''): { title: string; series: Series[] }[] {
+/** A number's axis labels: its own, else its prefix's ("loss" labels loss/policy and loss/value), else the run's x. */
+export function axesOf(run: SimRun, name: string): AxisLabels {
+  const own = run.axes.get(name);
+  const prefix = name.includes('/') ? run.axes.get(name.split('/')[0]) : undefined;
+  return { x: own?.x ?? prefix?.x ?? run.xLabel, y: own?.y ?? prefix?.y };
+}
+
+/** The numbers logged with nothing saying what their y axis measures. */
+export const unlabelled = (run: SimRun): string[] => Array.from(run.scalars.keys()).filter((name) => !axesOf(run, name).y);
+
+/** The run's numbers as charts: those sharing a prefix (loss/policy, loss/value) together, four lines at most a chart, each with its axes' labels. */
+export function scalarCharts(run: SimRun, filter = ''): { title: string; series: Series[]; xLabel: string; yLabel?: string }[] {
   const groups = new Map<string, string[]>();
   for (const name of run.scalars.keys()) {
     if (filter && !name.toLowerCase().includes(filter.toLowerCase())) continue;
     const prefix = name.includes('/') ? name.split('/')[0] : name;
     groups.set(prefix, [...(groups.get(prefix) ?? []), name]);
   }
-  const out: { title: string; series: Series[] }[] = [];
+  const out: { title: string; series: Series[]; xLabel: string; yLabel?: string }[] = [];
   for (const [prefix, names] of groups) {
     // A prefix's names share a chart only in fours, and only while their sizes are close: SB3 logs
     // train/value_loss (~1000) and train/learning_rate (0.0003) under one prefix, and on one chart only the big
@@ -326,7 +356,12 @@ export function scalarCharts(run: SimRun, filter = ''): { title: string; series:
       else parts.push([name]);
     }
     parts.forEach((part, index) => {
+      // A chart's labels are its numbers' when they agree, else left to the legend.
+      const labels = part.map((name) => axesOf(run, name));
+      const same = (key: keyof AxisLabels) => (labels.every((l) => l[key] === labels[0][key]) ? labels[0][key] : undefined);
       out.push({
+        xLabel: same('x') ?? 'step',
+        yLabel: same('y'),
         title: part.length === 1 ? part[0] : `${prefix}${parts.length > 1 ? ` (${index + 1})` : ''}`,
         series: part.map((name) => ({ name: part.length === 1 ? name : name.slice(prefix.length + 1) || name, stepped: true, points: downsample(run.scalars.get(name)!.filter((p) => Number.isFinite(p.y))) })).filter((s) => s.points.length),
       });
@@ -353,7 +388,7 @@ export function dreamTrend(run: SimRun): Series[] {
 // ------------------------------------------------------------ diagnoses ----
 
 export interface Finding {
-  id: 'crashed' | 'stalled' | 'nan' | 'improving' | 'no-learning' | 'collapse' | 'entropy-collapse' | 'loss-explode' | 'dream-drift' | 'dream-stuck' | 'no-episodes';
+  id: 'crashed' | 'stalled' | 'nan' | 'improving' | 'no-learning' | 'collapse' | 'entropy-collapse' | 'loss-explode' | 'dream-drift' | 'dream-stuck' | 'no-episodes' | 'unlabelled';
   level: 'error' | 'warn' | 'info';
   title: string;
   detail: string;
@@ -429,6 +464,10 @@ export function diagnose(run: SimRun, now: number): Finding[] {
   if (dreams.length >= 4) {
     const means = dreams.map((d) => mean(d.error.filter(Number.isFinite)));
     if (mean(means.slice(-2)) >= 0.95 * mean(means.slice(0, 2))) add('dream-stuck', 'warn', 'The world model isn’t getting better', `Mean prediction error ${g(mean(means.slice(0, 2)))} in the first comparisons, ${g(mean(means.slice(-2)))} in the last.`, 'Check the model sees enough varied data (exploration), its capacity, its learning rate, and that the decoder’s loss isn’t dominating the dynamics loss.');
+  }
+  const bare = unlabelled(run);
+  if (bare.length) {
+    add('unlabelled', 'warn', `${bare.length === 1 ? 'A chart has' : `${bare.length} charts have`} no axis labels`, `Nothing says what ${bare.slice(0, 4).join(', ')}${bare.length > 4 ? ` and ${bare.length - 4} more` : ''} measure${bare.length === 1 ? 's' : ''}.`, 'Label them in the code: run.axes("name", y="what it measures, with units", x="what the step counts") — or run.axes(x="env steps") once for the whole run.');
   }
   if (!run.episodes.length && !run.dreams.length && run.scalars.size && run.firstT && (run.lastT ?? now) - run.firstT > 300) {
     add('no-episodes', 'info', 'No episodes logged', 'The run logs numbers but no episode has been reported.', 'Wrap the env with run.wrap(env) or call run.episode(return, length) when one ends, so returns can be judged.');
@@ -558,6 +597,57 @@ export async function readMedia(folder: string, runDir: string, path: string, sc
     onProgress?.(offset, size);
   }
   return new Blob(parts as BlobPart[], { type: mimeOf(path) });
+}
+
+// ----------------------------------------------------------------- live ----
+
+/** The live view's newest frame: what the run said with it, and the JPEG when it is one the page has not had. */
+export interface LiveFrame {
+  /** The machine's clock now, and when the frame was written. */
+  now: number;
+  t?: number;
+  step?: number;
+  frame?: number;
+  episode?: number;
+  info?: Record<string, unknown>;
+  /** Why the run could not render a frame for it. */
+  error?: string;
+  /** The JPEG, base64; left out when the frame is the one the page already has. */
+  jpeg?: string;
+}
+
+/**
+ * Asks the run for its live view and reads its newest frame: live.want touched (the run streams while it is fresh,
+ * koios_telemetry.LIVE_FOR_S), then live.json, and live.jpg only when its frame is newer than `seen`.
+ */
+export const LIVE_CODE = (folder: string, runDir: string, seen: number) => String.raw`
+import os, json, base64, time
+root = os.path.realpath(os.path.abspath(${JSON.stringify(folder)}))
+d = os.path.realpath(os.path.join(root, ${JSON.stringify(runDir)}))
+if not d.startswith(root + os.sep):
+    raise SystemExit('outside the project')
+with open(os.path.join(d, 'live.want'), 'w') as f:
+    f.write(str(time.time()))
+out = {'now': time.time()}
+try:
+    with open(os.path.join(d, 'live.json')) as f:
+        out.update(json.load(f))
+except Exception:
+    pass
+if out.get('frame', 0) > ${seen}:
+    try:
+        with open(os.path.join(d, 'live.jpg'), 'rb') as f:
+            out['jpeg'] = base64.b64encode(f.read()).decode()
+    except Exception:
+        pass
+print(json.dumps(out))
+`;
+
+export async function readLive(folder: string, runDir: string, seen: number, scope?: string): Promise<LiveFrame> {
+  const answer = await runQuietly(LIVE_CODE(folder, runDir, seen), scope);
+  if (!answer) throw new Error('The machine isn’t connected.');
+  if (!answer.ok) throw new Error(answer.text.trim().split('\n').pop() || 'The live view couldn’t be read.');
+  return JSON.parse(answer.text.trim().split('\n').pop() || '{"now":0}') as LiveFrame;
 }
 
 // --------------------------------------------------------------- doctor ----

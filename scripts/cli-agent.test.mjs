@@ -71,6 +71,26 @@ describe('what Claude Code streams', () => {
     assert.equal(events[4].text, 'Traceback');
     assert.deepEqual([events[5].ok, events[5].cost, events[5].turns], [true, 0.0123, 3]);
   });
+  it('keeps why each step ran and all of it, for when the step is opened', () => {
+    const command = 'cd /playgrounds/trying-automatic-generation-of-high-013ea2e0 && python main.py --seed 0 --quick --skip-train 2>&1 | tail -40';
+    const { events } = cli.parseClaude([
+      line({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'The policy is stuck at -5.0. '.repeat(30) }, { type: 'tool_use', id: 'b', name: 'Bash', input: { command, description: 'Time one seed of training' } }] } }),
+      line({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'e', name: 'Edit', input: { file_path: '/p/config.py', old_string: 'steps = 1e6', new_string: 'steps = 4e6' } }] } }),
+    ]);
+    const [thought, bash, edit] = events;
+    assert.equal(thought.text.length, 'The policy is stuck at -5.0. '.length * 30);
+    assert.equal(bash.why, 'Time one seed of training');
+    assert.equal(bash.body, command);
+    assert.equal(cli.shownCommand(bash.detail), 'python main.py --seed 0 --quick --skip-train 2>&1 | tail -40');
+    assert.equal(edit.body, '- steps = 1e6\n+ steps = 4e6');
+    assert.equal(edit.why, undefined);
+  });
+  it('shows a command without the cd before it or a shell wrapped round it', () => {
+    assert.equal(cli.shownCommand('cd "/my folder" && pytest -q'), 'pytest -q');
+    assert.equal(cli.shownCommand("/bin/bash -lc 'cd /p; ls -la'"), 'ls -la');
+    assert.equal(cli.shownCommand('ls && cd x'), 'ls && cd x');
+    assert.equal(cli.shownCommand('cd /p'), 'cd /p');
+  });
   it('says when the API refuses and it tries again, and keeps stray lines', () => {
     const { events } = cli.parseClaude([line({ type: 'system', subtype: 'api_retry', attempt: 2, max_retries: 10, error_status: 401, error: 'authentication_failed' }), 'bash: claude: command not found']);
     assert.match(events[0].text, /401 authentication failed .*2\/10.*Sign out/);
