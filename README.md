@@ -866,6 +866,20 @@ it roughly that way. The app cannot read anything in your Drive that it did not
 create, which is the whole point of using that scope rather than the blanket
 one. **Not now** goes straight to the app with everything kept in this browser.
 
+**With the Worker set up to keep sign-ins** (`GOOGLE_CLIENT_SECRET` on it and
+its callback among the OAuth client's redirect URIs — the same setup the desktop
+app uses, see [docs/desktop-app.md](docs/desktop-app.md) → *Staying signed in*),
+the site signs in by the authorization-code flow instead: consent in a popup
+that lands on the Worker's callback page, which hands the code back to the page;
+the page exchanges it at the Worker and keeps the refresh token in this browser.
+From then on a token that has run out is renewed from that grant with no window
+and no click — a run on Colab, the explorer reading Drive, an agent at work all
+carry on past the hour, for as long as Google honours the grant (months for a
+published OAuth client; a week for one still in **Testing**). A new tab signs in
+by itself, and the *ends in N min* prompt no longer appears. Sign out, and the
+grant is given back to Google. Without that setup, the page's token flow is as
+below.
+
 It asks **once an hour at most**, not on every visit. The sign-in is kept in
 this browser for as long as the token Google issued lasts — about an hour — so
 a reload, or a tab closed and reopened, comes back signed in and connected

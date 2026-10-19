@@ -6,7 +6,7 @@
 // ahead, so a long run on a GPU isn't stopped by it.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { DRIVE_SCOPE, COLAB_SCOPE, heldUser, onRenewal, renewalWaiting, renewNow, tokenExpiresAt, tokenScopes } from '../lib/google';
+import { DRIVE_SCOPE, COLAB_SCOPE, heldUser, onRenewal, renewalWaiting, renewNow, renewsItself, tokenExpiresAt, tokenScopes } from '../lib/google';
 import { GoogleMark } from './icons';
 
 const AHEAD_MS = 5 * 60_000;
@@ -24,7 +24,8 @@ export default function GoogleRenewal({ clientId }: { clientId: string }) {
   const expires = tokenExpiresAt();
   const scopes = tokenScopes();
   // Ahead of time only for a token that background work leans on (Drive, Colab), and not after "Later" for this token.
-  const soon = !waiting && expires !== null && expires > now && expires - now < AHEAD_MS && (scopes.includes(DRIVE_SCOPE) || scopes.includes(COLAB_SCOPE)) && later !== expires;
+  // Not ahead of time when a grant kept in this browser renews the token by itself (src/lib/googleStay.ts).
+  const soon = !waiting && !renewsItself() && expires !== null && expires > now && expires - now < AHEAD_MS && (scopes.includes(DRIVE_SCOPE) || scopes.includes(COLAB_SCOPE)) && later !== expires;
   if (!clientId || (!waiting && !soon)) return null;
   const minutes = expires ? Math.max(1, Math.round((expires - now) / 60_000)) : 0;
   // Named, so that a browser with several Google accounts carries on as this one, not another.

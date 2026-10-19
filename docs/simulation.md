@@ -324,6 +324,28 @@ their edits brought back; and in a project with the paper in its folder Claude C
 (`--disallowedTools WebFetch WebSearch`), so it cannot fetch the paper even if the briefing were ignored. Codex's
 web search is off unless asked for on its command line, which the page never does.
 
+### 20. Watching Claude Code and Codex work
+*Built.* Their pane already showed each step as it happened — every command with its output, every file edited
+with a button to open it, the model's words between — polled from the machine every second or so. What it did
+not do was show the edits *in the editor* until the run ended, because with the files kept elsewhere (Drive, a
+computer of yours) the agent edits the compute's working copy and the edits came home only at the end. Now the
+pane tells the page of each edit as it is seen in the stream, and the page brings the changed files home a couple
+of seconds later (one pull at a time, never during a push) and reads the open files again: the explorer and the
+tab in front follow the agent as it writes. The page's own agent writes home directly, so its edits were always
+live; its runs now show in its pane too, folded under each command.
+
+### 21. A paper's implementation had nowhere to log its runs
+*Built.* Runs are filed in a Project's logbook (challenge 15) — a Project being a collection with a question, papers
+in roles and a playground as its code. A playground made from a paper — the Playground's **from a paper**, the
+Implementation page's **Local → Open as a project…** — belonged to no Project, so its runs went to a lone folder
+with no logbook, no notes and no place in the project room. Now the moment such a playground is made, a Project
+is made for it (`src/lib/implementationProject.ts`): named after the paper's head (*Dreamer — implementation*,
+numbered beside one already so named), the paper in it as its **core**, the playground as its code, opening on
+the question *Reimplement "…": its method, a run of its experiments, and how the numbers compare with the
+paper's*. From then on every run the playground makes is filed in that Project's logbook with its notes, videos
+and results, and the Project page shows the code, the logbook and the paper side by side. A playground that
+already has a Project keeps it.
+
 ---
 
 ## Verified

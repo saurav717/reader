@@ -1842,6 +1842,31 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (connected && machines[0]) await ensureHelper(machines[0]).catch(() => undefined);
     return split ? push() : true;
   };
+  /** While it works: its edits brought home a few seconds after each (when the folder is kept elsewhere) and the open files read again, so the editor follows it; one pull at a time, and never while a push is on. */
+  const liveEdit = useRef<{ timer: number | null; busy: boolean; again: boolean }>({ timer: null, busy: false, again: false });
+  const onAgentEdit = () => {
+    const live = liveEdit.current;
+    if (live.timer !== null) return;
+    live.timer = window.setTimeout(async () => {
+      live.timer = null;
+      if (live.busy) {
+        live.again = true;
+        return;
+      }
+      live.busy = true;
+      try {
+        if (split) await pullEdits(playground, machine).catch(() => undefined);
+        setRefresh((n) => n + 1);
+        await reloadOpen();
+      } finally {
+        live.busy = false;
+        if (live.again) {
+          live.again = false;
+          onAgentEdit();
+        }
+      }
+    }, 2500);
+  };
   /** After: what it changed on the machine brought home (when the folder is kept elsewhere), and the explorer and open files read again. */
   const afterAgentRun = async () => {
     if (split) {
@@ -2632,6 +2657,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     onConnect={() => void connect().catch(() => undefined)}
                     beforeRun={beforeAgentRun}
                     afterRun={() => void afterAgentRun()}
+                    onEdit={onAgentEdit}
                     onOpen={(path) => void open('home', path)}
                   />
                 ) : (

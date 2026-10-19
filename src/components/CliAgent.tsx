@@ -108,7 +108,7 @@ export function queueCliRequest(projectId: string, agent: CliAgentId, request: s
 }
 
 /** A run's log read until it ends, a second at a time; what it said parsed as it comes. */
-async function follow(projectId: string, agent: CliAgentId, job: string, host: FileHost, onDone: () => void) {
+async function follow(projectId: string, agent: CliAgentId, job: string, host: FileHost, onDone: () => void, onEdit?: () => void) {
   if (polling.has(job)) return;
   polling.add(job);
   try {
@@ -127,6 +127,8 @@ async function follow(projectId: string, agent: CliAgentId, job: string, host: F
       const lines = read.data ? read.data.split('\n').filter((line, i, all) => line || i < all.length - 1) : [];
       const all = [...turn.lines, ...lines];
       const { session } = parseRun(agent, all);
+      // A file edited or written in these lines: the page is told, so the explorer and the open files can show it as it happens.
+      if (onEdit && lines.length && parseRun(agent, lines).events.some((event) => event.kind === 'tool' && /^(Edit|Write|MultiEdit|NotebookEdit|Delete)$/.test(event.name))) onEdit();
       const now = savedFor(projectId).chats[agent]!;
       setChat(projectId, agent, { session: session ?? now.session, turns: now.turns.map((t) => (t.job === job ? { ...t, lines: all, offset: read.offset, done: read.done, code: read.code } : t)) });
       if (read.done) {
@@ -167,6 +169,7 @@ export default function CliAgent({
   beforeRun,
   afterRun,
   onOpen,
+  onEdit,
   paper = false,
 }: {
   agent: CliAgentId;
@@ -182,6 +185,8 @@ export default function CliAgent({
   beforeRun: () => Promise<boolean>;
   /** After it: its edits brought home, the explorer and the open files read again. */
   afterRun: () => void;
+  /** As it works: a file it edited or wrote, so the page can bring the change home and show it before the run ends. */
+  onEdit?: () => void;
   onOpen: (path: string) => void;
   /** Whether the project started from a paper: the paper's files in the folder are named in the briefing, and the agent told not to fetch it. */
   paper?: boolean;
@@ -236,7 +241,7 @@ export default function CliAgent({
   useEffect(() => {
     if (!connected) return;
     const open = chat.turns.find((turn) => !turn.done);
-    if (open) void follow(projectId, agent, open.job, host, afterRun);
+    if (open) void follow(projectId, agent, open.job, host, afterRun, onEdit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, agent, projectId, chat.turns.length]);
   useEffect(() => {
@@ -330,7 +335,7 @@ export default function CliAgent({
       const pylib = `${folder.replace(/\/$/, '')}/${KOIOS_PYLIB}`;
       await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context, noWeb: paper }), { cwd: folder, env: { ...env, KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);
       await persist(projectId, host);
-      void follow(projectId, agent, job, host, afterRun);
+      void follow(projectId, agent, job, host, afterRun, onEdit);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
       const now = savedFor(projectId).chats[agent]!;

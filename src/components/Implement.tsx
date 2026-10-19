@@ -20,6 +20,7 @@ import type { Compute, Estimate, Fit, Hardware } from '../lib/hardware';
 import { computeOf, hardwareNow, parseTree, setHardware, slugOf, subscribeHardware } from '../lib/implement';
 import type { Bundle } from '../lib/implement';
 import { useStore } from '../lib/store';
+import { useProjectForImplementation } from '../lib/implementationProject';
 import { runInWorkspace, workspaceStatus, writeScaffold } from '../lib/workspace';
 import type { WorkspaceStatus, Written } from '../lib/workspace';
 import { gigabytes } from '../lib/telemetry';
@@ -630,6 +631,7 @@ export function LocalMenu({
 }) {
   const { status, checking, project } = useLocal();
   const { papers } = useStore();
+  const projectFor = useProjectForImplementation();
   const [open, setOpen] = useState(false);
   /** The Playground's own "Where should it run?", for the plan as a project. */
   const [projecting, setProjecting] = useState(false);
@@ -734,7 +736,7 @@ export function LocalMenu({
                   }}
                 >
                   <b>{existing ? 'Set up another project…' : 'Open as a project…'}</b>
-                  <span>the plan's {Object.keys(draft.files).length} files in an editor on this page — on this computer, Colab, or a GPU machine of yours</span>
+                  <span>the plan's {Object.keys(draft.files).length} files in an editor on this page — on this computer, Colab, or a GPU machine of yours — and a Project of its own, where its runs are logged</span>
                 </button>
               ) : (
                 <button
@@ -840,6 +842,8 @@ export function LocalMenu({
           onClose={() => setProjecting(false)}
           onCreate={async (spec) => {
             const made = await createPlayground(spec);
+            // A Project of its own for the implementation: its runs filed in that project's logbook, with notes, videos and results.
+            if (paper) await projectFor(paper.paperId, made).catch(() => null);
             setProjecting(false);
             if (onProject) onProject(made.id);
             else window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id: made.id } }));

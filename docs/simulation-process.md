@@ -280,11 +280,34 @@ The pieces around it are pinned — the `<where>` wording, the output clipping, 
 reads loop with a second branch, typechecked. The first live run should ask for something small (a syntax error
 planted in `main.py`, say) and watch the console and the pane.
 
+## 6.6 Watching the agents, a Project for every implementation, and a sign-in that stays
+
+Three asks at once, built in this order:
+
+1. **Watching.** `CliAgent`'s poll already parsed each step; it now calls back on an edit event, and the
+   workspace's `onAgentEdit` pulls the working copy home after 2.5 s (debounced, one at a time) and reloads the
+   open files. No new parsing: the same events the pane draws.
+2. **A Project for every implementation.** `useProjectForImplementation` (store-bound) around two pure helpers in
+   `projects.ts` (`projectNameFor`, `projectQuestionFor`, pinned in `projects.test.mjs`): find the Project whose
+   `playgroundId` is the playground's, else create a collection, make it a project with the paper as core and the
+   playground as code, and add the paper to it. Called at both places a paper becomes a playground.
+3. **A sign-in that stays** (`src/lib/googleStay.ts`). The desktop app's code flow brought to the page: the
+   Worker's callback page now posts the code to its opener when it has one (the app's `reader-app://` link
+   otherwise, unchanged), the page exchanges it at `/google/desktop/token` with PKCE and keeps the refresh token
+   in `localStorage`; `tokenFor` and `renewQuietly` try the kept grant first, so a new tab signs in by itself and
+   a token that ran out is renewed with no window; the renewal banner hides when `renewsItself()`; sign-out revokes
+   through `/google/desktop/revoke`. The `/health` mapping had declared `googleDesktop` without reading it — fixed.
+   `scripts/google-stay.test.mjs`: the grants kept and found, PKCE, the consent address, the renewal and the
+   grant forgotten on `invalid_grant`, with `loadTogether` so the proxy address set reaches the module.
+
+Not verified here: the popup against real Google (no sign-in in the container); the exchange and refresh calls are
+the same the desktop app makes, tested in `google-desktop.test.mjs` against the Worker's handler.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```
 npx tsc -b && npm run typecheck:vscode
-node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs   # python3 for some, Chromium for one
+node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs scripts/google-stay.test.mjs   # python3 for some, Chromium for one
 npm test                                         # expect only glass.test.mjs's 4 pre-existing failures
 npx vite build --outDir /tmp/build && grep -l "koios_telemetry: what a simulation run" /tmp/build/assets/*.js
 (cd companion && python -m unittest $(ls tests/test_*.py | sed 's#/#.#; s#\.py$##'))   # the Companion: 157 tests, its port proxy's included

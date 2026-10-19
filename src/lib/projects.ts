@@ -29,6 +29,18 @@ export function newProjectInfo(question = '', now = new Date()): ProjectInfo {
   return { question: question.trim(), startedAt: now.toISOString(), roles: {}, todos: [] };
 }
 
+/** The project's name, from the paper's: its head before a colon or dash, cut at a word, and "(2)" beside one already so named. */
+export function projectNameFor(paperTitle: string, taken: Iterable<string>): string {
+  const head = paperTitle.split(/[:—–]/)[0].trim() || paperTitle.trim() || 'Paper';
+  const base = `${head.length > 60 ? `${head.slice(0, 60).replace(/\s+\S*$/, '')}…` : head} — implementation`;
+  const have = new Set([...taken].map((name) => name.trim().toLowerCase()));
+  if (!have.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n++) if (!have.has(`${base} (${n})`.toLowerCase())) return `${base} (${n})`;
+}
+
+/** The question the project opens on. */
+export const projectQuestionFor = (paperTitle: string) => `Reimplement “${paperTitle}”: its method, a run of its experiments, and how the numbers compare with the paper's.`;
+
 /** The name a copy takes: "X (copy)", then "X (copy 2)" beside one already so named. */
 export function copyName(name: string, taken: Iterable<string>): string {
   const have = new Set([...taken].map((item) => item.trim().toLowerCase()));
