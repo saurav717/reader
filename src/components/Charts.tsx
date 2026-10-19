@@ -54,7 +54,7 @@ function useScales(series: Series[], xRange?: [number, number]) {
  * value at each line's end and, under the pointer, every series' value at
  * the nearest x.
  */
-export function LineChart({ series, title, xLabel, unit, tableLabel, xRange }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string; xRange?: [number, number] }) {
+export function LineChart({ series, title, xLabel, unit, tableLabel, xRange, marks }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string; xRange?: [number, number]; /** Moments on the x axis to mark with a dashed line: a note on a run's timeline, a change an agent made. */ marks?: { x: number; label: string }[] }) {
   const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series, xRange);
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
@@ -132,6 +132,13 @@ export function LineChart({ series, title, xLabel, unit, tableLabel, xRange }: {
           <text className="tick axis" x={W - PAD.right + 8} y={H - 6} textAnchor="start">
             {xLabel}
           </text>
+          {(marks ?? [])
+            .filter((mark) => mark.x >= xMin && mark.x <= xMax)
+            .map((mark, index) => (
+              <line key={`${mark.x}-${index}`} className="mark" x1={sx(mark.x)} x2={sx(mark.x)} y1={PAD.top} y2={H - PAD.bottom}>
+                <title>{`${xLabel} ${short(mark.x)}: ${mark.label}`}</title>
+              </line>
+            ))}
           {drawn.map((line, index) => {
             // An end label that would sit on an earlier line's is left out: the legend and the crosshair carry it, rather than two numbers overprinted.
             const clear = drawn.slice(0, index).every((other) => Math.abs(other.last.py - line.last.py) > 11);

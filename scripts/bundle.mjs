@@ -8,12 +8,21 @@
 // beyond the default.
 
 import { build } from 'esbuild';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const temporary = [];
+
+/** Vite's `?raw` imports (a file's text as the default export), which esbuild does not know by itself. */
+const raw = {
+  name: 'raw',
+  setup(build) {
+    build.onResolve({ filter: /\?raw$/ }, (args) => ({ path: resolve(args.resolveDir, args.path.replace(/\?raw$/, '')), namespace: 'raw' }));
+    build.onLoad({ filter: /.*/, namespace: 'raw' }, async (args) => ({ contents: `export default ${JSON.stringify(await readFile(args.path, 'utf8'))};`, loader: 'js' }));
+  },
+};
 
 /**
  * `external` names packages to leave as imports rather than bundle — for a
@@ -37,6 +46,7 @@ export async function load(entry, { external = [], imports = false } = {}) {
     banner: { js: 'const __viteEnv = {};' },
     define: { 'import.meta.env': '__viteEnv' },
     external,
+    plugins: [raw],
     logLevel: 'silent',
   });
   return import(pathToFileURL(outfile).href);
@@ -68,6 +78,7 @@ export async function loadTogether(entries, { external = [] } = {}) {
     banner: { js: 'const __viteEnv = {};' },
     define: { 'import.meta.env': '__viteEnv' },
     external,
+    plugins: [raw],
     logLevel: 'silent',
   });
   return import(pathToFileURL(outfile).href);

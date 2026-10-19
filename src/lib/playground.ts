@@ -115,7 +115,7 @@ export interface Playground {
   /** A first command for the console, waiting for a click — a repository's clone. */
   pending?: string;
   /** How it started, for the home's list. */
-  start: 'blank' | 'paper' | 'repo' | 'model' | 'file' | 'copy';
+  start: 'blank' | 'paper' | 'repo' | 'model' | 'file' | 'copy' | 'sim';
   /** The notebook's cells as text (no outputs), so it opens in another browser: kept in Drive with the rest. */
   cells?: { type: CellType; source: string }[];
   /** The last read-only copy of its code in Drive, taken by the computer that has it (src/lib/away.ts). */
@@ -1144,6 +1144,15 @@ export async function walk(host: FileHost, skip: (path: string, dir: boolean) =>
 /** Bigger than this, a file is left where it is: the page carries text, not checkpoints. */
 export const SYNC_LIMIT = 2_000_000;
 
+/**
+ * Files the sync leaves where they are because it carries text: a video, an
+ * image or a checkpoint read as text and written back is no longer the file
+ * it was. A run's videos stay on the machine, where the Sim pane fetches them
+ * byte for byte (src/lib/simTelemetry.ts, readMedia).
+ */
+const BINARY = /\.(mp4|webm|gif|png|jpe?g|webp|bmp|tiff?|npz|npy|pt|pth|ckpt|safetensors|bin|h5|hdf5|pkl|pickle|zip|tar|gz|tgz|xz|7z|so|dylib|dll|exe|whl|mp3|wav|ogg|pdf|glb|onnx|parquet|arrow)$/i;
+export const isBinaryPath = (path: string) => BINARY.test(path);
+
 export interface SyncReport {
   sent: string[];
   skipped: string[];
@@ -1160,7 +1169,7 @@ export async function pushFolder(playground: Playground, machine: FileHost): Pro
   const files = await walk(home, (path) => matchesAny(playground.sync.ignore, path));
   const report: SyncReport = { sent: [], skipped: [], back: [] };
   for (const file of files) {
-    if (file.size !== null && file.size > SYNC_LIMIT) {
+    if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
     }
@@ -1179,7 +1188,7 @@ export async function pullBack(playground: Playground, machine: FileHost): Promi
   const files = await walk(machine, (path, dir) => matchesAny(playground.sync.ignore, path) && !matchesAny(playground.sync.bringBack, path) && dir);
   for (const file of files) {
     if (!matchesAny(playground.sync.bringBack, file.path)) continue;
-    if (file.size !== null && file.size > SYNC_LIMIT) {
+    if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
     }
@@ -1205,7 +1214,7 @@ export async function pullEdits(playground: Playground, machine: FileHost): Prom
   const report: SyncReport = { sent: [], skipped: [], back: [] };
   const files = await walk(machine, (path) => matchesAny(playground.sync.ignore, path));
   for (const file of files) {
-    if (file.size !== null && file.size > SYNC_LIMIT) {
+    if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
     }

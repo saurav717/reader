@@ -1,0 +1,357 @@
+// Simulation: the catalogue of simulators (src/lib/simulators.ts), the projects made from it
+// (src/lib/simProject.ts), the Sim pane's reading of a run (src/lib/simTelemetry.ts), and the Python
+// module that writes the runs (src/sim/koios_telemetry.py), run for real when python3 is there, so the
+// two sides are checked against each other: the events one writes the other reads, the findings match.
+//
+//   node --test scripts/simulation.test.mjs
+
+import { after, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { cleanup, load } from './bundle.mjs';
+
+const sims = await load('src/lib/simulators.ts');
+const project = await load('src/lib/simProject.ts');
+const tele = await load('src/lib/simTelemetry.ts');
+after(cleanup);
+
+const MODULE = resolve('src/sim/koios_telemetry.py');
+const python = (() => {
+  const found = spawnSync('python3', ['-c', 'import sys; print(sys.version_info[:2] >= (3, 9))'], { encoding: 'utf8' });
+  return found.status === 0 && found.stdout.trim() === 'True' ? 'python3' : null;
+})();
+const hasNumpy = python ? spawnSync(python, ['-c', 'import numpy'], { encoding: 'utf8' }).status === 0 : false;
+const py = (code, cwd, env = {}) => spawnSync(python, ['-c', code], { cwd, encoding: 'utf8', env: { ...process.env, PYTHONPATH: resolve('src/sim'), KOIOS_HEADLESS: '0', ...env } });
+
+describe('the catalogue', () => {
+  it('has many simulators, each with a way in', () => {
+    assert.ok(sims.SIMULATORS.length >= 30);
+    const ids = new Set();
+    for (const sim of sims.SIMULATORS) {
+      assert.ok(!ids.has(sim.id), `${sim.id} twice`);
+      ids.add(sim.id);
+      assert.ok(sim.install.length, `${sim.id} has no install line`);
+      assert.match(sim.docs, /^https:\/\//, sim.id);
+      assert.ok(sim.envs.length, `${sim.id} has no environment`);
+      assert.ok(sims.FAMILIES.some((f) => f.id === sim.family), sim.id);
+      if (sim.api === 'native' && sim.id !== 'isaaclab') assert.ok(sim.native, `${sim.id} is native with no starter`);
+      assert.ok(sims.templatesFor(sim).length, `${sim.id} has no template`);
+    }
+    // Every family has something in it, and there are hands to pick.
+    for (const family of sims.FAMILIES) assert.ok(sims.SIMULATORS.some((s) => s.family === family.id), family.id);
+    assert.ok(sims.SIMULATORS.filter((s) => s.envs.some((e) => e.hand)).length >= 5);
+  });
+
+  it('names the same import for each simulator as the doctor does', () => {
+    const text = readFileSync(MODULE, 'utf8');
+    const block = text.slice(text.indexOf('SIMULATORS = {'), text.indexOf('}', text.indexOf('SIMULATORS = {')));
+    const doctor = Object.fromEntries([...block.matchAll(/"([\w]+)": "([\w.]+)"/g)].map((m) => [m[1], m[2]]));
+    for (const sim of sims.SIMULATORS) assert.equal(doctor[sim.id], sim.module, `${sim.id}: the doctor imports ${doctor[sim.id]}, the catalogue ${sim.module}`);
+  });
+
+  it('offers the templates that fit the environment', () => {
+    const gym = sims.simulatorById('gymnasium');
+    assert.deepEqual(sims.templatesFor(gym, gym.envs.find((e) => e.id === 'CartPole-v1')), ['random', 'ppo', 'sb3', 'world-model']);
+    assert.ok(sims.templatesFor(gym, gym.envs.find((e) => e.id === 'Pendulum-v1')).includes('sac'));
+    assert.deepEqual(sims.templatesFor(sims.simulatorById('isaaclab')), ['isaaclab']);
+    assert.equal(sims.templatesFor(sims.simulatorById('brax'))[0], 'native');
+    assert.ok(sims.templatesFor(sims.simulatorById('dm_control')).includes('dreamerv3'));
+    assert.ok(sims.templatesFor(sims.simulatorById('dm_control')).includes('tdmpc2'));
+  });
+
+  it('maps environments to DreamerV3 and TD-MPC2 tasks', () => {
+    const ale = sims.simulatorById('ale');
+    assert.deepEqual(sims.dreamerTask(ale, { id: 'ALE/Pong-v5' }), { configs: 'atari', task: 'atari_pong' });
+    assert.equal(sims.dreamerTask(ale, { id: 'ALE/SpaceInvaders-v5' }).task, 'atari_space_invaders');
+    assert.equal(sims.dreamerTask(sims.simulatorById('dm_control'), { id: 'walker-walk' }).task, 'dmc_walker_walk');
+    assert.equal(sims.tdmpcTask(sims.simulatorById('metaworld'), { id: 'drawer-open-v3' }), 'mw-drawer-open');
+    assert.equal(sims.dreamerTask(sims.simulatorById('mujoco')), null);
+  });
+
+  it('warns before an RTX-only or GPU-only simulator lands on Colab', () => {
+    assert.match(sims.placeWarning(sims.simulatorById('isaaclab'), true), /RTX/);
+    assert.match(sims.placeWarning(sims.simulatorById('brax'), true), /GPU runtime/);
+    assert.equal(sims.placeWarning(sims.simulatorById('gymnasium'), true), null);
+  });
+});
+
+describe('a project', () => {
+  it('has the briefing, the setup, the telemetry and the template', () => {
+    const sim = sims.simulatorById('mujoco');
+    const made = project.simProject(sim, sim.envs.find((e) => e.id === 'Ant-v5'), 'sac', 'Ant');
+    for (const file of ['README.md', 'AGENTS.md', 'CLAUDE.md', 'LEARNING.md', 'setup.sh', 'koios_telemetry.py', 'env.py', 'sac.py']) assert.ok(made.files[file], file);
+    assert.equal(made.files['CLAUDE.md'], '@AGENTS.md\n');
+    assert.match(made.files['AGENTS.md'], /Telemetry is required/);
+    assert.match(made.files['AGENTS.md'], /LEARNING\.md/);
+    assert.match(made.files['setup.sh'], /gymnasium\[mujoco\]/);
+    assert.match(made.files['setup.sh'], /koios_telemetry\.py doctor/);
+    assert.match(made.files['env.py'], /ENV_ID = "Ant-v5"/);
+    // The renderer is chosen at the telemetry's import, so it comes before any simulator's.
+    assert.ok(made.files['env.py'].indexOf('import koios_telemetry') < made.files['env.py'].indexOf('import gymnasium'));
+    assert.equal(made.pending, 'bash setup.sh && python sac.py');
+  });
+
+  it('puts the environment into a native starter, and its telemetry first', () => {
+    for (const sim of sims.SIMULATORS.filter((s) => s.native)) {
+      const made = project.simProject(sim, sim.envs[0], 'native', sim.name);
+      assert.ok(!made.files['main.py'].includes('__ENV__'), sim.id);
+      const main = made.files['main.py'];
+      // The first import of anything but the standard library's (pettingzoo imports its simulator inside main()).
+      const first = main.search(/^import (?!argparse|functools|importlib|queue)\w+|^from (?!koios_telemetry)\w+/m);
+      assert.ok(main.includes('from koios_telemetry import Run'), sim.id);
+      assert.ok(first === -1 || main.indexOf('from koios_telemetry import Run') < first, `${sim.id}: the telemetry is imported after a simulator`);
+    }
+  });
+
+  it('bridges the repositories it runs', () => {
+    const made = project.simProject(sims.simulatorById('dm_control'), { id: 'walker-walk', label: 'walker-walk', space: 'continuous' }, 'dreamerv3', 'Dreamer');
+    assert.match(made.files['run_dreamer.sh'], /--task dmc_walker_walk/);
+    assert.match(made.files['run_dreamer.sh'], /koios_telemetry\.py bridge "\$LOGDIR\/metrics\.jsonl".*--until-pid \$TRAIN/);
+    const isaac = project.simProject(sims.simulatorById('isaaclab'), sims.simulatorById('isaaclab').envs[2], 'isaaclab', 'Allegro');
+    assert.match(isaac.files['train_isaaclab.sh'], /Isaac-Repose-Cube-Allegro-Direct-v0/);
+    assert.match(isaac.files['train_isaaclab.sh'], /--videos IsaacLab\/logs\/rsl_rl/);
+  });
+
+  it('writes Python that parses', { skip: !python && 'no python3' }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-project-'));
+    for (const sim of sims.SIMULATORS) {
+      for (const template of sims.templatesFor(sim)) {
+        const made = project.simProject(sim, sim.envs[0], template, sim.name);
+        for (const [path, text] of Object.entries(made.files)) {
+          if (!path.endsWith('.py')) continue;
+          const file = join(dir, `${sim.id}-${template}-${path}`);
+          writeFileSync(file, text);
+          const parsed = spawnSync(python, ['-c', 'import ast, sys; ast.parse(open(sys.argv[1]).read())', file], { encoding: 'utf8' });
+          assert.equal(parsed.status, 0, `${sim.id}/${template}/${path}: ${parsed.stderr}`);
+        }
+      }
+    }
+  });
+});
+
+// ------------------------------------------------------------- reading ----
+
+const line = (event) => JSON.stringify(event);
+const t0 = 1_700_000_000;
+function events({ returns = [], scalars = {}, dreams = [], end, notes = [], lastT } = {}) {
+  const out = [line({ kind: 'start', t: t0, name: 'x' })];
+  returns.forEach((r, i) => out.push(line({ kind: 'episode', t: t0 + i, step: (i + 1) * 100, index: i, return: r, length: 10 })));
+  const longest = Math.max(0, ...Object.values(scalars).map((v) => v.length));
+  for (let i = 0; i < longest; i++) {
+    const values = Object.fromEntries(Object.entries(scalars).filter(([, v]) => i < v.length).map(([k, v]) => [k, v[i]]));
+    out.push(line({ kind: 'scalars', t: t0 + i, step: (i + 1) * 100, values }));
+  }
+  dreams.forEach((error, i) => out.push(line({ kind: 'dream', t: t0 + i, step: (i + 1) * 1000, name: 'dream', path: `media/d${i}.mp4`, type: 'video', error, context: 2 })));
+  notes.forEach((text, i) => out.push(line({ kind: 'note', t: t0 + i, step: i * 100, text, by: 'agent' })));
+  if (lastT) out.push(line({ kind: 'heartbeat', t: lastT, step: 0, sps: 10 }));
+  if (end) out.push(line({ kind: 'end', t: (lastT ?? t0) + 1, ...end }));
+  return `${out.join('\n')}\n`;
+}
+
+const rising = Array.from({ length: 60 }, (_, i) => i + (i % 3));
+const flat = Array.from({ length: 60 }, (_, i) => 10 + ((i * 7) % 5));
+const peaked = [...Array.from({ length: 40 }, (_, i) => i * 5), ...Array.from({ length: 40 }, () => 5)];
+
+const CASES = {
+  improving: { returns: rising, end: { status: 'finished' } },
+  'no-learning': { returns: flat, end: { status: 'finished' } },
+  collapse: { returns: peaked, end: { status: 'finished' } },
+  nan: { scalars: { 'loss/policy': [0.5, 0.4, 'nan', 0.3] }, end: { status: 'finished' } },
+  'entropy-collapse': { scalars: { entropy: [1, 1, 1, 0.5, 0.2, 0.1, 0.05, 0.01, 0.01, 0.01, 0.01] }, end: { status: 'finished' } },
+  'loss-explode': { scalars: { 'loss/value': [1, 1, 1, 1, 1, 10, 100, 1000, 500, 800] }, end: { status: 'finished' } },
+  crashed: { end: { status: 'crashed', error: 'Traceback\nValueError: boom' } },
+  stalled: { lastT: t0 + 10 },
+  'dream-drift': { dreams: [[0, 0, 0.01, 0.01, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]], end: { status: 'finished' } },
+  'dream-stuck': { dreams: [[0, 0, 0.1, 0.1], [0, 0, 0.1, 0.1], [0, 0, 0.1, 0.1], [0, 0, 0.1, 0.1]], end: { status: 'finished' } },
+};
+const NOW = t0 + 1000;
+
+describe('reading a run', () => {
+  it('parses every kind of event, and NaN where the module writes it', () => {
+    const run = tele.parseRun('runs/a', { name: 'a', status: 'running' }, events({ returns: [1, 2, 3], scalars: { 'loss/policy': [0.5, 'nan'], 'loss/value': [1, 2] }, dreams: [[0, 0, 0.1]], notes: ['lr down'], end: { status: 'finished' } }) + 'not json\n');
+    assert.equal(run.episodes.length, 3);
+    assert.equal(run.status, 'finished');
+    assert.ok(Number.isNaN(run.scalars.get('loss/policy')[1].y));
+    assert.equal(run.dreams[0].context, 2);
+    assert.equal(run.notes[0].by, 'agent');
+    assert.equal(run.step, 1000);
+  });
+
+  it('reads a file in pieces as it would read it whole', () => {
+    const text = events({ returns: rising, scalars: { loss: [3, 2, 1] }, end: { status: 'finished' } });
+    const whole = tele.parseRun('r', {}, text);
+    const piecewise = tele.newRun('r');
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i += 7) tele.applyEvents(piecewise, `${lines.slice(i, i + 7).join('\n')}\n`);
+    assert.deepEqual(piecewise.episodes, whole.episodes);
+    assert.deepEqual([...piecewise.scalars], [...whole.scalars]);
+  });
+
+  it('draws returns with their running mean, and groups the numbers by prefix', () => {
+    const run = tele.parseRun('r', {}, events({ returns: rising, scalars: { 'loss/policy': [1, 2], 'loss/value': [1, 2], entropy: [1, 1] } }));
+    const [raw, mean] = tele.returnSeries(run);
+    assert.equal(raw.points.length, 60);
+    assert.match(mean.name, /mean of 6/);
+    const charts = tele.scalarCharts(run);
+    assert.deepEqual(charts.map((c) => c.title), ['loss', 'entropy']);
+    assert.deepEqual(charts[0].series.map((s) => s.name), ['policy', 'value']);
+    assert.deepEqual(tele.scalarCharts(run, 'entr').map((c) => c.title), ['entropy']);
+  });
+
+  it('calls a quiet running run stalled', () => {
+    assert.equal(tele.shownStatus('running', NOW - 500, NOW), 'stalled');
+    assert.equal(tele.shownStatus('running', NOW - 5, NOW), 'running');
+    assert.equal(tele.shownStatus('finished', NOW - 5000, NOW), 'finished');
+  });
+
+  for (const [id, spec] of Object.entries(CASES)) {
+    it(`finds ${id}`, () => {
+      const run = tele.parseRun('r', {}, events(spec));
+      assert.ok(tele.diagnose(run, NOW).some((f) => f.id === id), `${id} not in ${tele.diagnose(run, NOW).map((f) => f.id)}`);
+    });
+  }
+
+  it('makes the same findings as the Python summary', { skip: !python && 'no python3' }, () => {
+    const root = mkdtempSync(join(tmpdir(), 'sim-runs-'));
+    for (const [id, spec] of Object.entries(CASES)) {
+      mkdirSync(join(root, id));
+      writeFileSync(join(root, id, 'events.jsonl'), events(spec));
+    }
+    const got = py(`import json, os, koios_telemetry as k\nprint(json.dumps({d: [f["id"] for f in k.diagnose(k.read_run(os.path.join(${JSON.stringify(root)}, d)), ${NOW})] for d in os.listdir(${JSON.stringify(root)})}))`, root);
+    assert.equal(got.status, 0, got.stderr);
+    const fromPython = JSON.parse(got.stdout.trim().split('\n').pop());
+    for (const [id, spec] of Object.entries(CASES)) {
+      const fromHere = tele.diagnose(tele.parseRun('r', {}, events(spec)), NOW).map((f) => f.id);
+      assert.deepEqual(fromHere, fromPython[id], id);
+    }
+  });
+});
+
+describe('the Python module', { skip: !python && 'no python3' }, () => {
+  it('writes a run the pane reads, and records its crash', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-run-'));
+    const code = `
+from koios_telemetry import Run
+run = Run("t", config={"lr": 3e-4, "nested": {"a": [1, 2]}}, sim="test/env", video_every=2)
+for i in range(5):
+    run.episode(float(i), 10, step=i * 10, success=i > 2)
+    run.log({"loss/policy": 1.0 / (i + 1), "bad": float("nan") if i == 4 else 0.0}, step=i * 10)
+run.note("changed something", by="agent")
+raise RuntimeError("boom")
+`;
+    const ran = py(code, dir);
+    assert.notEqual(ran.status, 0);
+    const [runDir] = readdirSync(join(dir, 'runs'));
+    const meta = JSON.parse(readFileSync(join(dir, 'runs', runDir, 'run.json'), 'utf8'));
+    assert.equal(meta.status, 'crashed');
+    assert.equal(meta.config.lr, 3e-4);
+    const run = tele.parseRun(runDir, meta, readFileSync(join(dir, 'runs', runDir, 'events.jsonl'), 'utf8'));
+    assert.equal(run.episodes.length, 5);
+    assert.equal(run.episodes[4].success, true);
+    assert.equal(run.status, 'crashed');
+    assert.match(run.error, /RuntimeError: boom/);
+    assert.equal(run.notes[0].text, 'changed something');
+    const ids = tele.diagnose(run, run.lastT).map((f) => f.id);
+    assert.ok(ids.includes('crashed') && ids.includes('nan'), ids.join());
+    const summary = spawnSync(python, [MODULE, 'summary', '.'], { cwd: dir, encoding: 'utf8', env: { ...process.env, KOIOS_HEADLESS: '0' } });
+    assert.match(summary.stdout, /\[crashed\]/);
+    assert.match(summary.stdout, /note @ \d+: \[agent\] changed something/);
+  });
+
+  it('writes videos and dreams the pane can play', { skip: !hasNumpy && 'no numpy' }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-media-'));
+    const code = `
+import numpy as np
+from koios_telemetry import Run
+run = Run("m")
+frames = [np.full((30, 40, 3), i * 20, np.uint8) for i in range(8)]
+run.video("v", frames, step=5)
+run.dream("d", frames, [f // 2 for f in frames], step=6, context=2)
+run.finish()
+`;
+    const ran = py(code, dir);
+    assert.equal(ran.status, 0, ran.stderr);
+    const [runDir] = readdirSync(join(dir, 'runs'));
+    const run = tele.parseRun(runDir, {}, readFileSync(join(dir, 'runs', runDir, 'events.jsonl'), 'utf8'));
+    assert.equal(run.media.length, 1);
+    assert.ok(['video', 'gif', 'frames'].includes(run.media[0].type));
+    assert.equal(run.dreams[0].error.length, 8);
+    assert.equal(run.dreams[0].error[0], 0, 'the context frames match');
+    assert.ok(run.dreams[0].error[7] > 0);
+    assert.ok(readdirSync(join(dir, 'runs', runDir, 'media')).length >= 2);
+  });
+
+  it('bridges another codebase’s metrics, as DreamerV3 and TD-MPC2 write them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-bridge-'));
+    writeFileSync(join(dir, 'metrics.jsonl'), `${[{ step: 100, 'episode/score': 3, 'episode/length': 50 }, { step: 200, 'train/loss/model': 1.5 }, { step: 300, 'episode/score': 7, 'episode/length': 60 }].map(line).join('\n')}\n{"step": 400, "partial`);
+    writeFileSync(join(dir, 'eval.csv'), 'step,episode_reward,episode_success\n1000,12.5,0\n2000,30.1,1\n');
+    for (const [source, episodes] of [['metrics.jsonl', 2], ['eval.csv', 2]]) {
+      const ran = spawnSync(python, [MODULE, 'bridge', source, '--name', 'b'], { cwd: dir, encoding: 'utf8', env: { ...process.env, KOIOS_HEADLESS: '0' } });
+      assert.equal(ran.status, 0, ran.stderr);
+      const runDir = ran.stdout.match(/bridged into (\S+)/)[1];
+      const run = tele.parseRun(runDir, {}, readFileSync(join(dir, runDir, 'events.jsonl'), 'utf8'));
+      assert.equal(run.episodes.length, episodes, source);
+      if (source === 'eval.csv') assert.deepEqual(run.episodes.map((e) => e.success), [false, true]);
+      else assert.ok(run.scalars.has('train/loss/model'));
+    }
+  });
+
+  it('adds a note from the terminal, as an agent would', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-note-'));
+    mkdirSync(join(dir, 'r'));
+    writeFileSync(join(dir, 'r', 'events.jsonl'), events({ returns: [1, 2] }));
+    const ran = spawnSync(python, [MODULE, 'note', 'r', 'lr 3e-4 -> 1e-4', '--by', 'agent'], { cwd: dir, encoding: 'utf8', env: { ...process.env, KOIOS_HEADLESS: '0' } });
+    assert.equal(ran.status, 0, ran.stderr);
+    const run = tele.parseRun('r', {}, readFileSync(join(dir, 'r', 'events.jsonl'), 'utf8'));
+    assert.deepEqual(run.notes.map((n) => [n.text, n.by, n.step]), [['lr 3e-4 -> 1e-4', 'agent', 200]]);
+  });
+
+  it('runs the doctor without a simulator installed', () => {
+    const ran = spawnSync(python, [MODULE, 'doctor', '--json', '--no-render'], { encoding: 'utf8', env: { ...process.env, KOIOS_HEADLESS: '0' } });
+    assert.equal(ran.status, 0, ran.stderr);
+    const d = JSON.parse(ran.stdout.trim().split('\n').pop());
+    assert.equal(typeof d.installed.gymnasium, 'boolean');
+    assert.ok(Array.isArray(d.gpus));
+  });
+});
+
+describe('the code the pane runs on the machine', { skip: !python && 'no python3' }, () => {
+  it('lists the runs and reads the focused one from an offset, whole lines only', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sim-read-'));
+    mkdirSync(join(root, 'runs', 'a'), { recursive: true });
+    mkdirSync(join(root, '.reader', 'skip'), { recursive: true });
+    writeFileSync(join(root, '.reader', 'skip', 'events.jsonl'), '{}\n');
+    const text = events({ returns: [1, 2, 3] });
+    writeFileSync(join(root, 'runs', 'a', 'events.jsonl'), `${text}{"kind": "epis`);
+    writeFileSync(join(root, 'runs', 'a', 'run.json'), JSON.stringify({ name: 'a', status: 'running', argv: ['x'] }));
+    const first = JSON.parse(py(tele.READ_CODE(root, { dir: join('runs', 'a'), offset: 0 })).stdout.trim());
+    assert.deepEqual(first.runs.map((r) => r.dir), [join('runs', 'a')]);
+    assert.equal(first.runs[0].meta.argv, undefined);
+    assert.equal(first.focus.text, text);
+    const second = JSON.parse(py(tele.READ_CODE(root, { dir: join('runs', 'a'), offset: first.focus.to })).stdout.trim());
+    assert.equal(second.focus.text, '');
+  });
+
+  it('fetches media in pieces, and nothing outside the project', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sim-media-read-'));
+    mkdirSync(join(root, 'runs', 'a', 'media'), { recursive: true });
+    writeFileSync(join(root, 'runs', 'a', 'media', 'v.mp4'), Buffer.from([0, 1, 2, 255]));
+    const got = JSON.parse(py(tele.MEDIA_CODE(root, join('runs', 'a'), 'media/v.mp4', 1)).stdout.trim());
+    assert.equal(got.size, 4);
+    assert.deepEqual([...Buffer.from(got.data, 'base64')], [1, 2, 255]);
+    const outside = py(tele.MEDIA_CODE(root, join('runs', 'a'), '../../../../etc/passwd', 0));
+    assert.notEqual(outside.status, 0);
+  });
+});
+
+describe('sync and binary files', () => {
+  it('leaves videos, images and weights where they are', async () => {
+    const { isBinaryPath } = await load('src/lib/playground.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
+    for (const path of ['runs/a/media/x.mp4', 'out.png', 'model.pt', 'w.safetensors', 'd.npz']) assert.ok(isBinaryPath(path), path);
+    for (const path of ['runs/a/events.jsonl', 'run.json', 'main.py', 'results.csv']) assert.ok(!isBinaryPath(path), path);
+  });
+});
