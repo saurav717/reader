@@ -228,6 +228,10 @@ read it). The Koios Sim pane reads \`runs/*/events.jsonl\` on the machine and dr
   \`RecordEpisodeStatistics\`, or \`run.episode(return, length, step=..., success=...)\`.
 - Numbers: \`run.log({...}, step=env_steps)\`. The step is **environment steps**, never updates, so runs compare.
   Group names with a slash: \`loss/policy\`, \`loss/value\`, \`eval/return\`.
+- Axes: every chart is labelled. \`run.axes(x="environment steps")\` once, and \`run.axes({"loss": "loss",
+  "entropy": "policy entropy (nats)", ...})\` for what each number measures, with units; a chart whose x is not the
+  training step (a batch size, a seed) logs that value as \`step=\` and names it, \`run.axes(name, y=..., x="batch size")\`.
+  The module prints \`[koios] no axis label for …\` for any it is not told about: label those too.
 - Videos: record one episode in \`video_every\` (render_mode="rgb_array"), \`run.video(name, frames, step)\`; never
   every episode. \`run.grab(env.render, frames)\` survives a machine that can't render.
 - World models: \`run.dream(name, real_frames, imagined_frames, step, context=k)\` whenever open-loop prediction is

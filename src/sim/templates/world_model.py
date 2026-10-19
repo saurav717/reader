@@ -166,6 +166,10 @@ def main():
         print(f"the project's environment can't give frames ({error}); using the built-in ball world")
         env, sim = Ball(), "builtin/ball"
     run = Run("world-model", config={**vars(args), "device": str(device)}, sim=sim, video_every=0)
+    # Every chart in the Sim pane is labelled: what its x counts, and what each number measures.
+    run.axes({"loss/recon": "reconstruction loss", "loss/kl": "KL (posterior ‖ prior)", "loss/dynamics": "dynamics loss",
+              "loss/total": "total loss", "dream/error_first": "prediction error, first imagined frame",
+              "dream/error_last": "prediction error, last imagined frame", "dream/error_mean": "mean prediction error over the dream"}, x="training iterations")
     frames, actions = collect(env, args)
     if not frames:
         raise SystemExit("no episode was long enough: lower --seq")

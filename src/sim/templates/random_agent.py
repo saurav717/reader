@@ -20,6 +20,7 @@ def main():
     args = parser.parse_args()
 
     run = Run("random", config={**vars(args), "env": ENV_ID}, sim=f"{SIM}/{ENV_ID}", video_every=args.video_every)
+    run.axes(x="environment steps")  # what every chart's x counts; label any number you log the same way
     env = run.wrap(make_env(render_mode="rgb_array"))  # episodes, videos and, for a MuJoCo env, the live 3D view
     print("observations:", env.observation_space)
     print("actions:     ", env.action_space)

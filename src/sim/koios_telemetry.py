@@ -6,6 +6,8 @@ One file, nothing to install beyond what a simulation already has (numpy; imagei
 
     run = Run("ppo-cartpole", config=vars(args), sim="gymnasium/CartPole-v1")
     env = run.wrap(gym.make("CartPole-v1", render_mode="rgb_array"))   # episodes and videos, logged by themselves
+    run.axes(x="environment steps")                                     # what every chart's x axis counts
+    run.axes({"loss": "loss", "entropy": "policy entropy (nats)"})       # what each number's y axis measures
     run.log({"loss/policy": 0.12, "loss/value": 0.4, "entropy": 0.6}, step=global_step)
     run.episode(ret, length, step=global_step, success=info.get("is_success"))
     run.video("rollout", frames, step=global_step)                      # HxWx3 uint8 frames
@@ -260,10 +262,18 @@ class Run:
     echo        also print a line now and then, so the console's Metrics pane draws the numbers too
     tensorboard also write the scalars as TensorBoard event files in the run's folder
     resume      a run folder to carry on writing to, rather than starting a new one
+    x_label     what the x axis of every chart counts ("environment steps", "updates"), as run.axes(x=...)
+    axes        what each number measures, as run.axes(axes)
+
+    Every chart in the Sim pane is labelled: say what each number measures with run.axes() (a number logged with
+    no label is pointed out, as it is logged and when the run ends).
     """
 
-    def __init__(self, name: str = "run", config=None, sim: str | None = None, root: str | None = None, video_every: int = 25, max_side: int = 256, max_frames: int = 600, echo: bool = True, tensorboard: bool = False, resume: str | None = None, live3d: bool | None = None):
+    def __init__(self, name: str = "run", config=None, sim: str | None = None, root: str | None = None, video_every: int = 25, max_side: int = 256, max_frames: int = 600, echo: bool = True, tensorboard: bool = False, resume: str | None = None, live3d: bool | None = None, x_label: str | None = None, axes: dict | None = None):
         self.name = name
+        self._axes: dict = {}
+        self._x_label: str | None = None
+        self._unlabelled: set = set()
         self.video_every = int(video_every)
         self.max_side = int(max_side)
         self.max_frames = int(max_frames)
@@ -293,6 +303,8 @@ class Run:
         self.meta = {"schema": SCHEMA, "id": self.id, "name": name, "sim": sim, "config": _jsonable(config or {}), "started": self._t0, "status": "running", "host": _host(), "argv": sys.argv[:20], "pid": os.getpid()}
         self._write_meta()
         self._event("start", name=name, sim=sim, config=self.meta["config"], host=self.meta["host"], resumed=bool(resume))
+        if x_label or axes:
+            self.axes(axes, x=x_label)
         # The run's folder kept in the project's data place (Google Drive by default) as it goes: every few minutes
         # and at the end, so a runtime that ends loses minutes, not the run. Nothing when no data place is set.
         self._data_sync = None
@@ -358,6 +370,44 @@ class Run:
 
     # ------------------------------------------------------------- public --
 
+    def axes(self, names=None, y: str | None = None, x: str | None = None):
+        """What a chart's axes measure, so the Sim pane labels them and nobody has to guess what a line is.
+
+            run.axes(x="environment steps")                                  # the x axis of every chart in the run
+            run.axes("throughput/sps", y="env steps / s", x="batch size")    # one number's chart, both axes
+            run.axes({"loss": "loss", "return": "episode return"})           # many at once; a prefix labels its group
+            run.axes({"speedup": {"y": "x Python reference", "x": "batch size"}})
+
+        y says what the number measures, with its units; x what its step counts. When a chart's x is not the
+        training step (a batch size, a model size, a seed), pass that value as step= to run.log and name it here.
+        """
+        given: dict = {}
+        if isinstance(names, str):
+            given[names] = {"y": y, "x": None if x is None else x}
+            x_all = None
+        else:
+            for name, said in (names or {}).items():
+                given[str(name)] = {"y": said} if isinstance(said, str) else dict(said or {})
+            x_all = x
+        clean = {}
+        for name, said in given.items():
+            labels = {k: str(v).strip() for k, v in said.items() if k in ("x", "y") and v is not None and str(v).strip()}
+            if labels:
+                self._axes.setdefault(name, {}).update(labels)
+                clean[name] = labels
+        fields = {}
+        if x_all is not None and str(x_all).strip():
+            self._x_label = str(x_all).strip()
+            fields["x"] = self._x_label
+        if clean:
+            fields["axes"] = clean
+        if fields:
+            self.meta["axes"] = {"x": self._x_label, "axes": self._axes}
+            self._event("axes", step=self.step, **fields)
+
+    def _labelled(self, name: str) -> bool:
+        return bool(self._axes.get(name, {}).get("y") or ("/" in name and self._axes.get(name.split("/")[0], {}).get("y")))
+
     def log(self, values: dict | None = None, step: int | None = None, **more):
         """Numbers at a step: losses, rates, anything. Names with a slash group in the pane ("loss/policy")."""
         merged = dict(values or {})
@@ -368,6 +418,11 @@ class Run:
             return
         step = self._at(step)
         self._event("scalars", step=step, values=clean)
+        fresh = [k for k in clean if k not in self._unlabelled and not self._labelled(k)]
+        if fresh:
+            self._unlabelled.update(fresh)
+            print(f"[koios] no axis label for {', '.join(fresh[:6])}{' …' if len(fresh) > 6 else ''}: say what each measures, "
+                  f"run.axes({fresh[0]!r}, y=\"what it measures, with units\", x=\"what the step counts\")", flush=True)
         if self._rr is not None:
             try:
                 self._rr_time(step)
@@ -789,6 +844,11 @@ class Run:
         fields = {"status": status, "step": self.step, "episodes": self.episodes, "elapsed": round(time.time() - self._t0, 2)}
         if error:
             fields["error"] = error[-4000:]
+        bare = sorted(k for k in self._unlabelled if not self._labelled(k))
+        if bare:
+            text = f"charts with no axis labels: {', '.join(bare[:12])}{' …' if len(bare) > 12 else ''}. Label them with run.axes(name, y=..., x=...)."
+            self._event("note", step=self.step, text=text, by="koios", tag="axes")
+            print(f"[koios] {text}", flush=True)
         self._event("end", **fields)
         self.meta.update(status=status, ended=time.time())
         if error:
@@ -845,7 +905,7 @@ def read_run(directory: str) -> dict:
             meta = json.load(f)
     except Exception:
         pass
-    run = {"dir": directory, "meta": meta, "scalars": {}, "episodes": [], "media": [], "dreams": [], "notes": [], "checkpoints": [], "evaluations": [], "status": meta.get("status", "running"), "error": meta.get("error"), "first_t": None, "last_t": None, "step": 0, "sps": None}
+    run = {"dir": directory, "meta": meta, "scalars": {}, "episodes": [], "media": [], "dreams": [], "notes": [], "checkpoints": [], "evaluations": [], "axes": {}, "x_label": None, "status": meta.get("status", "running"), "error": meta.get("error"), "first_t": None, "last_t": None, "step": 0, "sps": None}
     try:
         with open(os.path.join(directory, "events.jsonl"), encoding="utf-8") as f:
             lines = f.readlines()
@@ -871,6 +931,13 @@ def read_run(directory: str) -> dict:
                 y = _value(v)
                 if y is not None:
                     run["scalars"].setdefault(k, []).append((e.get("step", 0), y))
+        elif kind == "axes":
+            if isinstance(e.get("x"), str) and e["x"].strip():
+                run["x_label"] = e["x"].strip()
+            for k, said in (e.get("axes") or {}).items():
+                said = {"y": said} if isinstance(said, str) else said if isinstance(said, dict) else {}
+                labels = {a: str(v).strip() for a, v in said.items() if a in ("x", "y") and isinstance(v, str) and v.strip()}
+                run["axes"].setdefault(k, {}).update(labels)
         elif kind == "episode":
             y = _value(e.get("return"))
             if y is not None:
@@ -995,6 +1062,11 @@ def diagnose(run: dict, now: float | None = None) -> list[dict]:
         means = [_mean([e for e in d["error"] if isinstance(e, (int, float))]) for d in dreams]
         if _mean(means[-2:]) >= 0.95 * _mean(means[:2]):
             add("dream-stuck", "warn", "The world model isn't getting better", f"Mean prediction error {_mean(means[:2]):.3g} in the first comparisons, {_mean(means[-2:]):.3g} in the last.", "Check the model sees enough varied data (exploration), its capacity, its learning rate, and that the decoder's loss isn't dominating the dynamics loss.")
+    axes = run.get("axes") or {}
+    bare = [k for k in run["scalars"] if not ((axes.get(k) or {}).get("y") or ("/" in k and (axes.get(k.split("/")[0]) or {}).get("y")))]
+    if bare:
+        what = ", ".join(bare[:4]) + (f" and {len(bare) - 4} more" if len(bare) > 4 else "")
+        add("unlabelled", "warn", "A chart has no axis labels" if len(bare) == 1 else f"{len(bare)} charts have no axis labels", f"Nothing says what {what} measure{'s' if len(bare) == 1 else ''}.", 'Label them in the code: run.axes("name", y="what it measures, with units", x="what the step counts") — or run.axes(x="env steps") once for the whole run.')
     if not run["episodes"] and not run["dreams"] and run["scalars"] and run["first_t"] and (run["last_t"] or now) - run["first_t"] > 300:
         add("no-episodes", "info", "No episodes logged", "The run logs numbers but no episode has been reported.", "Wrap the env with run.wrap(env) or call run.episode(return, length) when one ends, so returns can be judged.")
     return out

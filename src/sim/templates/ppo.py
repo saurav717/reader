@@ -135,6 +135,10 @@ def main():
         # container with a CPU quota it can be a hundred times slower. `python koios_telemetry.py doctor` measures it.
         torch.set_num_threads(int(os.environ.get("KOIOS_TORCH_THREADS", "1")))
     run = Run("ppo", config={**vars(args), "env": ENV_ID, "device": str(device)}, sim=f"{SIM}/{ENV_ID}")
+    # Every chart in the Sim pane is labelled: what its x counts, and what each number measures.
+    run.axes({"loss/policy": "clipped surrogate loss", "loss/value": "value loss (MSE)", "loss/approx_kl": "approx. KL to the old policy",
+              "loss/clipfrac": "fraction of ratios clipped", "entropy": "policy entropy (nats)", "explained_var": "explained variance of returns",
+              "grad_norm": "gradient norm (before clipping)", "lr": "learning rate", "sps": "env steps / s"}, x="environment steps")
     envs = gym.vector.SyncVectorEnv([thunk(i, args.gamma, args.seed) for i in range(args.num_envs)])
     agent = Agent(envs.single_observation_space, envs.single_action_space).to(device)
     optimizer = torch.optim.Adam(agent.parameters(), lr=args.lr, eps=1e-5)

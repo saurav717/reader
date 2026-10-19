@@ -411,8 +411,8 @@ run.finish()`}</pre>
         </ul>
       ) : null}
 
-      {returns.length ? <LineChart series={returns} title="Episode return" xLabel="step" marks={marks} /> : null}
-      {success.length ? <LineChart series={success} title="Success rate" xLabel="step" unit="%" marks={marks} /> : null}
+      {returns.length ? <LineChart series={returns} title="Episode return" xLabel={run?.xLabel ?? 'step'} yLabel="return" marks={marks} /> : null}
+      {success.length ? <LineChart series={success} title="Success rate" xLabel={run?.xLabel ?? 'step'} yLabel="episodes succeeding" unit="%" marks={marks} /> : null}
 
       {run?.live3d ? <Live3D folder={folder} run={run} server={server} live={status === 'running'} /> : null}
 
@@ -465,11 +465,11 @@ run.finish()`}</pre>
             <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter (loss, entropy…)" aria-label="Filter the numbers" spellCheck={false} />
           </div>
           {charts.map((chart) => (
-            <LineChart key={chart.title} series={chart.series} title={chart.title} xLabel="step" marks={marks} />
+            <LineChart key={chart.title} series={chart.series} title={chart.title} xLabel={chart.xLabel} yLabel={chart.yLabel} marks={marks} />
           ))}
         </section>
       ) : null}
-      {lengths.length ? <LineChart series={lengths} title="Episode length" xLabel="step" /> : null}
+      {lengths.length ? <LineChart series={lengths} title="Episode length" xLabel={run?.xLabel ?? 'step'} yLabel="steps per episode" /> : null}
 
       {run?.evaluations.length ? (
         <section className="sim-section-open sim-eval">

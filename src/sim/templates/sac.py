@@ -72,6 +72,9 @@ def main():
         # container with a CPU quota it can be a hundred times slower. `python koios_telemetry.py doctor` measures it.
         torch.set_num_threads(int(os.environ.get("KOIOS_TORCH_THREADS", "1")))
     run = Run("sac", config={**vars(args), "env": ENV_ID, "device": str(device)}, sim=f"{SIM}/{ENV_ID}", video_every=args.video_every)
+    # Every chart in the Sim pane is labelled: what its x counts, and what each number measures.
+    run.axes({"loss/q": "Q loss (MSE to the soft target)", "loss/policy": "policy loss", "alpha": "entropy temperature α",
+              "q_mean": "mean Q value", "entropy": "policy entropy (nats)"}, x="environment steps")
     env = make_env(render_mode="rgb_array")
     if isinstance(env.observation_space, gym.spaces.Dict):
         env = gym.wrappers.FlattenObservation(env)

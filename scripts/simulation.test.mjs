@@ -211,6 +211,51 @@ describe('reading a run', () => {
     assert.deepEqual(tele.scalarCharts(sb3).map((c) => c.series.map((s) => s.name)), [['train/value_loss'], ['train/learning_rate'], ['approx_kl', 'clip_fraction']]);
   });
 
+  it('labels each chart’s axes as the run says, and points out the ones it does not', () => {
+    const t0 = 1_700_000_000;
+    const text = [
+      line({ kind: 'axes', t: t0, step: 0, x: 'batch size', axes: { 'throughput/sps': { y: 'env steps / s' }, loss: 'loss' } }),
+      line({ kind: 'axes', t: t0, step: 0, axes: { speedup: { y: '× Python', x: 'seed' } } }),
+      events({ scalars: { 'throughput/sps': [1, 2], speedup: [3, 4], 'loss/policy': [1, 2], 'loss/value': [1, 2], batch: [512, 512] } }),
+    ].join('\n');
+    const run = tele.parseRun('r', {}, text);
+    const byTitle = Object.fromEntries(tele.scalarCharts(run).map((c) => [c.title, [c.yLabel, c.xLabel]]));
+    assert.deepEqual(byTitle['throughput/sps'], ['env steps / s', 'batch size']);
+    assert.deepEqual(byTitle.speedup, ['× Python', 'seed']);
+    assert.deepEqual(byTitle.loss, ['loss', 'batch size']);
+    assert.deepEqual(byTitle.batch, [undefined, 'batch size']);
+    assert.deepEqual(tele.unlabelled(run), ['batch']);
+    assert.ok(tele.diagnose(run, t0).some((f) => f.id === 'unlabelled' && /batch/.test(f.detail)));
+    // With nothing said, the x axis is the step, as before.
+    assert.equal(tele.scalarCharts(tele.parseRun('r', {}, events({ scalars: { loss: [1, 2] } })))[0].xLabel, 'step');
+  });
+
+  it('has the module label axes, warn about the numbers it was not told about, and agree with the pane', { skip: !python }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'koios-axes-'));
+    const out = py(
+      [
+        'import glob, json, koios_telemetry as k',
+        'r = k.Run("t", x_label="batch size", live3d=False)',
+        'r.axes("throughput/sps", y="env steps / s")',
+        'r.log({"throughput/sps": 1, "speedup": 2}, step=0)',
+        'r.axes({"loss": "loss"})',
+        'r.log({"loss/policy": 1}, step=1)',
+        'r.finish()',
+        'run = k.read_run(glob.glob("runs/*")[0])',
+        'print(json.dumps({"axes": run["axes"], "x": run["x_label"], "ids": [d["id"] for d in k.diagnose(run)]}))',
+      ].join('\n'),
+      dir,
+    );
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /\[koios\] no axis label for speedup/);
+    assert.match(out.stdout, /\[koios\] charts with no axis labels: speedup\./);
+    const said = JSON.parse(out.stdout.trim().split('\n').pop());
+    assert.deepEqual(said, { axes: { 'throughput/sps': { y: 'env steps / s' }, loss: { y: 'loss' } }, x: 'batch size', ids: ['unlabelled'] });
+    const runDir = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
+    const run = tele.parseRun(runDir, {}, readFileSync(join(runDir, 'events.jsonl'), 'utf8'));
+    assert.deepEqual(tele.unlabelled(run), ['speedup']);
+  });
+
   it('calls a quiet running run stalled', () => {
     assert.equal(tele.shownStatus('running', NOW - 500, NOW), 'stalled');
     assert.equal(tele.shownStatus('running', NOW - 5, NOW), 'running');
