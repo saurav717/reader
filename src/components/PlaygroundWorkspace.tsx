@@ -19,7 +19,7 @@ import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, Syn
 import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
-import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
+import { shellWord, AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
 import type { AgentOptions, AgentSpec } from '../lib/agents';
 import { ASSUMED_TOOLS, runPlan } from '../lib/languages';
 import type { MachineTools } from '../lib/languages';
@@ -770,7 +770,7 @@ const shortId = () => Math.random().toString(36).slice(2, 8);
  * buttons. The session lives on the machine, so closing the pane and opening
  * it again finds the same conversation; Start again begins a new one.
  */
-function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgroundId }: { server: JupyterServer | undefined; machineName: string; agents: { id: string; name: string }[]; asked: boolean; cwd: string; inFolder: (command: string) => string; playgroundId: string }) {
+function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgroundId, briefing, note, os }: { server: JupyterServer | undefined; machineName: string; agents: { id: string; name: string }[]; asked: boolean; cwd: string; inFolder: (command: string) => string; playgroundId: string; /** What Claude Code is told about where it is (its --append-system-prompt); other agents are told by the person. */ briefing?: string; /** A line over the pane saying where the agent works. */ note?: string; /** The computer's system, for how a word is quoted in its shell: PowerShell on Windows, a POSIX shell elsewhere. */ os?: 'mac' | 'linux' | 'windows' }) {
   const installed = new Set(agents.map((agent) => agent.id));
   // An agent the Companion found that the list doesn't name yet still shows, by its own name, with extra arguments only.
   const catalog: AgentSpec[] = [...AGENTS, ...agents.filter((agent) => !AGENTS.some((known) => known.id === agent.id)).map((agent) => ({ ...agent, install: '' }))];
@@ -787,7 +787,9 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
     setAllOptions(next);
     saveAgentOptions(next);
   };
-  const command = agentCommand(chosen, options);
+  // PowerShell takes a single-quoted word with the quotes inside doubled; a POSIX shell with '\''.
+  const quoted = (word: string) => (os === 'windows' ? `'${word.replace(/'/g, "''")}'` : shellWord(word));
+  const command = agentCommand(chosen, options) + (briefing && chosen.id === 'claude' ? ` --append-system-prompt ${quoted(briefing)}` : '');
   const isThere = installed.has(chosen.id);
   const running = session ? catalog.find((agent) => agent.id === session.agent) : undefined;
   // What a new session types, once its shell is open (queued until then by typeInTerminal).
@@ -844,6 +846,7 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
           ⚙
         </button>
       </div>
+      {note ? <p className="pg-note pg-agent-note">{note}</p> : null}
       {showOptions ? (
         <div className="pg-agent-options">
           {chosen.model ? (
@@ -1794,6 +1797,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** Before Claude Code or Codex works: what is on screen saved, and the folder copied to the machine when it is kept elsewhere. */
   const beforeAgentRun = async () => {
     await saveAll();
+    // The helpers on the machine before the agent starts, as before a console command: `python koios_telemetry.py use …` works from its shell.
+    if (connected && machines[0]) await ensureHelper(machines[0]).catch(() => undefined);
     return split ? push() : true;
   };
   /** After: what it changed on the machine brought home (when the folder is kept elsewhere), and the explorer and open files read again. */
@@ -1913,14 +1918,23 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     return <VsCodePane server={vscodeAt.server} folder={vscodeAt.folder} playground={playground} />;
   }
 
-  const cliAgents = Boolean(terminals && computeServer && isCompanion(computeServer));
+  // The files on a Companion of yours and the code elsewhere, linked: an agent can run in a terminal *by the files*,
+  // editing them where they are, and reach the compute with `koios run` — rather than on the machine's copy.
+  const agentsHere = Boolean(filesHere && linked);
+  const cliAgents = Boolean((terminals && computeServer && isCompanion(computeServer)) || agentsHere);
   const mode: AgentMode = agentMode === 'cli' && !cliAgents ? 'claude' : agentMode;
+  const copyNote = split ? `, on its copy of the folder; its edits come back to ${homeLabel} when it finishes` : '';
   const agentChoices: { id: AgentMode; label: string; mark: string; title: string }[] = [
-    { id: 'claude', label: 'Claude Code', mark: '✳', title: `Anthropic’s Claude Code, on ${machineName}, signed in to your account` },
-    { id: 'codex', label: 'Codex', mark: '◎', title: `OpenAI’s Codex, on ${machineName}, signed in to your account` },
+    { id: 'claude', label: 'Claude Code', mark: '✳', title: `Anthropic’s Claude Code, on ${machineName}${copyNote}, signed in to your account` },
+    { id: 'codex', label: 'Codex', mark: '◎', title: `OpenAI’s Codex, on ${machineName}${copyNote}, signed in to your account` },
     { id: 'reader', label: 'Koios AI', mark: '✦', title: 'The page’s own agent, answered by the model you pick in Settings → AI' },
-    ...(cliAgents ? [{ id: 'cli' as const, label: 'Terminal', mark: '$', title: `Any agent with a command line, in a terminal on ${machineName}` }] : []),
+    ...(cliAgents ? [{ id: 'cli' as const, label: agentsHere ? `On ${filesHere!.name}` : 'Terminal', mark: '$', title: agentsHere ? `Claude Code, Codex or any agent with a command line, in a terminal on ${filesHere!.name} by the files: it edits them where they are, and runs on ${machineName} with koios run` : `Any agent with a command line, in a terminal on ${machineName}` }] : []),
   ];
+  const homeFolder = agentsHere ? absoluteFolder(filesHere, homeRoot) : null;
+  const inHomeFolder = (command: string) => (homeFolder ? (homeTools.os === 'windows' ? `cd "${homeFolder}"; ${command}` : `cd '${homeFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command);
+  const hereBriefing = agentsHere
+    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.`
+    : undefined;
   const sideKey = mode === 'cli' ? 'agent' : 'side';
   const views: { id: Primary; label: string; icon: React.ReactNode; keys?: string; hidden?: boolean }[] = [
     { id: 'explorer', label: 'Explorer', icon: <FilesGlyph />, keys: 'mod+shift+e' },
@@ -2554,7 +2568,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   ))}
                 </div>
                 {mode === 'cli' ? (
-                  <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} />
+                  agentsHere ? (
+                    <AgentPane server={filesHere} machineName={filesHere!.name} agents={homeTools.agents} asked={asked} cwd={homeRoot} inFolder={inHomeFolder} playgroundId={playground.id} os={homeTools.os} briefing={hereBriefing} note={`By the files, on ${filesHere!.name}: the agent edits them where they are. Anything for ${machineName} — training, the GPU — it runs with koios run; results come back with koios pull. Claude Code is told this; tell another agent in your first message.`} />
+                  ) : (
+                    <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} os={machineTools.os} />
+                  )
                 ) : mode === 'claude' || mode === 'codex' ? (
                   <CliAgent
                     key={mode}

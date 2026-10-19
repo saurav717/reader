@@ -8628,6 +8628,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .xp-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .xp-toast { position: fixed; right: 16px; bottom: 16px; z-index: 40; max-width: 360px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow-sm); font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 6px; }
 .xp-toast b { color: var(--ink); }
+.pg-agent-note { margin: 0 12px 6px; font-size: 11.5px; }
 .xp-toast .xp-acts { gap: 6px; }
 .lb-empty p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
 

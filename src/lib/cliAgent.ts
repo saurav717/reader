@@ -56,7 +56,11 @@ def _ra_env(extra=None):
     e['PATH'] = os.pathsep.join([os.path.expanduser('~/.local/bin'), os.path.expanduser('~/.npm-global/bin'), '/usr/local/bin', e.get('PATH', '')])
     e.setdefault('TERM', 'dumb')
     e['NO_COLOR'] = '1'
-    e.update(extra or {})
+    extra = dict(extra or {})
+    # A PYTHONPATH given (the Koios helper path, for import koios_telemetry) goes in front of the machine's, not over it.
+    if extra.get('PYTHONPATH'):
+        e['PYTHONPATH'] = extra.pop('PYTHONPATH') + (os.pathsep + e['PYTHONPATH'] if e.get('PYTHONPATH') else '')
+    e.update(extra)
     return e
 def _ra_start(name, argv, cwd=None, env=None, stdin=False):
     log = os.path.join(_RA, name + '.log'); ex = os.path.join(_RA, name + '.exit')

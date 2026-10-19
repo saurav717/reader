@@ -4443,7 +4443,9 @@ Claude Code or Codex on the machine when asked, and kept with the record.
 [docs/simulation.md](docs/simulation.md) has the catalogue, the event format,
 and what was hard about each part and how it was handled;
 [docs/simulation-process.md](docs/simulation-process.md) how it was built,
-tested and reviewed.
+tested and reviewed; both, with the screenshots, are one PDF,
+[docs/simulation-process.pdf](docs/simulation-process.pdf)
+(`node scripts/simulation-pdf.mjs` prints it again).
 
 #### Open a file or folder
 

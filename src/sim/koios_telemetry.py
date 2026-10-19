@@ -1387,6 +1387,18 @@ def use(sim_id: str, env_id: str | None, folder: str = ".", force: bool = False)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         written.append(name)
+    # Run from the Koios helper path (.reader/pylib) rather than the folder: the module and the catalogue are
+    # copied in, so the project stands on its own — `python koios_telemetry.py …` and `import koios_telemetry`
+    # work from any shell, an agent's included, not only the console the page sets PYTHONPATH for.
+    here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else ""
+    if here and os.path.realpath(here) != os.path.realpath(folder):
+        import shutil as _shutil
+
+        for name in ("koios_telemetry.py", CATALOGUE_FILE):
+            source, target = os.path.join(here, name), os.path.join(folder, name)
+            if os.path.isfile(source) and not os.path.exists(target):
+                _shutil.copyfile(source, target)
+                written.append(name)
     needs = {"no": "any CPU", "helps": "faster on a GPU", "needs": "a GPU", "rtx": "an NVIDIA RTX GPU"}[sim["gpu"]] + (", Colab" if sim["colab"] else ", not Colab") + (", Linux" if sim.get("linux") else "")
     print(f"{sim['name']} · {env}: wrote {', '.join(written) or 'nothing new (--force to replace)'}. Needs {needs}. Run `bash setup.sh`, then `python koios_telemetry.py doctor`. Docs: {sim['docs']}")
     for caveat in sim.get("caveats") or []:
