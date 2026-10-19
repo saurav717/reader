@@ -225,11 +225,43 @@ the simulators through the agents. Built in this order:
    place is exercised only by the same code path's Jupyter twin; and no model key is available here, so the
    notes were not generated in this session.
 
+## 6.4 The paper, in the folder
+
+A screenshot after the merge showed Claude Code, on Colab, asked to implement a paper, fetching it from arXiv with
+its web tool: the project had given it a title, an abstract and a plan, and nothing else of the paper. Asked why,
+when the reader holds the PDF, the reflowed text, the Explain page and the plan — built in this order:
+
+1. Where the full text comes from, read first: the Ask window's `fullText` is read off the page's DOM
+   (`src/lib/screen.ts`), which exists only while the paper is on screen; the Playground has no such DOM. The
+   reader's own reflow of the PDF (`loadPaperContentFromPdf`) and arXiv's HTML (`loadPaperContent`) both give
+   HTML, so the folder's file is made by walking that HTML into Markdown (`src/lib/paperMarkdown.ts`) — the PDF
+   first, as the reader itself prefers, arXiv's rendering when there is no PDF, the abstract alone when neither
+   can be read, and the front matter says which.
+2. The gathering and the writing (`src/lib/paperContext.ts`): one fetch of the PDF — Drive first, the proxy
+   after, as the reader's own open does — serves both the text and `paper/paper.pdf`; the Explain page from the
+   reader's cache or Drive through `loadExplanation`; written where missing or changed, with a report of what
+   was written, kept and could not be had, and a line for the agent pane.
+3. The briefings, one line in one place (`PAPER_FILES_NOTE`): the plan file, `AGENTS.md`, the Claude Code and
+   Codex request and briefing, the agent by the files, and the page's own agent, which also gets the text in its
+   request (`ProjectView.paper.fullText`, read from the folder's own file so the two never differ).
+4. The workspace: the files put in place as a project with a cited paper opens, and awaited again before the
+   agent's first request and before Claude Code or Codex write the project, so no agent starts without them.
+
+What testing found: the first bundling of the prompt builder failed in Node — importing the gathering module
+pulled pdf.js and its Vite `?worker&url` worker import into `projectAgent.ts`'s test bundle. The names moved to
+a module of their own (`paperFiles.ts`) so the prompt builders import no reader machinery, and the test bundler
+(`scripts/bundle.mjs`) learned to answer a `?worker&url` import with an empty address, which also lets the
+gathering module load in Node with pdf.js external. The Markdown walk needs a DOM, so its test runs the bundled
+module in Chromium through Playwright (skipped, not failed, on a machine with no Chromium); the writing is tested
+against a folder in memory with the gathering stood in for — all written the first time, nothing fetched again
+the second, the explanation rewritten only when it changed, a text-only folder told so. `scripts/paper-context.test.mjs`,
+nine tests; the full suite otherwise unchanged.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```
 npx tsc -b && npm run typecheck:vscode
-node --test scripts/simulation.test.mjs scripts/experiments.test.mjs   # needs python3 for some
+node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs   # python3 for some, Chromium for one
 npm test                                         # expect only glass.test.mjs's 4 pre-existing failures
 npx vite build --outDir /tmp/build && grep -l "koios_telemetry: what a simulation run" /tmp/build/assets/*.js
 (cd companion && python -m unittest $(ls tests/test_*.py | sed 's#/#.#; s#\.py$##'))   # the Companion: 157 tests, its port proxy's included

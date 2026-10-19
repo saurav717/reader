@@ -17,6 +17,7 @@ import type { FileHost } from '../lib/playground';
 import { readMeta, writeMeta } from '../lib/playground';
 import FileIcon from './FileIcon';
 import { KOIOS_PYLIB } from '../lib/koiosHelper';
+import { PAPER_FILES_NOTE } from '../lib/paperFiles';
 
 // ------------------------------------------------------------ the store --
 
@@ -166,6 +167,7 @@ export default function CliAgent({
   beforeRun,
   afterRun,
   onOpen,
+  paper = false,
 }: {
   agent: CliAgentId;
   projectId: string;
@@ -181,6 +183,8 @@ export default function CliAgent({
   /** After it: its edits brought home, the explorer and the open files read again. */
   afterRun: () => void;
   onOpen: (path: string) => void;
+  /** Whether the project started from a paper: the paper's files in the folder are named in the briefing, and the agent told not to fetch it. */
+  paper?: boolean;
 }) {
   const spec = CLI_AGENTS[agent];
   const saved = useSyncExternalStore(subscribe, () => savedFor(projectId));
@@ -321,7 +325,7 @@ export default function CliAgent({
     const turn: CliTurn = { at: Date.now(), request: prompt, job, offset: 0, lines: [], done: false };
     setChat(projectId, agent, { ...chat, turns: [...chat.turns, turn].slice(-TURNS_KEPT) });
     try {
-      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). Read AGENTS.md when there is one.`;
+      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). Read AGENTS.md when there is one.${paper ? ` ${PAPER_FILES_NOTE}` : ''}`;
       // The Koios helpers (koios, koios_telemetry, the catalogue) on the agent's path too, as on the console's.
       const pylib = `${folder.replace(/\/$/, '')}/${KOIOS_PYLIB}`;
       await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context }), { cwd: folder, env: { ...env, KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);

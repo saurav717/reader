@@ -20,6 +20,7 @@ import type { FileHost } from './playground';
 import { readMeta, writeMeta } from './playground';
 import { newJobId, useServerJobs } from './agentJobs';
 import { replaying } from './replayFlag';
+import { EXPLANATION_FILE, PAPER_FILES_NOTE, PAPER_PDF_FILE, PAPER_TEXT_FILE } from './paperFiles';
 
 const MAX_TOKENS = 32000;
 /** How many times it may ask for files before it has to answer. */
@@ -29,6 +30,8 @@ const OUTPUT_MAX_CHARS = 3_000;
 const LISTED_MAX = 400;
 const TURNS_KEPT = 40;
 const PLAN_MAX_CHARS = 40_000;
+/** The paper's full text, as the project's paper/paper.md holds it: as much as the plan and the files leave room for. */
+const PAPER_TEXT_MAX_CHARS = 120_000;
 /** Room for a whole project in one answer; each model's own ceiling still applies. */
 export const PROJECT_MAX_TOKENS = 64000;
 
@@ -53,6 +56,7 @@ export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
     paper.plan?.trim()
       ? `## The plan\n\nDrawn up on the paper's Implementation page in Koios. Follow it; where it leaves a detail open, choose, and say in the README what you chose.\n\n${paper.plan.trim()}`
       : "## The plan\n\nNo plan was drawn up on the paper's Implementation page: work from the abstract above and AGENTS.md.",
+    `## The paper itself\n\n${PAPER_FILES_NOTE}`,
     "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md).",
   ]
     .filter(Boolean)
@@ -62,7 +66,7 @@ export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
 
 /** What Claude Code or Codex is asked, to write the project from that file: the agent's own request, worded for an agent that edits files itself. */
 export const cliWriteRequest = (hasPlan: boolean) =>
-  `Read ${PLAN_FILE} first: it holds the paper${hasPlan ? " and the reader's implementation plan for it — follow the plan" : ''}. ${WRITE_PROJECT.replace('Write every file it needs, whole, in this one answer: ', 'Write every file it needs: ').replace(/\s*Then suggest the commands to install and run it\.$/, '')} Install what requirements.txt lists and run main.py once at its smallest size to check it works, then say in a few sentences what you built and the commands to run it.`;
+  `Read ${PLAN_FILE} first: it holds the paper${hasPlan ? " and the reader's implementation plan for it — follow the plan" : ''}. The paper's full text is in ${PAPER_TEXT_FILE}, its explanation in ${EXPLANATION_FILE} and its PDF in ${PAPER_PDF_FILE} when the folder could take it: read them from the folder, and do not search the web or arXiv for the paper. ${WRITE_PROJECT.replace('Write every file it needs, whole, in this one answer: ', 'Write every file it needs: ').replace(/\s*Then suggest the commands to install and run it\.$/, '')} Install what requirements.txt lists and run main.py once at its smallest size to check it works, then say in a few sentences what you built and the commands to run it.`;
 
 /** The files an answer has begun to write so far, in order, each once its fence's line is whole: what a start shows as it streams. */
 export function filesInReply(text: string): string[] {
@@ -81,8 +85,10 @@ to write code, change it, fix what failed, explain it, or plan a run.
 
 Each request comes with the project as it stands: every file's path and size, the files open in the editor in
 full, the one in front of the reader marked, and the last commands run in the console with what they printed — and,
-when the project started from a paper, the paper's title and abstract: asked to implement it, write its method as a
-small, faithful implementation in modules of its own, a seeded experiment sized for the machine, and an evaluation.
+when the project started from a paper, the paper itself — its title, abstract, the reader's plan for it and its full
+text as the folder's paper/paper.md holds it: asked to implement it, write its method as a small, faithful
+implementation in modules of its own, a seeded experiment sized for the machine, and an evaluation. The paper is in
+hand: never ask the reader to fetch it, and never suggest searching the web for it.
 
 ANSWER FORMAT — the page acts on your answer, so keep to it exactly:
 - Write a file: a fenced block whose info string names it, holding the WHOLE new file, never a diff —
@@ -175,7 +181,7 @@ export interface ProjectView {
   /** The last commands, newest last, with what they printed. */
   console: { command: string; output: string; state: string }[];
   /** The paper the project cites, when it started from one: what "implement the paper" means. */
-  paper?: { title: string; authors?: string[]; published?: string; abstract?: string; plan?: string };
+  paper?: { title: string; authors?: string[]; published?: string; abstract?: string; plan?: string; /** The full text, from the folder's paper/paper.md, so the agent never has to go and find the paper. */ fullText?: string };
 }
 
 export function projectBlock(view: ProjectView): string {
@@ -192,7 +198,8 @@ export function projectBlock(view: ProjectView): string {
         'paper',
         [view.paper.title, view.paper.authors?.length ? `by ${view.paper.authors.slice(0, 6).join(', ')}` : '', view.paper.published ? `(${view.paper.published.slice(0, 4)})` : ''].filter(Boolean).join(' ') +
           (view.paper.abstract ? `\n\nAbstract: ${view.paper.abstract.replace(/\s+/g, ' ').trim()}` : '') +
-          (view.paper.plan ? `\n\nThe reader's implementation plan for it, from the paper's Implementation page:\n${clip(view.paper.plan, PLAN_MAX_CHARS)}` : ''),
+          (view.paper.plan ? `\n\nThe reader's implementation plan for it, from the paper's Implementation page:\n${clip(view.paper.plan, PLAN_MAX_CHARS)}` : '') +
+          (view.paper.fullText ? `\n\nThe paper's full text, from the folder's ${PAPER_TEXT_FILE} (the folder also holds ${EXPLANATION_FILE} and ${PAPER_PDF_FILE} when they could be written; ask to read them as any file). Work from this; never search for the paper elsewhere:\n${clip(view.paper.fullText, PAPER_TEXT_MAX_CHARS)}` : ''),
       )
     : '';
   return [paper, tag('where', view.where), tag('files', listing), tag('open_files', open), tag('console', runs)].filter(Boolean).join('\n\n');

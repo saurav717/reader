@@ -56,6 +56,7 @@ import { symbolPath, symbolsOf } from '../lib/editing';
 import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
+import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
@@ -1057,7 +1058,8 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
 
 function FilesView({ playground, connected, usable, machineName }: { playground: Playground; connected: boolean; usable: boolean; machineName: string }) {
   const colab = useColab();
-  const { papers } = useStore();
+  const { papers, settings: readerSettings } = useStore();
+  const driveOn = useDriveConnected();
   const servers = useServers();
   const split = !filesAreOnMachine(playground);
   // The hosts follow the servers' list, so an edited address is used at once.
@@ -1067,7 +1069,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   // The workbench, as VS Code lays it out: the activity bar's view in the side bar, the agent on the right, the panel below.
   const [primary, setPrimary] = useState<Primary>(() => readLocal<Primary>('reader.pgPrimary', 'explorer'));
   const [agentOpen, setAgentOpenState] = useState(() => readLocal('reader.pgAgent', true));
-  const [agentMode, setAgentMode] = useState<AgentMode>(() => readLocal<AgentMode>('reader.pgAgentMode', 'claude'));
+  // Unset until chosen: by the files when the agent can work there (the compute link up), else Claude Code on the machine.
+  const [agentMode, setAgentMode] = useState<AgentMode | 'unset'>(() => readLocal<AgentMode | 'unset'>('reader.pgAgentMode', 'unset'));
   const [rightTab, setRightTabState] = useState<RightTab>(() => readLocal<RightTab>('reader.pgRight', 'agent'));
   const setRightTab = (tab: RightTab) => (setRightTabState(tab), writeLocal('reader.pgRight', tab));
   /** The right-hand pane on a tab, or closed when that tab was already showing. */
@@ -1724,6 +1727,30 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (cited) void loadImplementation(cited.id);
   }, [cited?.id]);
   const paperPlan = useSyncExternalStore(subscribeImplement, () => (cited ? implementationFor(cited.id)?.content : undefined));
+  // The paper itself in the folder — paper/paper.md (its full text), paper/EXPLANATION.md, paper/paper.pdf — so every agent reads
+  // it there and none goes looking for it online. Once per project open, and again before an agent is asked anything.
+  const paperFiling = useRef<{ key: string; done: Promise<void> } | null>(null);
+  const [paperNote, setPaperNote] = useState<string | null>(null);
+  const ensurePaper = useCallback((): Promise<void> => {
+    if (!cited) return Promise.resolve();
+    const key = `${playground.id}:${cited.id}`;
+    if (paperFiling.current?.key === key) return paperFiling.current.done;
+    const done = ensurePaperContext(home, cited, { drive: { clientId: readerSettings.googleClientId, folderName: readerSettings.driveFolderName, connected: driveOn } })
+      .then((report) => {
+        if (report.wrote.length) setRefresh((n) => n + 1);
+        setPaperNote(report.missing.length ? paperContextSummary(report) : null);
+      })
+      .catch((error: unknown) => {
+        paperFiling.current = null;
+        setPaperNote(`The paper’s files couldn’t be put in the folder: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    paperFiling.current = { key, done };
+    return done;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cited?.id, home, playground.id, readerSettings.googleClientId, readerSettings.driveFolderName, driveOn]);
+  useEffect(() => {
+    if (cited) void ensurePaper();
+  }, [cited?.id, ensurePaper]);
   // A project from a paper starts with the model choosing and writing its files, until that is done or put aside.
   const startKey = `reader.pgStart:${playground.id}`;
   const [startState, setStartState] = useState(() => readLocal<'done' | 'dismissed' | null>(startKey, null));
@@ -1737,7 +1764,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** The project as the agent reads it: the folder's files, the ones open, the last commands and what they printed. */
   const agentView = async (): Promise<ProjectView> => ({
     where: `Files kept in ${homeLabel}; code runs on ${machineName}${split ? ', the folder copied there before each command' : ''}.`,
-    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: paperPlan } : undefined,
+    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: paperPlan, fullText: (await ensurePaper().then(() => home.read(PAPER_TEXT_FILE)).catch(() => null)) ?? undefined } : undefined,
     listing: await listAll(home),
     open: files.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, active: `${file.where}:${file.path}` === active, unsaved: file.text !== file.saved })),
     console: playground.console.slice(-4).map((entry) => {
@@ -1759,6 +1786,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** Claude Code or Codex writes the project: the paper and the plan put in the folder for it, and the request queued in its pane, sent once it is installed and signed in. */
   const writeWithCli = async (agent: 'claude' | 'codex') => {
     if (!cited) return;
+    await ensurePaper();
     const text = planMarkdown({ title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: paperPlan });
     try {
       const before = await home.read(PLAN_FILE).catch(() => null);
@@ -1797,6 +1825,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** Before Claude Code or Codex works: what is on screen saved, and the folder copied to the machine when it is kept elsewhere. */
   const beforeAgentRun = async () => {
     await saveAll();
+    // The paper's files in the folder before the agent reads it, so it never has to go and find the paper.
+    await ensurePaper();
     // The helpers on the machine before the agent starts, as before a console command: `python koios_telemetry.py use …` works from its shell.
     if (connected && machines[0]) await ensureHelper(machines[0]).catch(() => undefined);
     return split ? push() : true;
@@ -1922,7 +1952,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   // editing them where they are, and reach the compute with `koios run` — rather than on the machine's copy.
   const agentsHere = Boolean(filesHere && linked);
   const cliAgents = Boolean((terminals && computeServer && isCompanion(computeServer)) || agentsHere);
-  const mode: AgentMode = agentMode === 'cli' && !cliAgents ? 'claude' : agentMode;
+  const mode: AgentMode = agentMode === 'unset' ? (agentsHere ? 'cli' : 'claude') : agentMode === 'cli' && !cliAgents ? 'claude' : agentMode;
   const copyNote = split ? `, on its copy of the folder; its edits come back to ${homeLabel} when it finishes` : '';
   const agentChoices: { id: AgentMode; label: string; mark: string; title: string }[] = [
     { id: 'claude', label: 'Claude Code', mark: '✳', title: `Anthropic’s Claude Code, on ${machineName}${copyNote}, signed in to your account` },
@@ -1933,7 +1963,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const homeFolder = agentsHere ? absoluteFolder(filesHere, homeRoot) : null;
   const inHomeFolder = (command: string) => (homeFolder ? (homeTools.os === 'windows' ? `cd "${homeFolder}"; ${command}` : `cd '${homeFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command);
   const hereBriefing = agentsHere
-    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.`
+    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.${cited ? ` ${PAPER_FILES_NOTE}` : ''}`
     : undefined;
   const sideKey = mode === 'cli' ? 'agent' : 'side';
   const views: { id: Primary; label: string; icon: React.ReactNode; keys?: string; hidden?: boolean }[] = [
@@ -2288,7 +2318,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   />
                 ) : null}
                 <Tree version={refresh} host={home} label={homeLabel} icon={playground.home.kind === 'drive' ? <DriveMark size={12} /> : undefined} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} onContext={explorerMenu} />
-                {split ? <Tree version={refresh + (connected ? 1000 : 0)} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
+                {split ? (
+                  // The machine's copy is a working copy: the files go over before each run and the runtime's disk goes with the
+                  // runtime; what a run writes there (runs/, results/) is what comes back. Folded, so it doesn't read as a second set of files.
+                  <Tree version={refresh + (connected ? 1000 : 0)} host={machine} label={`Working copy on ${machineName}`} note={connected ? `Sent before each run, gone with the runtime. What runs write here — runs/, results/ — comes back to ${homeLabel}.` : 'Connect to see the working copy on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} collapsed />
+                ) : null}
               </div>
             ) : primary === 'search' ? (
               <SearchView host={home} onOpen={(path, line) => void open('home', path, { line })} />
@@ -2567,6 +2601,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     </button>
                   ))}
                 </div>
+                {paperNote ? <p className="pg-note pg-agent-note">{paperNote}</p> : null}
                 {mode === 'cli' ? (
                   agentsHere ? (
                     <AgentPane server={filesHere} machineName={filesHere!.name} agents={homeTools.agents} asked={asked} cwd={homeRoot} inFolder={inHomeFolder} playgroundId={playground.id} os={homeTools.os} briefing={hereBriefing} note={`By the files, on ${filesHere!.name}: the agent edits them where they are. Anything for ${machineName} — training, the GPU — it runs with koios run; results come back with koios pull. Claude Code is told this; tell another agent in your first message.`} />
@@ -2581,6 +2616,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     host={home}
                     machineName={machineName}
                     folder={machineRoot(playground)}
+                    paper={Boolean(cited)}
                     connected={connected}
                     onConnect={() => void connect().catch(() => undefined)}
                     beforeRun={beforeAgentRun}
@@ -2712,8 +2748,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   );
 }
 
-function Tree({ host, label, icon, note, disabled, onOpen, activePath, version = 0, onContext }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void }) {
-  const [open, setOpen] = useState(true);
+function Tree({ host, label, icon, note, disabled, onOpen, activePath, version = 0, onContext, collapsed = false }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void; /** Folded when first shown: a working copy, not the files themselves. */ collapsed?: boolean }) {
+  const [open, setOpen] = useState(!collapsed);
   return (
     <div className="pg-tree-part">
       <button type="button" className={`pg-tree-head vs-section${open ? ' is-open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>

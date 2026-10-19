@@ -41,7 +41,8 @@ what is worked around and what is still open.
 | The picker | `src/components/SimPicker.tsx` | **A simulation** on the Playground's home: filter by family, "Dexterous hands", "Runs on Colab", search; pick an environment and a template. |
 | The Sim pane | `src/components/SimPane.tsx`, `src/lib/simTelemetry.ts` | The right-hand pane's **Sim** tab: run picker, status, findings, return and success charts, videos, dreams, grouped numbers with notes as dashed marks, timeline, traceback, config, checkpoints, and the machine's doctor. |
 | Sync fix | `src/lib/playground.ts` (`isBinaryPath`) | The sync carries text; binary files (videos, images, weights) are now left where they are instead of being copied as broken text. |
-| Tests | `scripts/simulation.test.mjs` | Catalogue integrity, every generated `.py` parses, parsing and diagnostics, and the Python module run for real: its events read by the pane's parser, its findings equal to the pane's. |
+| The paper in the folder | `src/lib/paperContext.ts`, `paperMarkdown.ts`, `paperFiles.ts` | A project from a paper carries the paper: `paper/paper.md` (its full text, from the reader's own reflow of the PDF, else arXiv's HTML), `paper/EXPLANATION.md`, `paper/paper.pdf`, `IMPLEMENTATION_PLAN.md`. Every agent is told to read it there, never to fetch it. |
+| Tests | `scripts/simulation.test.mjs`, `scripts/paper-context.test.mjs` | Catalogue integrity, every generated `.py` parses, parsing and diagnostics, and the Python module run for real: its events read by the pane's parser, its findings equal to the pane's. |
 
 ### The simulators
 
@@ -269,6 +270,37 @@ editing them where they are and running on the compute with `koios run` (docs/co
 (the one Playwright drives, some Linux packages) ship without H.264: found when screenshotting the pane, where
 the player loaded the video but stayed at 0:00. `KOIOS_VIDEO=gif` makes the module write GIFs instead, which every
 browser plays, at a larger size.
+
+### 18. The agents went looking for the paper online
+*Fixed.* A project from a paper used to give the agents the title, the abstract and the plan — enough that Claude
+Code on Colab, asked to implement the paper, went and fetched it from arXiv with its web tool. The reader already
+had everything: the PDF (in Drive or through the proxy), the text it reflows from the PDF for its own Reflow view,
+the Explain page and the Implementation page. So a project that starts from a paper, or opens with one cited, now
+puts the paper in its folder (`src/lib/paperContext.ts`):
+
+```
+paper/paper.md            the full text — front matter (title, authors, arXiv id, where the text came from), the
+                          abstract, then the reflow as Markdown: headings, paragraphs, lists, tables, captions,
+                          maths as TeX (src/lib/paperMarkdown.ts walks the reader's own HTML)
+paper/EXPLANATION.md      the Explain page, as the file the reader keeps in Drive
+paper/paper.pdf           the PDF, where the folder can hold a binary file (Drive, a server, a kernel; not a
+                          browser-kept folder, and the sync to the compute carries text only)
+IMPLEMENTATION_PLAN.md    the plan, as before
+```
+
+The text and the PDF are gathered once, when the folder lacks them (one fetch of the PDF serves both); the
+explanation is read from the reader's cache each time and rewritten only when it changed, and the full text is
+compared without its date so it is never written twice for nothing. The files are put there as the project opens
+and again before any agent is asked anything, so an agent never starts before them. Then every briefing says the
+same line (`PAPER_FILES_NOTE` in `src/lib/paperFiles.ts`): the plan file, `AGENTS.md`, Claude Code's and Codex's
+`--append-system-prompt`, the agent by the files, and the page's own agent, which also gets the text itself in
+each request (120k characters of it, after the plan) — *read these; they are the paper; do not search the web
+for it or fetch it from arXiv*. What could not be had is said in the agent pane (no Explain page yet; a folder
+that cannot hold the PDF; only the abstract when neither the PDF nor an HTML rendering could be read), and the
+file written says it too, in its front matter. The modules the briefings import name the files only
+(`paperFiles.ts`), so the agent's prompt builder pulls in none of the reader's PDF machinery; the test bundler
+learned Vite's `?worker&url` imports on the way, so the gathering module can be tested in Node, and the
+HTML-to-Markdown walk is tested in Chromium, where a DOM is.
 
 ---
 
