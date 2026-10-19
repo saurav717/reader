@@ -423,7 +423,17 @@ curl -s -X POST https://api.koios.dev/moves/start -H 'Origin: https://koios.dev'
 ```
 
 `{"error":"which move?"}` means it is set up. `{"error":"moves need an R2 bucket…","setup":true}` means the bucket
-or the Durable Object isn't bound yet.
+or the Durable Object isn't bound yet. A sign-in error (`"token":true`) means `$READER_TOKEN` is empty in that
+terminal, not that anything is wrong.
+
+Or, with no token at all, ask as a machine would:
+
+```sh
+curl -s "https://api.koios.dev/moves/token?id=00000000000000000000000000000000" -H 'X-Move-Key: test'
+```
+
+`{"error":"no such move — it ended more than a week ago, or never started"}` means the Worker, the move object and
+the routes are all live.
 
 **4. Update the Companion on each computer to 0.16.0.** That's the version whose mover handles moves (and moving back over an old copy, section 7). The site's build
 publishes the new wheel. Then, in **Settings → Updates**, each paired computer shows **Update**: the Companion
@@ -471,7 +481,10 @@ Nothing is needed on Colab or on a plain Jupyter server: the page sends the move
 | *Waiting for your Google sign-in to be renewed* | A Drive move ran past the token's hour with no page open. | Open the project; the page hands on a fresh token and the move continues. |
 | *It stopped: N file(s) didn't arrive whole* | A file arrived with the wrong size or SHA-256. | **Dismiss** and move again. The old copy wasn't touched. |
 | *It stopped: …* anything else | The machine's own error message. Its full log is in `~/.reader-agent/move-<id>.log` on that machine. | Fix what it says (disk full, folder not writable), then move again. |
-| **moves need an R2 bucket** | The Worker isn't set up. | Section 9. |
+| **moves need an R2 bucket** | The Worker isn't set up. | Section 11. |
+| Files named `… (conflict 2026-10-19).…` after a move | The project came back to a place with an older copy, and those files had changed in both places (section 7). The newer version is in place; the conflict copy is the version that was there. | Compare the two in the editor, keep what you want, then delete the conflict copy. |
+| *Its old copy is deleted as soon as … can be reached* | You ticked **Delete the copy … after the move**, and the old place was off (a computer) or not connected (Colab's disk). | Turn the computer on or connect Colab, and open the project: it goes then. Or **Delete it now**, or **Keep it instead**. |
+| *The old place and the new one are the same folder* | Deleting the old copy was refused because it would delete the files the project now uses. | Nothing to do: there is no separate old copy. |
 
 A failed or cancelled move never changes the project: its home stays where it was until a move reports `done`.
 
@@ -480,6 +493,11 @@ A failed or cancelled move never changes the project: its home stays where it wa
 - **One move at a time per project.** While a move is under way, the other rows' **Move files here** buttons are
   off.
 - **Edits made during a move stay in the old place.** Save before moving, or redo the edits after.
+- **Conflict copies are yours to tidy.** A move back over an old copy never deletes your work: what changed in both
+  places is kept as `name (conflict <date>).ext` beside the newer file, until you delete it.
+- **The record of an old copy** (`.reader/moved-away.json`) is only kept in a place the project left, and only until
+  the project comes back to it. A copy made by hand (outside a move) has no record, so anything in it that differs is
+  kept as a conflict copy.
 - **Caches aren't moved.** `__pycache__`, `.ipynb_checkpoints`, `.venv`/`venv`, `node_modules` and `.cache` are rebuilt
   rather than copied. Everything else moves, `.git` and `.reader/` (the agent's conversations) included.
 - **Google Docs, Sheets and Slides** in a project's Drive folder aren't Drive files with bytes, so a pull skips them.
@@ -498,7 +516,7 @@ A failed or cancelled move never changes the project: its home stays where it wa
 | `src/lib/moverScript.ts` | `mover.py` as text (Vite's `?raw`), for machines without the Companion. |
 | `src/components/StoragePanel.tsx` | The panel, `useMove` (following a move), and the progress strip. |
 | `worker/moves.js` | `ProjectMove`, `handleMoves` (the routes), `tellDestination`. |
-| `companion/reader_companion/mover.py` | The mover: `pack`, `unpack`, `drive_pull`, `drive_push`, `remove`, `prepare`, `start_detached`. |
+| `companion/reader_companion/mover.py` | The mover: `pack`, `unpack`, `drive_pull`, `drive_push`, `remove`, `prepare`, `start_detached`; for an old copy, `decide` (the three-way rule), `Arrival` (applying it on a machine), `leave_record` (`.reader/moved-away.json`). |
 | `companion/reader_companion/extension.py` | `MoveHandler`: `GET`/`POST companion/move`. |
 
 The Worker's routes:
