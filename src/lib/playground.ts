@@ -23,7 +23,7 @@
 import { useSyncExternalStore } from 'react';
 import { db } from './db';
 import type { Backend, JupyterServer, Machine, RuntimeEntry } from './colab';
-import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, runQuietly } from './colab';
+import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell, notebookFor, subscribeNotebook } from './notebook';
 import type { CellType } from './notebook';
@@ -115,7 +115,7 @@ export interface Playground {
   /** A first command for the console, waiting for a click — a repository's clone. */
   pending?: string;
   /** How it started, for the home's list. */
-  start: 'blank' | 'paper' | 'repo' | 'model' | 'file' | 'copy';
+  start: 'blank' | 'paper' | 'repo' | 'model' | 'file' | 'copy' | 'sim';
   /** The notebook's cells as text (no outputs), so it opens in another browser: kept in Drive with the rest. */
   cells?: { type: CellType; source: string }[];
   /** The last read-only copy of its code in Drive, taken by the computer that has it (src/lib/away.ts). */
@@ -471,6 +471,8 @@ let syncAgain = false;
 export const playgroundsWhere = () => where;
 /** Whether Drive can keep a project's files now: signed in, with Drive connected. */
 export const driveConnected = () => Boolean(drive);
+/** Drive as the playgrounds are configured for it, for a host elsewhere under the Koios folder (src/lib/experimentFiling.ts). */
+export const driveConfigNow = () => drive;
 export const useDriveConnected = () => useSyncExternalStore(subscribePlaygrounds, driveConnected);
 export const usePlaygroundsWhere = () => useSyncExternalStore(subscribePlaygrounds, playgroundsWhere);
 
@@ -750,7 +752,7 @@ export function paperFiles(title: string, paper: Cite & { abstract?: string; aut
   const cite = [`**${paper.title}**`, authors, year].filter(Boolean).join(' — ') + (link ? `\n${link}` : '');
   return {
     'README.md': `# ${title}\n\nAn implementation of\n\n${cite}\n${abstract ? `\n## Abstract\n\n> ${abstract}\n` : ''}\n## Layout\n\n- \`main.py\` — the entry point: checks the machine, then runs the experiment.\n- \`AGENTS.md\` — what a coding agent is told about this project.\n\nAsk the agent on the right to write the method, a training loop and an evaluation; run them from the console below.\n`,
-    'AGENTS.md': `# ${title}\n\nThis project reproduces the method of the paper ${cite.replace(/\n/, ' — ')}.\n${abstract ? `\nAbstract:\n\n> ${abstract}\n` : ''}\nWhen asked to implement it: write the method as a small, faithful implementation in its own module, a seeded\nexperiment sized for the machine it runs on (use the GPU when torch.cuda.is_available(), else a smaller size on the\nCPU), and an evaluation that prints the paper's headline metric. Cite the paper's equation numbers in comments, say\nin the README where a detail the paper leaves out was chosen, and keep \`python main.py\` as the way to run it.\n`,
+    'AGENTS.md': `# ${title}\n\nThis project reproduces the method of the paper ${cite.replace(/\n/, ' — ')}.\n${abstract ? `\nAbstract:\n\n> ${abstract}\n` : ''}\nWhen asked to implement it: write the method as a small, faithful implementation in its own module, a seeded\nexperiment sized for the machine it runs on (use the GPU when torch.cuda.is_available(), else a smaller size on the\nCPU), and an evaluation that prints the paper's headline metric. Cite the paper's equation numbers in comments, say\nin the README where a detail the paper leaves out was chosen, and keep \`python main.py\` as the way to run it.\n\n## If the paper's experiments run in a simulator\n\nReinforcement learning, robotics, games, world models: the project carries Koios's simulation toolkit.\n\`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, Gymnasium-Robotics hands,\nAtari, Brax, Isaac Lab, …) with what each needs; \`python koios_telemetry.py use <simulator> [env]\` writes env.py\n(make_env) and setup.sh for one, matching the paper's environments as closely as the catalogue allows, and says\nwhen a GPU or a machine other than Colab is needed. Then log every run through koios_telemetry.Run (read the\nmodule's docstring): episodes, numbers, videos, world-model dreams, a note for every change with its reason. The\nSim pane draws the runs as they go; each run is filed as an experiment in the project's logbook when it ends, with\nnotes. Keep the paper's reported numbers in the README so the runs can be judged against them.\n`,
     'CLAUDE.md': '@AGENTS.md\n',
     'main.py': `"""${paper.title.replace(/"""/g, "'''")}: the entry point."""\n\nimport torch\n\n\ndef main():\n    device = "cuda" if torch.cuda.is_available() else "cpu"\n    print("torch", torch.__version__, "· device", device)\n    torch.manual_seed(0)\n    # TODO: the method, a training loop and an evaluation — ask the agent, or see AGENTS.md\n\n\nif __name__ == "__main__":\n    main()\n`,
   };
@@ -813,6 +815,8 @@ export interface FileHost {
   rename?(from: string, to: string): Promise<void>;
   /** An empty folder made, where the host can. */
   mkdir?(path: string): Promise<void>;
+  /** A file of any kind from base64 (a video, a checkpoint), where the host can: Drive, a Jupyter server, a kernel. */
+  writeBase64?(path: string, base64: string): Promise<void>;
 }
 
 const joinPath = (...parts: string[]) => parts.filter(Boolean).join('/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
@@ -942,6 +946,9 @@ export function serverHost(server: JupyterServer, root: string): FileHost {
     async write(path, text) {
       await jupyterWrite(server, under(path), text);
     },
+    async writeBase64(path, base64) {
+      await jupyterWriteBase64(server, under(path), base64);
+    },
     async remove(path) {
       await jupyterDelete(server, under(path));
     },
@@ -1000,6 +1007,9 @@ export function kernelHost(label: string, root: string, scope?: string): FileHos
     },
     async write(path, text) {
       const data = base64Of(new TextEncoder().encode(text));
+      await run(`import os, base64\np = os.path.join(${py(root)}, ${py(path)})\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\nopen(p, 'wb').write(base64.b64decode(${py(data)}))\nprint('ok')`);
+    },
+    async writeBase64(path, data) {
       await run(`import os, base64\np = os.path.join(${py(root)}, ${py(path)})\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\nopen(p, 'wb').write(base64.b64decode(${py(data)}))\nprint('ok')`);
     },
     async remove(path) {
@@ -1144,6 +1154,15 @@ export async function walk(host: FileHost, skip: (path: string, dir: boolean) =>
 /** Bigger than this, a file is left where it is: the page carries text, not checkpoints. */
 export const SYNC_LIMIT = 2_000_000;
 
+/**
+ * Files the sync leaves where they are because it carries text: a video, an
+ * image or a checkpoint read as text and written back is no longer the file
+ * it was. A run's videos stay on the machine, where the Sim pane fetches them
+ * byte for byte (src/lib/simTelemetry.ts, readMedia).
+ */
+const BINARY = /\.(mp4|webm|gif|png|jpe?g|webp|bmp|tiff?|npz|npy|pt|pth|ckpt|safetensors|bin|h5|hdf5|pkl|pickle|zip|tar|gz|tgz|xz|7z|so|dylib|dll|exe|whl|mp3|wav|ogg|pdf|glb|onnx|parquet|arrow)$/i;
+export const isBinaryPath = (path: string) => BINARY.test(path);
+
 export interface SyncReport {
   sent: string[];
   skipped: string[];
@@ -1160,7 +1179,7 @@ export async function pushFolder(playground: Playground, machine: FileHost): Pro
   const files = await walk(home, (path) => matchesAny(playground.sync.ignore, path));
   const report: SyncReport = { sent: [], skipped: [], back: [] };
   for (const file of files) {
-    if (file.size !== null && file.size > SYNC_LIMIT) {
+    if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
     }
@@ -1179,7 +1198,7 @@ export async function pullBack(playground: Playground, machine: FileHost): Promi
   const files = await walk(machine, (path, dir) => matchesAny(playground.sync.ignore, path) && !matchesAny(playground.sync.bringBack, path) && dir);
   for (const file of files) {
     if (!matchesAny(playground.sync.bringBack, file.path)) continue;
-    if (file.size !== null && file.size > SYNC_LIMIT) {
+    if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
     }
@@ -1205,7 +1224,7 @@ export async function pullEdits(playground: Playground, machine: FileHost): Prom
   const report: SyncReport = { sent: [], skipped: [], back: [] };
   const files = await walk(machine, (path) => matchesAny(playground.sync.ignore, path));
   for (const file of files) {
-    if (file.size !== null && file.size > SYNC_LIMIT) {
+    if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
     }

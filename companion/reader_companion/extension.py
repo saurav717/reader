@@ -49,6 +49,11 @@ browser (`code serve-web`, tools.VsCodeWeb) and says where it is, a path with a
 secret in it that /companion/vscode/<secret>/… proxies (VsCodeProxy), adding
 the connection token, for the page's VS Code pane.
 
+/companion/ports/<ticket>/<port>/… (from 0.18.0) is a port on this computer
+reached from the page, for the Sim pane's Live 3D: a run's Rerun viewer and
+the scene it streams (PortProxy). The ticket is port_ticket() of the port with
+the token; answers stream as they come, websockets are relayed.
+
 /companion/link is for this computer's own programs, not the page: given the
 token, it hands out a pairing link with a fresh code. `reader-companion setup`
 and `reader-companion pair` open it, for a Companion running in the background.
@@ -542,6 +547,149 @@ class VsCodeProxy(websocket.WebSocketHandler):
             self.upstream = None
 
 
+def port_ticket(token: str, port: int) -> str:
+    """The credential in a /companion/ports/ path: HMAC-SHA256 of the port with the Companion's token, so a page
+    with the token can make it and a page without one can't guess it. The page makes the same (src/lib/companion.ts,
+    portTicket); a test holds the two to one answer."""
+    import hashlib
+
+    return hmac.new(token.encode(), f"ports:{int(port)}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+class PortProxy(websocket.WebSocketHandler):
+    """/companion/ports/<ticket>/<port>/…: a port on this computer, reached from the page — a Rerun viewer and its
+    gRPC stream for the Sim pane's Live 3D, TensorBoard, anything a run serves on 127.0.0.1.
+
+    The ticket in the path is the credential (an iframe carries no Authorization header): port_ticket() of the port
+    with the token, which only a paired page has. Answers are passed on as they come, chunk by chunk — Rerun's
+    viewer reads its stream through one long-lived gRPC-web request, so an answer held until the end (as the VS
+    Code proxy may) would never show a frame — and websockets are relayed both ways. Only the reader's site may
+    frame what comes back; the site's origin may also ask across origins, for the page's probe of the port.
+    """
+
+    upstream = None
+    _status_sent = False
+
+    def check_xsrf_cookie(self):
+        return
+
+    def check_origin(self, origin):
+        if not state.current:
+            return False
+        if origin == state.current.origin:
+            return True
+        scheme, _, host = origin.partition("://")
+        return scheme in ("http", "https") and host.lower() == self.request.host.lower()
+
+    def set_default_headers(self):
+        companion = state.current
+        origin = self.request.headers.get("Origin")
+        if companion and origin == companion.origin:
+            self.set_header("Access-Control-Allow-Origin", origin)
+            self.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Grpc-Web, X-User-Agent")
+            self.set_header("Access-Control-Allow-Private-Network", "true")
+            self.set_header("Vary", "Origin")
+
+    @staticmethod
+    def allowed(ticket: str, port: str) -> bool:
+        companion = state.current
+        return bool(companion) and port.isdigit() and 0 < int(port) < 65536 and hmac.compare_digest(ticket, port_ticket(companion.token, int(port)))
+
+    def target(self, port: str, rest: str, scheme: str = "http") -> str:
+        query = f"?{self.request.query}" if self.request.query else ""
+        return f"{scheme}://127.0.0.1:{int(port)}/{rest}{query}"
+
+    def upstream_headers(self) -> dict:
+        headers = {name: value for name, value in self.request.headers.get_all() if name.lower() not in HOP and not name.lower().startswith("sec-websocket")}
+        headers["Host"] = f"127.0.0.1:{self.path_kwargs.get('port') or self.path_args[1]}"
+        return headers
+
+    async def options(self, ticket, port, rest=""):
+        self.set_status(204 if self.allowed(ticket, port) else 404)
+        self.finish()
+
+    async def get(self, ticket, port, rest=""):
+        if not self.allowed(ticket, port):
+            self.set_status(404)
+            return self.finish("Not found")
+        if self.request.headers.get("Upgrade", "").lower() == "websocket":
+            request = httpclient.HTTPRequest(self.target(port, rest, "ws"), headers=self.upstream_headers())
+            try:
+                self.upstream = await websocket.websocket_connect(request, on_message_callback=self.from_upstream, max_message_size=256 * 1024 * 1024)
+            except Exception:
+                self.set_status(502)
+                return self.finish(f"Nothing answers on port {port}")
+            return await super().get(ticket, port, rest)
+        await self.relay(ticket, port, rest)
+
+    async def relay(self, ticket, port, rest=""):
+        if not self.allowed(ticket, port):
+            self.set_status(404)
+            return self.finish("Not found")
+        body = self.request.body if self.request.method in ("POST", "PUT", "PATCH", "DELETE") else None
+        self._status_sent = False
+
+        def on_header(line: str):
+            line = line.rstrip("\r\n")
+            if line.startswith("HTTP/"):
+                parts = line.split(" ", 2)
+                self.set_status(int(parts[1]), parts[2] if len(parts) > 2 else None)
+                self._headers.clear()
+                self.set_default_headers()
+                self.set_header("Content-Security-Policy", f"frame-ancestors 'self' {state.current.origin if state.current else ''}".strip())
+                self.set_header("Cache-Control", "no-store")
+                return
+            name, sep, value = line.partition(":")
+            if not sep:
+                return
+            lower = name.strip().lower()
+            if lower in HOP or lower in ("x-frame-options", "set-cookie", "content-security-policy", "access-control-allow-origin", "cache-control"):
+                return
+            self.add_header(name.strip(), value.strip())
+
+        def on_chunk(data: bytes):
+            if not self._status_sent:
+                self._status_sent = True
+            self.write(data)
+            self.flush()
+
+        request = httpclient.HTTPRequest(
+            self.target(port, rest), method=self.request.method, headers=self.upstream_headers(), body=body,
+            follow_redirects=False, decompress_response=False, request_timeout=0, connect_timeout=10,
+            allow_nonstandard_methods=True, header_callback=on_header, streaming_callback=on_chunk,
+        )
+        try:
+            await httpclient.AsyncHTTPClient().fetch(request, raise_error=False)
+        except Exception as error:  # refused, reset: nothing answers there
+            if self._status_sent:
+                return self.finish()
+            self.set_status(502)
+            return self.finish(f"Nothing answers on port {port}: {type(error).__name__}")
+        self.finish()
+
+    post = put = patch = delete = head = relay
+
+    def on_message(self, message):
+        if self.upstream:
+            self.upstream.write_message(message, binary=isinstance(message, bytes))
+
+    def from_upstream(self, message):
+        if message is None:
+            if self.ws_connection:
+                self.close()
+            return
+        try:
+            self.write_message(message, binary=isinstance(message, bytes))
+        except websocket.WebSocketClosedError:
+            pass
+
+    def on_close(self):
+        if self.upstream:
+            self.upstream.close()
+            self.upstream = None
+
+
 async def shut_down(serverapp, why: str) -> None:
     """Off, and kept off (at the next login too) until started on purpose: the Reader app, reader-companion start, the page's Start."""
     state.set_off(True)
@@ -952,5 +1100,6 @@ def load(serverapp):
             (url_path_join(base, "companion/terminals"), TerminalsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),
             (url_path_join(base, r"companion/vscode/([^/]+)/?(.*)"), VsCodeProxy),
+            (url_path_join(base, r"companion/ports/([0-9a-f]+)/(\d+)/?(.*)"), PortProxy),
         ],
     )

@@ -42,6 +42,10 @@ import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
 import CliAgent, { queueCliRequest } from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
+import SimPane from './SimPane';
+import ExperimentFiler from './ExperimentFiler';
+import { CATALOGUE_FILE, KOIOS_TELEMETRY_PY, TELEMETRY_FILE } from '../lib/simProject';
+import { catalogueJson } from '../lib/simulators';
 import KernelTerminal, { closeKernelTerminal } from './KernelTerminal';
 import MachinePool, { MachineMark, isConnected, sessionOf, useSessions } from './MachinePool';
 import CodeEditor from './CodeEditor';
@@ -62,12 +66,13 @@ type Tab = 'notebook' | 'files';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
 type Primary = 'explorer' | 'search' | 'outline' | 'sync' | null;
 /** The right-hand pane's tabs: the agent, and the machine's numbers as a run goes. */
-type RightTab = 'agent' | 'runtime' | 'metrics' | 'tensorboard';
+type RightTab = 'agent' | 'runtime' | 'metrics' | 'tensorboard' | 'sim';
 const RIGHT_TABS: { id: RightTab; label: string; title: string }[] = [
   { id: 'agent', label: 'Agent', title: 'Claude Code, Codex, or the page’s own agent' },
   { id: 'runtime', label: 'Runtime', title: 'The machine: GPU, memory, disk, live' },
   { id: 'metrics', label: 'Metrics', title: 'The numbers the runs print: loss, accuracy' },
   { id: 'tensorboard', label: 'TensorBoard', title: 'The scalars your runs log for TensorBoard' },
+  { id: 'sim', label: 'Sim', title: 'Simulation runs: episodes, videos, world-model dreams, notes, what looks wrong' },
 ];
 /** Which agent the pane shows: Claude Code or Codex on the machine, the page's own, or the terminal agents of a Companion. */
 type AgentMode = 'claude' | 'codex' | 'reader' | 'cli';
@@ -141,6 +146,13 @@ const TbGlyph = () => (
   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 20h18M4 16l4.5-6 4 3.5L20 5" />
     <circle cx="20" cy="5" r="1.2" fill="currentColor" />
+  </svg>
+);
+const SimGlyph = () => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="13" rx="2" />
+    <circle cx="9" cy="10.5" r="2.2" />
+    <path d="M13 13.5l2.5-3 3 4M8 21h8" />
   </svg>
 );
 const GaugeGlyph = () => (
@@ -1581,6 +1593,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (helperOn.current.has(m.scope)) return;
     const host = m.member === null ? machine : machineHostFor(playground, m);
     await host.write(KOIOS_HELPER_PATH, KOIOS_PY);
+    // The simulation telemetry beside it, so `import koios_telemetry` works in any project's commands (src/sim/).
+    await host.write(`${KOIOS_PYLIB}/${TELEMETRY_FILE}`, KOIOS_TELEMETRY_PY);
+    await host.write(`${KOIOS_PYLIB}/${CATALOGUE_FILE}`, catalogueJson());
     helperOn.current.add(m.scope);
   };
   /** One command on one machine of the project: its own kernel connected if need be, the folder copied over when it is kept elsewhere, the command run there, results brought back. */
@@ -1823,6 +1838,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     { id: 'agent', label: 'View: Toggle Agent', keys: 'ctrl+alt+i', run: () => toggleRight('agent') },
     { id: 'runtimePane', label: 'View: Show Runtime', run: () => (setRightTab('runtime'), setAgentOpen(true)) },
     { id: 'metricsPane', label: 'View: Show Metrics', run: () => (setRightTab('metrics'), setAgentOpen(true)) },
+    { id: 'simPane', label: 'View: Show Simulation Runs', run: () => (setRightTab('sim'), setAgentOpen(true)) },
     { id: 'tensorboard', label: 'View: Show TensorBoard', run: () => (setRightTab('tensorboard'), setAgentOpen(true)) },
     { id: 'claudeCode', label: 'Agent: Claude Code', run: () => (setAgentMode('claude'), setRightTab('agent'), setAgentOpen(true)) },
     { id: 'codex', label: 'Agent: Codex', run: () => (setAgentMode('codex'), setRightTab('agent'), setAgentOpen(true)) },
@@ -2219,6 +2235,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             <button type="button" className={`vs-act${agentOpen && rightTab === 'tensorboard' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'tensorboard'} onClick={() => toggleRight('tensorboard')} title="TensorBoard’s scalars (in the right-hand pane)" aria-label="TensorBoard">
               <TbGlyph />
             </button>
+            <button type="button" className={`vs-act${agentOpen && rightTab === 'sim' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'sim'} onClick={() => toggleRight('sim')} title="Simulation runs — episodes, videos, dreams (in the right-hand pane)" aria-label="Simulation">
+              <SimGlyph />
+            </button>
             <button type="button" className={`vs-act is-agent${agentOpen && rightTab === 'agent' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'agent'} onClick={() => toggleRight('agent')} title={`The agent — Claude Code, Codex (${keyLabel('ctrl+alt+i')})`} aria-label="The agent">
               <SparkleIcon size={19} />
             </button>
@@ -2591,12 +2610,15 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               )
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
+            ) : rightTab === 'sim' ? (
+              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} />
             ) : (
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
             )}
           </aside>
         ) : null}
       </div>
+      <ExperimentFiler playground={playground} folder={machineRoot(playground)} connected={connected} />
       {zen ? (
         <button type="button" className="vs-zen-exit" onClick={() => setZen(false)}>
           Zen mode · Esc to leave
@@ -2871,7 +2893,7 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
       {report ? (
         <p className="pg-ok">
           {report.what === 'push' ? `${report.sent.length} ${report.sent.length === 1 ? 'file' : 'files'} copied to the machine` : `${report.back.length} ${report.back.length === 1 ? 'file' : 'files'} brought back`}
-          {report.skipped.length ? ` · ${report.skipped.length} left where they were, over 2 MB` : ''} · {new Date(report.at).toLocaleTimeString()}
+          {report.skipped.length ? ` · ${report.skipped.length} left where they were: over 2 MB, or not text (videos, images, weights)` : ''} · {new Date(report.at).toLocaleTimeString()}
         </p>
       ) : null}
       <label className="pg-rules">

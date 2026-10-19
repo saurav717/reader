@@ -9,6 +9,8 @@
 // What is here is the record and the arithmetic on it, with no network and no
 // DOM, so scripts/logbook.test.mjs can pin it.
 
+import type { Experiment } from './experiments';
+
 /** The notes of one meeting: filed by Granola once the meeting ended, or written in by hand. */
 export interface MeetingNote {
   id: string;
@@ -79,14 +81,17 @@ export interface Logbook {
   links: ProjectLink[];
   pad: Notepad;
   strokes: Stroke[];
+  /** The project's experiments: its simulation runs, filed as they end (src/lib/experiments.ts). */
+  experiments: Experiment[];
 }
 
-export const EMPTY_LOGBOOK: Logbook = { notes: [], links: [], pad: { text: '', version: 0 }, strokes: [] };
+export const EMPTY_LOGBOOK: Logbook = { notes: [], links: [], pad: { text: '', version: 0 }, strokes: [], experiments: [] };
 
 /** The board's own size: strokes are kept in these units, and drawn scaled to the screen. */
 export const BOARD = { width: 1600, height: 1000 };
 
 export const LOGBOOK_TABS = [
+  { id: 'experiments', label: 'Experiments', note: 'Every simulation run, filed as it ends: its numbers, videos and a model’s notes' },
   { id: 'meetings', label: 'Meetings', note: 'The notes of every meeting for this project' },
   { id: 'links', label: 'Links', note: 'Docs, datasets and recordings — and the links that came up in meetings' },
   { id: 'notepad', label: 'Notepad', note: 'One page of notes the whole project writes in' },

@@ -14,6 +14,10 @@ import { currentAccount, currentPass, onProxyChange } from '../lib/api';
 import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestDesktopApps, normaliseCode, pairFragment, setStopWithApp, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
+import { simProject, simulationToolkit } from '../lib/simProject';
+import { placeWarning } from '../lib/simulators';
+import SimPicker from './SimPicker';
+import type { SimPick } from './SimPicker';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
 import {
   blankCells,
@@ -191,6 +195,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const filePick = useRef<HTMLInputElement>(null);
   const folderPick = useRef<HTMLInputElement>(null);
   const [opening, setOpening] = useState(false);
+  const [simPicking, setSimPicking] = useState(false);
   const sorted = useMemo(() => [...list].sort((a, b) => b.updated - a.updated), [list]);
   // What each is doing — running, idle with its variables, how its last run ended — when the shelf is chosen.
   const runs = useRunBoard(list);
@@ -265,7 +270,8 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     const title = `Trying ${paper.title.split(/[:—–-]/)[0].trim().slice(0, 60)}`;
     const about = { ...cite, abstract: paper.abstract, authors: paper.authors, published: paper.published, arxivId: paper.arxivId, doi: paper.doi };
     // A project, as VS Code lays one out: the files, an editor, a console and an agent that knows the paper. The notebook is still a tab away.
-    begin({ title, kind: 'project', start: 'paper', cites: [cite], files: paperFiles(title, about), cells: paperCells(paper.title, about) });
+    // With the simulation toolkit, so an agent can wire the paper's experiments to a simulator from the terminal.
+    begin({ title, kind: 'project', start: 'paper', cites: [cite], files: { ...paperFiles(title, about), ...simulationToolkit() }, cells: paperCells(paper.title, about) });
   };
 
   const fromFile = async (file: File | undefined) => {
@@ -295,6 +301,15 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     begin({ title: name, kind: 'project', start: 'file', files, cells: blankCells(name), note: `${plan.take.length} ${plan.take.length === 1 ? 'file' : 'files'} from ${name} go into the project.${left}` });
   };
 
+  /** A simulation project: the simulator's env.py, the template, the telemetry, setup.sh and the agents' briefing; setup and the first run wait in the console. */
+  const fromSim = ({ sim, env, template }: SimPick) => {
+    setSimPicking(false);
+    const title = `${sim.name.replace(/\s*\(.*\)$/, '')} · ${env?.id.split('/').pop() ?? sim.id}`;
+    const made = simProject(sim, env, template, title);
+    const warning = placeWarning(sim, true);
+    begin({ title, kind: 'project', start: 'sim', files: made.files, cells: made.cells.map((cell) => newCell(cell.type, cell.source)), pending: made.pending, note: `${warning ? `${warning} ` : ''}Setup and the first run wait in the console: \`${made.pending}\`. The Sim pane on the right draws the runs.` });
+  };
+
   const matches = useMemo(() => {
     const q = answer.trim().toLowerCase();
     return papers
@@ -308,6 +323,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     { key: 'paper', mark: '¶', title: 'From a paper', text: 'A paper from your library, as a project: files, an editor, a console, and an agent that has read its abstract.', go: () => (setAsking('paper'), setAnswer(''), setProblem(null)) },
     { key: 'repo', mark: '⑂', title: 'From a repository', text: 'A GitHub address — the paper’s own code, cloned onto the machine you pick.', go: () => (setAsking('repo'), setAnswer(''), setProblem(null)) },
     { key: 'model', mark: 'HF', title: 'From a model card', text: 'A Hugging Face model or dataset id: loaded, run once, ready to change.', go: () => (setAsking('model'), setAnswer(''), setProblem(null)) },
+    { key: 'sim', mark: '◎', title: 'A simulation', text: 'Gymnasium, MuJoCo, robot arms and hands, Atari, driving, Isaac Lab… with PPO, SAC, a world model, and a Sim pane that shows the runs.', go: () => (setSimPicking(true), setProblem(null)) },
     { key: 'open', mark: '.nb', title: 'Open a file or folder', text: 'An .ipynb or a .py — or a whole folder of code, as a project. Then pick where the code lives and where it runs.', go: () => (setOpening(true), setProblem(null)) },
   ];
 
@@ -587,6 +603,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
           onConnect={() => (setOpening(false), setAddingServer(true))}
         />
       ) : null}
+      {simPicking ? <SimPicker onClose={() => setSimPicking(false)} onPick={fromSim} /> : null}
       {draft ? (
         <WhereDialog
           draft={draft}

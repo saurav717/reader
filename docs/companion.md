@@ -247,6 +247,13 @@ archive when no page is open. From 0.16.0 its mover weighs files arriving over a
 older copy three ways, so nothing there is lost. The design is in
 [storage-moves.md](storage-moves.md).
 
+`companion/ports/<ticket>/<port>/…` (from 0.18.0) is a port on this computer,
+reached from the page: the Sim pane's Live 3D embeds a run's Rerun viewer and
+streams its scene through it. The ticket is an HMAC of the port with the token,
+so only a paired page can make it; answers stream as they come (a viewer reads
+its scene through one long request), websockets are relayed, and only the site
+may frame what comes back.
+
 `companion/compute` (from 0.17.0) keeps a link from a project's folder here to
 the machine its code runs on, so the `koios` command in this computer's
 terminals can push, run, open a shell and pull there over one WebSocket. See

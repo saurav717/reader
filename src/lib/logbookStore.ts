@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { apiFetch } from './api';
 import { db } from './db';
+import type { Experiment } from './experiments';
+import { experimentsInOrder, withExperiment } from './experiments';
 import { EMPTY_LOGBOOK, linksInOrder, notesInOrder, withLink, withNote, type Logbook, type MeetingNote, type Notepad, type ProjectLink, type Stroke } from './logbook';
 import { ROOM_CLOSED_LOG, onRoomMessage, sendToRoom, type RoomMessage } from './liveRoom';
 import type { Project } from './projects';
@@ -58,10 +60,11 @@ export function logbookOf(raw: unknown): Logbook {
     links: linksInOrder(Array.isArray(value.links) ? value.links.filter((link) => link && typeof link.id === 'string' && typeof link.url === 'string') : []),
     pad: value.pad && typeof value.pad.text === 'string' ? { text: value.pad.text, version: Number(value.pad.version) || 0, ...(value.pad.by ? { by: value.pad.by } : {}), ...(value.pad.at ? { at: value.pad.at } : {}) } : { text: '', version: 0 },
     strokes: Array.isArray(value.strokes) ? value.strokes.filter((stroke) => stroke && typeof stroke.id === 'string' && Array.isArray(stroke.points)) : [],
+    experiments: experimentsInOrder(Array.isArray(value.experiments) ? value.experiments.filter((exp) => exp && typeof exp.id === 'string' && typeof exp.playgroundId === 'string') : []),
   };
 }
 
-const isEmpty = (log: Logbook) => !log.notes.length && !log.links.length && !log.strokes.length && !log.pad.text;
+const isEmpty = (log: Logbook) => !log.notes.length && !log.links.length && !log.strokes.length && !log.pad.text && !log.experiments.length;
 
 // ------------------------------------------------------------- backends ---
 
@@ -104,6 +107,7 @@ async function seedRoom(room: string, log: Logbook): Promise<Logbook> {
   for (const note of log.notes) await postRoom(room, { op: 'note', note });
   for (const link of log.links) await postRoom(room, { op: 'link', link });
   for (let i = 0; i < log.strokes.length; i += 200) await postRoom(room, { op: 'stroke', strokes: log.strokes.slice(i, i + 200) });
+  for (const experiment of log.experiments) await postRoom(room, { op: 'experiment', experiment });
   if (log.pad.text) await postRoom(room, { op: 'pad', text: log.pad.text, version: 0 });
   return readRoom(room);
 }
@@ -139,6 +143,9 @@ export const removeLink = (project: Project, id: string) => change(project, (log
 export const addStrokes = (project: Project, strokes: Stroke[]) => change(project, (log) => ({ ...log, strokes: [...log.strokes.filter((stroke) => !strokes.some((item) => item.id === stroke.id)), ...strokes] }), { op: 'stroke', strokes });
 export const removeStrokes = (project: Project, ids: string[]) => change(project, (log) => ({ ...log, strokes: log.strokes.filter((stroke) => !ids.includes(stroke.id)) }), { op: 'unstroke', ids });
 export const clearBoard = (project: Project) => change(project, (log) => ({ ...log, strokes: [] }), { op: 'clear' });
+export const saveExperiment = (project: Project, experiment: Experiment) => change(project, (log) => ({ ...log, experiments: withExperiment(log.experiments, experiment) }), { op: 'experiment', experiment });
+export const removeExperiment = (project: Project, experiment: Pick<Experiment, 'id' | 'playgroundId'>) =>
+  change(project, (log) => ({ ...log, experiments: log.experiments.filter((item) => !(item.id === experiment.id && item.playgroundId === experiment.playgroundId)) }), { op: 'unexperiment', keys: [`${experiment.playgroundId}:${experiment.id}`] });
 
 /**
  * The notepad saved, made on `version`. Answers the notepad as kept — or, when
@@ -204,6 +211,11 @@ function hear(room: string, message: RoomMessage): void {
   } else if (op === 'unstroke') patch(projectId, { log: { ...log, strokes: log.strokes.filter((stroke) => !ids.includes(stroke.id)) } });
   else if (op === 'clear') patch(projectId, { log: { ...log, strokes: [] }, ink: {} });
   else if (op === 'pad' && message.pad) patch(projectId, { log: { ...log, pad: message.pad as Notepad } });
+  else if (op === 'experiment' && message.experiment) patch(projectId, { log: { ...log, experiments: withExperiment(log.experiments, message.experiment as Experiment) } });
+  else if (op === 'unexperiment') {
+    const keys = (message.keys as string[] | undefined) ?? [];
+    patch(projectId, { log: { ...log, experiments: log.experiments.filter((exp) => !keys.includes(`${exp.playgroundId}:${exp.id}`)) } });
+  }
 }
 
 let listening = false;

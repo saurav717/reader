@@ -48,6 +48,7 @@ import { inDesktopApp, recorderBridge } from '../lib/recorder';
 import { recordHere, stopRecording, useNotetaker } from '../lib/notetaker';
 import type { View } from '../types.view';
 import { CheckIcon, CloseIcon, CopyIcon, DownloadIcon, ExternalIcon, PlusIcon, TrashIcon, VideoIcon } from './icons';
+import Experiments from './Experiments';
 
 const newTodoId = () => (crypto.randomUUID ? crypto.randomUUID() : newId('t'));
 
@@ -75,7 +76,7 @@ export default function Logbook({ project, section, onView }: { project: Project
     if (shared) reportPlace({ tab: 'logbook', path: tab });
   }, [shared, tab]);
   const go = (next: LogbookTab) => onView({ kind: 'project', id: project.id, mode: 'logbook', section: next });
-  const counts: Record<LogbookTab, number | null> = { meetings: book.log.notes.length, links: book.log.links.length, notepad: null, board: null };
+  const counts: Record<LogbookTab, number | null> = { experiments: book.log.experiments.length, meetings: book.log.notes.length, links: book.log.links.length, notepad: null, board: null };
   /** Who else is on each tab of the logbook right now. */
   const here = (id: LogbookTab) => (live.state?.members ?? []).filter((member) => member.email !== live.state?.me && member.place?.tab === 'logbook' && member.place.path === id && member.place.active);
   return (
@@ -116,6 +117,7 @@ export default function Logbook({ project, section, onView }: { project: Project
           </button>
         </p>
       ) : null}
+      {tab === 'experiments' ? <Experiments project={project} book={book} /> : null}
       {tab === 'meetings' ? <Meetings project={project} book={book} onLinks={() => go('links')} /> : null}
       {tab === 'links' ? <Links project={project} book={book} /> : null}
       {tab === 'notepad' ? <NotepadTab project={project} book={book} /> : null}
@@ -126,6 +128,7 @@ export default function Logbook({ project, section, onView }: { project: Project
 
 function TabIcon({ tab }: { tab: LogbookTab }) {
   const paths: Record<LogbookTab, ReactNode> = {
+    experiments: <path d="M9 3v6l-5 9a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3l-5-9V3M8 3h8M7 15h10" />,
     meetings: <path d="M4 6h16v12H4zM8 3v4M16 3v4M4 10h16" />,
     links: <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />,
     notepad: <path d="M6 3h9l3 3v15H6zM9 9h6M9 13h6M9 17h4" />,

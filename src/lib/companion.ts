@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.17.0';
+export const COMPANION_VERSION = '0.18.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -464,6 +464,22 @@ export function vscodeFolder(path: string): string {
   const forward = path.replace(/\\/g, '/');
   return forward.startsWith('/') ? forward : `/${forward}`;
 }
+
+/**
+ * The credential in a /companion/ports/<ticket>/<port>/ path (Companion 0.18.0,
+ * extension.PortProxy): HMAC-SHA256 of `ports:<port>` with the server's token,
+ * its first 40 hex characters — the same the Companion computes (port_ticket),
+ * so a page with the token reaches a port on that computer from an iframe,
+ * which carries no Authorization header, and nothing else can.
+ */
+export async function portTicket(token: string, port: number): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(token), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`ports:${port}`));
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 40);
+}
+
+/** Where a port on the Companion's computer is reached from the page: https://<companion>/companion/ports/<ticket>/<port>/<path>. */
+export const portUrl = (server: { url: string }, ticket: string, port: number, path = '') => `${server.url.replace(/\/?$/, '/')}companion/ports/${ticket}/${port}/${path.replace(/^\//, '')}`;
 
 /** The link that starts the Companion on this computer: `reader-companion setup` hands the scheme to `reader-companion start`. */
 export const START_LINK = 'reader-companion://start';

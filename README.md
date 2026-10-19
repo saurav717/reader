@@ -4370,7 +4370,7 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
 
 ![the Playground's home: six ways to start, the playgrounds there are with where each runs, and your compute — Colab and two Jupyter servers](docs/playground-home.png)
 
-- **Six ways to start.** A blank notebook, a blank project (files, an editor
+- **Seven ways to start.** A blank notebook, a blank project (files, an editor
   and a console), a paper from your library (a project laid out as VS Code
   is — the explorer, the editor, the console and the agent beside them — that
   cites the paper, opens on a README with its abstract, and gives the agents
@@ -4387,7 +4387,63 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   they are in, and one Undo in the agent's pane puts them all back.
   The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
-  (cells that load it and run it once), or **a file or a folder** (below).
+  (cells that load it and run it once), **a simulation** (below), or **a file
+  or a folder** (below).
+
+#### A simulation
+
+**A simulation** picks one of 31 simulators, by family (classic control,
+physics and locomotion, arms and hands, games, multi-agent, driving, engines,
+datasets), with a filter for dexterous hands and for what runs on Colab. Each
+card says what it needs: any CPU, a GPU, or an RTX GPU (Isaac Lab, never
+Colab). Then one of its environments and a place to start: a random agent, PPO
+or SAC in one readable file, Stable-Baselines3, a world model written from
+scratch, a starter on the simulator's own API, or DreamerV3, TD-MPC2 and Isaac
+Lab run from their own repositories. The project comes with `env.py`, the
+template, `setup.sh` (install, then a check of the machine), and an
+`AGENTS.md` telling the coding agents to log every run through
+`koios_telemetry` and to explain each change in `LEARNING.md`.
+
+The **Sim** tab on the right (the screen icon in the activity bar) draws the
+runs as they go, read on the machine a few seconds apart:
+
+- the run's status (live, finished, crashed, or *stalled* when it has gone
+  quiet), its speed and its machine;
+- **findings**: what looks wrong or right (no learning, collapse after a peak,
+  NaN, entropy collapse, an exploding value loss, a world model that drifts or
+  stops improving), each with what to try;
+- the episode return with its running mean, the success rate, the numbers
+  grouped by prefix, and every note on the timeline as a dashed line, so an
+  agent's "lr 3e-4 → 1e-4: approx_kl was 0.2" sits where the curve changed;
+- the videos, fetched from the machine byte for byte, and a world model's
+  dreams: real, imagined and their difference side by side, with the error
+  over the horizon;
+- **This machine**: GPUs, off-screen rendering, video encoding, which
+  simulators are installed, and whether torch is faster here on one CPU thread;
+- **Live 3D**: a MuJoCo scene as it moves, in a [Rerun](https://rerun.io)
+  viewer inside the pane — orbit it, scrub its timeline — when the machine is
+  a Companion (0.18.0 on), whose port proxy the page reaches it through; on
+  Colab or a plain Jupyter server, the run's `scene.rrd` to download and open
+  in Rerun on this computer.
+
+`python koios_telemetry.py summary` prints the same in a terminal, for the
+agents; `doctor`, `tail`, `note` and `bridge` (another codebase's
+`metrics.jsonl` or `.csv`, followed into the pane) are beside it, and
+`simulators` and `use <simulator> [env]` wire any project — a paper's
+reimplementation included, which carries the toolkit — to one of the 31
+simulators from the terminal.
+
+**Experiments.** A run that ends is filed by itself: its record — returns,
+success, last values, findings, the agents' notes, config — goes into the
+project's **Logbook → Experiments**, and its files — `events.jsonl`, the
+videos, `scene.rrd`, `report.md` — into your Google Drive under
+`Experiments/<project>/<run>/`, or a computer of yours, chosen on the tab or
+moved per experiment. Notes are written by the model Ask AI is set to, or by
+Claude Code or Codex on the machine when asked, and kept with the record.
+[docs/simulation.md](docs/simulation.md) has the catalogue, the event format,
+and what was hard about each part and how it was handled;
+[docs/simulation-process.md](docs/simulation-process.md) how it was built,
+tested and reviewed.
 
 #### Open a file or folder
 
