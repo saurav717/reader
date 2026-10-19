@@ -6455,6 +6455,15 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .sim-media { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .sim-media video, .sim-media img { width: 100%; max-height: 360px; object-fit: contain; border-radius: 8px; background: #000; image-rendering: pixelated; }
 .sim-media figcaption { font-size: 11px; color: var(--muted); }
+.sim-live-start { align-self: flex-start; }
+.sim-live-start, .sim-live-badge { color: var(--danger); }
+.sim-live-frame { position: relative; }
+.sim-live-frame img { image-rendering: auto; }
+.sim-live-empty { display: flex; align-items: center; justify-content: center; gap: 8px; height: 200px; border-radius: 8px; background: #000; color: #aaa; font-size: 12px; }
+.sim-live-badge { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 999px; background: rgb(0 0 0 / 0.6); font: 600 10.5px var(--sans); letter-spacing: 0.04em; text-transform: uppercase; }
+.sim-live-badge.is-stale { color: #ddd; }
+.sim-live figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 2px; }
+.sim-live-stop { margin-left: auto; }
 .sim-media figcaption .is-problem { color: var(--danger); }
 .sim-media-load { height: 120px; border: 1px dashed var(--border); border-radius: 8px; background: var(--panel); color: var(--ink-2); font: 12px var(--sans); cursor: pointer; }
 .sim-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }

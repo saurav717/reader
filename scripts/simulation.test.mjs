@@ -256,6 +256,28 @@ describe('reading a run', () => {
     assert.deepEqual(tele.unlabelled(run), ['speedup']);
   });
 
+  it('streams a run live only while the pane asks, and hands the pane its newest frame', { skip: !python || !hasNumpy }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'koios-live-'));
+    const start = py('import koios_telemetry as k\nr = k.Run("t", live3d=False)\nprint(r.dir)', dir);
+    assert.equal(start.status, 0, start.stderr);
+    const runDir = start.stdout.trim().split('\n').pop();
+    const frame = (code) => py(['import os, numpy as np, koios_telemetry as k', `r = k.Run("t", live3d=False, resume=${JSON.stringify(runDir)})`, code].join('\n'), dir);
+    // Nobody watching: nothing rendered, nothing written.
+    let out = frame('print(r.live(lambda: np.zeros((64, 64, 3), np.uint8)))');
+    assert.equal(out.stdout.trim().split('\n').pop(), 'False');
+    // The pane asks (its own snippet, run on the machine as the page runs it), and the run streams.
+    const ask = (seen) => JSON.parse(py(tele.LIVE_CODE(dir, runDir, seen), dir).stdout.trim().split('\n').pop());
+    assert.equal(ask(0).jpeg, undefined);
+    out = frame('print(r.live(lambda: np.full((64, 96, 3), 200, np.uint8), step=7, ret=1.5))');
+    assert.equal(out.stdout.trim().split('\n').pop(), 'True', out.stderr);
+    const got = ask(0);
+    assert.equal(got.step, 7);
+    assert.deepEqual(got.info, { ret: 1.5 });
+    assert.ok(got.jpeg && Buffer.from(got.jpeg, 'base64').subarray(0, 2).equals(Buffer.from([0xff, 0xd8])), 'a JPEG');
+    // A frame the pane already has is not sent again.
+    assert.equal(ask(got.frame).jpeg, undefined);
+  });
+
   it('calls a quiet running run stalled', () => {
     assert.equal(tele.shownStatus('running', NOW - 500, NOW), 'stalled');
     assert.equal(tele.shownStatus('running', NOW - 5, NOW), 'running');

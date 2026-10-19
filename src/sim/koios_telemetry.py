@@ -199,6 +199,31 @@ def _write_image(frame, base: str, max_side: int) -> str:
         return base + ".png"
 
 
+def _write_live(frame, path: str, max_side: int) -> bool:
+    """One frame of the live view, JPEG where Pillow or imageio can write one (PNG else), put in place whole."""
+    a = _shrink(_as_uint8(frame), max_side)
+    tmp = path + ".tmp"
+    try:
+        from PIL import Image
+
+        Image.fromarray(a).save(tmp, format="JPEG", quality=80)
+    except Exception:
+        try:
+            import imageio.v2 as iio
+
+            iio.imwrite(tmp, a, format="jpeg")
+        except Exception:
+            return False
+    os.replace(tmp, path)
+    return True
+
+
+# The live view: the Sim pane, while someone watches, keeps live.want in the run's folder fresh; the run then writes its
+# newest frame to live.jpg (and live.json) a few times a second, and stops once nobody has asked for LIVE_FOR_S.
+LIVE_FOR_S = 10.0
+LIVE_EVERY_S = 0.15
+LIVE_SIDE = 480
+
 # ------------------------------------------------------------------ run ----
 
 
@@ -287,6 +312,10 @@ class Run:
         self._last_echo = 0.0
         self._media = 0
         self._failure: str | None = None
+        self._live_checked = 0.0
+        self._live_on = False
+        self._live_last = 0.0
+        self._live_frames = 0
         if resume and os.path.isdir(resume):
             self.dir = resume
             self.id = os.path.basename(os.path.normpath(resume))
@@ -463,6 +492,57 @@ class Run:
                     self._rr.log("episodes/length", self._rr.Scalars(float(length)))
             except Exception:
                 pass
+
+    def watching(self) -> bool:
+        """Whether someone is watching the run live in the Sim pane: checked at most twice a second, so cheap to ask."""
+        now = time.time()
+        if now - self._live_checked >= 0.5:
+            self._live_checked = now
+            try:
+                self._live_on = now - os.path.getmtime(os.path.join(self.dir, "live.want")) < LIVE_FOR_S
+            except OSError:
+                self._live_on = False
+        return self._live_on
+
+    def live(self, frame, step: int | None = None, **info) -> bool:
+        """The simulation as it is now, for the Sim pane's live view. Call it every step from any loop that steps a
+        simulator; it does nothing until someone watches, and then keeps a few frames a second.
+
+            run.live(lambda: env.render(), step=global_step)       # a callable: rendered only when someone watches
+            run.live(frame)                                          # or an HxWx3 frame you already have
+
+        run.wrap(env) calls it by itself. info (return so far, a score) is shown beside the frame."""
+        if not self.watching():
+            return False
+        now = time.time()
+        if now - self._live_last < LIVE_EVERY_S:
+            return False
+        self._live_last = now
+        problem = None
+        try:
+            if callable(frame):
+                frame = frame()
+            if frame is None:
+                problem = "the render gave no frame (is render_mode=\"rgb_array\"?)"
+            elif not _write_live(frame, os.path.join(self.dir, "live.jpg"), LIVE_SIDE):
+                problem = "no image writer: install Pillow or imageio"
+        except Exception as error:
+            problem = f"rendering failed: {type(error).__name__}: {error}"
+        if problem is None:
+            self._live_frames += 1
+        state = {"t": round(now, 3), "step": self._at(step), "frame": self._live_frames, "episode": self.episodes}
+        if problem:
+            # Said to the pane, which would otherwise wait for a frame that cannot come.
+            state["error"] = problem[:500]
+        if info:
+            state["info"] = _jsonable(info)
+        try:
+            with open(os.path.join(self.dir, "live.json.tmp"), "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            os.replace(os.path.join(self.dir, "live.json.tmp"), os.path.join(self.dir, "live.json"))
+        except Exception:
+            pass
+        return problem is None
 
     def wants_video(self, episode: int | None = None) -> bool:
         """Whether the episode about to start should be recorded: the first, then one in video_every."""
@@ -800,6 +880,7 @@ class Run:
                 self._ret, self._len, self._frames = 0.0, 0, None
 
             def _grab(self):
+                frame = None
                 if self._frames is not None and len(self._frames) < run.max_frames:
                     try:
                         frame = self.env.render()
@@ -809,6 +890,9 @@ class Run:
                         return
                     if frame is not None:
                         self._frames.append(frame)
+                # The live view, while someone watches: the frame just taken for the video, else one rendered for it.
+                if getattr(self.env, "render_mode", None) == "rgb_array":
+                    run.live(frame if frame is not None else self.env.render, ret=round(self._ret, 3), length=self._len)
 
             def reset(self, **kwargs):
                 obs, info = self.env.reset(**kwargs)

@@ -19,6 +19,13 @@ export const CHART_LABELS_NOTE =
   'labels with units and a title too. The module prints "[koios] no axis label for …" for any it is not told about: ' +
   'label those before saying the work is done.';
 
+/** What every briefing asks of a simulation loop, so any run can be watched live from the Sim pane. */
+export const LIVE_VIEW_NOTE =
+  'Make every simulation watchable live: the Sim pane can stream a running run. run.wrap(env) does it by itself for a ' +
+  'Gymnasium env made with render_mode="rgb_array"; any other loop that steps a simulator (vector or JAX envs, a ' +
+  'custom game) calls run.live(lambda: <render one env to an HxWx3 frame>, step=...) each step — it renders only while ' +
+  'someone watches, so it costs nothing otherwise.';
+
 /** How the folder's briefings name the paper's files — AGENTS.md, the plan, the agents' prompts — so the four say the same thing. */
 export const PAPER_FILES_NOTE =
   `The paper is in the folder: ${PAPER_TEXT_FILE} holds its full text as the reader reflowed it, ${EXPLANATION_FILE} the ` +

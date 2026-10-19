@@ -23,7 +23,7 @@ import type { FileHost } from './playground';
 import { readMeta, writeMeta } from './playground';
 import { newJobId, useServerJobs } from './agentJobs';
 import { replaying } from './replayFlag';
-import { CHART_LABELS_NOTE, EXPLANATION_FILE, PAPER_FILES_NOTE, PAPER_PDF_FILE, PAPER_TEXT_FILE } from './paperFiles';
+import { CHART_LABELS_NOTE, EXPLANATION_FILE, LIVE_VIEW_NOTE, PAPER_FILES_NOTE, PAPER_PDF_FILE, PAPER_TEXT_FILE } from './paperFiles';
 
 const MAX_TOKENS = 32000;
 /** How many times it may ask for files before it has to answer. */
@@ -67,6 +67,7 @@ export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
     `## The paper itself\n\n${PAPER_FILES_NOTE}`,
     "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md). Evaluate the way the paper does: read its protocol in paper/paper.md, log each formal evaluation with `run.evaluation(metrics, protocol=..., paper={the paper's numbers})`, and keep those numbers in paper_results.json; `run.evaluate(make_env, act)` is the default protocol when the paper gives none.",
     `## Charts\n\n${CHART_LABELS_NOTE}`,
+    `## Watching it live\n\n${LIVE_VIEW_NOTE}`,
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -99,7 +100,7 @@ text as the folder's paper/paper.md holds it: asked to implement it, write its m
 implementation in modules of its own, a seeded experiment sized for the machine, and an evaluation. The paper is in
 hand: never ask the reader to fetch it, and never suggest searching the web for it.
 
-${CHART_LABELS_NOTE}
+${CHART_LABELS_NOTE} ${LIVE_VIEW_NOTE}
 
 ANSWER FORMAT — the page acts on your answer, so keep to it exactly:
 - Write a file: a fenced block whose info string names it, holding the WHOLE new file, never a diff —

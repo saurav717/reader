@@ -87,11 +87,16 @@ A run is a folder, `runs/<name>-<YYYYmmdd-HHMMSS>/`:
 - `events.jsonl`: one JSON object a line, appended and flushed as it happens. Every event has `kind` and `t`
   (machine seconds); most have `step` (**environment steps**, so runs compare).
 - `media/`: MP4 (H.264, `yuv420p`, `faststart`), else GIF, else `.npz` frames.
+- The live view: `live.want`, touched by the Sim pane every fraction of a second while someone watches; while it is
+  under 10 s old, `run.live()` (which `run.wrap(env)` calls each step) writes the newest frame to `live.jpg` (at most
+  480 px, about six a second) and `{t, step, frame, episode, info?}` to `live.json`, each put in place whole. Nothing is
+  rendered for it while nobody watches.
 
 | `kind` | Fields |
 |---|---|
 | `start` | `name`, `sim`, `config`, `host`, `resumed` |
 | `scalars` | `step`, `values: {name: number}`; names group by their prefix (`loss/policy`) |
+| `axes` | `x?` (what every chart's x counts), `axes?: {name: {y?, x?}}` (what a number, or a prefix's group, measures); from `run.axes()` |
 | `episode` | `step`, `index`, `return`, `length?`, `success?`, `extra?` |
 | `media` | `step`, `name`, `path` (from the run's folder), `type` (`video`, `gif`, `image`, `frames`), `frames?`, `fps?`, `bytes`, `caption?` |
 | `dream` | `step`, `name`, `path`, `type`, `error: [per-frame MSE]`, `context` (frames given, not predicted), `fps`, `horizon` |

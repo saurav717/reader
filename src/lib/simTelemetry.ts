@@ -599,6 +599,57 @@ export async function readMedia(folder: string, runDir: string, path: string, sc
   return new Blob(parts as BlobPart[], { type: mimeOf(path) });
 }
 
+// ----------------------------------------------------------------- live ----
+
+/** The live view's newest frame: what the run said with it, and the JPEG when it is one the page has not had. */
+export interface LiveFrame {
+  /** The machine's clock now, and when the frame was written. */
+  now: number;
+  t?: number;
+  step?: number;
+  frame?: number;
+  episode?: number;
+  info?: Record<string, unknown>;
+  /** Why the run could not render a frame for it. */
+  error?: string;
+  /** The JPEG, base64; left out when the frame is the one the page already has. */
+  jpeg?: string;
+}
+
+/**
+ * Asks the run for its live view and reads its newest frame: live.want touched (the run streams while it is fresh,
+ * koios_telemetry.LIVE_FOR_S), then live.json, and live.jpg only when its frame is newer than `seen`.
+ */
+export const LIVE_CODE = (folder: string, runDir: string, seen: number) => String.raw`
+import os, json, base64, time
+root = os.path.realpath(os.path.abspath(${JSON.stringify(folder)}))
+d = os.path.realpath(os.path.join(root, ${JSON.stringify(runDir)}))
+if not d.startswith(root + os.sep):
+    raise SystemExit('outside the project')
+with open(os.path.join(d, 'live.want'), 'w') as f:
+    f.write(str(time.time()))
+out = {'now': time.time()}
+try:
+    with open(os.path.join(d, 'live.json')) as f:
+        out.update(json.load(f))
+except Exception:
+    pass
+if out.get('frame', 0) > ${seen}:
+    try:
+        with open(os.path.join(d, 'live.jpg'), 'rb') as f:
+            out['jpeg'] = base64.b64encode(f.read()).decode()
+    except Exception:
+        pass
+print(json.dumps(out))
+`;
+
+export async function readLive(folder: string, runDir: string, seen: number, scope?: string): Promise<LiveFrame> {
+  const answer = await runQuietly(LIVE_CODE(folder, runDir, seen), scope);
+  if (!answer) throw new Error('The machine isn’t connected.');
+  if (!answer.ok) throw new Error(answer.text.trim().split('\n').pop() || 'The live view couldn’t be read.');
+  return JSON.parse(answer.text.trim().split('\n').pop() || '{"now":0}') as LiveFrame;
+}
+
 // --------------------------------------------------------------- doctor ----
 
 export interface Doctor {
