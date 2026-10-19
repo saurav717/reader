@@ -23,7 +23,7 @@
 import { useSyncExternalStore } from 'react';
 import { db } from './db';
 import type { Backend, JupyterServer, Machine, RuntimeEntry } from './colab';
-import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, runQuietly } from './colab';
+import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell, notebookFor, subscribeNotebook } from './notebook';
 import type { CellType } from './notebook';
@@ -471,6 +471,8 @@ let syncAgain = false;
 export const playgroundsWhere = () => where;
 /** Whether Drive can keep a project's files now: signed in, with Drive connected. */
 export const driveConnected = () => Boolean(drive);
+/** Drive as the playgrounds are configured for it, for a host elsewhere under the Koios folder (src/lib/experimentFiling.ts). */
+export const driveConfigNow = () => drive;
 export const useDriveConnected = () => useSyncExternalStore(subscribePlaygrounds, driveConnected);
 export const usePlaygroundsWhere = () => useSyncExternalStore(subscribePlaygrounds, playgroundsWhere);
 
@@ -750,7 +752,7 @@ export function paperFiles(title: string, paper: Cite & { abstract?: string; aut
   const cite = [`**${paper.title}**`, authors, year].filter(Boolean).join(' — ') + (link ? `\n${link}` : '');
   return {
     'README.md': `# ${title}\n\nAn implementation of\n\n${cite}\n${abstract ? `\n## Abstract\n\n> ${abstract}\n` : ''}\n## Layout\n\n- \`main.py\` — the entry point: checks the machine, then runs the experiment.\n- \`AGENTS.md\` — what a coding agent is told about this project.\n\nAsk the agent on the right to write the method, a training loop and an evaluation; run them from the console below.\n`,
-    'AGENTS.md': `# ${title}\n\nThis project reproduces the method of the paper ${cite.replace(/\n/, ' — ')}.\n${abstract ? `\nAbstract:\n\n> ${abstract}\n` : ''}\nWhen asked to implement it: write the method as a small, faithful implementation in its own module, a seeded\nexperiment sized for the machine it runs on (use the GPU when torch.cuda.is_available(), else a smaller size on the\nCPU), and an evaluation that prints the paper's headline metric. Cite the paper's equation numbers in comments, say\nin the README where a detail the paper leaves out was chosen, and keep \`python main.py\` as the way to run it.\n`,
+    'AGENTS.md': `# ${title}\n\nThis project reproduces the method of the paper ${cite.replace(/\n/, ' — ')}.\n${abstract ? `\nAbstract:\n\n> ${abstract}\n` : ''}\nWhen asked to implement it: write the method as a small, faithful implementation in its own module, a seeded\nexperiment sized for the machine it runs on (use the GPU when torch.cuda.is_available(), else a smaller size on the\nCPU), and an evaluation that prints the paper's headline metric. Cite the paper's equation numbers in comments, say\nin the README where a detail the paper leaves out was chosen, and keep \`python main.py\` as the way to run it.\n\n## If the paper's experiments run in a simulator\n\nReinforcement learning, robotics, games, world models: the project carries Koios's simulation toolkit.\n\`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, Gymnasium-Robotics hands,\nAtari, Brax, Isaac Lab, …) with what each needs; \`python koios_telemetry.py use <simulator> [env]\` writes env.py\n(make_env) and setup.sh for one, matching the paper's environments as closely as the catalogue allows, and says\nwhen a GPU or a machine other than Colab is needed. Then log every run through koios_telemetry.Run (read the\nmodule's docstring): episodes, numbers, videos, world-model dreams, a note for every change with its reason. The\nSim pane draws the runs as they go; each run is filed as an experiment in the project's logbook when it ends, with\nnotes. Keep the paper's reported numbers in the README so the runs can be judged against them.\n`,
     'CLAUDE.md': '@AGENTS.md\n',
     'main.py': `"""${paper.title.replace(/"""/g, "'''")}: the entry point."""\n\nimport torch\n\n\ndef main():\n    device = "cuda" if torch.cuda.is_available() else "cpu"\n    print("torch", torch.__version__, "· device", device)\n    torch.manual_seed(0)\n    # TODO: the method, a training loop and an evaluation — ask the agent, or see AGENTS.md\n\n\nif __name__ == "__main__":\n    main()\n`,
   };
@@ -813,6 +815,8 @@ export interface FileHost {
   rename?(from: string, to: string): Promise<void>;
   /** An empty folder made, where the host can. */
   mkdir?(path: string): Promise<void>;
+  /** A file of any kind from base64 (a video, a checkpoint), where the host can: Drive, a Jupyter server, a kernel. */
+  writeBase64?(path: string, base64: string): Promise<void>;
 }
 
 const joinPath = (...parts: string[]) => parts.filter(Boolean).join('/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
@@ -942,6 +946,9 @@ export function serverHost(server: JupyterServer, root: string): FileHost {
     async write(path, text) {
       await jupyterWrite(server, under(path), text);
     },
+    async writeBase64(path, base64) {
+      await jupyterWriteBase64(server, under(path), base64);
+    },
     async remove(path) {
       await jupyterDelete(server, under(path));
     },
@@ -1000,6 +1007,9 @@ export function kernelHost(label: string, root: string, scope?: string): FileHos
     },
     async write(path, text) {
       const data = base64Of(new TextEncoder().encode(text));
+      await run(`import os, base64\np = os.path.join(${py(root)}, ${py(path)})\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\nopen(p, 'wb').write(base64.b64decode(${py(data)}))\nprint('ok')`);
+    },
+    async writeBase64(path, data) {
       await run(`import os, base64\np = os.path.join(${py(root)}, ${py(path)})\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\nopen(p, 'wb').write(base64.b64decode(${py(data)}))\nprint('ok')`);
     },
     async remove(path) {

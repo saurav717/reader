@@ -460,7 +460,7 @@ print(json.dumps({'size': size, 'data': base64.b64encode(data).decode()}))
 export const mimeOf = (path: string) => (/\.mp4$/i.test(path) ? 'video/mp4' : /\.webm$/i.test(path) ? 'video/webm' : /\.gif$/i.test(path) ? 'image/gif' : /\.png$/i.test(path) ? 'image/png' : /\.jpe?g$/i.test(path) ? 'image/jpeg' : 'application/octet-stream');
 
 /** A run's video or image, fetched from the machine a chunk at a time, as a blob the page can play. */
-export async function readMedia(folder: string, runDir: string, path: string, scope?: string, onProgress?: (done: number, size: number) => void): Promise<Blob> {
+export async function readMedia(folder: string, runDir: string, path: string, scope?: string, onProgress?: (done: number, size: number) => void, maxBytes = MEDIA_LIMIT): Promise<Blob> {
   const parts: Uint8Array[] = [];
   let offset = 0;
   let size = Infinity;
@@ -470,7 +470,7 @@ export async function readMedia(folder: string, runDir: string, path: string, sc
     if (!answer.ok) throw new Error(answer.text.trim().split('\n').pop() || 'The file couldn’t be read.');
     const got = JSON.parse(answer.text.trim().split('\n').pop() || '{}') as { size: number; data: string };
     size = got.size;
-    if (size > MEDIA_LIMIT) throw new Error(`${Math.round(size / 1048576)} MB is more than the pane fetches; it is at ${runDir}/${path} on the machine.`);
+    if (size > maxBytes) throw new Error(`${Math.round(size / 1048576)} MB is more than the ${Math.round(maxBytes / 1048576)} MB fetched; it is at ${runDir}/${path} on the machine.`);
     const bytes = Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0));
     if (!bytes.length) break;
     parts.push(bytes);

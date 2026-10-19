@@ -43,7 +43,9 @@ import ProjectAgent from './ProjectAgent';
 import CliAgent, { queueCliRequest } from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
 import SimPane from './SimPane';
-import { KOIOS_TELEMETRY_PY, TELEMETRY_FILE } from '../lib/simProject';
+import ExperimentFiler from './ExperimentFiler';
+import { CATALOGUE_FILE, KOIOS_TELEMETRY_PY, TELEMETRY_FILE } from '../lib/simProject';
+import { catalogueJson } from '../lib/simulators';
 import KernelTerminal, { closeKernelTerminal } from './KernelTerminal';
 import MachinePool, { MachineMark, isConnected, sessionOf, useSessions } from './MachinePool';
 import CodeEditor from './CodeEditor';
@@ -1593,6 +1595,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     await host.write(KOIOS_HELPER_PATH, KOIOS_PY);
     // The simulation telemetry beside it, so `import koios_telemetry` works in any project's commands (src/sim/).
     await host.write(`${KOIOS_PYLIB}/${TELEMETRY_FILE}`, KOIOS_TELEMETRY_PY);
+    await host.write(`${KOIOS_PYLIB}/${CATALOGUE_FILE}`, catalogueJson());
     helperOn.current.add(m.scope);
   };
   /** One command on one machine of the project: its own kernel connected if need be, the folder copied over when it is kept elsewhere, the command run there, results brought back. */
@@ -2608,13 +2611,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
             ) : rightTab === 'sim' ? (
-              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} />
+              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} />
             ) : (
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
             )}
           </aside>
         ) : null}
       </div>
+      <ExperimentFiler playground={playground} folder={machineRoot(playground)} connected={connected} />
       {zen ? (
         <button type="button" className="vs-zen-exit" onClick={() => setZen(false)}>
           Zen mode · Esc to leave

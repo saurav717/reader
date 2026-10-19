@@ -1540,6 +1540,23 @@ export const SIMULATORS: Simulator[] = [
 
 export const simulatorById = (id: string | undefined) => SIMULATORS.find((sim) => sim.id === id);
 
+/**
+ * The catalogue as the machine gets it: koios_simulators.json beside the
+ * telemetry module, which `python koios_telemetry.py simulators` lists and
+ * `python koios_telemetry.py use <simulator> [env]` writes env.py, setup.sh
+ * (and a native starter) from — so a coding agent can wire any project to a
+ * simulator from the terminal, a paper's reimplementation included.
+ */
+export const catalogueJson = () =>
+  `${JSON.stringify(
+    {
+      schema: 1,
+      simulators: SIMULATORS.map((sim) => ({ id: sim.id, name: sim.name, family: sim.family, blurb: sim.blurb, good: sim.good, module: sim.module, install: sim.install, gpu: sim.gpu, colab: sim.colab, linux: Boolean(sim.linux), video: sim.video, api: sim.api, imports: sim.imports ?? null, make: sim.make ?? null, native: sim.native ?? null, envs: sim.envs, docs: sim.docs, caveats: sim.caveats ?? [] })),
+    },
+    null,
+    1,
+  )}\n`;
+
 // ------------------------------------------------------------ templates ----
 
 export type TemplateId = 'random' | 'ppo' | 'sac' | 'sb3' | 'world-model' | 'native' | 'dreamerv3' | 'tdmpc2' | 'isaaclab';

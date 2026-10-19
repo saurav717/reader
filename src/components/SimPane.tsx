@@ -16,6 +16,7 @@ import type { JupyterServer } from '../lib/colab';
 import { portTicket, portUrl } from '../lib/companion';
 import { LineChart } from './Charts';
 import { isCompanion } from './VsCodeExtension';
+import { useFiled } from '../lib/experimentFiling';
 
 const ago = (seconds: number) => (seconds < 90 ? `${Math.max(0, Math.round(seconds))} s ago` : seconds < 5400 ? `${Math.round(seconds / 60)} min ago` : seconds < 172_800 ? `${Math.round(seconds / 3600)} h ago` : `${Math.round(seconds / 86_400)} days ago`);
 const span = (seconds: number) => (seconds < 120 ? `${Math.round(seconds)} s` : seconds < 7200 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} h`);
@@ -245,7 +246,8 @@ function DoctorView() {
   );
 }
 
-export default function SimPane({ folder, connected, machineName, busy, server }: { folder: string; connected: boolean; machineName: string; busy: boolean; /** The machine, when it is a Jupyter server the page added: a Companion's ports can be reached for Live 3D. */ server?: JupyterServer }) {
+export default function SimPane({ folder, connected, machineName, busy, server, playgroundId }: { folder: string; connected: boolean; machineName: string; busy: boolean; /** The machine, when it is a Jupyter server the page added: a Companion's ports can be reached for Live 3D. */ server?: JupyterServer; /** Whose runs these are, for what was filed of them. */ playgroundId?: string }) {
+  const filed = useFiled(playgroundId ?? '');
   const [runs, setRuns] = useState<RunListing[]>([]);
   const [now, setNow] = useState(0);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -376,6 +378,20 @@ run.finish()`}</pre>
         {status === 'running' && run?.sps ? <span>{short(run.sps)} steps/s</span> : null}
         {elapsed ? <span>{span(elapsed)}</span> : null}
         {run?.meta.host?.gpu ? <span>{run.meta.host.gpu}</span> : null}
+        {run && filed[run.meta.id ?? run.dir.split('/').pop() ?? run.dir] ? (
+          <span>
+            filed{filed[run.meta.id ?? run.dir.split('/').pop() ?? run.dir].where.link ? (
+              <>
+                {' '}
+                <a href={filed[run.meta.id ?? run.dir.split('/').pop() ?? run.dir].where.link} target="_blank" rel="noreferrer noopener">
+                  in {filed[run.meta.id ?? run.dir.split('/').pop() ?? run.dir].where.label} ↗
+                </a>
+              </>
+            ) : (
+              ` on ${filed[run.meta.id ?? run.dir.split('/').pop() ?? run.dir].where.label}`
+            )}
+          </span>
+        ) : null}
       </div>
       {run?.truncated ? <p className="pg-note">A long run: its first part is left out here; <code>python koios_telemetry.py summary</code> reads all of it.</p> : null}
       {problem ? <p className="pg-note is-problem">{problem}</p> : null}

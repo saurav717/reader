@@ -4428,7 +4428,18 @@ runs as they go, read on the machine a few seconds apart:
 
 `python koios_telemetry.py summary` prints the same in a terminal, for the
 agents; `doctor`, `tail`, `note` and `bridge` (another codebase's
-`metrics.jsonl` or `.csv`, followed into the pane) are beside it.
+`metrics.jsonl` or `.csv`, followed into the pane) are beside it, and
+`simulators` and `use <simulator> [env]` wire any project — a paper's
+reimplementation included, which carries the toolkit — to one of the 31
+simulators from the terminal.
+
+**Experiments.** A run that ends is filed by itself: its record — returns,
+success, last values, findings, the agents' notes, config — goes into the
+project's **Logbook → Experiments**, and its files — `events.jsonl`, the
+videos, `scene.rrd`, `report.md` — into your Google Drive under
+`Experiments/<project>/<run>/`, or a computer of yours, chosen on the tab or
+moved per experiment. Notes are written by the model Ask AI is set to, or by
+Claude Code or Codex on the machine when asked, and kept with the record.
 [docs/simulation.md](docs/simulation.md) has the catalogue, the event format,
 and what was hard about each part and how it was handled;
 [docs/simulation-process.md](docs/simulation-process.md) how it was built,

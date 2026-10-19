@@ -8603,6 +8603,32 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .lb-quiet { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
 .lb-empty { margin: 8px 0; padding: 22px 24px; border: 1px dashed var(--border); border-radius: 14px; background: var(--surface); max-width: 640px; }
 .lb-empty b { font: 600 16px var(--serif); }
+/* The Experiments tab (src/components/Experiments.tsx). */
+.xp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 0 0 12px; font-size: 12.5px; color: var(--ink-2); }
+.xp-pref { display: inline-flex; align-items: center; gap: 6px; }
+.xp-pref select, .xp-move { height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12px var(--sans); }
+.xp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 920px; }
+.xp-item { border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
+.xp-item.is-open { border-color: var(--border); }
+.xp-row { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "pill title when" "pill line when"; column-gap: 10px; row-gap: 2px; align-items: center; width: 100%; padding: 9px 12px; border: 0; background: none; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.xp-row b { grid-area: title; font-size: 13.5px; }
+.xp-line { grid-area: line; font-size: 12px; color: var(--ink-2); }
+.xp-when { grid-area: when; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.xp-pill { grid-area: pill; align-self: start; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font: 600 11px var(--sans); background: var(--panel); color: var(--ink-2); }
+.xp-pill.is-good { background: var(--accent-soft); color: var(--accent-ink); }
+.xp-pill.is-bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.xp-body { display: flex; flex-direction: column; gap: 10px; padding: 4px 12px 12px; border-top: 1px solid var(--border-soft); font-size: 12.5px; color: var(--ink-2); }
+.xp-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; padding-top: 8px; font-size: 12px; color: var(--muted); }
+.xp-notes { padding: 8px 10px; border-radius: 8px; background: var(--panel); }
+.xp-md { font-size: 13px; line-height: 1.55; color: var(--ink); }
+.xp-md h1, .xp-md h2, .xp-md h3 { font-size: 13.5px; margin: 8px 0 2px; }
+.xp-table { border-collapse: collapse; font-size: 12px; }
+.xp-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 1px 10px 1px 0; }
+.xp-table td { padding: 1px 0; font-variant-numeric: tabular-nums; }
+.xp-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.xp-toast { position: fixed; right: 16px; bottom: 16px; z-index: 40; max-width: 360px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow-sm); font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 6px; }
+.xp-toast b { color: var(--ink); }
+.xp-toast .xp-acts { gap: 6px; }
 .lb-empty p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
 
 /* Meetings: what is coming up beside the notes of those that were. */

@@ -250,7 +250,7 @@ describe('sharing a project', () => {
     const socket = fakeSocket('priya@x.org');
     object.state.acceptWebSocket(socket);
     assert.equal((await call(e, `/rooms/${room}/close`, { pass: priya, body: {} })).status, 403, 'only the owner');
-    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true, members: ['owner@x.org', 'priya@x.org'], log: { notes: [], links: [], strokes: [], pad: { text: '', version: 0 } } });
+    assert.deepEqual(await (await call(e, `/rooms/${room}/close`, { pass: owner, body: {} })).json(), { ok: true, members: ['owner@x.org', 'priya@x.org'], log: { notes: [], links: [], strokes: [], experiments: [], pad: { text: '', version: 0 } } });
     assert.deepEqual(socket.sent.at(-1), { type: 'closed' });
     assert.deepEqual(socket.closed, { code: 1000, reason: 'the project is no longer shared' });
     assert.equal((await call(e, `/rooms/${room}`, { pass: priya })).status, 404);
@@ -412,7 +412,7 @@ describe('the logbook a shared project keeps (worker/logbook.js)', () => {
   it('is read by every member, empty to start, and by nobody else', async () => {
     const { e, room, lin, stranger } = await setUp();
     const log = await (await call(e, `/rooms/${room}/log`, { pass: lin })).json();
-    assert.deepEqual(log, { notes: [], links: [], strokes: [], pad: { text: '', version: 0 } });
+    assert.deepEqual(log, { notes: [], links: [], strokes: [], experiments: [], pad: { text: '', version: 0 } });
     assert.equal((await call(e, `/rooms/${room}/log`, { pass: stranger })).status, 403);
     assert.equal((await call(e, `/rooms/${room}/log`)).status, 401);
   });

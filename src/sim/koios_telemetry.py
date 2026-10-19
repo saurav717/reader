@@ -25,6 +25,8 @@ From a terminal:
     python koios_telemetry.py tail runs/<run>  # follow one run's events as they come
     python koios_telemetry.py note runs/<run> "text" [--step N] [--by agent]   # a note on a run's timeline
     python koios_telemetry.py bridge logdir/metrics.jsonl --videos logdir/videos --follow   # another codebase's logs
+    python koios_telemetry.py simulators [query]       # the catalogue: 31 simulators, what each needs, their environments
+    python koios_telemetry.py use <simulator> [env]    # env.py and setup.sh for one (and a starter where it has its own API)
 
 The event format (schema 1) is written out in docs/simulation.md in the Koios repository.
 """
@@ -1303,6 +1305,110 @@ def _doctor_text(d: dict) -> str:
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------- catalogue ----
+
+CATALOGUE_FILE = "koios_simulators.json"
+
+
+def catalogue() -> dict | None:
+    """koios_simulators.json: beside this module, in the folder, or on the Koios helper path (.reader/pylib)."""
+    here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+    places = [here, os.getcwd(), os.path.join(os.getcwd(), ".reader", "pylib"), os.environ.get("KOIOS_PYLIB", "")]
+    for place in places:
+        path = os.path.join(place, CATALOGUE_FILE) if place else ""
+        if path and os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    return None
+
+
+_RESOLVE = '''def resolve(env_id):
+    """The id as registered, or the newest registered version of it when that one isn't (versions move: -v4, -v5)."""
+    if env_id in gym.registry:
+        return env_id
+    base = env_id.rsplit("-v", 1)[0]
+    found = [k for k in gym.registry if k.rsplit("-v", 1)[0] == base and k.rsplit("-v", 1)[-1].isdigit()]
+    return max(found, key=lambda k: int(k.rsplit("-v", 1)[1])) if found else env_id'''
+
+_MAKE_ENV = '''def make_env(render_mode=None, env_id=None):
+    """A new environment; render_mode="rgb_array" to record it. An env that can't render that way is made without."""
+    env_id = env_id or ENV_ID
+    try:
+        return _make(env_id, render_mode)
+    except Exception:
+        if render_mode is None:
+            raise
+        return _make(env_id, None)
+'''
+
+
+def env_py(sim: dict, env_id: str) -> str:
+    """env.py for a Gymnasium simulator, as the Koios page writes it (src/lib/simulators.ts, envPy)."""
+    body = sim.get("make") or "    return gym.make(resolve(env_id), render_mode=render_mode)"
+    imports = f"{sim['imports']}\n" if sim.get("imports") else ""
+    head = f'"""The environment this project runs: {sim["name"]}, {env_id}.\n\nEvery script imports make_env from here, so another environment is another ENV_ID (or another body for _make).\n"""\n'
+    head += "import koios_telemetry  # noqa: F401  (first: it picks an off-screen renderer before any simulator loads)\nimport gymnasium as gym\n"
+    return f"{head}{imports}\nSIM = {json.dumps(sim['id'])}\nENV_ID = {json.dumps(env_id)}\n\n\n{_RESOLVE}\n\n\ndef _make(env_id, render_mode):\n{body}\n\n\n{_MAKE_ENV}"
+
+
+def native_env_py(sim: dict, env_id: str) -> str:
+    head = f'"""The environment this project runs: {sim["name"]}, {env_id}. It has an API of its own (see main.py), so make_env\nis not a Gymnasium one.\n"""\n'
+    return f"{head}SIM = {json.dumps(sim['id'])}\nENV_ID = {json.dumps(env_id)}\n\n\ndef make_env(render_mode=None, env_id=None):\n    raise NotImplementedError({json.dumps(sim['name'] + ' has its own API: wrap it as a gymnasium.Env here to use the Gymnasium templates')})\n"
+
+
+def setup_sh(sim: dict) -> str:
+    extra = ["numpy", "imageio", "imageio-ffmpeg", "pillow", "rerun-sdk"] + (['"gymnasium>=1.0"'] if sim.get("api") == "gymnasium" else [])
+    lines = ["#!/usr/bin/env bash", "# What this project needs, installed on the machine it runs on. Run it once per machine (on Colab, once a session).", "set -e", *sim["install"], f"pip install -q {' '.join(extra)}", "# What the machine can do: GPUs, off-screen rendering, video encoding, which simulators import.", "python koios_telemetry.py doctor"]
+    return "\n".join(lines) + "\n"
+
+
+def use(sim_id: str, env_id: str | None, folder: str = ".", force: bool = False) -> list:
+    """env.py, setup.sh and, for a simulator with its own API, main.py — written for one simulator and environment.
+    setup.sh and main.py already there are left alone unless --force; env.py is always written."""
+    book = catalogue()
+    if not book:
+        raise SystemExit(f"{CATALOGUE_FILE} isn't beside this module, in the folder, or on KOIOS_PYLIB: the Koios page writes it.")
+    sims = book["simulators"]
+    sim = next((s for s in sims if s["id"] == sim_id), None) or next((s for s in sims if sim_id.lower() in s["name"].lower()), None)
+    if not sim:
+        raise SystemExit(f"no simulator {sim_id!r}; `python koios_telemetry.py simulators` lists them")
+    env = env_id or (sim["envs"][0]["id"] if sim["envs"] else "")
+    files = [("env.py", env_py(sim, env) if sim["api"] == "gymnasium" else native_env_py(sim, env)), ("setup.sh", setup_sh(sim))]
+    if sim.get("native"):
+        files.append(("main.py", sim["native"].replace("__ENV__", env)))
+    written = []
+    for name, text in files:
+        path = os.path.join(folder, name)
+        if os.path.exists(path) and not force and name != "env.py":
+            continue
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        written.append(name)
+    needs = {"no": "any CPU", "helps": "faster on a GPU", "needs": "a GPU", "rtx": "an NVIDIA RTX GPU"}[sim["gpu"]] + (", Colab" if sim["colab"] else ", not Colab") + (", Linux" if sim.get("linux") else "")
+    print(f"{sim['name']} · {env}: wrote {', '.join(written) or 'nothing new (--force to replace)'}. Needs {needs}. Run `bash setup.sh`, then `python koios_telemetry.py doctor`. Docs: {sim['docs']}")
+    for caveat in sim.get("caveats") or []:
+        print(f"  note: {caveat}")
+    return written
+
+
+def simulators_text(query: str = "") -> str:
+    book = catalogue()
+    if not book:
+        return f"{CATALOGUE_FILE} isn't here: the Koios page writes it beside this module."
+    lines = []
+    for sim in book["simulators"]:
+        haystack = f"{sim['id']} {sim['name']} {sim['blurb']} {sim['family']} " + " ".join(e["id"] + " " + e["label"] for e in sim["envs"])
+        if query and query.lower() not in haystack.lower():
+            continue
+        needs = {"no": "any CPU", "helps": "faster on a GPU", "needs": "a GPU", "rtx": "an RTX GPU"}[sim["gpu"]] + (" · Colab" if sim["colab"] else " · not Colab")
+        lines.append(f"{sim['id']:<20} {sim['name']} — {sim['blurb']} [{needs}; {sim['api']}]")
+        lines.append("                     envs: " + ", ".join(e["id"] for e in sim["envs"][:6]))
+    return "\n".join(lines) if lines else "nothing matches"
+
+
 # ------------------------------------------------------------------- cli ----
 
 
@@ -1347,6 +1453,15 @@ def _main(argv: list[str]) -> int:
             f.write(json.dumps(event, separators=(",", ":")) + "\n")
         print(f"noted at step {step}")
         return 0
+    if command == "simulators":
+        print(simulators_text(" ".join(rest)))
+        return 0
+    if command == "use":
+        if not rest:
+            print("usage: koios_telemetry.py use <simulator> [env] [--force]")
+            return 2
+        use(rest[0], rest[1] if len(rest) > 1 and not rest[1].startswith("--") else None, force="--force" in rest)
+        return 0
     if command == "bridge":
         if not rest:
             print("usage: koios_telemetry.py bridge <metrics.jsonl|.csv|glob> [--videos DIR] [--name NAME] [--sim SIM] [--follow | --until-pid PID]")
@@ -1358,7 +1473,7 @@ def _main(argv: list[str]) -> int:
         run.finish()
         print(f"bridged into {run.dir}")
         return 0
-    print(f"unknown command {command}; try doctor, summary, tail, note or bridge")
+    print(f"unknown command {command}; try doctor, summary, tail, note, bridge, simulators or use")
     return 2
 
 

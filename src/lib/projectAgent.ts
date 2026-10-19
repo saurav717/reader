@@ -53,6 +53,7 @@ export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
     paper.plan?.trim()
       ? `## The plan\n\nDrawn up on the paper's Implementation page in Koios. Follow it; where it leaves a detail open, choose, and say in the README what you chose.\n\n${paper.plan.trim()}`
       : "## The plan\n\nNo plan was drawn up on the paper's Implementation page: work from the abstract above and AGENTS.md.",
+    "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md).",
   ]
     .filter(Boolean)
     .join('\n\n')

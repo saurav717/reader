@@ -16,6 +16,8 @@ each change in `LEARNING.md`, so the person can follow and learn.
 
 ![the picker on "Games & open worlds": Atari, MiniGrid, Crafter, Craftax, ViZDoom, NetHack, MineRL, with Atari's environments and templates](sim-picker-games.png)
 
+![the Experiments tab: a LunarLander run filed to a server, open — its facts, the finding, the last values, the agent's note, the files, and the buttons for notes and moving](experiments-tab.png)
+
 | Live 3D in the Sim pane, through the Companion | The viewer in a window of its own |
 |---|---|
 | ![the Sim pane on a live Humanoid run: the return chart, then Rerun's viewer embedded with the humanoid on the floor and the episodes and numbers beside it](sim-live3d.png) | ![Rerun's viewer: the humanoid mid-fall in the World view, episodes, numbers and the notes table on the right, the timeline at the foot](sim-live3d-viewer.png) |
@@ -226,7 +228,39 @@ Verified here: a random Humanoid-v5 run, the viewer loaded in headless Chromium 
 it; and the same inside the Sim pane (the pictures at the top). Not verified: through the Companion's HTTPS tunnel
 from another network (the proxy is the same code either way), and in the desktop app's Electron window.
 
-### 15. Not every browser plays H.264
+### 15. Experiments, filed as they end, with notes
+*Built.* A run that is over becomes an **experiment**: a record (`src/lib/experiments.ts`: where it ran, how it
+ended, returns first/last/best, success, the last value of each number, the findings, the agents' notes, the
+config) kept in the project's **Logbook → Experiments** tab, and a folder with the run's files — `events.jsonl`,
+the videos, the dreams, `scene.rrd`, `report.md`, `report.json` — in **Google Drive by default**, under the Koios
+folder's `Experiments/<project>/<run>/`, or on **a computer of yours** (any Jupyter server or Companion the page
+knows), chosen once on the tab or per experiment with *Move files to…*. The workspace files runs by itself while the
+machine is connected (`src/components/ExperimentFiler.tsx`, every twenty seconds, runs that ended in the last two
+days), says so in a toast with the folder and the move, and the Sim pane shows *filed in Google Drive ↗* on the
+run. A shared project's room keeps the records too (`worker/logbook.js`, `experiment:` keys, cleaned like the rest).
+
+**Notes.** By default the model the app is set to for Ask AI (Claude, DeepSeek or Gemini, on your keys or the
+site's) writes the notes from the record and the project's `LEARNING.md`: what was tried, what happened, what it
+means, what next, and one idea explained for a learner. They are kept in the record and as `summary.md` beside the
+files. *Ask Claude Code* / *Ask Codex* on an experiment queues the request to that agent on the machine instead,
+which can read the run's files itself and writes `runs/<run>/summary.md` and a line in `LEARNING.md`.
+
+What was hard: a logbook entry has to stay small (the room keeps each under a Durable Object's value limit), so
+the record holds digests and the folder holds the files; media are capped (8 MB a file, 40 MB a run) and what is
+left out is named; a Jupyter server takes bytes through its contents API (`writeBase64`, added to the file hosts),
+Drive through its own; and a run must be filed once, which this browser remembers (`experiments:filed:<playground>`).
+
+### 16. A paper's experiments, wired to a simulator by the agents
+*Built.* A project started **from a paper** now carries the simulation toolkit — `koios_telemetry.py` and
+`koios_simulators.json`, the catalogue as data — and its `AGENTS.md` (read by Codex, by Claude Code through
+`CLAUDE.md`, and named to the page's own agent) says: if the paper's experiments run in a simulator,
+`python koios_telemetry.py simulators` lists them with what each needs, `python koios_telemetry.py use
+<simulator> [env]` writes `env.py` and `setup.sh` (and a starter for a simulator with its own API), log every run
+through `koios_telemetry.Run`, keep the paper's reported numbers in the README. The page writes the same two files
+to every machine's helper path, so the commands work in any project's console. A test holds the `env.py` the
+machine writes equal to the one the page writes.
+
+### 17. Not every browser plays H.264
 *Worked around.* Videos are MP4/H.264, which Chrome, Edge, Safari and Firefox play. Open-source Chromium builds
 (the one Playwright drives, some Linux packages) ship without H.264: found when screenshotting the pane, where
 the player loaded the video but stayed at 0:00. `KOIOS_VIDEO=gif` makes the module write GIFs instead, which every

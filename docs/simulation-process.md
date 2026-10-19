@@ -200,11 +200,36 @@ Three background commands in this phase ended with code 144 again: each was a lo
 (a run holding ports, a proxy) I ended by hand once it had served its purpose; the `pkill -f` pattern also
 matched the shell running it twice, which is why the pattern changed to `[r]r-smoke`.
 
+## 6.3 Experiments and the paper toolkit
+
+Asked for next: results logged automatically where they are accessible, Drive by default, moved elsewhere on
+request, with notes by the app's model or the signed-in coding agent; and a paper's reimplementation able to reach
+the simulators through the agents. Built in this order:
+
+1. The record (`src/lib/experiments.ts`) and the logbook's new field, the Worker's cleaning and ops, the store's
+   ops and broadcast handling: pure first, with `scripts/experiments.test.mjs` pinning the digest (its own first
+   numbers were wrong: the first tenth of 0, 2, 4… is 5), the caps, the Markdown, the Worker's refusals, and the
+   room keeping and removing records. Two assertions in `project-room.test.mjs` compared an empty logbook's
+   exact shape and gained `experiments: []`; nothing else in the suite changed.
+2. The filing (`src/lib/experimentFiling.ts`): the whole `events.jsonl` read in pieces, media fetched within the
+   caps and written as bytes (`writeBase64` added to the Jupyter and kernel hosts; Drive had it), the record kept
+   and remembered; the notes through `streamModel`; moving between places.
+3. The tab, the auto-filer with its toast, the Sim pane's filed line.
+4. The catalogue as JSON on the machine and `koios_telemetry.py use` / `simulators`, tested against the page's
+   own `envPy` byte for byte, and run for real: `use gymnasium CartPole-v1` on a bare folder, then the random agent
+   on it.
+5. End to end here, with a Jupyter server started in the container as "a computer of yours" and the harness
+   calling the real `fileRun` on the finished LunarLander run: the files (events, five GIFs, report.md,
+   report.json) landed under `experiments/…` on that server and the Experiments tab drew the record
+   (`docs/experiments-tab.png`). Drive itself cannot be reached from here (no Google sign-in), so the Drive
+   place is exercised only by the same code path's Jupyter twin; and no model key is available here, so the
+   notes were not generated in this session.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```
 npx tsc -b && npm run typecheck:vscode
-node --test scripts/simulation.test.mjs          # 32 tests; needs python3 for 14 of them
+node --test scripts/simulation.test.mjs scripts/experiments.test.mjs   # needs python3 for some
 npm test                                         # expect only glass.test.mjs's 4 pre-existing failures
 npx vite build --outDir /tmp/build && grep -l "koios_telemetry: what a simulation run" /tmp/build/assets/*.js
 (cd companion && python -m unittest $(ls tests/test_*.py | sed 's#/#.#; s#\.py$##'))   # the Companion: 157 tests, its port proxy's included

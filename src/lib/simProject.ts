@@ -14,12 +14,17 @@ import SAC from '../sim/templates/sac.py?raw';
 import SB3 from '../sim/templates/sb3.py?raw';
 import WORLD_MODEL from '../sim/templates/world_model.py?raw';
 import type { SimEnv, Simulator, TemplateId } from './simulators';
-import { TEMPLATES, dreamerTask, envPy, nativeEnvPy, needsLine, tdmpcTask } from './simulators';
+import { TEMPLATES, catalogueJson, dreamerTask, envPy, nativeEnvPy, needsLine, tdmpcTask } from './simulators';
 
 export { TELEMETRY as KOIOS_TELEMETRY_PY };
 
 /** Where the telemetry module goes in a project, and on the machine's helper path (src/lib/koiosHelper.ts). */
 export const TELEMETRY_FILE = 'koios_telemetry.py';
+/** The catalogue beside it, which `koios_telemetry.py use` reads. */
+export const CATALOGUE_FILE = 'koios_simulators.json';
+
+/** The simulation toolkit any project can carry: the telemetry module and the catalogue, for `python koios_telemetry.py use <simulator>`. */
+export const simulationToolkit = (): Record<string, string> => ({ [TELEMETRY_FILE]: TELEMETRY, [CATALOGUE_FILE]: catalogueJson() });
 
 export interface SimProject {
   title: string;
@@ -281,6 +286,7 @@ export function simProject(sim: Simulator, env: SimEnv | undefined, template: Te
     'LEARNING.md': learning(template),
     'setup.sh': setupSh(sim, template),
     [TELEMETRY_FILE]: TELEMETRY,
+    [CATALOGUE_FILE]: catalogueJson(),
     'env.py': sim.api === 'gymnasium' ? envPy(sim, envId) : nativeEnvPy(sim, envId),
   };
   if (sim.native && sim.api === 'native' && template !== 'isaaclab') files['main.py'] = sim.native.replace(/__ENV__/g, envId);

@@ -29,7 +29,7 @@ const http = (value) => {
 };
 
 /** A note and its transcript together stay under a Durable Object value's 128 KiB. */
-export const LIMITS = { notes: 500, links: 500, strokes: 5000, markdown: 40_000, transcript: 80_000, pad: 100_000, points: 6000 };
+export const LIMITS = { notes: 500, links: 500, strokes: 5000, markdown: 40_000, transcript: 80_000, pad: 100_000, points: 6000, experiments: 500, summary: 40_000 };
 
 export function cleanNote(raw, who) {
   if (!raw || typeof raw !== 'object' || !id(raw.id)) return null;
@@ -80,16 +80,60 @@ export function cleanStroke(raw, who) {
   };
 }
 
-const PREFIX = { note: 'note:', link: 'weblink:', stroke: 'stroke:' };
+const num = (value) => (Number.isFinite(value) ? value : undefined);
+/** An experiment's record (src/lib/experiments.ts): the shape is kept, every string cut, every number checked. */
+export function cleanExperiment(raw, who) {
+  if (!raw || typeof raw !== 'object' || !id(raw.id) || !id(raw.playgroundId)) return null;
+  const returns = raw.returns && typeof raw.returns === 'object' && [raw.returns.first, raw.returns.last, raw.returns.best].every(Number.isFinite) ? { first: raw.returns.first, last: raw.returns.last, best: raw.returns.best } : undefined;
+  const last = {};
+  if (raw.last && typeof raw.last === 'object') for (const [key, value] of Object.entries(raw.last).slice(0, 12)) if (Number.isFinite(value)) last[String(key).slice(0, 80)] = value;
+  const where = raw.where && typeof raw.where === 'object' ? { kind: raw.where.kind === 'server' ? 'server' : 'drive', label: text(raw.where.label, 120), path: text(raw.where.path, 600), ...(http(raw.where.link) ? { link: http(raw.where.link) } : {}), ...(id(raw.where.serverId) ? { serverId: id(raw.where.serverId) } : {}) } : { kind: 'drive', label: 'Google Drive', path: '' };
+  const config = (() => {
+    try {
+      const json = JSON.stringify(raw.config && typeof raw.config === 'object' ? raw.config : {});
+      return json.length <= 8000 ? JSON.parse(json) : { '…': 'too long to keep' };
+    } catch {
+      return {};
+    }
+  })();
+  return {
+    id: id(raw.id),
+    playgroundId: id(raw.playgroundId),
+    playground: text(raw.playground, 200),
+    title: text(raw.title, 200) || id(raw.id),
+    ...(typeof raw.sim === 'string' && raw.sim ? { sim: raw.sim.slice(0, 200) } : {}),
+    status: raw.status === 'crashed' || raw.status === 'stopped' ? raw.status : 'finished',
+    started: iso(raw.started),
+    ended: iso(raw.ended),
+    steps: Math.max(0, Math.floor(num(raw.steps) ?? 0)),
+    episodes: Math.max(0, Math.floor(num(raw.episodes) ?? 0)),
+    ...(returns ? { returns } : {}),
+    ...(Number.isFinite(raw.success) ? { success: Math.max(0, Math.min(100, Math.round(raw.success))) } : {}),
+    last,
+    findings: (Array.isArray(raw.findings) ? raw.findings : []).slice(0, 20).filter((f) => f && typeof f === 'object').map((f) => ({ id: text(f.id, 40), level: f.level === 'error' || f.level === 'warn' ? f.level : 'info', title: text(f.title, 200), detail: text(f.detail, 600), try: text(f.try, 600) })),
+    notes: (Array.isArray(raw.notes) ? raw.notes : []).slice(0, 30).filter((n) => n && typeof n === 'object').map((n) => ({ step: Math.max(0, Math.floor(num(n.step) ?? 0)), by: text(n.by, 40) || 'code', text: text(n.text, 500) })),
+    config,
+    ...(typeof raw.machine === 'string' && raw.machine ? { machine: raw.machine.slice(0, 120) } : {}),
+    where,
+    files: (Array.isArray(raw.files) ? raw.files : []).slice(0, 60).filter((f) => f && typeof f === 'object' && typeof f.path === 'string').map((f) => ({ path: f.path.slice(0, 300), ...(Number.isFinite(f.bytes) ? { bytes: f.bytes } : {}), kind: ['video', 'image', 'scene', 'events', 'report'].includes(f.kind) ? f.kind : 'video' })),
+    leftOut: (Array.isArray(raw.leftOut) ? raw.leftOut : []).slice(0, 60).filter((p) => typeof p === 'string').map((p) => p.slice(0, 300)),
+    ...(raw.summary && typeof raw.summary === 'object' && typeof raw.summary.text === 'string' ? { summary: { text: text(raw.summary.text, LIMITS.summary), by: text(raw.summary.by, 80) || who, at: iso(raw.summary.at) } } : {}),
+    by: text(raw.by, 200) || who,
+    at: raw.at ? iso(raw.at) : new Date().toISOString(),
+  };
+}
+
+const PREFIX = { note: 'note:', link: 'weblink:', stroke: 'stroke:', experiment: 'experiment:' };
 
 /** The whole logbook, as a member's page reads it. */
 export async function readLog(storage) {
   const list = async (prefix) => [...(await storage.list({ prefix })).values()];
-  const [notes, links, strokes, pad] = await Promise.all([list(PREFIX.note), list(PREFIX.link), list(PREFIX.stroke), storage.get('pad')]);
+  const [notes, links, strokes, experiments, pad] = await Promise.all([list(PREFIX.note), list(PREFIX.link), list(PREFIX.stroke), list(PREFIX.experiment), storage.get('pad')]);
   return {
     notes: notes.sort((a, b) => (b.start || '').localeCompare(a.start || '')),
     links: links.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.at || '').localeCompare(a.at || '')),
     strokes: strokes.sort((a, b) => (a.at || '').localeCompare(b.at || '')),
+    experiments: experiments.sort((a, b) => (b.ended || '').localeCompare(a.ended || '')),
     pad: pad || { text: '', version: 0 },
   };
 }
@@ -141,6 +185,21 @@ export async function changeLog(storage, who, body) {
     if ((await count(storage, PREFIX.stroke)) + strokes.length > LIMITS.strokes) return { status: 413, body: { error: 'the whiteboard is full: clear it, or download it and start again' } };
     for (const stroke of strokes) await storage.put(PREFIX.stroke + stroke.id, stroke);
     return { status: 200, body: { strokes }, broadcast: { type: 'log', op: 'stroke', strokes } };
+  }
+  if (op === 'experiment') {
+    const experiment = cleanExperiment(body.experiment, who);
+    if (!experiment) return { status: 400, body: { error: 'which experiment?' } };
+    const key = PREFIX.experiment + experiment.playgroundId + ':' + experiment.id;
+    const had = await storage.get(key);
+    if (!had && (await count(storage, PREFIX.experiment)) >= LIMITS.experiments) return { status: 413, body: { error: `a logbook keeps ${LIMITS.experiments} experiments` } };
+    await storage.put(key, experiment);
+    return { status: 200, body: { experiment }, broadcast: { type: 'log', op: 'experiment', experiment } };
+  }
+  if (op === 'unexperiment') {
+    const keys = (Array.isArray(body.keys) ? body.keys : [body.key]).filter((k) => typeof k === 'string' && /^[\w:.-]{3,250}$/.test(k)).slice(0, 100);
+    if (!keys.length) return { status: 400, body: { error: 'which?' } };
+    for (const key of keys) await storage.delete(PREFIX.experiment + key);
+    return { status: 200, body: { ok: true, keys }, broadcast: { type: 'log', op: 'unexperiment', keys } };
   }
   if (op === 'unnote' || op === 'unlink' || op === 'unstroke') {
     const prefix = op === 'unnote' ? PREFIX.note : op === 'unlink' ? PREFIX.link : PREFIX.stroke;

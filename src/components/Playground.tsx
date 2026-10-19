@@ -14,7 +14,7 @@ import { currentAccount, currentPass, onProxyChange } from '../lib/api';
 import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestDesktopApps, normaliseCode, pairFragment, setStopWithApp, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
-import { simProject } from '../lib/simProject';
+import { simProject, simulationToolkit } from '../lib/simProject';
 import { placeWarning } from '../lib/simulators';
 import SimPicker from './SimPicker';
 import type { SimPick } from './SimPicker';
@@ -270,7 +270,8 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     const title = `Trying ${paper.title.split(/[:—–-]/)[0].trim().slice(0, 60)}`;
     const about = { ...cite, abstract: paper.abstract, authors: paper.authors, published: paper.published, arxivId: paper.arxivId, doi: paper.doi };
     // A project, as VS Code lays one out: the files, an editor, a console and an agent that knows the paper. The notebook is still a tab away.
-    begin({ title, kind: 'project', start: 'paper', cites: [cite], files: paperFiles(title, about), cells: paperCells(paper.title, about) });
+    // With the simulation toolkit, so an agent can wire the paper's experiments to a simulator from the terminal.
+    begin({ title, kind: 'project', start: 'paper', cites: [cite], files: { ...paperFiles(title, about), ...simulationToolkit() }, cells: paperCells(paper.title, about) });
   };
 
   const fromFile = async (file: File | undefined) => {
