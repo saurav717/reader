@@ -18,6 +18,8 @@ import { explainError, modelSpec, PROVIDERS, sdk, streamModel, tag } from './ass
 import type { Message, SystemBlock } from './assistant';
 import type { FileHost } from './playground';
 import { readMeta, writeMeta } from './playground';
+import { newJobId, useServerJobs } from './agentJobs';
+import { replaying } from './replayFlag';
 
 const MAX_TOKENS = 32000;
 /** How many times it may ask for files before it has to answer. */
@@ -37,6 +39,29 @@ paper's hyper-parameters, main.py as the entry point that runs a seeded experime
 when torch.cuda.is_available(), else a smaller size on the CPU) and prints the headline metric, a requirements.txt for
 what the code imports, and the README rewritten to say what was built, what was simplified and how to run it. Cite the
 paper's equation numbers in comments. Keep each file under about 200 lines. Then suggest the commands to install and run it.`;
+
+/** Where Claude Code or Codex finds the paper and the reader's plan, in the project's folder. */
+export const PLAN_FILE = 'IMPLEMENTATION_PLAN.md';
+
+/** The paper and the plan from its Implementation page, as the file Claude Code or Codex reads before writing the project. */
+export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
+  const byline = [paper.authors?.length ? paper.authors.slice(0, 8).join(', ') : '', paper.published ? `(${paper.published.slice(0, 4)})` : ''].filter(Boolean).join(' ');
+  return [
+    `# Implementation plan: ${paper.title}`,
+    byline,
+    paper.abstract ? `## Abstract\n\n${paper.abstract.replace(/\s+/g, ' ').trim()}` : '',
+    paper.plan?.trim()
+      ? `## The plan\n\nDrawn up on the paper's Implementation page in Koios. Follow it; where it leaves a detail open, choose, and say in the README what you chose.\n\n${paper.plan.trim()}`
+      : "## The plan\n\nNo plan was drawn up on the paper's Implementation page: work from the abstract above and AGENTS.md.",
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .concat('\n');
+}
+
+/** What Claude Code or Codex is asked, to write the project from that file: the agent's own request, worded for an agent that edits files itself. */
+export const cliWriteRequest = (hasPlan: boolean) =>
+  `Read ${PLAN_FILE} first: it holds the paper${hasPlan ? " and the reader's implementation plan for it — follow the plan" : ''}. ${WRITE_PROJECT.replace('Write every file it needs, whole, in this one answer: ', 'Write every file it needs: ').replace(/\s*Then suggest the commands to install and run it\.$/, '')} Install what requirements.txt lists and run main.py once at its smallest size to check it works, then say in a few sentences what you built and the commands to run it.`;
 
 /** The files an answer has begun to write so far, in order, each once its fence's line is whole: what a start shows as it streams. */
 export function filesInReply(text: string): string[] {
@@ -222,7 +247,45 @@ export interface AgentPending {
   step: string;
   read: string[];
   error?: string;
+  /** Written on the proxy (src/lib/agentJobs.ts): it goes on through a lost connection or a reload. */
+  onServer?: boolean;
+  /** The page has lost the proxy for now; the answer goes on being written there. */
+  offline?: boolean;
 }
+
+/**
+ * The answer being written on the proxy, as this browser keeps it until the
+ * answer is in: so a page reloaded, or opened again after the connection
+ * dropped, joins the job instead of losing it. The rounds before it that only
+ * asked to read files are kept too, to be asked over the same way.
+ */
+export interface SavedJob {
+  id: string;
+  model: string;
+  request: string;
+  maxTokens?: number;
+  started: number;
+  replies: string[];
+}
+const JOB_KEY = (projectId: string) => `reader.agentJob.${projectId}`;
+const JOB_KEPT_MS = 24 * 3600_000;
+export function savedJob(projectId: string): SavedJob | null {
+  try {
+    const job = JSON.parse(localStorage.getItem(JOB_KEY(projectId)) || 'null') as SavedJob | null;
+    if (!job?.id || !job.request || Date.now() - job.started > JOB_KEPT_MS) return null;
+    return { ...job, replies: Array.isArray(job.replies) ? job.replies : [] };
+  } catch {
+    return null;
+  }
+}
+const keepJob = (projectId: string, job: SavedJob | null) => {
+  try {
+    if (job) localStorage.setItem(JOB_KEY(projectId), JSON.stringify(job));
+    else localStorage.removeItem(JOB_KEY(projectId));
+  } catch {
+    // Storage closed to us: the job still runs, but a reload can't find it.
+  }
+};
 
 /** A conversation as it is kept: its turns, when it started, and a title from its first request. */
 export interface SavedChat {
@@ -433,7 +496,7 @@ function historyMessages(turns: AgentTurn[]): Message[] {
  * The folder changes only when the whole answer is in, so a half-written file
  * is never saved; `onWrote` lets the editor take the new text of files it has open.
  */
-export async function askAgent(params: { projectId: string; model: string; request: string; host: FileHost; view: () => Promise<ProjectView>; onWrote?: (changes: AgentChange[]) => void; maxTokens?: number }): Promise<void> {
+export async function askAgent(params: { projectId: string; model: string; request: string; host: FileHost; view: () => Promise<ProjectView>; onWrote?: (changes: AgentChange[]) => void; maxTokens?: number; resume?: SavedJob }): Promise<void> {
   const { projectId, model, host } = params;
   const request = params.request.trim();
   if (!request || running) return;
@@ -441,7 +504,8 @@ export async function askAgent(params: { projectId: string; model: string; reque
   if (!chats.get(projectId)?.loaded) await loadAgentChats(projectId, host);
   const before = agentChatFor(projectId).turns;
   const userTurn: AgentTurn = { role: 'user', text: request, at: Date.now() };
-  const pending: AgentPending = { request, reply: '', started: Date.now(), step: 'Reading the project', read: [] };
+  const resume = params.resume;
+  const pending: AgentPending = { request, reply: '', started: resume?.started ?? Date.now(), step: resume ? 'Picking up where it was' : 'Reading the project', read: [] };
   update(projectId, { turns: [...before, userTurn].slice(-TURNS_KEPT), pending: { ...pending } });
   let SDK: SDK | null = null;
   const writer = PROVIDERS[modelSpec(model).provider].name;
@@ -454,35 +518,58 @@ export async function askAgent(params: { projectId: string; model: string; reque
     const known = new Set(view.listing.map((file) => file.path));
     let reply: AgentReply = { note: '', blocks: [] };
     let stop: string | null = null;
+    const replies = [...(resume?.replies ?? [])];
     for (let round = 0; ; round++) {
       pending.reply = '';
       pending.thinking = undefined;
       pending.step = round ? `Reading ${pending.read.slice(-3).join(', ')}` : 'Thinking';
       update(projectId, { pending: { ...pending } });
-      const stream = await streamModel({ model, maxTokens: params.maxTokens ?? MAX_TOKENS, system, messages, effort: 'medium' });
-      running = { projectId, abort: () => stream.abort() };
-      let frame = 0;
-      const paint = () => {
-        if (frame) return;
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          update(projectId, { pending: { ...pending } });
+      // A round answered before a reload, that only asked to read files: asked over from what it said.
+      if (round < replies.length) {
+        pending.reply = replies[round];
+      } else {
+        // On the proxy where it may be, so a lost connection or a reload doesn't end it; a job left from before a reload, joined.
+        const joining = resume && round === replies.length ? resume.id : null;
+        const onServer = Boolean(joining) || (!replaying() && (await useServerJobs()));
+        const id = joining ?? newJobId();
+        if (onServer) keepJob(projectId, { id, model, request, maxTokens: params.maxTokens, started: pending.started, replies });
+        pending.onServer = onServer;
+        pending.offline = false;
+        const background = onServer
+          ? {
+              id,
+              onLink: (online: boolean) => {
+                if (pending.offline === !online) return;
+                pending.offline = !online;
+                update(projectId, { pending: { ...pending } });
+              },
+            }
+          : undefined;
+        const stream = await streamModel({ model, maxTokens: params.maxTokens ?? MAX_TOKENS, system, messages, effort: 'medium', background });
+        running = { projectId, abort: () => stream.abort() };
+        let frame = 0;
+        const paint = () => {
+          if (frame) return;
+          frame = requestAnimationFrame(() => {
+            frame = 0;
+            update(projectId, { pending: { ...pending } });
+          });
+        };
+        stream.on('thinking', (delta: string) => {
+          pending.thinking = `${pending.thinking ?? ''}${delta}`;
+          paint();
         });
-      };
-      stream.on('thinking', (delta: string) => {
-        pending.thinking = `${pending.thinking ?? ''}${delta}`;
-        paint();
-      });
-      stream.on('text', (delta: string) => {
-        pending.reply += delta;
-        pending.thinking = undefined;
-        pending.step = /```[^\n]*file=/.test(pending.reply) ? 'Writing' : 'Answering';
-        paint();
-      });
-      const final = await stream.finalMessage();
-      if (frame) cancelAnimationFrame(frame);
-      stop = final.stop_reason;
-      if (stop === 'refusal') throw new Error(`${writer} declined that request.`);
+        stream.on('text', (delta: string) => {
+          pending.reply += delta;
+          pending.thinking = undefined;
+          pending.step = /```[^\n]*file=/.test(pending.reply) ? 'Writing' : 'Answering';
+          paint();
+        });
+        const final = await stream.finalMessage();
+        if (frame) cancelAnimationFrame(frame);
+        stop = final.stop_reason;
+        if (stop === 'refusal') throw new Error(`${writer} declined that request.`);
+      }
       reply = parseAgentReply(pending.reply);
       if (!onlyReads(reply) || round >= READ_ROUNDS) break;
       // The files it asked for, read now and handed back.
@@ -495,6 +582,7 @@ export async function askAgent(params: { projectId: string; model: string; reque
         }),
       );
       pending.read.push(...paths.filter((path) => known.has(path)));
+      if (round >= replies.length) replies.push(pending.reply);
       messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${read.join('\n\n')}\n\nNow answer the request.` });
     }
     // The files, written in one move; what was there before is kept for Undo.
@@ -516,8 +604,35 @@ export async function askAgent(params: { projectId: string; model: string; reque
     update(projectId, { pending: message === 'Stopped.' ? undefined : { ...pending, error: message } });
   } finally {
     running = null;
+    // In, failed or stopped: there is nothing left to join.
+    keepJob(projectId, null);
   }
   await saveAgentChats(projectId, host);
+}
+
+/**
+ * The answer that was being written on the proxy when this page was last
+ * left — reloaded, closed, or cut off — joined where it is: its files land
+ * in the folder as they would have. False when there is none.
+ */
+export async function resumeAgentJob(params: { projectId: string; host: FileHost; view: () => Promise<ProjectView>; onWrote?: (changes: AgentChange[]) => void }): Promise<boolean> {
+  const job = savedJob(params.projectId);
+  if (!job || running || resuming.has(params.projectId)) return false;
+  resuming.add(params.projectId);
+  try {
+    await askAgent({ ...params, model: job.model, request: job.request, maxTokens: job.maxTokens, resume: job });
+  } finally {
+    resuming.delete(params.projectId);
+  }
+  return true;
+}
+const resuming = new Set<string>();
+
+/** A job left from before a reload, put aside: stopped on the proxy and forgotten here. */
+export function dropSavedJob(projectId: string, stop: (id: string) => Promise<void>) {
+  const job = savedJob(projectId);
+  keepJob(projectId, null);
+  if (job) void stop(job.id);
 }
 
 /** Undo one answer: its files put back as they were (a new file is left empty — the folder has no delete). */

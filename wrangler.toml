@@ -354,6 +354,19 @@ class_name = "Kernels"
 tag = "v7"
 new_sqlite_classes = ["Kernels"]
 
+# The agent's long answers, written here rather than in the page
+# (worker/agentJobs.js): one object per job, holding what the provider
+# streamed until the page reads it, so a page that loses its connection or is
+# closed picks the answer up where it was. Emptied a day after it ends. The
+# owner turns it off for everyone on Usage → The site.
+[[durable_objects.bindings]]
+name = "AGENT_JOBS"
+class_name = "AgentJob"
+
+[[migrations]]
+tag = "v8"
+new_sqlite_classes = ["AgentJob"]
+
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,
 # worker/tavilyUsage.js). Does nothing until DEEPSEEK_KEY or TAVILY_KEY is set:

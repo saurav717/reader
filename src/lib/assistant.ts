@@ -42,6 +42,7 @@ import type AnthropicClient from '@anthropic-ai/sdk';
 import { DeepSeekStream, proxyReason } from './deepseek';
 import { GeminiStream } from './gemini';
 import { reportAiUsage } from './aiUsage';
+import { jobFetch, type JobProvider } from './agentJobs';
 import { api as proxyUrl, apiHeaders, hasProxy, hasProxyToken, onProxyChange, proxyHealth } from './api';
 import type { DeepSeekError } from './deepseek';
 import type { GeminiError } from './gemini';
@@ -1140,8 +1141,14 @@ export async function streamModel(params: {
   effort?: 'low' | 'medium' | 'high';
   /** The Web button: let the model search the web as it answers. Claude and DeepSeek only; see webUsable. */
   web?: boolean;
+  /**
+   * Written on the proxy as job `id` rather than streamed here (src/lib/agentJobs.ts), so a lost connection
+   * or a reload doesn't lose it; `onLink` hears when the page loses and regains the proxy meanwhile.
+   */
+  background?: { id: string; onLink?: (online: boolean) => void };
 }): Promise<ModelStream> {
   const spec = modelSpec(params.model);
+  const viaJob = (provider: JobProvider) => (params.background ? jobFetch({ id: params.background.id, provider, ownKey: keyFor(provider) || undefined, onLink: params.background.onLink }) : undefined);
   const web = Boolean(params.web) && webUsable(spec.id);
   const maxTokens = spec.maxOutput ? Math.min(params.maxTokens, spec.maxOutput) : params.maxTokens;
   if (spec.provider === 'deepseek') {
@@ -1162,7 +1169,7 @@ export async function streamModel(params: {
         const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
         reportAiUsage('deepseek', spec.apiModel ?? spec.id, { input: miss, cacheRead: hit, output: usage.completion_tokens || 0 }, spec.id);
       },
-    });
+    }, viaJob('deepseek'));
     answer.finalMessage().catch((error: DeepSeekError) => {
       if (error?.fromProxy) siteRefused('deepseek', error.reason);
     });
@@ -1179,14 +1186,16 @@ export async function streamModel(params: {
       system: params.system.map((block) => block.text).join('\n\n'),
       messages: params.messages as ConstructorParameters<typeof GeminiStream>[0]['messages'],
       // The proxy counts Gemini's tokens itself, as they pass through it.
-    });
+    }, viaJob('gemini'));
     answer.finalMessage().catch((error: GeminiError) => {
       if (error?.fromProxy) siteRefused('gemini', error.reason);
     });
     return answer;
   }
   const site = onSiteKey('anthropic');
-  const api = await anthropic();
+  const job = viaJob('anthropic');
+  // Through a job: a client of its own for this one answer, whose fetch is the job's; it waits out lost connections itself.
+  const api = job ? new (await sdk())({ dangerouslyAllowBrowser: true, apiKey: keyFor('anthropic') || 'site-key', maxRetries: 0, timeout: 3_600_000, fetch: job }) : await anthropic();
   const sdkStream = api.messages.stream({
     model: spec.apiModel ?? spec.id,
     max_tokens: maxTokens,

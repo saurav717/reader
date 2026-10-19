@@ -38,7 +38,7 @@ import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
-import CliAgent from './CliAgent';
+import CliAgent, { queueCliRequest } from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
 import KernelTerminal, { closeKernelTerminal } from './KernelTerminal';
 import MachinePool, { MachineMark, isConnected, sessionOf, useSessions } from './MachinePool';
@@ -48,7 +48,7 @@ import { noteEdit, reportPlace, useJumps, usePeers } from '../lib/liveRoom';
 import { ContextMenu, FolderPlusGlyph, keyLabel, OpenEditors, OutlineGlyph, OutlineView, PaletteGlyph, QuickPick, SplitGlyph, SymbolMark } from './Workbench';
 import { symbolPath, symbolsOf } from '../lib/editing';
 import { clearAgentChat } from '../lib/projectAgent';
-import { agentChatFor, listAll, loadAgentChats, subscribeAgent } from '../lib/projectAgent';
+import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import ProjectStart from './ProjectStart';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
@@ -1672,6 +1672,36 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (first && !files.length) void open('home', first.path);
   };
 
+  /** Claude Code or Codex writes the project: the paper and the plan put in the folder for it, and the request queued in its pane, sent once it is installed and signed in. */
+  const writeWithCli = async (agent: 'claude' | 'codex') => {
+    if (!cited) return;
+    const text = planMarkdown({ title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: paperPlan });
+    try {
+      const before = await home.read(PLAN_FILE).catch(() => null);
+      await home.write(PLAN_FILE, text);
+      tookAgentFiles([{ path: PLAN_FILE, before, after: text, ...lineDelta(before, text) }]);
+    } catch (error) {
+      alert(`${PLAN_FILE} couldn’t be written to the folder: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    queueCliRequest(playground.id, agent, cliWriteRequest(Boolean(paperPlan)));
+    setAgentMode(agent);
+    setRightTab('agent');
+    setAgentOpen(true);
+    settleStart('dismissed');
+  };
+  // An answer the agent was writing on the server when this page was last left — reloaded, closed, cut off: joined, its files landing here.
+  const resumeTried = useRef<string | null>(null);
+  useEffect(() => {
+    if (resumeTried.current === playground.id || !savedJob(playground.id)) return;
+    resumeTried.current = playground.id;
+    setAgentMode('reader');
+    setRightTab('agent');
+    setAgentOpen(true);
+    void resumeAgentJob({ projectId: playground.id, host: home, view: agentView, onWrote: tookAgentFiles }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id, home]);
+
   /** Open files read again from the folder, where they aren't being edited here: an agent or a run wrote them. */
   const reloadOpen = async () => {
     for (const file of filesRef.current) {
@@ -2201,6 +2231,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 }}
                 onDone={() => settleStart('done')}
                 onDismiss={() => settleStart('dismissed')}
+                onCli={(agent) => void writeWithCli(agent)}
               />
             </div>
           ) : null}
