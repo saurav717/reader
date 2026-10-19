@@ -105,6 +105,8 @@ def shell_command(root: Path, interpreter: Path) -> list[str] | None:
         if (venv / "pyvenv.cfg").exists()
         else f'export PATH="{bin_dir}:$PATH"\n'
     )
+    # koios (reader_companion/compute.py) in every terminal of ours, whether or not its command is on PATH.
+    on_top += f'command -v koios >/dev/null 2>&1 || koios() {{ "{sys.executable}" -m reader_companion.compute "$@"; }}\n'
     folder = root / ".reader" / "shell"
     folder.mkdir(parents=True, exist_ok=True)
     if name == "zsh":

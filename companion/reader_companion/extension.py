@@ -73,7 +73,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, browsers, desktop, folders, jobs, mover, paper, state, texlive, tools, tunnel
+from . import account, browsers, compute, desktop, folders, jobs, mover, paper, state, texlive, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -717,6 +717,59 @@ class MoveHandler(VsCodeHandler):
         self.reply(202, {"started": config["mode"], "pid": pid})
 
 
+class ComputeHandler(VsCodeHandler):
+    """The project's compute, for this computer's shell (reader_companion/compute.py, from 0.17.0). GET ?root=…: whether
+    the project's folder here is linked to one, and to what (never its pass). POST {root, compute}: the link the page
+    hands over — the machine's Jupyter address and a pass, renewed while the page is open — or {root, compute: null}
+    to forget it. POST {root, action: "push"}: the changed files copied over now, as one archive, for the page's
+    Copy and Run; it answers what was sent."""
+
+    def folder(self, root: str) -> Path:
+        relative = mover.safe_member(str(root or "").strip("/"))
+        if not relative:
+            raise ValueError("which project folder?")
+        return Path(state.current.root).expanduser() / relative
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            folder = self.folder(self.get_query_argument("root", ""))
+        except ValueError as error:
+            return self.reply(400, {"error": str(error)})
+        self.reply(200, compute.public(compute.load_link_file(compute.link_file(folder))))
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+            folder = self.folder(body.get("root"))
+        except ValueError as error:
+            return self.reply(400, {"error": str(error)})
+        if body.get("action") == "push":
+            link = compute.load_link_file(compute.link_file(folder))
+            if not link:
+                return self.reply(409, {"error": "This project isn't linked to a compute here yet."})
+            remote = compute.Remote(link)
+            try:
+                await remote.open()
+                report = await compute.push(remote, folder, bool(body.get("big")))
+            except compute.ComputeError as error:
+                return self.reply(502, {"error": str(error)})
+            finally:
+                remote.close()
+            return self.reply(200, {**report, "words": compute.push_words(report, link["label"])})
+        if "compute" not in body:
+            return self.reply(400, {"error": "compute, or action"})
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            link = compute.save_link(folder, body["compute"])
+        except compute.ComputeError as error:
+            return self.reply(400, {"error": str(error)})
+        self.reply(200, compute.public(link))
+
+
 class BrowsersHandler(VsCodeHandler):
     """GET /companion/browsers: the browsers on this computer and their profiles (from 0.9.0). POST {url, browser,
     profile}: that https link opened there — the browser and profile must be ones the listing has. The token, as
@@ -892,6 +945,7 @@ def load(serverapp):
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/folders"), FoldersHandler),
             (url_path_join(base, "companion/move"), MoveHandler),
+            (url_path_join(base, "companion/compute"), ComputeHandler),
             (url_path_join(base, "companion/browsers"), BrowsersHandler),
             (url_path_join(base, "companion/paper"), PaperHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),

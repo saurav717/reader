@@ -247,6 +247,11 @@ archive when no page is open. From 0.16.0 its mover weighs files arriving over a
 older copy three ways, so nothing there is lost. The design is in
 [storage-moves.md](storage-moves.md).
 
+`companion/compute` (from 0.17.0) keeps a link from a project's folder here to
+the machine its code runs on, so the `koios` command in this computer's
+terminals can push, run, open a shell and pull there over one WebSocket. See
+[compute-link.md](compute-link.md).
+
 ---
 
 ## How it connects

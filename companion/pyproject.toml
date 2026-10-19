@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reader-companion"
-version = "0.16.1"
+version = "0.17.0"
 description = "Connects this computer to the reader's Playground: a Jupyter server the page can reach, paired in one click."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,6 +12,7 @@ dependencies = ["jupyter_server>=2.0", "jupyter_server_terminals>=0.4", "ipykern
 
 [project.scripts]
 reader-companion = "reader_companion.cli:main"
+koios = "reader_companion.compute:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["reader_companion"]

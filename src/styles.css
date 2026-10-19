@@ -6390,6 +6390,8 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-panel-head .pg-shell-tabs { flex: none; }
 .vs-panel-where { min-width: 0; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; font: 11.5px var(--mono); color: var(--muted); }
 .vs-panel-machine { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--panel); color: var(--ink-2); font: 500 11px var(--sans); }
+.vs-panel-link { flex: none; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--accent); font: 500 11px var(--sans); }
+.pg-menu-note { color: var(--muted); font-size: 11px; }
 .vs-panel-sep { flex: none; opacity: 0.6; }
 .vs-panel-folder { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 .vs-copy-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 8px; border: 1px solid var(--border-soft); border-radius: 999px; background: transparent; color: var(--muted); font: 500 11.5px var(--sans); white-space: nowrap; cursor: pointer; }
