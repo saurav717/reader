@@ -2051,7 +2051,13 @@ export async function renewRuntimeProxy(scope?: string): Promise<RuntimeProxy | 
   if (!googleToken) return null;
   try {
     const { runtimes } = await relay<{ runtimes: Runtime[] }>('/colab/runtimes', googleToken);
-    const fresh = runtimes.find((r) => r.endpoint === runtime.endpoint);
+    let fresh = runtimes.find((r) => r.endpoint === runtime.endpoint);
+    // Not in the list: asked for by its notebook, as connecting does — Colab answers with the runtime it has for it.
+    // Only while this session is on it, so an idle-ended machine is never started again from here.
+    if (!fresh && s.notebook && (s.state.status === 'idle' || s.state.status === 'busy')) {
+      const { runtime: made } = await relay<{ runtime: Runtime }>('/colab/runtimes', googleToken, { method: 'POST', body: { notebook: s.notebook, accelerator: s.state.machine.accelerator, highMem: Boolean(s.state.machine.highMem) } });
+      if (made.endpoint === runtime.endpoint) fresh = made;
+    }
     if (!fresh) return null;
     const renewed = { ...runtime, proxy: fresh.proxy };
     set(s, { runtime: renewed });

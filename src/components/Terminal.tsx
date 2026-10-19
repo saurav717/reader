@@ -120,7 +120,7 @@ export function registerTerminal(sessionId: string, type: (text: string) => void
   };
 }
 
-export default function Terminal({ server, cwd, sessionId, label, playgroundId }: { server: JupyterServer; cwd: string; sessionId: string; label: string; /** Whose terminal it is: followed from any page while it runs something. */ playgroundId?: string }) {
+export default function Terminal({ server, cwd, sessionId, label, playgroundId, first }: { server: JupyterServer; cwd: string; sessionId: string; label: string; /** Whose terminal it is: followed from any page while it runs something. */ playgroundId?: string; /** Typed into the shell when it is new — not into one found again, which has it already. */ first?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'starting' | 'live' | 'reconnecting' | 'closed' | 'failed'>('starting');
   const [problem, setProblem] = useState<string | null>(null);
@@ -191,6 +191,7 @@ export default function Terminal({ server, cwd, sessionId, label, playgroundId }
           term.focus();
           const type = (text: string) => send(['stdin', text]);
           typers.set(sessionId, type);
+          if (first && !again) type(first);
           for (const text of waiting.get(sessionId) ?? []) type(text);
           waiting.delete(sessionId);
         };

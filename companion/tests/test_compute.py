@@ -150,6 +150,20 @@ class AgainstAServer(Home):
         self.assertFalse(self.remote_path("src", "a.txt").exists())
         self.assertTrue(self.remote_path("out.txt").exists())
 
+    def test_a_file_grown_too_big_is_held_back_not_taken_for_gone(self):
+        (self.root / "model.pt").write_bytes(b"0" * 10)
+        self.with_remote(lambda r: compute.push(r, self.root))
+        self.assertTrue(self.remote_path("model.pt").exists())
+        old_big = compute.BIG
+        compute.BIG = 50
+        try:
+            (self.root / "model.pt").write_bytes(b"1" * 60)
+            report = self.with_remote(lambda r: compute.push(r, self.root))
+        finally:
+            compute.BIG = old_big
+        self.assertEqual((report["big"], report["removed"], report["sent"]), (["model.pt"], [], []))
+        self.assertEqual(self.remote_path("model.pt").read_bytes(), b"0" * 10)
+
     def test_pull_brings_a_folder_here(self):
         self.with_remote(lambda r: compute.push(r, self.root))
         self.remote_path("outputs", "run1").mkdir(parents=True)

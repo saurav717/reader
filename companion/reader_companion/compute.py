@@ -287,10 +287,12 @@ if globals().get('_koios_v') != %(v)d:
         d = msg['content']['data']
         base = _koios_dir(d.get('folder') or '')
         files = d.get('files') or {}
+        # Here but held back (too big): still here, so never "gone"; just not sent.
+        held = set(d.get('held') or [])
         record = _koios_record(base)
         need = []
         for path, (size, mtime) in files.items():
-            if not _koios_safe(path):
+            if not _koios_safe(path) or path in held:
                 continue
             full = os.path.join(base, path)
             if record.get(path) == [size, mtime] and os.path.isfile(full) and os.path.getsize(full) == size:
@@ -543,14 +545,14 @@ def remote_folder(link: dict, root: Path, cwd: Path) -> str:
 async def push(remote: Remote, root: Path, big: bool = False, say=lambda text: None) -> dict:
     files = local_files(root, remote.link.get("ignore") or "")
     left = {p: v for p, v in files.items() if v[0] > BIG} if not big else {}
-    sending = {p: [v[0], v[1]] for p, v in files.items() if p not in left}
+    every = {p: [v[0], v[1]] for p, v in files.items()}
     started = time.monotonic()
-    comm = remote.comm("koios.push", {"folder": remote.link["folder"], "files": sending})
+    comm = remote.comm("koios.push", {"folder": remote.link["folder"], "files": every, "held": sorted(left)})
     first = await comm.next()
     if first is None or "e" in first:
         raise ComputeError((first or {}).get("e") or f"{remote.link['label']} closed the push")
     need = first.get("need") or []
-    size = sum(sending[p][0] for p in need)
+    size = sum(every[p][0] for p in need)
     if need:
         say(f"↑ {len(need)} file{'s' if len(need) != 1 else ''} ({human(size)}) to {remote.link['label']}…")
     with tempfile.TemporaryFile() as handle:
@@ -568,7 +570,7 @@ async def push(remote: Remote, root: Path, big: bool = False, say=lambda text: N
     last = await comm.next()
     if last is None or "e" in last:
         raise ComputeError((last or {}).get("e") or f"{remote.link['label']} closed the push before it was in")
-    return {"sent": need, "bytes": size, "removed": first.get("gone") or [], "unchanged": len(sending) - len(need), "big": sorted(left), "seconds": round(time.monotonic() - started, 2)}
+    return {"sent": need, "bytes": size, "removed": first.get("gone") or [], "unchanged": len(every) - len(left) - len(need), "big": sorted(left), "seconds": round(time.monotonic() - started, 2)}
 
 
 async def pull(remote: Remote, root: Path, paths: list[str], cwd: Path) -> dict:

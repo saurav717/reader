@@ -1239,21 +1239,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
         : null;
   const [link, setLink] = useState<LinkState | null>(null);
   const linkKey = linkTarget ? `${linkTarget.url}|${linkTarget.token}|${linkTarget.folder}|${linkTarget.ignore}|${linkTarget.label}` : '';
+  // The code back on the files' own computer, or on a server no longer listed: the link there is stale, and forgotten.
+  // (Colab merely not connected keeps it: its pass says when it has run out.)
+  const stale = !filesHere && homeServer && isCompanion(homeServer) && playground.compute.kind !== 'colab';
   useEffect(() => {
     if (!filesHere || !linkTarget) {
       setLink(null);
+      if (stale && homeServer) void linkCompute(homeServer, homeRoot, null);
       return;
     }
     let live = true;
     void linkCompute(filesHere, homeRoot, linkTarget).then((state) => live && setLink(state));
     // Colab's pass runs out after an hour or so: renewed while the page is open, and handed over again.
     const at = renewAt(linkTarget);
-    const timer = at ? window.setTimeout(() => void renewRuntimeProxy(), at - Date.now()) : 0;
+    const timer = at ? window.setTimeout(() => void renewRuntimeProxy(playground.id), at - Date.now()) : 0;
     return () => {
       live = false;
       window.clearTimeout(timer);
     };
-  }, [filesHere?.id, filesHere?.url, filesHere?.token, homeRoot, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filesHere?.id, filesHere?.url, filesHere?.token, homeRoot, linkKey, stale]); // eslint-disable-line react-hooks/exhaustive-deps
   const linked = Boolean(filesHere && link?.linked);
   // VS Code in the page opens a folder on a Companion's computer: the project's, when its files are kept there —
   // in a folder of its (home) or on its own disk as the machine the code runs on.
@@ -1291,7 +1295,6 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     const id = `${playground.id}~${shortId()}${COMPUTE_TAB}`;
     keepShells([...shells, id]);
     setActiveShell(id);
-    if (linked) typeInTerminal(id, `${COMPUTE_SHELL}\r`);
     return id;
   };
   const [addShellMenu, setAddShellMenu] = useState(false);
@@ -2344,7 +2347,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
                       <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)} title={filesHere && shellOn(id).machine.member === null ? (shellOn(id).here ? `Terminal ${index + 1}, on ${filesHere.name}, by the files` : `Terminal ${index + 1}, on ${machineName}`) : pooled ? `Terminal ${index + 1}, on machine ${shellOn(id).machine.rank}: ${shellOn(id).machine.label}` : undefined}>
                         {index + 1}
-                        {filesHere && shellOn(id).machine.member === null ? <small className="pg-shell-on">{shellOn(id).here ? 'here' : 'gpu'}</small> : pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
+                        {filesHere && shellOn(id).machine.member === null ? <small className="pg-shell-on">{shellOn(id).here ? 'here' : playground.compute.kind === 'colab' ? 'colab' : 'gpu'}</small> : pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
                       </button>
                       {shells.length > 1 ? (
                         <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
@@ -2434,7 +2437,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       {on.kernel || !on.server ? (
                         <KernelTerminal name={id} cwd={machineRoot(playground)} label={label} connected={up} playgroundId={playground.id} scope={first ? undefined : on.machine.scope} />
                       ) : (
-                        <Terminal server={on.server} cwd={on.here || on.via ? homeRoot : machineRoot(playground)} sessionId={id} label={on.here ? on.server.name : on.via ? `${machineName} (through ${on.server.name})` : label} playgroundId={playground.id} />
+                        <Terminal server={on.server} cwd={on.here || on.via ? homeRoot : machineRoot(playground)} sessionId={id} label={on.here ? on.server.name : on.via ? `${machineName} (through ${on.server.name})` : label} playgroundId={playground.id} first={on.via ? `${COMPUTE_SHELL}\r` : undefined} />
                       )}
                     </div>
                   );
