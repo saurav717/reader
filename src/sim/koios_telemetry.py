@@ -12,6 +12,9 @@ One file, nothing to install beyond what a simulation already has (numpy; imagei
     run.dream("dream", real_frames, imagined_frames, step=global_step)  # a world model's prediction against the real thing
     run.note("lr 3e-4 -> 1e-4: the policy loss oscillated", step=global_step, by="agent")
     run.scene(env)                                                      # a MuJoCo env in the Sim pane's live 3D view (rerun-sdk)
+    run.evaluation({"return": 812.0, "success": 0.9}, step=global_step, episodes=10,   # a formal evaluation, the way the
+                   protocol="10 episodes, seeds 0-9, deterministic policy", paper={"return": 850.0})  # paper does it
+    run.evaluate(make_env, policy, episodes=10, step=global_step)       # the default protocol, when the paper gives none
     run.finish()
 
 Everything goes to runs/<name>-<time>/: run.json (what the run is), events.jsonl (one JSON object a line, appended
@@ -469,6 +472,82 @@ class Run:
             except Exception:
                 pass
 
+    def evaluation(self, metrics: dict, name: str = "eval", step: int | None = None, episodes: int | None = None, protocol: str | None = None, paper: dict | None = None, higher_is_better=None, seeds=None, **extra):
+        """A formal evaluation of the policy (or the model), as distinct from the training episodes: the numbers the
+        paper reports are compared on. `metrics` is {name: number} — whatever the paper measures: return, success rate,
+        normalised score, an error, a distance. Say how it was measured in `protocol` (episodes, seeds, deterministic or
+        not, which checkpoint), and give the paper's numbers for the same metrics in `paper` ({name: number}, with an
+        optional "source": "Table 2") so the Sim pane and the logbook show ours against theirs. `higher_is_better` is
+        True, False, or {name: bool} (default: True except for names holding loss, error, distance, cost, regret, time).
+        Papers evaluate differently: read the paper's protocol and follow it; `Run.evaluate` is the default when it gives none."""
+        step = self._at(step)
+        clean = {str(k): _number(v) for k, v in (metrics or {}).items()}
+        fields = {"step": step, "name": str(name), "metrics": clean}
+        if episodes is not None:
+            fields["episodes"] = int(episodes)
+        if protocol:
+            fields["protocol"] = str(protocol)
+        if paper:
+            fields["paper"] = {str(k): (_number(v) if k != "source" else str(v)) for k, v in paper.items()}
+        if higher_is_better is not None:
+            fields["higher_is_better"] = {str(k): bool(v) for k, v in higher_is_better.items()} if isinstance(higher_is_better, dict) else bool(higher_is_better)
+        if seeds is not None:
+            fields["seeds"] = [int(s) for s in list(seeds)[:64]]
+        if extra:
+            fields["extra"] = _jsonable(extra)
+        self._event("evaluation", **fields)
+        if self._rr is not None:
+            try:
+                self._rr_time(step)
+                for k, v in clean.items():
+                    if isinstance(v, (int, float)):
+                        self._rr.log(f"eval/{name}/{k}", self._rr.Scalars(float(v)))
+            except Exception:
+                pass
+        return clean
+
+    def evaluate(self, make_env, act, episodes: int = 10, seed: int = 0, name: str = "eval", step: int | None = None, max_steps: int | None = None, video: bool = True, protocol: str | None = None, paper: dict | None = None, success_key: str = "is_success"):
+        """The default evaluation protocol, for when the paper gives none (say so in the notes): `episodes` episodes on a
+        fresh env from `make_env(render_mode=...)`, seeded seed, seed+1, …; `act(obs) -> action` deterministic; the mean
+        and standard deviation of the return, the mean length, the success rate when infos carry `success_key`; the first
+        episode recorded as a video. Logs the evaluation event and returns its metrics."""
+        import numpy as np  # noqa: F401 — only to be sure it is there before the loop
+        returns, lengths, successes = [], [], []
+        frames = []
+        env = None
+        try:
+            try:
+                env = make_env(render_mode="rgb_array") if video else make_env()
+            except TypeError:
+                env = make_env()
+            for i in range(int(episodes)):
+                obs, info = env.reset(seed=seed + i)
+                done, total, length = False, 0.0, 0
+                while not done:
+                    if video and i == 0 and len(frames) < self.max_frames:
+                        self.grab(env.render, frames)
+                    obs, r, terminated, truncated, info = env.step(act(obs))
+                    total += float(r)
+                    length += 1
+                    done = terminated or truncated or (max_steps is not None and length >= max_steps)
+                returns.append(total)
+                lengths.append(length)
+                if isinstance(info, dict) and info.get(success_key) is not None:
+                    successes.append(bool(float(info[success_key]) > 0.5))
+        finally:
+            try:
+                if env is not None:
+                    env.close()
+            except Exception:
+                pass
+        step = self._at(step)
+        metrics = {"return": _mean(returns) if returns else float("nan"), "return_std": _std(returns) if len(returns) > 1 else 0.0, "length": _mean(lengths) if lengths else 0.0}
+        if successes:
+            metrics["success"] = sum(successes) / len(successes)
+        if frames:
+            self.video(f"{name}-episode", frames, step=step, caption=f"{name}: the first of {episodes} evaluation episodes, seed {seed}")
+        return self.evaluation(metrics, name=name, step=step, episodes=int(episodes), protocol=protocol or f"{episodes} episodes, seeds {seed}-{seed + int(episodes) - 1}, deterministic actions (Koios default protocol: the paper gave none)", paper=paper, seeds=range(seed, seed + int(episodes)))
+
     def checkpoint(self, path: str, step: int | None = None, **metrics):
         self._event("checkpoint", step=self._at(step), path=str(path), metrics=_jsonable(metrics))
 
@@ -750,7 +829,7 @@ def read_run(directory: str) -> dict:
             meta = json.load(f)
     except Exception:
         pass
-    run = {"dir": directory, "meta": meta, "scalars": {}, "episodes": [], "media": [], "dreams": [], "notes": [], "checkpoints": [], "status": meta.get("status", "running"), "error": meta.get("error"), "first_t": None, "last_t": None, "step": 0, "sps": None}
+    run = {"dir": directory, "meta": meta, "scalars": {}, "episodes": [], "media": [], "dreams": [], "notes": [], "checkpoints": [], "evaluations": [], "status": meta.get("status", "running"), "error": meta.get("error"), "first_t": None, "last_t": None, "step": 0, "sps": None}
     try:
         with open(os.path.join(directory, "events.jsonl"), encoding="utf-8") as f:
             lines = f.readlines()
@@ -788,6 +867,8 @@ def read_run(directory: str) -> dict:
             run["notes"].append(e)
         elif kind == "checkpoint":
             run["checkpoints"].append(e)
+        elif kind == "evaluation":
+            run["evaluations"].append(e)
         elif kind == "heartbeat":
             run["sps"] = e.get("sps")
         elif kind == "end":
@@ -930,6 +1011,11 @@ def summary(root: str = ".", limit: int = 8) -> str:
         if r["scalars"]:
             last = ", ".join(f"{k}={v[-1][1]:.4g}" for k, v in list(r["scalars"].items())[:10])
             lines.append(f"   last values: {last}")
+        for ev in r["evaluations"][-3:]:
+            ours = ", ".join(f"{k}={v:.4g}" if isinstance(v, (int, float)) else f"{k}={v}" for k, v in (ev.get("metrics") or {}).items())
+            paper = ev.get("paper") or {}
+            against = ", ".join(f"{k}: paper {paper[k]:.4g}" for k in (ev.get("metrics") or {}) if isinstance(paper.get(k), (int, float)))
+            lines.append(f"   evaluation '{ev.get('name', 'eval')}' @ {ev.get('step')}: {ours}" + (f" · {against}" if against else "") + (f" · {ev['protocol']}" if ev.get("protocol") else ""))
         if r["dreams"]:
             d = r["dreams"][-1]
             errs = [e for e in d.get("error") or [] if isinstance(e, (int, float))]

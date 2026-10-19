@@ -141,6 +141,15 @@ def main():
     torch.save(actor.state_dict(), f"{run.dir}/actor.pt")
     run.checkpoint(f"{run.dir}/actor.pt", step=args.total_steps)
     env.close()
+    # The evaluation: the default protocol (10 seeded episodes, the policy's mean action) unless the paper's is wired in
+    # here — read paper/paper.md for how the paper evaluates, pass its numbers as paper={...}, and say so in the protocol.
+    with torch.no_grad():
+        def act(obs):
+            return actor(torch.as_tensor(np.asarray(obs), dtype=torch.float32, device=device).reshape(1, -1))[2][0].cpu().numpy()
+        def eval_env(**kw):
+            e = make_env(**kw)
+            return gym.wrappers.FlattenObservation(e) if isinstance(e.observation_space, gym.spaces.Dict) else e
+        run.evaluate(eval_env, act, episodes=10, seed=args.seed + 1000, step=args.total_steps)
     run.finish()
 
 

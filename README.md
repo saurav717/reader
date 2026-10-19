@@ -4432,7 +4432,11 @@ scratch, a starter on the simulator's own API, or DreamerV3, TD-MPC2 and Isaac
 Lab run from their own repositories. The project comes with `env.py`, the
 template, `setup.sh` (install, then a check of the machine), and an
 `AGENTS.md` telling the coding agents to log every run through
-`koios_telemetry` and to explain each change in `LEARNING.md`.
+`koios_telemetry` and to explain each change in `LEARNING.md`. Every formal
+evaluation is logged as its own event — the paper's measure, the protocol in
+words, the paper's numbers beside ours — and the pane and the logbook show the
+gap; the agents are told to read how the paper evaluates in `paper/paper.md`
+and measure that, with a stated default protocol when the paper gives none.
 
 The **Sim** tab on the right (the screen icon in the activity bar) draws the
 runs as they go, read on the machine a few seconds apart:

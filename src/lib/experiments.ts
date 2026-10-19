@@ -15,6 +15,8 @@
 // ===========================================================================
 
 import type { Finding, SimRun } from './simTelemetry';
+import { evaluationRows, latestEvaluations } from './simTelemetry';
+import type { Evaluation } from './simTelemetry';
 import { diagnose, mean, std } from './simTelemetry';
 
 export type ExperimentStatus = 'finished' | 'crashed' | 'stopped';
@@ -39,6 +41,9 @@ export interface ExperimentNotes {
   at: string;
 }
 
+/** An evaluation as the record keeps it (the run's, less its time). */
+export type ExperimentEvaluation = Omit<Evaluation, 't'>;
+
 export interface Experiment {
   /** The run's id (its folder's name). */
   id: string;
@@ -61,6 +66,8 @@ export interface Experiment {
   success?: number;
   /** The last value of each number logged, the first twelve. */
   last: Record<string, number>;
+  /** The latest evaluation of each name: the paper's measure, ours against the paper's numbers. */
+  evaluations?: ExperimentEvaluation[];
   findings: Finding[];
   notes: { step: number; by: string; text: string }[];
   config: Record<string, unknown>;
@@ -153,6 +160,7 @@ export function digestOf(run: SimRun, about: { playgroundId: string; playground:
     returns: returnsOf(run),
     success: successOf(run),
     last: lastValues(run),
+    ...(run.evaluations.length ? { evaluations: evaluationsOf(run) } : {}),
     findings: diagnose(run, now).filter((f) => f.id !== 'stalled'),
     notes: run.notes.filter((note) => note.tag !== 'spaces').slice(-NOTE_CAP).map((note) => ({ step: note.step, by: note.by, text: note.text.slice(0, 500) })),
     config: trimmedConfig(config),
@@ -160,6 +168,32 @@ export function digestOf(run: SimRun, about: { playgroundId: string; playground:
     by: about.by,
     at: new Date(now * 1000).toISOString(),
   };
+}
+
+/** The latest evaluation of each name, up to eight, each with up to twelve metrics. */
+export function evaluationsOf(run: SimRun): ExperimentEvaluation[] {
+  return latestEvaluations(run.evaluations)
+    .slice(-8)
+    .map(({ t, ...ev }) => {
+      void t;
+      const metrics = Object.fromEntries(Object.entries(ev.metrics).slice(0, 12));
+      return { ...ev, metrics, ...(ev.paper ? { paper: Object.fromEntries(Object.entries(ev.paper).filter(([k]) => k in metrics)) } : {}) };
+    });
+}
+
+/** An evaluation as lines of Markdown: a table of ours against the paper's, with the protocol under it. */
+export function evaluationMarkdown(ev: ExperimentEvaluation): string[] {
+  const rows = evaluationRows(ev);
+  const withPaper = rows.some((row) => row.paper !== undefined);
+  const lines = [`### ${ev.name} · step ${ev.step}${ev.episodes ? ` · ${ev.episodes} episodes` : ''}`, ''];
+  lines.push(withPaper ? '| metric | ours | paper | vs paper |' : '| metric | ours |', withPaper ? '| --- | --- | --- | --- |' : '| --- | --- |');
+  for (const row of rows) {
+    const vs = row.delta ? `${row.delta.abs >= 0 ? '+' : ''}${g(row.delta.abs)}${row.delta.pct !== null ? ` (${row.delta.pct >= 0 ? '+' : ''}${Math.round(row.delta.pct)}%)` : ''}${row.delta.better === null ? '' : row.delta.better ? ' better' : ' worse'}` : row.paper !== undefined ? '—' : '';
+    lines.push(withPaper ? `| ${row.metric} | ${g(row.ours)} | ${row.paper !== undefined ? g(row.paper) : '—'} | ${vs} |` : `| ${row.metric} | ${g(row.ours)} |`);
+  }
+  if (ev.protocol) lines.push('', `*Protocol:* ${ev.protocol}${ev.source ? ` · *paper:* ${ev.source}` : ''}`);
+  else if (ev.source) lines.push('', `*Paper:* ${ev.source}`);
+  return lines;
 }
 
 /** Which of a run's files to file, within the caps, and which are left out. */
@@ -199,6 +233,10 @@ export function experimentMarkdown(exp: Omit<Experiment, 'where' | 'files' | 'le
   if (exp.returns) lines.push(`- **Return:** first ${g(exp.returns.first)} → last ${g(exp.returns.last)} · best ${g(exp.returns.best)}`);
   if (exp.success !== undefined) lines.push(`- **Success:** ${exp.success}% over the last episodes`);
   if (exp.where) lines.push(`- **Files:** ${exp.where.label}, ${exp.where.path}${exp.where.link ? ` (${exp.where.link})` : ''}`);
+  if (exp.evaluations?.length) {
+    lines.push('', '## Evaluation', '');
+    for (const ev of exp.evaluations) lines.push(...evaluationMarkdown(ev), '');
+  }
   if (Object.keys(exp.last).length) {
     lines.push('', '## Last values', '');
     for (const [name, value] of Object.entries(exp.last)) lines.push(`- ${name}: ${g(value)}`);
@@ -223,7 +261,8 @@ export function experimentMarkdown(exp: Omit<Experiment, 'where' | 'files' | 'le
 
 export const NOTES_SYSTEM = `You write the notes of an experiment for someone learning reinforcement learning and world models: a research
 logbook entry, not a report. Plain words, short sentences, no hype. Say what was tried and on what, what happened
-(use the numbers), what the findings mean and whether to trust the run, what you would try next and why. Explain
+(use the numbers), what the evaluation says against the paper's numbers when there are any, what the findings mean
+and whether to trust the run, what you would try next and why. Explain
 one idea the run touches in two sentences, as to a student. Markdown, under 350 words, with the headings
 **What was tried**, **What happened**, **What it means**, **Next**. If the run crashed, say what the error points
 at. Never invent numbers that are not in what you are given.`;
@@ -251,6 +290,9 @@ export function experimentLine(exp: Experiment): string {
   const parts = [exp.sim?.split('/').pop() ?? exp.title];
   if (exp.returns) parts.push(`${g(exp.returns.first)} → ${g(exp.returns.last)}`);
   if (exp.success !== undefined) parts.push(`${exp.success}% success`);
+  const ev = exp.evaluations?.[exp.evaluations.length - 1];
+  const first = ev && evaluationRows(ev)[0];
+  if (first) parts.push(`eval ${first.metric} ${g(first.ours)}${first.paper !== undefined ? ` (paper ${g(first.paper)})` : ''}`);
   parts.push(exp.status);
   return parts.join(' · ');
 }

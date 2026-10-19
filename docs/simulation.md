@@ -42,6 +42,7 @@ what is worked around and what is still open.
 | The Sim pane | `src/components/SimPane.tsx`, `src/lib/simTelemetry.ts` | The right-hand pane's **Sim** tab: run picker, status, findings, return and success charts, videos, dreams, grouped numbers with notes as dashed marks, timeline, traceback, config, checkpoints, and the machine's doctor. |
 | Sync fix | `src/lib/playground.ts` (`isBinaryPath`) | The sync carries text; binary files (videos, images, weights) are now left where they are instead of being copied as broken text. |
 | The paper in the folder | `src/lib/paperContext.ts`, `paperMarkdown.ts`, `paperFiles.ts` | A project from a paper carries the paper: `paper/paper.md` (its full text, from the reader's own reflow of the PDF, else arXiv's HTML), `paper/EXPLANATION.md`, `paper/paper.pdf`, `IMPLEMENTATION_PLAN.md`. Every agent is told to read it there, never to fetch it. |
+| Evaluation, the paper's way | `koios_telemetry.py` (`Run.evaluation`, `Run.evaluate`), `simTelemetry.ts`, `experiments.ts`, `SimPane.tsx` | An `evaluation` event: the paper's own measure, with the paper's numbers beside ours; the Sim pane's table and the logbook's report show the gap. A default protocol when the paper gives none. |
 | The page's agent runs its commands | `src/lib/projectAgent.ts`, `src/components/ProjectAgent.tsx` | A ```` ```sh run ```` block is run in the project's console on the connected machine as the agent answers; what it printed goes back; up to 6 rounds of 3. Stop interrupts the command. Off with a tick, and the commands are buttons. |
 | Tests | `scripts/simulation.test.mjs`, `scripts/paper-context.test.mjs` | Catalogue integrity, every generated `.py` parses, parsing and diagnostics, and the Python module run for real: its events read by the pane's parser, its findings equal to the pane's. |
 
@@ -95,6 +96,7 @@ A run is a folder, `runs/<name>-<YYYYmmdd-HHMMSS>/`:
 | `dream` | `step`, `name`, `path`, `type`, `error: [per-frame MSE]`, `context` (frames given, not predicted), `fps`, `horizon` |
 | `note` | `step`, `text`, `by` (`code`, `agent`, `human`, `koios`), `tag?` (`problem`, `spaces`, `config`…) |
 | `checkpoint` | `step`, `path`, `metrics` |
+| `evaluation` | `step`, `name`, `metrics: {name: number}`, `episodes?`, `protocol?` (how it was measured), `paper?: {name: number, source?}` (the paper's numbers for the same metrics), `higher_is_better?` (bool or `{name: bool}`), `seeds?` |
 | `heartbeat` | every 10 s from a thread: `step`, `env_steps`, `sps` |
 | `end` | `status`, `step`, `episodes`, `elapsed`, `error?` (the traceback) |
 
@@ -345,6 +347,28 @@ the question *Reimplement "…": its method, a run of its experiments, and how t
 paper's*. From then on every run the playground makes is filed in that Project's logbook with its notes, videos
 and results, and the Project page shows the code, the logbook and the paper side by side. A playground that
 already has a Project keeps it.
+
+### 22. Evaluating the way the paper does
+*Built.* Training episodes say whether a run learns; they are not what a paper reports. Papers evaluate in their
+own ways — a mean return over ten seeded episodes with a deterministic policy, a success rate over fifty, a
+human-normalised Atari score, an open-loop prediction error, a distance to the goal — and a reimplementation is
+judged by the same measure or not at all. So the telemetry has an `evaluation` event (`run.evaluation(metrics,
+name=, step=, episodes=, protocol=, paper=, higher_is_better=)`): whatever the paper measures, as numbers; how it
+was measured, in words; the paper's numbers for the same metrics (`paper={"return": 850, "source": "Table 1"}`),
+and which way is better where the name does not say (loss, error, distance, cost, regret and time are taken as
+lower-is-better). The Sim pane draws the latest evaluation of each name as a table — ours, the paper's, the gap
+in absolute and per cent, coloured by whether it is the better way — with the protocol under it; the logbook's
+record keeps the latest of each name and the report writes the same table; the notes are asked to read it.
+
+Which protocol is the agent's to find, not the toolkit's to guess: `AGENTS.md`, the plan file and the Claude
+Code briefing say to read how the paper evaluates in `paper/paper.md`, measure that, keep the paper's reported
+numbers in `paper_results.json`, and pass them as `paper=`. When the paper gives no protocol, `run.evaluate(make_env,
+act, episodes=10)` is the default — seeded episodes, deterministic actions, mean and standard deviation of the
+return, mean length, the success rate where the task reports one, the first episode on video — and its protocol
+string says it is the default, so a reader knows the comparison is loose. The templates evaluate at the end:
+PPO and SAC with the policy's mode, SB3 deterministically, the random agent as the baseline, the world model with
+its open-loop error. `python koios_telemetry.py summary` prints each run's evaluations against the paper's numbers,
+so an agent reads them before changing anything.
 
 ---
 

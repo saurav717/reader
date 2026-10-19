@@ -110,6 +110,22 @@ export function cleanExperiment(raw, who) {
     ...(returns ? { returns } : {}),
     ...(Number.isFinite(raw.success) ? { success: Math.max(0, Math.min(100, Math.round(raw.success))) } : {}),
     last,
+    ...(() => {
+      const list = (Array.isArray(raw.evaluations) ? raw.evaluations : []).slice(0, 8).filter((e) => e && typeof e === 'object' && e.metrics && typeof e.metrics === 'object').map((e) => {
+        const numbers = (obj) => Object.fromEntries(Object.entries(obj && typeof obj === 'object' ? obj : {}).slice(0, 12).filter(([, v]) => Number.isFinite(v)).map(([k, v]) => [String(k).slice(0, 80), v]));
+        return {
+          step: Math.max(0, Math.floor(num(e.step) ?? 0)),
+          name: text(e.name, 80) || 'eval',
+          metrics: numbers(e.metrics),
+          ...(Number.isFinite(e.episodes) ? { episodes: Math.max(0, Math.floor(e.episodes)) } : {}),
+          ...(typeof e.protocol === 'string' && e.protocol ? { protocol: text(e.protocol, 400) } : {}),
+          ...(e.paper && typeof e.paper === 'object' && Object.keys(numbers(e.paper)).length ? { paper: numbers(e.paper) } : {}),
+          ...(typeof e.source === 'string' && e.source ? { source: text(e.source, 120) } : {}),
+          ...(typeof e.higherIsBetter === 'boolean' ? { higherIsBetter: e.higherIsBetter } : e.higherIsBetter && typeof e.higherIsBetter === 'object' ? { higherIsBetter: Object.fromEntries(Object.entries(e.higherIsBetter).slice(0, 12).map(([k, v]) => [String(k).slice(0, 80), Boolean(v)])) } : {}),
+        };
+      }).filter((e) => Object.keys(e.metrics).length);
+      return list.length ? { evaluations: list } : {};
+    })(),
     findings: (Array.isArray(raw.findings) ? raw.findings : []).slice(0, 20).filter((f) => f && typeof f === 'object').map((f) => ({ id: text(f.id, 40), level: f.level === 'error' || f.level === 'warn' ? f.level : 'info', title: text(f.title, 200), detail: text(f.detail, 600), try: text(f.try, 600) })),
     notes: (Array.isArray(raw.notes) ? raw.notes : []).slice(0, 30).filter((n) => n && typeof n === 'object').map((n) => ({ step: Math.max(0, Math.floor(num(n.step) ?? 0)), by: text(n.by, 40) || 'code', text: text(n.text, 500) })),
     config,

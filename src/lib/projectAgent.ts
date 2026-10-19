@@ -65,7 +65,7 @@ export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
       ? `## The plan\n\nDrawn up on the paper's Implementation page in Koios. Follow it; where it leaves a detail open, choose, and say in the README what you chose.\n\n${paper.plan.trim()}`
       : "## The plan\n\nNo plan was drawn up on the paper's Implementation page: work from the abstract above and AGENTS.md.",
     `## The paper itself\n\n${PAPER_FILES_NOTE}`,
-    "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md).",
+    "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md). Evaluate the way the paper does: read its protocol in paper/paper.md, log each formal evaluation with `run.evaluation(metrics, protocol=..., paper={the paper's numbers})`, and keep those numbers in paper_results.json; `run.evaluate(make_env, act)` is the default protocol when the paper gives none.",
   ]
     .filter(Boolean)
     .join('\n\n')

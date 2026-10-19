@@ -32,6 +32,8 @@ def main():
             _, _, terminated, truncated, _ = env.step(env.action_space.sample())
             done = terminated or truncated
     env.close()
+    # The baseline every paper's numbers are read against: random actions under the default evaluation protocol.
+    run.evaluate(make_env, lambda obs: env.action_space.sample(), episodes=5, seed=args.seed + 1000, video=False)
     run.finish()
     print(f"{args.episodes} episodes logged to {run.dir}")
 

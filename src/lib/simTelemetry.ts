@@ -67,6 +67,56 @@ export interface Note {
 
 export type RunStatus = 'running' | 'finished' | 'crashed' | 'stopped';
 
+/** A formal evaluation, as `run.evaluation(...)` logs it: the paper's own measure, with the paper's numbers beside ours when given. */
+export interface Evaluation {
+  step: number;
+  name: string;
+  metrics: Record<string, number>;
+  episodes?: number;
+  /** How it was measured, in words: episodes, seeds, deterministic, which checkpoint. */
+  protocol?: string;
+  /** The paper's numbers for the same metrics. */
+  paper?: Record<string, number>;
+  /** Where in the paper (a table, a figure). */
+  source?: string;
+  higherIsBetter?: Record<string, boolean> | boolean;
+  t: number;
+}
+
+/** Whether more of a metric is better, from what the run said, else from its name. */
+export function higherIsBetter(name: string, said: Evaluation['higherIsBetter']): boolean {
+  if (typeof said === 'boolean') return said;
+  if (said && name in said) return said[name];
+  return !/loss|error|distance|cost|regret|time|steps_to|latency|mse|rmse|mae/i.test(name);
+}
+
+export interface EvaluationRow {
+  metric: string;
+  ours: number;
+  paper?: number;
+  /** Ours against the paper's: the difference, as a share of the paper's, and whether that is the better way. */
+  delta?: { abs: number; pct: number | null; better: boolean | null };
+}
+
+/** An evaluation as rows for a table: each metric, ours, the paper's, and the gap. */
+export function evaluationRows(ev: Pick<Evaluation, 'metrics' | 'paper' | 'higherIsBetter'>): EvaluationRow[] {
+  return Object.entries(ev.metrics).map(([metric, ours]) => {
+    const paper = ev.paper?.[metric];
+    if (paper === undefined || !Number.isFinite(paper) || !Number.isFinite(ours)) return { metric, ours, ...(paper !== undefined ? { paper } : {}) };
+    const abs = ours - paper;
+    const pct = paper === 0 ? null : (100 * abs) / Math.abs(paper);
+    const up = higherIsBetter(metric, ev.higherIsBetter);
+    return { metric, ours, paper, delta: { abs, pct, better: abs === 0 ? null : up ? abs > 0 : abs < 0 } };
+  });
+}
+
+/** The latest evaluation of each name, in the order first seen. */
+export function latestEvaluations(list: Evaluation[]): Evaluation[] {
+  const byName = new Map<string, Evaluation>();
+  for (const ev of list) byName.set(ev.name, ev);
+  return [...byName.values()];
+}
+
 export interface SimRun {
   /** The run's folder, from the project's. */
   dir: string;
@@ -77,6 +127,7 @@ export interface SimRun {
   dreams: Dream[];
   notes: Note[];
   checkpoints: { step: number; path: string }[];
+  evaluations: Evaluation[];
   /** The run's live 3D view (Rerun): a web viewer and a gRPC stream on the machine's ports, and scene.rrd in the run's folder. */
   live3d?: { grpcPort: number; webPort: number; /** Where the run streams scene.rrd as it grows (the port the page's viewer reads from). */ rrdPort?: number; rrd: string; sdk?: string };
   status: RunStatus;
@@ -91,7 +142,7 @@ export interface SimRun {
   truncated: boolean;
 }
 
-export const newRun = (dir: string, meta: RunMeta = {}): SimRun => ({ dir, meta, scalars: new Map(), episodes: [], media: [], dreams: [], notes: [], checkpoints: [], status: (meta.status as RunStatus) ?? 'running', error: meta.error, step: 0, offset: 0, truncated: false });
+export const newRun = (dir: string, meta: RunMeta = {}): SimRun => ({ dir, meta, scalars: new Map(), episodes: [], media: [], dreams: [], notes: [], checkpoints: [], evaluations: [], status: (meta.status as RunStatus) ?? 'running', error: meta.error, step: 0, offset: 0, truncated: false });
 
 /** A number as the module writes it: NaN and the infinities come as strings. */
 export function valueOf(v: unknown): number | null {
@@ -154,6 +205,35 @@ export function applyEvents(run: SimRun, text: string): SimRun {
       case 'checkpoint':
         if (typeof e.path === 'string') run.checkpoints.push({ step, path: e.path });
         break;
+      case 'evaluation': {
+        const metrics: Record<string, number> = {};
+        for (const [name, raw] of Object.entries((e.metrics as Record<string, unknown>) ?? {})) {
+          const y = valueOf(raw);
+          if (y !== null) metrics[name] = y;
+        }
+        const paper: Record<string, number> = {};
+        let source: string | undefined;
+        for (const [name, raw] of Object.entries((e.paper as Record<string, unknown>) ?? {})) {
+          if (name === 'source') source = typeof raw === 'string' ? raw : undefined;
+          else {
+            const y = valueOf(raw);
+            if (y !== null) paper[name] = y;
+          }
+        }
+        const hib = e.higher_is_better;
+        run.evaluations.push({
+          step,
+          name: String(e.name ?? 'eval'),
+          metrics,
+          episodes: typeof e.episodes === 'number' ? e.episodes : undefined,
+          protocol: typeof e.protocol === 'string' ? e.protocol : undefined,
+          paper: Object.keys(paper).length ? paper : undefined,
+          source,
+          higherIsBetter: typeof hib === 'boolean' ? hib : hib && typeof hib === 'object' ? Object.fromEntries(Object.entries(hib as Record<string, unknown>).map(([k, v]) => [k, Boolean(v)])) : undefined,
+          t: t ?? 0,
+        });
+        break;
+      }
       case 'heartbeat':
         if (typeof e.sps === 'number') run.sps = e.sps;
         break;

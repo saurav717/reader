@@ -240,6 +240,22 @@ describe('reading a run', () => {
   });
 });
 
+describe('an evaluation against the paper', () => {
+  it('knows which way is better, from what the run said or the metric’s name, and sizes the gap', () => {
+    assert.equal(tele.higherIsBetter('return', undefined), true);
+    assert.equal(tele.higherIsBetter('loss/model', undefined), false);
+    assert.equal(tele.higherIsBetter('return', false), false);
+    assert.equal(tele.higherIsBetter('loss', { loss: true }), true);
+    const rows = tele.evaluationRows({ metrics: { return: 900, loss: 0.3, length: 50, extra: 1 }, paper: { return: 1000, loss: 0.2, length: 50 } });
+    assert.deepEqual(rows[0], { metric: 'return', ours: 900, paper: 1000, delta: { abs: -100, pct: -10, better: false } });
+    assert.deepEqual(rows[1], { metric: 'loss', ours: 0.3, paper: 0.2, delta: { abs: 0.3 - 0.2, pct: (100 * (0.3 - 0.2)) / 0.2, better: false } });
+    assert.deepEqual(rows[2].delta, { abs: 0, pct: 0, better: null });
+    assert.deepEqual(rows[3], { metric: 'extra', ours: 1 });
+    const latest = tele.latestEvaluations([{ name: 'a', step: 1 }, { name: 'b', step: 2 }, { name: 'a', step: 3 }]);
+    assert.deepEqual(latest.map((e) => [e.name, e.step]), [['a', 3], ['b', 2]]);
+  });
+});
+
 describe('the Python module', { skip: !python && 'no python3' }, () => {
   it('writes a run the pane reads, and records its crash', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sim-run-'));
@@ -250,6 +266,21 @@ for i in range(5):
     run.episode(float(i), 10, step=i * 10, success=i > 2)
     run.log({"loss/policy": 1.0 / (i + 1), "bad": float("nan") if i == 4 else 0.0}, step=i * 10)
 run.note("changed something", by="agent")
+run.evaluation({"return": 812.5, "success": 0.9, "loss": 0.2}, step=40, episodes=10, protocol="10 episodes, seeds 0-9", paper={"return": 850.0, "success": 0.95, "source": "Table 1"}, higher_is_better={"loss": False})
+
+class Env:
+    def __init__(self):
+        self.n = 0
+    def reset(self, seed=None):
+        self.n = 0
+        return [0.0], {}
+    def step(self, action):
+        self.n += 1
+        return [float(self.n)], 1.0, self.n >= 3, False, {"is_success": self.n >= 3}
+    def close(self):
+        pass
+
+run.evaluate(lambda **kw: Env(), lambda obs: 0, episodes=4, seed=7, video=False, step=41)
 raise RuntimeError("boom")
 `;
     const ran = py(code, dir);
@@ -264,11 +295,24 @@ raise RuntimeError("boom")
     assert.equal(run.status, 'crashed');
     assert.match(run.error, /RuntimeError: boom/);
     assert.equal(run.notes[0].text, 'changed something');
+    // The evaluations: the one written by hand, with the paper's numbers, and the default protocol's on a fake env.
+    assert.equal(run.evaluations.length, 2);
+    assert.deepEqual(run.evaluations[0].metrics, { return: 812.5, success: 0.9, loss: 0.2 });
+    assert.deepEqual(run.evaluations[0].paper, { return: 850, success: 0.95 });
+    assert.equal(run.evaluations[0].source, 'Table 1');
+    assert.deepEqual(run.evaluations[0].higherIsBetter, { loss: false });
+    assert.equal(run.evaluations[0].protocol, '10 episodes, seeds 0-9');
+    const auto = run.evaluations[1];
+    assert.equal(auto.name, 'eval');
+    assert.equal(auto.episodes, 4);
+    assert.deepEqual(auto.metrics, { return: 3, return_std: 0, length: 3, success: 1 });
+    assert.match(auto.protocol, /^4 episodes, seeds 7-10, deterministic actions \(Koios default protocol/);
     const ids = tele.diagnose(run, run.lastT).map((f) => f.id);
     assert.ok(ids.includes('crashed') && ids.includes('nan'), ids.join());
     const summary = spawnSync(python, [MODULE, 'summary', '.'], { cwd: dir, encoding: 'utf8', env: { ...process.env, KOIOS_HEADLESS: '0' } });
     assert.match(summary.stdout, /\[crashed\]/);
     assert.match(summary.stdout, /note @ \d+: \[agent\] changed something/);
+    assert.match(summary.stdout, /evaluation 'eval' @ 40: return=812\.5, success=0\.9, loss=0\.2 · return: paper 850, success: paper 0\.95 · 10 episodes, seeds 0-9/);
   });
 
   it('writes videos and dreams the pane can play', { skip: !hasNumpy && 'no numpy' }, () => {

@@ -303,6 +303,20 @@ Three asks at once, built in this order:
 Not verified here: the popup against real Google (no sign-in in the container); the exchange and refresh calls are
 the same the desktop app makes, tested in `google-desktop.test.mjs` against the Worker's handler.
 
+## 6.7 The evaluation event
+
+Asked for an evaluation event, with the caveat that papers evaluate their simulations differently. So the event is
+open — any metrics, the protocol in words, the paper's numbers beside ours, which way is better — and the choice of
+protocol is pushed to the agent reading the paper, with a stated default for when the paper gives none. Built in
+this order: the Python (`Run.evaluation`, `Run.evaluate`, `read_run`, `summary`), the TypeScript parser and the
+pure comparison (`evaluationRows`, `higherIsBetter`, `latestEvaluations`), the record (digest, Markdown table,
+list line, the Worker's cleaning, with an empty or malformed list dropped rather than kept), the pane's table, the
+five templates, the briefings, the schema row. Tests: the module writes one by hand and runs the default protocol
+on a fake env (no Gymnasium needed) and the pane's parser reads both back, the summary prints them against the
+paper; the comparison's signs and percentages; the record's table and the Worker's cleaning. Not run here: a real
+policy evaluated on a real simulator (no simulator installed in the container); the template code paths are the
+same calls, typechecked by Python's parser only.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```

@@ -10,8 +10,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { KOIOS_TELEMETRY_PY } from '../lib/simProject';
 import { SIMULATORS, simulatorById } from '../lib/simulators';
 import type { Doctor, Dream, Media, RunListing, SimRun } from '../lib/simTelemetry';
-import { applyEvents, diagnose, dreamSeries, dreamTrend, lengthSeries, newRun, readMedia, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
+import { applyEvents, diagnose, dreamSeries, dreamTrend, evaluationRows, latestEvaluations, lengthSeries, newRun, readMedia, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
 import { short } from '../lib/telemetry';
+
+/** A number for a table: four significant figures, NaN and the infinities as they are. */
+const fmt = (n: number) => (Number.isFinite(n) ? Number(n.toPrecision(4)).toString() : String(n));
 import type { JupyterServer } from '../lib/colab';
 import { portTicket, portUrl } from '../lib/companion';
 import { LineChart } from './Charts';
@@ -467,6 +470,49 @@ run.finish()`}</pre>
         </section>
       ) : null}
       {lengths.length ? <LineChart series={lengths} title="Episode length" xLabel="step" /> : null}
+
+      {run?.evaluations.length ? (
+        <section className="sim-section-open sim-eval">
+          <span className="rt-part-label">Evaluation</span>
+          {latestEvaluations(run.evaluations).map((ev) => {
+            const rows = evaluationRows(ev);
+            const withPaper = rows.some((row) => row.paper !== undefined);
+            return (
+              <div key={ev.name} className="sim-eval-one">
+                <div className="sim-eval-head">
+                  <b>{ev.name}</b> <span className="sim-at">step {short(ev.step)}</span>
+                  {ev.episodes ? <span className="sim-at">{ev.episodes} episodes</span> : null}
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>metric</th>
+                      <th>ours</th>
+                      {withPaper ? <th>paper</th> : null}
+                      {withPaper ? <th>vs paper</th> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.metric}>
+                        <td>{row.metric}</td>
+                        <td className="num">{fmt(row.ours)}</td>
+                        {withPaper ? <td className="num">{row.paper !== undefined ? fmt(row.paper) : '—'}</td> : null}
+                        {withPaper ? (
+                          <td className={`num${row.delta?.better === true ? ' is-better' : row.delta?.better === false ? ' is-worse' : ''}`}>
+                            {row.delta ? `${row.delta.abs >= 0 ? '+' : ''}${fmt(row.delta.abs)}${row.delta.pct !== null ? ` (${row.delta.pct >= 0 ? '+' : ''}${Math.round(row.delta.pct)}%)` : ''}` : row.paper !== undefined ? '—' : ''}
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {ev.protocol || ev.source ? <p className="sim-eval-protocol">{ev.protocol}{ev.source ? ` · paper: ${ev.source}` : ''}</p> : null}
+              </div>
+            );
+          })}
+        </section>
+      ) : null}
 
       {run?.notes.length ? (
         <details className="sim-section" open>
