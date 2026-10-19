@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { keyFor } from '../lib/assistant';
 import type { CliAgentId, CliEvent, CliStatus } from '../lib/cliAgent';
 import { reportCliAgent } from '../lib/jobWatch';
-import { CLI_AGENTS, cliStatus, installArgv, loginArgv, loginPrompt, logoutArgv, parseRun, readJob, runArgv, startJob, stopJob, writeJob } from '../lib/cliAgent';
+import { CLI_AGENTS, cliStatus, installArgv, loginArgv, loginPrompt, logoutArgv, parseRun, readJob, runArgv, shownCommand, startJob, stopJob, writeJob } from '../lib/cliAgent';
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import { readMeta, writeMeta } from '../lib/playground';
@@ -157,6 +157,9 @@ const readPrefs = (agent: CliAgentId): Prefs => {
     return { useKey: false, commands: true, model: '' };
   }
 };
+
+/** A thought longer than this shows its start, and opens to the whole of it. */
+const THINK_PREVIEW = 280;
 
 export default function CliAgent({
   agent,
@@ -620,7 +623,19 @@ function Turn({ agent, turn, folder, onOpen }: { agent: CliAgentId; turn: CliTur
         </div>
         {events.map((event, index) => {
           if (event.kind === 'text') return <div key={index} className="vs-turn-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(event.text)) }} />;
-          if (event.kind === 'thinking') return <p key={index} className="vs-turn-think">{event.text.slice(-300)}</p>;
+          if (event.kind === 'thinking') {
+            const thought = event.text.trim();
+            if (!thought) return null;
+            // A long thought opens to the whole of it, rather than only its last lines.
+            return thought.length <= THINK_PREVIEW ? (
+              <p key={index} className="vs-turn-think">{thought}</p>
+            ) : (
+              <details key={index} className="vs-turn-think cli-think">
+                <summary>{thought.slice(0, THINK_PREVIEW).trimEnd()}…</summary>
+                <p>{thought}</p>
+              </details>
+            );
+          }
           if (event.kind === 'note') return <pre key={index} className="cli-note">{event.text}</pre>;
           if (event.kind === 'tool') {
             const out = outputs.get(event.id);
@@ -641,11 +656,23 @@ function Turn({ agent, turn, folder, onOpen }: { agent: CliAgentId; turn: CliTur
                       <FileIcon path={event.path} /> {event.path.split('/').slice(-2).join('/')}
                     </button>
                   ) : (
-                    <code>{event.detail.length > 120 ? `${event.detail.slice(0, 120)}…` : event.detail}</code>
+                    <span className="cli-tool-line">
+                      {event.why ? <span className="cli-tool-why">{event.why}</span> : null}
+                      <code>{(() => {
+                        const line = event.name === 'Bash' ? shownCommand(event.detail) : event.detail;
+                        return line.length > 160 ? `${line.slice(0, 160)}…` : line;
+                      })()}</code>
+                    </span>
                   )}
                   {!out && !turn.done ? <span className="spinner" /> : null}
                 </summary>
-                {out?.text ? <pre>{out.text.length > 4000 ? `${out.text.slice(0, 4000)}\n…` : out.text}</pre> : null}
+                {/* Opened: all of it — the whole command or the edit — then what it gave back. */}
+                {event.body ? <pre className={`cli-tool-body${edit ? ' is-diff' : ''}`}>{event.body}</pre> : null}
+                {out?.text ? (
+                  <pre>{out.text.length > 4000 ? `${out.text.slice(0, 4000)}\n…` : out.text}</pre>
+                ) : (
+                  <p className="cli-tool-empty">{out ? 'It printed nothing.' : turn.done ? 'No output came back.' : 'Running — its output shows here when it ends.'}</p>
+                )}
               </details>
             );
           }
