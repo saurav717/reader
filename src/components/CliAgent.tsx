@@ -78,6 +78,33 @@ async function load(projectId: string, host: FileHost) {
   }
 }
 
+/**
+ * A request waiting for the agent to be ready — installed, signed in — and
+ * sent by itself then: the project's start hands one over ("write the project
+ * from the plan") before Claude Code or Codex is on the machine. Kept in this
+ * browser, so the sign-in's round trip doesn't lose it.
+ */
+const queueKey = (projectId: string, agent: CliAgentId) => `reader.cliQueued.${projectId}.${agent}`;
+const queuedFor = (projectId: string, agent: CliAgentId) => {
+  try {
+    return localStorage.getItem(queueKey(projectId, agent)) || '';
+  } catch {
+    return memoryQueue.get(queueKey(projectId, agent)) || '';
+  }
+};
+const memoryQueue = new Map<string, string>();
+export function queueCliRequest(projectId: string, agent: CliAgentId, request: string | null) {
+  const key = queueKey(projectId, agent);
+  try {
+    if (request) localStorage.setItem(key, request);
+    else localStorage.removeItem(key);
+  } catch {
+    if (request) memoryQueue.set(key, request);
+    else memoryQueue.delete(key);
+  }
+  notify();
+}
+
 /** A run's log read until it ends, a second at a time; what it said parsed as it comes. */
 async function follow(projectId: string, agent: CliAgentId, job: string, host: FileHost, onDone: () => void) {
   if (polling.has(job)) return;
@@ -156,6 +183,7 @@ export default function CliAgent({
 }) {
   const spec = CLI_AGENTS[agent];
   const saved = useSyncExternalStore(subscribe, () => savedFor(projectId));
+  const queued = useSyncExternalStore(subscribe, () => queuedFor(projectId, agent));
   const chat = saved.chats[agent] ?? { turns: [] };
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -302,6 +330,21 @@ export default function CliAgent({
       setChat(projectId, agent, { ...now, turns: now.turns.filter((t) => t.job !== job) });
     }
   };
+  // The request handed over before the agent was ready, sent once it is.
+  useEffect(() => {
+    if (!queued || !connected || !status?.loggedIn || running) return;
+    queueCliRequest(projectId, agent, null);
+    void send(queued);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued, connected, status?.loggedIn, running]);
+  const queuedNote = queued ? (
+    <p className="pg-note cli-queued">
+      Waiting to send: <b>{queued.length > 90 ? `${queued.slice(0, 90)}…` : queued}</b> — it goes by itself once {spec.name} is installed and signed in here.{' '}
+      <button type="button" className="link" onClick={() => queueCliRequest(projectId, agent, null)}>
+        Don’t send it
+      </button>
+    </p>
+  ) : null;
   const stop = () => {
     const open = chat.turns.find((turn) => !turn.done);
     if (open) void stopJob(open.job, projectId);
@@ -316,6 +359,7 @@ export default function CliAgent({
     return (
       <div className="cli-setup">
         <AgentHead agent={agent} />
+        {queuedNote}
         <p>
           {spec.name} runs on {machineName}, in the project’s folder, signed in to your own {agent === 'claude' ? 'Anthropic' : 'OpenAI'} account. Connect to the machine first.
         </p>
@@ -329,6 +373,7 @@ export default function CliAgent({
     return (
       <div className="cli-setup">
         <AgentHead agent={agent} />
+        {queuedNote}
         {problem ? (
           <>
             <p className="pg-note is-problem">{problem}</p>
@@ -348,6 +393,7 @@ export default function CliAgent({
     return (
       <div className="cli-setup">
         <AgentHead agent={agent} />
+        {queuedNote}
         <p>
           {spec.name} isn’t on {machineName} yet. Installing it takes a minute{agent === 'claude' ? ' (Anthropic’s installer, into ~/.local/bin)' : ' (npm install -g @openai/codex)'}
           {machineName.startsWith('Colab') ? '; on Colab it goes with the runtime, and installs again on the next one' : ''}.
@@ -364,6 +410,7 @@ export default function CliAgent({
     return (
       <div className="cli-setup">
         <AgentHead agent={agent} version={status.version} />
+        {queuedNote}
         {login ? (
           <div className="cli-login">
             {login.url ? (

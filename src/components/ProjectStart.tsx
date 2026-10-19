@@ -8,6 +8,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { FileHost } from '../lib/playground';
+import type { CliAgentId } from '../lib/cliAgent';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 import { agentChatFor, askAgent, dismissAgentError, filesInReply, isAgentRunning, PROJECT_MAX_TOKENS, stopAgent, subscribeAgent, WRITE_PROJECT } from '../lib/projectAgent';
 import FileIcon from './FileIcon';
@@ -29,6 +30,7 @@ export default function ProjectStart({
   onWrote,
   onDone,
   onDismiss,
+  onCli,
 }: {
   projectId: string;
   host: FileHost;
@@ -44,6 +46,8 @@ export default function ProjectStart({
   onDone: () => void;
   /** Written some other way: the start goes without writing. */
   onDismiss: () => void;
+  /** Written by Claude Code or Codex on the machine, signed in to the person's own account, from the paper and the plan. */
+  onCli?: (agent: CliAgentId) => void;
 }) {
   const assistant = useSyncExternalStore(subscribeAssistant, assistantState);
   const chat = useSyncExternalStore(subscribeAgent, () => agentChatFor(projectId));
@@ -92,6 +96,7 @@ export default function ProjectStart({
             <span className="pg-write-dot" aria-hidden="true" />
             <b>{pending.step}</b>
             <span className="pg-write-clock">{elapsed(pending.started, now)}</span>
+            {pending.onServer ? <span className={`pg-write-where${pending.offline ? ' is-offline' : ''}`}>{pending.offline ? 'offline · still writing on the server' : 'on the server'}</span> : null}
             <span className="spacer" />
             <button type="button" className="btn sm ghost" onClick={stopAgent}>
               Stop
@@ -109,6 +114,13 @@ export default function ProjectStart({
           ) : (
             <p className="hint">{pending.thinking ? 'Thinking it through before the first file…' : 'The files appear here as it reaches them; they go into the folder together once the answer is whole.'}</p>
           )}
+          {pending.onServer ? (
+            <p className="hint">
+              {pending.offline
+                ? 'This page has lost its connection. The answer goes on being written on the server; the files come in here once you’re back, or when you open the project again in this browser.'
+                : 'Written on the server: losing the connection, reloading or closing this page doesn’t stop it. Open the project again in this browser and the files land in the folder.'}
+            </p>
+          ) : null}
         </div>
       ) : (
         <>
@@ -163,6 +175,21 @@ export default function ProjectStart({
               </p>
             </>
           )}
+          {onCli ? (
+            <div className="pg-write-cli">
+              <p className="hint">
+                <b>Or with your own Claude Code or Codex account.</b> It runs on {machineName}, in the project’s folder, signed in there to your Claude or ChatGPT plan — the pane on the right installs it and signs you in. It is handed {hasPlan ? 'the paper and your plan' : 'the paper'} as <code>IMPLEMENTATION_PLAN.md</code>, and keeps working on the machine if this page goes.
+              </p>
+              <div className="cli-buttons">
+                <button type="button" className="btn" onClick={() => onCli('claude')}>
+                  <span className="cli-badge is-claude is-sm">✳</span> Write it with Claude Code
+                </button>
+                <button type="button" className="btn" onClick={() => onCli('codex')}>
+                  <span className="cli-badge is-codex is-sm">◎</span> Write it with Codex
+                </button>
+              </div>
+            </div>
+          ) : null}
           <p className="hint nb-start-other">
             Or start another way:{' '}
             <button type="button" className="link" onClick={onDismiss}>

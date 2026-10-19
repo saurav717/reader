@@ -166,6 +166,15 @@ const readFold = () => {
     return false;
   }
 };
+/** Tucked into the left rim of the window: a slim tab out of the way, opened again with a click. */
+const EDGE_KEY = 'reader.playground.dock-edge';
+const readEdge = () => {
+  try {
+    return localStorage.getItem(EDGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
 
 /**
  * In the corner of every page but the running playground's own, while
@@ -176,6 +185,15 @@ export function RunDock({ current, onOpen }: { current?: string; onOpen: (id: st
   const runs = useRuns();
   const live = runs.filter((run) => isLive(run) && run.id !== current);
   const [folded, setFolded] = useState(readFold);
+  const [edge, setEdgeState] = useState(readEdge);
+  const setEdge = (next: boolean) => {
+    setEdgeState(next);
+    try {
+      localStorage.setItem(EDGE_KEY, next ? '1' : '0');
+    } catch {
+      // Only a convenience.
+    }
+  };
   const fold = (next: boolean) => {
     setFolded(next);
     try {
@@ -184,22 +202,46 @@ export function RunDock({ current, onOpen }: { current?: string; onOpen: (id: st
       // Only a convenience.
     }
   };
+  const toEdge = (
+    <button type="button" className="icon-btn sm" aria-label="Tuck it into the left edge" title="Tuck into the left edge" onClick={() => setEdge(true)}>
+      ⇤
+    </button>
+  );
+  if (edge) {
+    return (
+      <>
+        <div className="pr-corner">
+          <RunToasts current={current} onOpen={onOpen} />
+        </div>
+        {live.length ? (
+          <button type="button" className="pr-edge-tab" onClick={() => setEdge(false)} aria-label={`${live.length} running — bring the dock back`} title="Running — click to bring the dock back">
+            <i className="pr-dot is-run" aria-hidden="true" />
+            <span>{live.length}</span>
+          </button>
+        ) : null}
+      </>
+    );
+  }
   return (
     <div className="pr-corner">
       <RunToasts current={current} onOpen={onOpen} />
       {live.length ? (
         folded ? (
-          <button type="button" className="pr-dock-pill" onClick={() => fold(false)} aria-label={`${live.length} running — show them`}>
-            <i className="pr-dot is-run" aria-hidden="true" />
-            Running · {live.length}
-            {live.length === 1 && live[0].progress !== null && live[0].progress !== undefined ? <span className="pr-mono"> {Math.round(live[0].progress * 100)}%</span> : null}
-          </button>
+          <span className="pr-dock-pill-row">
+            <button type="button" className="pr-dock-pill" onClick={() => fold(false)} aria-label={`${live.length} running — show them`}>
+              <i className="pr-dot is-run" aria-hidden="true" />
+              Running · {live.length}
+              {live.length === 1 && live[0].progress !== null && live[0].progress !== undefined ? <span className="pr-mono"> {Math.round(live[0].progress * 100)}%</span> : null}
+            </button>
+            {toEdge}
+          </span>
         ) : (
           <section className="pr-dock" aria-label="Running playgrounds">
             <header>
               <i className="pr-dot is-run" aria-hidden="true" />
               <b>Running · {live.length}</b>
               <span className="spacer" />
+              {toEdge}
               <button type="button" className="icon-btn sm" aria-label="Fold the dock" title="Fold" onClick={() => fold(true)}>
                 <ChevronDownIcon size={14} />
               </button>

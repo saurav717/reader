@@ -6214,6 +6214,11 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .pg-write-step { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .pg-write-step b { font-weight: 600; color: var(--ink); }
 .pg-write-clock { font: 11.5px var(--mono); color: var(--muted); }
+.pg-write-where { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+.pg-write-where.is-offline { color: var(--warn, #b7791f); border-color: currentColor; }
+.pg-write-cli { display: grid; gap: 8px; margin-top: 14px; }
+.pg-write-cli .cli-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.pg-write-cli .btn { display: inline-flex; align-items: center; gap: 8px; }
 .pg-write-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pg-write-pulse 1.2s ease-in-out infinite; }
 @keyframes pg-write-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .pg-write-dot { animation: none; } }
@@ -6521,6 +6526,11 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .pr-toast-acts { display: flex; gap: 6px; margin-top: 7px; }
 /* Clear of a project's status bar. */
 .app:has(.vs-status) .pr-corner { bottom: 36px; }
+.pr-dock-pill-row { display: inline-flex; align-items: center; gap: 4px; }
+.pr-dock-pill-row .icon-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; }
+/* The dock tucked into the window's left rim: a slim tab, half off the edge. */
+.pr-edge-tab { position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 45; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 18px; padding: 10px 0; border: 1px solid var(--border); border-left: 0; border-radius: 0 8px 8px 0; background: var(--surface); color: var(--muted); font: 500 11px var(--mono); cursor: pointer; opacity: 0.7; transition: opacity 0.15s, width 0.15s; }
+.pr-edge-tab:hover, .pr-edge-tab:focus-visible { opacity: 1; width: 24px; color: var(--ink); }
 
 /* P's switcher */
 .pr-switch { position: fixed; left: 50%; top: 12vh; transform: translateX(-50%); z-index: 51; width: min(640px, calc(100vw - 32px)); max-height: 72vh; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-md); overflow: hidden; }

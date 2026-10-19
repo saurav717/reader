@@ -58,6 +58,8 @@ export { BrowserSession } from './browserSession.js';
 export { Usage } from './usage.js';
 export { Devices } from './devices.js';
 export { Kernels } from './kernels.js';
+export { AgentJob } from './agentJobs.js';
+import { isJobId, jobsEnabled, PROVIDERS as JOB_PROVIDERS } from './agentJobs.js';
 export { LatexJob } from './latex.js';
 export { ProjectRoom } from './projectRoom.js';
 export { Invites } from './invites.js';
@@ -80,7 +82,7 @@ function cors(origin) {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token, X-Granola-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token, X-Granola-Key, X-Provider-Key',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -365,7 +367,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && path !== '/site/agent-jobs' && !path.startsWith('/agent-jobs/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -708,6 +710,74 @@ export default {
           return json({ look, stored: true }, 200, { ...headers, 'Cache-Control': 'no-store' });
         }
         return json({ error: 'GET or POST' }, 405, headers);
+      }
+
+      // Whether the agent's long answers are written on the Worker, so a
+      // page that drops its connection doesn't lose them (worker/agentJobs.js):
+      // on for everyone unless the owner turns it off, on Usage → The site.
+      if (path === '/site/agent-jobs') {
+        if (request.method === 'GET') {
+          const kept = env.SESSIONS ? await env.SESSIONS.get('site:agentJobs').catch(() => null) : null;
+          return json({ enabled: Boolean(env.AGENT_JOBS) && kept !== 'off', available: Boolean(env.AGENT_JOBS), stored: Boolean(env.SESSIONS) }, 200, { ...headers, 'Cache-Control': 'public, max-age=30' });
+        }
+        if (request.method === 'POST' || request.method === 'PUT') {
+          const who = await ownerAuthorized(request, env);
+          if (!who?.owner) return json({ error: 'this is the owner’s to set: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+          if (!env.SESSIONS) return json({ error: 'no SESSIONS namespace is bound here, so the choice cannot be kept — see wrangler.toml' }, 501, headers);
+          const asked = await request.json().catch(() => ({}));
+          if (typeof asked?.enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400, headers);
+          await env.SESSIONS.put('site:agentJobs', asked.enabled ? 'on' : 'off');
+          return json({ enabled: Boolean(env.AGENT_JOBS) && asked.enabled, available: Boolean(env.AGENT_JOBS), stored: true }, 200, { ...headers, 'Cache-Control': 'no-store' });
+        }
+        return json({ error: 'GET or POST' }, 405, headers);
+      }
+
+      // A job of the agent's, written on the Worker: started with the request
+      // the page would have sent the provider, read as it comes from any page
+      // of whoever started it, stopped. The site's key on the relay's terms,
+      // or the person's own, sent with the start (X-Provider-Key).
+      if (path === '/agent-jobs/start' || path === '/agent-jobs/read' || path === '/agent-jobs/stop') {
+        if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+        if (!env.AGENT_JOBS) return json({ error: 'no AGENT_JOBS object is bound here — see wrangler.toml', unavailable: true }, 501, headers);
+        const who = await authorized(request, env);
+        if (!who) return needsToken(env, headers);
+        const email = who.email || 'owner';
+        const body = request.method === 'POST' ? await request.json().catch(() => null) : null;
+        const id = path === '/agent-jobs/read' ? url.searchParams.get('id') : body?.id;
+        if (!isJobId(id)) return json({ error: 'which job?' }, 400, headers);
+        const object = env.AGENT_JOBS.get(env.AGENT_JOBS.idFromName(`agent-job:${id}`));
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (path === '/agent-jobs/read') {
+          if (request.method !== 'GET') return json({ error: 'GET' }, 405, headers);
+          const answer = await object.fetch(`https://agent-job/read?from=${encodeURIComponent(url.searchParams.get('from') || '0')}&wait=${encodeURIComponent(url.searchParams.get('wait') ?? '')}&email=${encodeURIComponent(email)}`);
+          return json(await answer.json(), answer.status, noStore);
+        }
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        if (path === '/agent-jobs/stop') {
+          const answer = await object.fetch(`https://agent-job/stop?email=${encodeURIComponent(email)}`, { method: 'POST' });
+          return json(await answer.json(), answer.status, noStore);
+        }
+        if (!(await jobsEnabled(env))) return json({ error: 'the owner has turned off answers written on the server', off: true }, 403, headers);
+        const provider = body?.provider;
+        if (!JOB_PROVIDERS.includes(provider)) return json({ error: 'anthropic, deepseek or gemini' }, 400, headers);
+        const own = (request.headers.get('X-Provider-Key') || '').trim();
+        const name = AI_NAMES[provider];
+        if (own && provider === 'gemini') return json({ error: 'Gemini runs on the site’s key alone' }, 400, headers);
+        if (!own) {
+          if (!aiKey(env, provider)) return json({ error: `this proxy has no ${name} key: npx wrangler secret put ${KEY_NAMES[provider]}, then redeploy`, setup: true }, 501, headers);
+          if (!who.owner && !aiForEveryone(env, provider)) return json({ error: `${name} on this proxy is for its owner; add a key of your own under Settings, or ask the owner to set AI_FOR to everyone`, owners: true }, 403, headers);
+        }
+        if (await personOverLimit(env, who)) return json({ error: 'too many questions at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+        if (Number(request.headers.get('Content-Length') || 0) > MAX_REQUEST_BYTES) return json({ error: 'that request is too large' }, 413, headers);
+        let checked;
+        try {
+          checked = provider === 'gemini' ? checkRequest(body.request) : checkAi(provider, body.request);
+        } catch (error) {
+          if (error instanceof GeminiRefused || error instanceof AiRefused) return json({ error: error.message }, error.status, headers);
+          throw error;
+        }
+        const answer = await object.fetch('https://agent-job/start', { method: 'POST', body: JSON.stringify({ id, provider, request: checked, email, ...(own ? { key: own } : {}) }) });
+        return json(await answer.json(), answer.status, noStore);
       }
 
       // Who uses this Worker's paid accounts, and how much: worker/usage.js.

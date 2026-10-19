@@ -36,7 +36,7 @@ export const GROUPS: { title: string; about: string; tabs: UsageTab[] }[] = [
   { title: 'People', about: 'who uses Koios, and who brought whom', tabs: ['people', 'invites'] },
   { title: 'Paid services', about: 'the accounts Koios spends on when people use it', tabs: ['ai', 'search', 'mail'] },
   { title: 'Infrastructure', about: 'what Koios itself runs on', tabs: ['cloudflare', 'cloud'] },
-  { title: 'The site', about: 'how it looks to everyone', tabs: ['look'] },
+  { title: 'The site', about: 'how it looks and works for everyone', tabs: ['look'] },
 ];
 
 export const GUIDES: Record<UsageTab, ServiceGuide> = {
@@ -51,6 +51,7 @@ export const GUIDES: Record<UsageTab, ServiceGuide> = {
     notes: [
       'The choice is kept in the Worker’s SESSIONS namespace (wrangler.toml). Without one, the switch changes only the browser it is clicked in.',
       'Under the Koios look, Settings → Appearance offers Light, Dark and Koios, with Koios the default; under Classic it offers Light and Dark, and anyone set to Koios reads in Dark.',
+      'Below the look: whether the playground agent’s long answers are written on the server (the AGENT_JOBS Durable Object), so a dropped connection or a closed page doesn’t end them. On unless switched off here.',
     ],
   },
   overview: {

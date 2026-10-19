@@ -118,3 +118,23 @@ describe('the conversations, kept in the project folder', () => {
     assert.equal(agent.agentChatFor('p2').loaded, true);
   });
 });
+
+describe('the project written by Claude Code or Codex', () => {
+  const paper = { title: 'Automatic Generation of High-Performance RL Environments', authors: ['A. Author', 'B. Author'], published: '2026-03-01', abstract: 'We  generate\nenvironments.', plan: '1. Port CartPole.\n2. Port Pong.' };
+  it('hands them the paper and the plan, as a file in the folder', () => {
+    const text = agent.planMarkdown(paper);
+    assert.match(text, /^# Implementation plan: Automatic Generation/);
+    assert.match(text, /A\. Author, B\. Author \(2026\)/);
+    assert.match(text, /## Abstract\n\nWe generate environments\./);
+    assert.match(text, /## The plan\n\n[^\n]*Follow it[^\n]*\n\n1\. Port CartPole\.\n2\. Port Pong\./);
+    assert.match(agent.planMarkdown({ ...paper, plan: undefined }), /No plan was drawn up/);
+  });
+  it('asks them to read it first, and to check the project runs', () => {
+    const request = agent.cliWriteRequest(true);
+    assert.ok(request.startsWith(`Read ${agent.PLAN_FILE} first`));
+    assert.match(request, /follow the plan/);
+    assert.doesNotMatch(request, /in this one answer/);
+    assert.match(request, /run main\.py once/);
+    assert.doesNotMatch(agent.cliWriteRequest(false), /follow the plan/);
+  });
+});

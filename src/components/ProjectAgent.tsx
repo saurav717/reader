@@ -195,6 +195,11 @@ export default function ProjectAgent({
                   <span className="spinner" /> {chat.pending.step}
                   {chat.pending.read.length ? <small> · read {chat.pending.read.length}</small> : null}
                 </div>
+                {chat.pending.offline ? (
+                  <p className="pg-note">Offline — the answer goes on being written on the server, and comes in here once you’re back.</p>
+                ) : chat.pending.onServer ? (
+                  <p className="hint">Written on the server: a lost connection or a reload doesn’t stop it.</p>
+                ) : null}
                 {chat.pending.reply ? <pre className="vs-turn-stream">{chat.pending.reply.slice(-1400)}</pre> : chat.pending.thinking ? <p className="vs-turn-think">{chat.pending.thinking.slice(-280)}</p> : null}
               </>
             )}
