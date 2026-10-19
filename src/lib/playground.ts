@@ -32,7 +32,8 @@ import { mergePlaygrounds, readPlaygroundsFromDrive, serialisePlaygrounds, write
 import type { CompanionPairing } from './companion';
 import { secureAddress } from './companion';
 import { currentAccount, onProxyChange } from './api';
-import { driveFolderName, driveHost } from './driveFiles';
+import { driveFolderName, driveHost, type DriveHost } from './driveFiles';
+import { ensureDriveToken } from './google';
 
 // ---------------------------------------------------------------- types ----
 
@@ -119,6 +120,19 @@ export interface Playground {
   cells?: { type: CellType; source: string }[];
   /** The last read-only copy of its code in Drive, taken by the computer that has it (src/lib/away.ts). */
   snapshot?: Snapshot;
+  /** Its files on their way to another place, by the machines themselves (src/lib/moves.ts): until then, `home` is where they are. */
+  moving?: Moving;
+  /** Where they were before the last move, until the old copy is removed or kept for good. */
+  movedFrom?: { home: FilesHome; at: number; move: string; removed?: boolean };
+}
+
+/** A move under way, as the project keeps it, so any browser of the account follows it. */
+export interface Moving {
+  id: string;
+  /** Where the files go: `home` once they are there and checked. */
+  to: FilesHome;
+  plan: 'archive' | 'drive-pull' | 'drive-push';
+  started: number;
 }
 
 export interface Snapshot {
@@ -285,6 +299,8 @@ function normalise(value: Partial<Playground> | undefined): Playground | null {
     start: value.start ?? 'blank',
     cells: Array.isArray(value.cells) ? value.cells : undefined,
     snapshot: value.snapshot && typeof value.snapshot.at === 'number' ? value.snapshot : undefined,
+    moving: value.moving && typeof value.moving.id === 'string' && value.moving.to ? value.moving : undefined,
+    movedFrom: value.movedFrom && value.movedFrom.home && typeof value.movedFrom.move === 'string' ? value.movedFrom : undefined,
   };
 }
 
@@ -983,6 +999,20 @@ export function kernelHost(label: string, root: string, scope?: string): FileHos
 
 /** Drive's hosts, one a folder, so the ids each has looked up are kept for the session. */
 const driveHosts = new Map<string, FileHost>();
+
+/** A Drive folder's id for a project's home there, made on the way when it isn't yet: for a machine moving the files. */
+export async function driveFolderIdOf(home: FilesHome): Promise<string> {
+  if (home.kind !== 'drive') throw new Error('not a Drive folder');
+  let host = driveHosts.get(home.folder);
+  if (!host) driveHosts.set(home.folder, (host = driveHost(() => drive, home.folder)));
+  return (host as DriveHost).folderId();
+}
+
+/** The account's Google token for Drive, fresh: what the machines are handed for a move to or from Drive. */
+export async function driveTokenNow(): Promise<string> {
+  if (!drive) throw new Error('Sign in with Google, with Drive, first.');
+  return ensureDriveToken(drive.clientId);
+}
 
 /** Where a playground's files are kept. */
 export function homeHost(playground: Playground): FileHost {

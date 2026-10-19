@@ -4872,6 +4872,22 @@ just under it, **Where to turn it on and off**:
 - **Settings and the cards**: no chip.
 - **Settings and the rail**: no switches on the cards.
 
+### Storage & compute
+
+A project's files and its machine are two parts, each replaceable on its own.
+**Storage & compute**, in the project's bar, lists every place the files could
+be kept that is connected now (Google Drive, each computer with the Companion,
+the Colab machine's own disk) with its free space, and every machine the code
+could run on, with whether it is on. **Move files here** has the machines move
+the files themselves: the source packs one archive into R2 through the Worker
+and the destination unpacks it and checks every file, or a machine fetches from
+or sends to Drive directly. So a move is fast, takes checkpoints and data too,
+and goes on with the page closed. **Run here** changes the machine and leaves
+the files where they are. How it works, the setup it needs (an R2 bucket) and
+its limits are in [docs/storage-moves.md](docs/storage-moves.md).
+
+![The Storage & compute panel: places for the files with their free space and Move files here, machines with Run here](docs/storage-compute-panel.png)
+
 ### Running playgrounds
 
 Each playground has its own kernel: its own Python, on its own machine. The

@@ -9589,3 +9589,42 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .pg-gone code { font: 11.5px var(--mono); background: var(--surface); border: 1px solid var(--border-soft); border-radius: 4px; padding: 0 4px; }
 .cell-checkpoint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px; font: 500 11.5px var(--sans); color: var(--ink-2); }
 .cell-checkpoint code { font: 11px var(--mono); background: var(--panel); border: 1px solid var(--border-soft); border-radius: 4px; padding: 0 4px; }
+
+/* Storage & compute (src/components/StoragePanel.tsx): the places a project's files can be kept and the machines
+   it can run on, each a row; a move's progress, in the panel and as a strip above the editor. */
+.mv-sheet { max-width: 760px; }
+.mv-body { padding: 0 24px 8px; overflow: auto; }
+.mv-sheet .pg-sheet-foot .btn { white-space: nowrap; }
+.mv-here { display: inline-flex; align-items: center; gap: 8px; }
+.mv-section { display: grid; gap: 8px; margin-top: 18px; }
+.mv-section h3 { margin: 0; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.mv-section .hint { margin: 0; }
+.mv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.mv-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.mv-list li.is-here { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+.mv-name { display: grid; gap: 2px; min-width: 0; }
+.mv-name b { font-size: 13.5px; color: var(--ink); }
+.mv-name small { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); vertical-align: 1px; }
+.mv-dot.is-on { background: #3fb950; }
+.mv-dot.is-off { background: var(--danger); }
+.mv-free { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); min-width: 120px; justify-content: flex-end; }
+.mv-meter { width: 64px; height: 5px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+.mv-meter i { display: block; height: 100%; background: var(--accent); }
+.mv-here { font-size: 12px; color: var(--accent); font-weight: 500; white-space: nowrap; }
+.pg-mark.is-drive { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+.mv-progress { display: grid; gap: 8px; margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.mv-progress.is-compact { margin: 0; border-radius: 0; border-width: 0 0 1px; padding: 8px 16px; }
+.mv-progress.is-problem { border-color: var(--danger); }
+.mv-progress-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.mv-progress-line b { color: var(--ink); }
+.mv-progress-line .spacer { flex: 1; }
+.mv-bar { height: 4px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+.mv-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.6s ease; }
+.mv-progress .hint { margin: 0; }
+.mv-old { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 10px; font-size: 12.5px; }
+.mv-old .spacer { flex: 1; }
+@media (max-width: 640px) { .mv-list li { grid-template-columns: 28px minmax(0, 1fr); } .mv-free { justify-content: flex-start; } }
+.mv-sheet .link, .mv-progress .link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; }
+.mv-sheet .link:hover, .mv-progress .link:hover { text-decoration: underline; }
+.mv-progress .hint { font-size: 12px; color: var(--muted); }

@@ -72,6 +72,8 @@ export interface DriveHost extends FileHost {
   readBase64(path: string): Promise<string | null>;
   /** Any file from base64, made or replaced. */
   writeBase64(path: string, base64: string): Promise<void>;
+  /** The project's own folder's id in Drive, made when it isn't there yet: what a machine moving files is given. */
+  folderId(): Promise<string>;
 }
 
 const toBase64 = (bytes: Uint8Array) => {
@@ -140,6 +142,9 @@ export function driveHost(config: () => DriveConfig | null, folder: string, unde
   };
   return {
     label: 'Google Drive',
+    async folderId() {
+      return root(await token());
+    },
     async list(path = '') {
       const t = await token();
       const parent = await folderId(t, path, false);

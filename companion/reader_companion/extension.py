@@ -73,7 +73,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, browsers, desktop, folders, jobs, paper, state, texlive, tools, tunnel
+from . import account, browsers, desktop, folders, jobs, mover, paper, state, texlive, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -690,6 +690,32 @@ class FoldersHandler(VsCodeHandler):
         self.reply(400, {"error": "link or choose"})
 
 
+class MoveHandler(VsCodeHandler):
+    """GET /companion/move?root=…: how much disk is free where a project's folder is (from 0.15.0). POST {mode, api,
+    id, key, root, drive?}: one step of a project's move (reader_companion/mover.py) started here, on its own, so it
+    goes on with no page open — the page asks, or the Worker itself, through the tunnel, once an archive is ready to
+    unpack. The token, as for every call that reaches the files."""
+
+    def base(self) -> Path:
+        return Path(state.current.root).expanduser()
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        relative = mover.safe_member(self.get_query_argument("root", "").strip("/")) or ""
+        self.reply(200, {**mover.disk(self.base() / relative if relative else self.base()), "version": state.current.version})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            config = mover.prepare(json.loads(self.request.body or b"{}"), self.base())
+        except (ValueError, mover.MoveError) as error:
+            return self.reply(400, {"error": str(error)})
+        pid = await IOLoop.current().run_in_executor(None, lambda: mover.start_detached(config, Path.home() / ".reader-agent"))
+        self.reply(202, {"started": config["mode"], "pid": pid})
+
+
 class BrowsersHandler(VsCodeHandler):
     """GET /companion/browsers: the browsers on this computer and their profiles (from 0.9.0). POST {url, browser,
     profile}: that https link opened there — the browser and profile must be ones the listing has. The token, as
@@ -864,6 +890,7 @@ def load(serverapp):
             (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/folders"), FoldersHandler),
+            (url_path_join(base, "companion/move"), MoveHandler),
             (url_path_join(base, "companion/browsers"), BrowsersHandler),
             (url_path_join(base, "companion/paper"), PaperHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),

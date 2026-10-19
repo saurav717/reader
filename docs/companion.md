@@ -236,6 +236,16 @@ closed:
   are listed but not uploaded, unless a project's keep rules (playground.md,
   step 7) say so.
 
+### 8 · Moving a project's files
+
+From 0.15.0 the Companion takes `companion/move`: `GET` says how much disk is
+free where a project's folder is; `POST` starts one step of a move (pack,
+unpack, fetch from or send to Drive, remove the old copy) as a process of its
+own, which outlives the request and the page. The page calls it when you click
+**Move files here**, and the Worker calls it through the tunnel to unpack an
+archive when no page is open. The design is in
+[storage-moves.md](storage-moves.md).
+
 ---
 
 ## How it connects

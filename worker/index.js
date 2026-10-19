@@ -59,6 +59,8 @@ export { Usage } from './usage.js';
 export { Devices } from './devices.js';
 export { Kernels } from './kernels.js';
 export { AgentJob } from './agentJobs.js';
+export { ProjectMove } from './moves.js';
+import { handleMoves, isMovesPath } from './moves.js';
 import { isJobId, jobsEnabled, PROVIDERS as JOB_PROVIDERS } from './agentJobs.js';
 export { LatexJob } from './latex.js';
 export { ProjectRoom } from './projectRoom.js';
@@ -367,7 +369,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && path !== '/site/agent-jobs' && !path.startsWith('/agent-jobs/') && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && path !== '/site/agent-jobs' && !path.startsWith('/agent-jobs/') && !isMovesPath(path) && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -711,6 +713,9 @@ export default {
         }
         return json({ error: 'GET or POST' }, 405, headers);
       }
+
+      // A project's files moved by the machines at each end, the archive kept in R2 between them: worker/moves.js.
+      if (isMovesPath(path)) return await handleMoves(request, env, ctx, path, { authorized, json, headers, allowedOrigins: ALLOWED_ORIGINS, needsToken });
 
       // Whether the agent's long answers are written on the Worker, so a
       // page that drops its connection doesn't lose them (worker/agentJobs.js):
