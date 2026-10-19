@@ -4885,6 +4885,9 @@ or sends to Drive directly. So a move is fast, takes checkpoints and data too,
 and goes on with the page closed. **Run here** changes the machine and leaves
 the files where they are. How it works, the setup it needs (an R2 bucket) and
 its limits are in [docs/storage-moves.md](docs/storage-moves.md).
+The whole process, from moving the files to working from one terminal, is
+written up with flowcharts and screenshots in
+[docs/files-here-compute-there.pdf](docs/files-here-compute-there.pdf).
 
 ![The Storage & compute panel: places for the files with their free space and Move files here, machines with Run here](docs/storage-compute-panel.png)
 
