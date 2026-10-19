@@ -1067,7 +1067,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   // The workbench, as VS Code lays it out: the activity bar's view in the side bar, the agent on the right, the panel below.
   const [primary, setPrimary] = useState<Primary>(() => readLocal<Primary>('reader.pgPrimary', 'explorer'));
   const [agentOpen, setAgentOpenState] = useState(() => readLocal('reader.pgAgent', true));
-  const [agentMode, setAgentMode] = useState<AgentMode>(() => readLocal<AgentMode>('reader.pgAgentMode', 'claude'));
+  // Unset until chosen: by the files when the agent can work there (the compute link up), else Claude Code on the machine.
+  const [agentMode, setAgentMode] = useState<AgentMode | 'unset'>(() => readLocal<AgentMode | 'unset'>('reader.pgAgentMode', 'unset'));
   const [rightTab, setRightTabState] = useState<RightTab>(() => readLocal<RightTab>('reader.pgRight', 'agent'));
   const setRightTab = (tab: RightTab) => (setRightTabState(tab), writeLocal('reader.pgRight', tab));
   /** The right-hand pane on a tab, or closed when that tab was already showing. */
@@ -1922,7 +1923,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   // editing them where they are, and reach the compute with `koios run` — rather than on the machine's copy.
   const agentsHere = Boolean(filesHere && linked);
   const cliAgents = Boolean((terminals && computeServer && isCompanion(computeServer)) || agentsHere);
-  const mode: AgentMode = agentMode === 'cli' && !cliAgents ? 'claude' : agentMode;
+  const mode: AgentMode = agentMode === 'unset' ? (agentsHere ? 'cli' : 'claude') : agentMode === 'cli' && !cliAgents ? 'claude' : agentMode;
   const copyNote = split ? `, on its copy of the folder; its edits come back to ${homeLabel} when it finishes` : '';
   const agentChoices: { id: AgentMode; label: string; mark: string; title: string }[] = [
     { id: 'claude', label: 'Claude Code', mark: '✳', title: `Anthropic’s Claude Code, on ${machineName}${copyNote}, signed in to your account` },
@@ -2288,7 +2289,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   />
                 ) : null}
                 <Tree version={refresh} host={home} label={homeLabel} icon={playground.home.kind === 'drive' ? <DriveMark size={12} /> : undefined} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} onContext={explorerMenu} />
-                {split ? <Tree version={refresh + (connected ? 1000 : 0)} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
+                {split ? (
+                  // The machine's copy is a working copy: the files go over before each run and the runtime's disk goes with the
+                  // runtime; what a run writes there (runs/, results/) is what comes back. Folded, so it doesn't read as a second set of files.
+                  <Tree version={refresh + (connected ? 1000 : 0)} host={machine} label={`Working copy on ${machineName}`} note={connected ? `Sent before each run, gone with the runtime. What runs write here — runs/, results/ — comes back to ${homeLabel}.` : 'Connect to see the working copy on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} collapsed />
+                ) : null}
               </div>
             ) : primary === 'search' ? (
               <SearchView host={home} onOpen={(path, line) => void open('home', path, { line })} />
@@ -2712,8 +2717,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   );
 }
 
-function Tree({ host, label, icon, note, disabled, onOpen, activePath, version = 0, onContext }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void }) {
-  const [open, setOpen] = useState(true);
+function Tree({ host, label, icon, note, disabled, onOpen, activePath, version = 0, onContext, collapsed = false }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void; /** Folded when first shown: a working copy, not the files themselves. */ collapsed?: boolean }) {
+  const [open, setOpen] = useState(!collapsed);
   return (
     <div className="pg-tree-part">
       <button type="button" className={`pg-tree-head vs-section${open ? ' is-open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>

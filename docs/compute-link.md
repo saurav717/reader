@@ -29,6 +29,11 @@ The computer with the files can be a Mac, a Windows PC or a Linux box: the Compa
 keeps its terminal raw mode to POSIX systems and works through PowerShell otherwise, and the agent's command is
 quoted for the shell it lands in (PowerShell doubles a single quote inside a word; a POSIX shell takes `'\''`).
 
+The explorer shows the compute's folder as **Working copy on <machine>**, folded: the files go over before each run
+and the runtime's disk goes with the runtime, so it is never a second home for the code — only what a run writes
+there (`runs/`, `results/`) is worth opening, and that comes back. With the link up, the agent pane opens on the
+agent by the files unless another was chosen.
+
 ## 1. What you see
 
 The panel's first terminal is now **here**, on the computer the files are on, in the project's folder. The **+**
