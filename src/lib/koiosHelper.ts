@@ -218,6 +218,14 @@ class Checkpoint:
                     pass
         self._last_at = time.time()
         print(_MARK + json.dumps(record), flush=True)
+        # In the project's data place too (Google Drive by default), so the runtime going away loses no checkpoint.
+        try:
+            import koios_data
+            if koios_data.enabled():
+                for p in (path, path + ".koios.json", os.path.join(self.directory, "latest.json")):
+                    koios_data.save(p, os.path.join(self.directory, os.path.basename(p)).replace(os.sep, "/"))
+        except Exception as error:
+            print(f"[koios] checkpoint not copied to the data place: {error}", file=sys.stderr, flush=True)
         return path
 
     @staticmethod

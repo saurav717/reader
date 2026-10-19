@@ -38,6 +38,7 @@
  * fetched ahead of time (see `prepare`) and the request itself never awaits.
  */
 import { apiBase } from './api';
+import { keptGrantFor, prepareStay, renewFromKept, revokeKept, signInForKeeps, staysAvailable } from './googleStay';
 import { replaying, SHOWCASE_TOKEN } from './replayFlag';
 import type { GoogleUser } from '../types';
 
@@ -171,6 +172,8 @@ export function loadGoogleScript(): Promise<void> {
  */
 export function prepare(): void {
   void loadGoogleScript().catch(() => undefined);
+  // Whether the Worker signs in for keeps, asked ahead of the click that signs in.
+  prepareStay();
 }
 
 interface StoredToken {
@@ -393,9 +396,12 @@ let lastClientId = '';
  * window — the app renews the token from the grant it kept. Null in a browser.
  */
 export async function keptSignIn(clientId: string): Promise<{ email: string } | null> {
+  if (!clientId) return null;
   const viaApp = appSignIn();
-  if (!viaApp?.kept || !clientId) return null;
-  return viaApp.kept({ clientId, hint: '' }).catch(() => null);
+  if (viaApp?.kept) return viaApp.kept({ clientId, hint: '' }).catch(() => null);
+  // A browser keeps one too, where the Worker signs in for keeps (src/lib/googleStay.ts).
+  const kept = keptGrantFor(clientId, undefined, [DRIVE_SCOPE]);
+  return kept ? { email: kept.email } : null;
 }
 
 function requestToken(clientId: string, scope: string, prompt: string): Promise<Grant> {
@@ -413,6 +419,11 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
         scopes: (response.scope || scope).split(' '),
       };
     });
+  }
+  // A Worker that exchanges codes and renews: the code flow, so the sign-in stays past the hour (src/lib/googleStay.ts).
+  if (staysAvailable()) {
+    lastClientId = clientId;
+    return signInForKeeps({ clientId, scope, prompt, hint: account || undefined, emailOf: (accessToken) => fetchProfile(accessToken).then((user) => user.email) });
   }
   return new Promise((resolve, reject) => {
     if (!googleReady()) {
@@ -451,6 +462,12 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
  * popup from being blocked.
  */
 function tokenFor(clientId: string, scope: string, prompt: string): Promise<Grant> {
+  lastClientId = clientId;
+  // A grant kept in this browser that covers what is asked: the token from it, with no window — a new tab signs in by itself.
+  const kept = prompt !== 'consent' ? keptGrantFor(clientId, whose?.email || suggested || undefined, scope.split(' ')) : null;
+  // The grant refused or the Worker unreachable: Google's window, as without a grant (never this function again: a grant kept past a Worker outage would loop).
+  const ask = () => (googleReady() || window.readerDesktop?.google ? requestToken(clientId, scope, prompt) : loadGoogleScript().then(() => requestToken(clientId, scope, prompt)));
+  if (kept) return renewFromKept(kept).then((granted) => granted ?? ask());
   if (googleReady() || window.readerDesktop?.google) return requestToken(clientId, scope, prompt);
   return loadGoogleScript().then(() => requestToken(clientId, scope, prompt));
 }
@@ -626,6 +643,30 @@ function renewOnce(clientId: string, scopes: string): Promise<StoredToken> {
   return renewing;
 }
 
+/** The token renewed from the grant kept, once for every caller; a grant Google no longer honours falls back to the window. */
+function renewFromGrant(clientId: string, kept: Parameters<typeof renewFromKept>[0], scopes: string[]): Promise<StoredToken> {
+  renewingFor = kept.scopes;
+  renewing = renewFromKept(kept)
+    .then((granted) => {
+      if (!granted) throw new Error('grant gone');
+      return adopt(granted);
+    })
+    .then((held) => {
+      sessionListeners.forEach((listener) => listener('token'));
+      return held;
+    })
+    .finally(() => {
+      renewing = null;
+    });
+  return renewing.catch((error: unknown) => {
+    if (error instanceof Error && error.message === 'grant gone') return renewQuietly(clientId, scopes);
+    throw error;
+  });
+}
+
+/** Whether the sign-in renews itself: a grant kept for this account, with what the background work needs. */
+export const renewsItself = (): boolean => Boolean(lastClientId && token && keptGrantFor(lastClientId, whose?.email ?? token.user?.email, token.scopes));
+
 /**
  * Whether a token's scopes include these. Identity is asked for by its short
  * names (`email`) and granted under long ones, so only the long ones are checked.
@@ -654,6 +695,9 @@ async function afterRenewal(pending: Promise<StoredToken>, clientId: string, sco
  */
 function renewQuietly(clientId: string, scopes: string[]): Promise<StoredToken> {
   if (renewing) return covers(renewingFor, scopes) ? renewing : afterRenewal(renewing, clientId, scopes);
+  // A grant kept in this browser (src/lib/googleStay.ts): renewed from it, with no window and no click.
+  const kept = keptGrantFor(clientId, whose?.email, scopes);
+  if (kept) return renewFromGrant(clientId, kept, scopes);
   // In the Reader app a renewal opens no window — the app renews from the grant it keeps — so it needs no click.
   if (inGesture() || appSignIn()) return renewOnce(clientId, scopes.join(' '));
   if (!waiting) {
@@ -724,6 +768,7 @@ export async function renewNow(clientId: string): Promise<void> {
 }
 
 export async function ensureDriveToken(clientId: string): Promise<string> {
+  lastClientId = clientId;
   if (token && token.expiresAt > Date.now() && token.scopes.includes(DRIVE_SCOPE)) return token.accessToken;
   // An empty prompt reuses the existing grant without showing the dialog again; once, and only from a click.
   const granted = await renewQuietly(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES, ...extraScopes()]);
@@ -828,8 +873,9 @@ export function signOut(): void {
   // Every tab signs out with this one: the token is about to be revoked, and a tab left signed in would show an account that is gone.
   tabs?.postMessage({ type: 'signout' } satisfies TabMessage);
   if (active) window.google?.accounts.oauth2.revoke(active);
-  // The Reader app forgets the grant it kept, and gives it back to Google.
+  // The Reader app forgets the grant it kept, and gives it back to Google; so does this browser, for a grant it keeps.
   void appSignIn()?.signOut?.({ clientId: lastClientId, email, proxy: apiBase() ?? '' }).catch(() => undefined);
+  if (lastClientId) void revokeKept(lastClientId, email || undefined).catch(() => undefined);
 }
 
 // ------------------------------------------------------------------ Drive ---

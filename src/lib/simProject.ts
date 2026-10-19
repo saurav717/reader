@@ -238,8 +238,25 @@ read it). The Koios Sim pane reads \`runs/*/events.jsonl\` on the machine and dr
 - Live 3D: with \`rerun-sdk\` installed (setup.sh does it) a run streams to a Rerun viewer the Sim pane embeds and
   writes \`scene.rrd\`; \`run.wrap(env)\` and \`run.scene(env)\` put a MuJoCo env's bodies in it, \`run.scene_step()\` moves
   them (PPO and SB3 call it each step). Log your own 3D through \`run._rr\` (the rerun module) under \`world/…\`.
+- Evaluation, the way the paper does it: \`run.evaluation({metric: value, ...}, step=..., episodes=N, protocol="how it
+  was measured", paper={metric: the paper's number, "source": "Table 2"})\` whenever the policy (or the model) is
+  evaluated formally, apart from the training episodes. Papers evaluate differently — a mean return over N seeded
+  episodes, a success rate, a normalised score, a prediction error — so read how the paper does it (its full text is in
+  paper/paper.md when the project started from one) and measure that; keep the paper's reported numbers in
+  \`paper_results.json\` and pass them as \`paper=\`. When the paper gives no protocol, \`run.evaluate(make_env, act,
+  episodes=10)\` is the default (seeded episodes, deterministic actions, mean/std return, success rate, one video) and
+  says so. The Sim pane and the logbook show ours against the paper's.
 - \`run.finish()\` at the end; a crash is recorded by itself.
 - Another codebase's logs: \`python koios_telemetry.py bridge <metrics.jsonl|.csv> --videos <dir> --follow\`.
+
+## Data, checkpoints and run outputs
+
+They live in the project's **data place** — Google Drive by default — not on this machine, whose disk is only a cache
+(Colab's is small and gone with the runtime). \`import koios_data\`: \`koios_data.path("datasets/<name>")\` gives a
+local path, fetched from the place when it is already there (download datasets *into* it, never into the project
+folder); \`koios_data.save(path, evict=True)\` puts a file or folder there and frees the disk; \`runs/\` is pushed there
+by \`koios_telemetry.Run\` every few minutes and at the end, and \`koios.checkpoint\` puts every checkpoint there, so a
+runtime that ends loses minutes, not the run. \`python koios_data.py where\` says where the place is; \`ls\` what is in it.
 
 ## Before you change anything
 

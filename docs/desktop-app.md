@@ -210,6 +210,15 @@ Set it up once:
 3. `/health` answers `"googleDesktop": true`. The next sign-in in the app
    asks for consent once (Google gives a refresh token on consent), and keeps.
 
+The site does the same now, where the Worker is set up so (`src/lib/googleStay.ts`):
+consent in a popup that lands on the same callback page, which hands the code to
+the page that opened it instead of to the app; the exchange at the same route,
+with PKCE; the refresh token kept in the browser's `localStorage` rather than the
+system's keychain — the one difference, and the reason the app's way is still
+the safer of the two. A renewal from the grant needs no window, so the hourly
+prompt goes; a grant Google refuses (`invalid_grant`) is forgotten and the next
+ask opens Google's window again.
+
 Without the secret, the app signs in the way the site does
 (`public/app-sign-in/`), an hour at a time. An OAuth consent screen left in
 **Testing** has its refresh tokens expire after seven days; **Publish app**

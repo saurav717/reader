@@ -150,3 +150,14 @@ describe('the room’s list, followed', () => {
     assert.equal(pj.sameList(list, { ...list, overleaf: { id: 'o' } }), false);
   });
 });
+
+describe('a project for a paper’s implementation', () => {
+  it('is named after the paper’s head, cut at a word, numbered beside one already so named, and opens on a question', () => {
+    assert.equal(pj.projectNameFor('Dreamer: Learning Behaviors by Latent Imagination', []), 'Dreamer — implementation');
+    assert.equal(pj.projectNameFor('Dreamer: Learning', ['dreamer — implementation']), 'Dreamer — implementation (2)');
+    assert.equal(pj.projectNameFor('Dreamer: Learning', ['Dreamer — implementation', 'Dreamer — implementation (2)']), 'Dreamer — implementation (3)');
+    const long = pj.projectNameFor('A very long title that goes on and on about world models and their uses in control', []);
+    assert.equal(long, 'A very long title that goes on and on about world models… — implementation');
+    assert.match(pj.projectQuestionFor('Dreamer'), /^Reimplement “Dreamer”: /);
+  });
+});

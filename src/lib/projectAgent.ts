@@ -10,7 +10,10 @@
 //  wants to read first, a command for the console. Files it asks for are read
 //  and handed back to it, a few rounds at most, before it answers; files it
 //  writes land in the folder in one move, which one Undo puts back; commands
-//  are buttons, and nothing runs on its own.
+//  run for it in the project's console on the machine — the compute the
+//  project is connected to, a Colab GPU as much as a server — with what they
+//  print handed back for another round, a few rounds at most (or, with that
+//  turned off, they are buttons and nothing runs on its own).
 // ===========================================================================
 
 import type { SDK } from './assistant';
@@ -25,6 +28,11 @@ import { EXPLANATION_FILE, PAPER_FILES_NOTE, PAPER_PDF_FILE, PAPER_TEXT_FILE } f
 const MAX_TOKENS = 32000;
 /** How many times it may ask for files before it has to answer. */
 const READ_ROUNDS = 4;
+/** How many rounds of commands one request may run, and how many commands in each. */
+export const COMMAND_ROUNDS = 6;
+const COMMANDS_PER_ROUND = 3;
+/** How much of what a command printed goes back to it: the head and the tail, where the error is. */
+const RUN_OUTPUT_MAX_CHARS = 6_000;
 const FILE_MAX_CHARS = 60_000;
 const OUTPUT_MAX_CHARS = 3_000;
 const LISTED_MAX = 400;
@@ -57,7 +65,7 @@ export function planMarkdown(paper: NonNullable<ProjectView['paper']>): string {
       ? `## The plan\n\nDrawn up on the paper's Implementation page in Koios. Follow it; where it leaves a detail open, choose, and say in the README what you chose.\n\n${paper.plan.trim()}`
       : "## The plan\n\nNo plan was drawn up on the paper's Implementation page: work from the abstract above and AGENTS.md.",
     `## The paper itself\n\n${PAPER_FILES_NOTE}`,
-    "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md).",
+    "## Simulators\n\nIf the paper's experiments run in a simulator (RL, robotics, games, world models), the project carries Koios's toolkit: `python koios_telemetry.py simulators` lists them, `python koios_telemetry.py use <simulator> [env]` writes env.py and setup.sh, and every run logs through koios_telemetry.Run so it shows in the Sim pane and is filed as an experiment in the logbook (see AGENTS.md). Evaluate the way the paper does: read its protocol in paper/paper.md, log each formal evaluation with `run.evaluation(metrics, protocol=..., paper={the paper's numbers})`, and keep those numbers in paper_results.json; `run.evaluate(make_env, act)` is the default protocol when the paper gives none.",
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -102,9 +110,12 @@ ANSWER FORMAT — the page acts on your answer, so keep to it exactly:
   data/prepare.py
   \`\`\`
   They are read and given to you, and you answer again. Ask only for files in the listing.
-- Suggest a command: a fenced block \`\`\`sh run holding one shell command, run in the project's folder on the
-  machine — python train.py, pip install …, nvidia-smi. The reader runs it with a click; you never see it run
-  until they ask again.
+- Run a command: a fenced block \`\`\`sh run holding one shell command, run in the project's folder on the
+  machine — python train.py, pip install …, nvidia-smi. The <where> block says which of two happens: the
+  command is run for you in the project's console the moment you answer, and what it printed comes back to you
+  for another round (write the files it needs in the same answer; keep each command to what ends within a few
+  minutes; a long training you suggest and the reader starts), or the reader runs it with a click and you see
+  nothing until they ask again.
 - Outside the fences, a few sentences at most: what you changed and why, or the answer to a question. Plain
   words; no headings. Name files by their paths.
 - Code should run as written on the machine named: check torch.cuda.is_available() and fall back to the CPU with a
@@ -180,6 +191,8 @@ export interface ProjectView {
   open: { path: string; text: string; active: boolean; unsaved: boolean }[];
   /** The last commands, newest last, with what they printed. */
   console: { command: string; output: string; state: string }[];
+  /** Whether its command blocks are run for it in the console, their output handed back, or left as buttons. */
+  runs?: 'auto' | 'buttons';
   /** The paper the project cites, when it started from one: what "implement the paper" means. */
   paper?: { title: string; authors?: string[]; published?: string; abstract?: string; plan?: string; /** The full text, from the folder's paper/paper.md, so the agent never has to go and find the paper. */ fullText?: string };
 }
@@ -202,7 +215,8 @@ export function projectBlock(view: ProjectView): string {
           (view.paper.fullText ? `\n\nThe paper's full text, from the folder's ${PAPER_TEXT_FILE} (the folder also holds ${EXPLANATION_FILE} and ${PAPER_PDF_FILE} when they could be written; ask to read them as any file). Work from this; never search for the paper elsewhere:\n${clip(view.paper.fullText, PAPER_TEXT_MAX_CHARS)}` : ''),
       )
     : '';
-  return [paper, tag('where', view.where), tag('files', listing), tag('open_files', open), tag('console', runs)].filter(Boolean).join('\n\n');
+  const where = `${view.where}${view.runs === 'auto' ? ` Your \`\`\`sh run blocks are run for you there, in the project's console, as soon as you answer — up to ${COMMANDS_PER_ROUND} a round, ${COMMAND_ROUNDS} rounds — and what each printed is handed back to you.` : view.runs === 'buttons' ? ' Your ```sh run blocks are buttons the reader clicks; nothing runs until they do.' : ''}`;
+  return [paper, tag('where', where), tag('files', listing), tag('open_files', open), tag('console', runs)].filter(Boolean).join('\n\n');
 }
 
 /** Every file under `path`, depth first, as far as `max` files: what the listing shows the agent. */
@@ -239,11 +253,28 @@ export interface AgentTurn {
   read?: string[];
   changes?: AgentChange[];
   commands?: string[];
+  /** The commands run for it on the way, in order, with what each printed. */
+  runs?: AgentRun[];
   model?: string;
   /** Set once Undo has put its files back. */
   undone?: boolean;
   /** Cut short: the answer ran out of room. */
   cut?: boolean;
+}
+
+/** One command run for the agent in the console, and what came of it. */
+export interface AgentRun {
+  command: string;
+  output: string;
+  state: 'ran' | 'failed' | 'interrupted' | 'not run';
+}
+
+/** What a command printed, as it goes back to the agent: whole when short, else its head and its tail (where the traceback is). */
+export function runOutput(text: string, max = RUN_OUTPUT_MAX_CHARS): string {
+  const clean = text.replace(/\r\n?/g, '\n').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s+$/, '');
+  if (clean.length <= max) return clean;
+  const head = Math.floor(max / 3);
+  return `${clean.slice(0, head)}\n[… ${(clean.length - max).toLocaleString('en')} characters left out …]\n${clean.slice(-(max - head))}`;
 }
 
 export interface AgentPending {
@@ -504,7 +535,20 @@ function historyMessages(turns: AgentTurn[]): Message[] {
  * The folder changes only when the whole answer is in, so a half-written file
  * is never saved; `onWrote` lets the editor take the new text of files it has open.
  */
-export async function askAgent(params: { projectId: string; model: string; request: string; host: FileHost; view: () => Promise<ProjectView>; onWrote?: (changes: AgentChange[]) => void; maxTokens?: number; resume?: SavedJob }): Promise<void> {
+export async function askAgent(params: {
+  projectId: string;
+  model: string;
+  request: string;
+  host: FileHost;
+  view: () => Promise<ProjectView>;
+  onWrote?: (changes: AgentChange[]) => void;
+  maxTokens?: number;
+  resume?: SavedJob;
+  /** Runs one command in the project's console on the machine and answers with what it printed; without it, commands are buttons. */
+  run?: (command: string) => Promise<AgentRun>;
+  /** Stops the command running for it now (Stop, while one runs). */
+  interrupt?: () => void;
+}): Promise<void> {
   const { projectId, model, host } = params;
   const request = params.request.trim();
   if (!request || running) return;
@@ -527,10 +571,34 @@ export async function askAgent(params: { projectId: string; model: string; reque
     let reply: AgentReply = { note: '', blocks: [] };
     let stop: string | null = null;
     const replies = [...(resume?.replies ?? [])];
+    // The files written and the commands run across the rounds: one answer may write, run, read what it printed and write again.
+    const changes: AgentChange[] = [];
+    const runs: AgentRun[] = [];
+    const commands: string[] = [];
+    let reads = 0;
+    let commandRounds = 0;
+    // Once a command has run, a reload cannot pick the answer up where it was: the rounds before would run their commands again.
+    let resumable = true;
+    const writeFiles = async (blocks: AgentBlock[]) => {
+      for (const block of blocks) {
+        if (block.kind !== 'file') continue;
+        const old = known.has(block.path) ? await host.read(block.path).catch(() => null) : null;
+        if (old === block.text) continue;
+        await host.write(block.path, block.text);
+        known.add(block.path);
+        const earlier = changes.findIndex((change) => change.path === block.path);
+        // Written twice in one answer: Undo puts back what was there before the first.
+        const prior = earlier >= 0 ? changes[earlier] : undefined;
+        const before = prior ? (prior.before ?? null) : old;
+        const change = { path: block.path, before, after: block.text, ...lineDelta(before, block.text) };
+        if (earlier >= 0) changes[earlier] = change;
+        else changes.push(change);
+      }
+    };
     for (let round = 0; ; round++) {
       pending.reply = '';
       pending.thinking = undefined;
-      pending.step = round ? `Reading ${pending.read.slice(-3).join(', ')}` : 'Thinking';
+      pending.step = runs.length && round && !reads ? 'Reading what it printed' : round ? `Reading ${pending.read.slice(-3).join(', ')}` : 'Thinking';
       update(projectId, { pending: { ...pending } });
       // A round answered before a reload, that only asked to read files: asked over from what it said.
       if (round < replies.length) {
@@ -540,7 +608,7 @@ export async function askAgent(params: { projectId: string; model: string; reque
         const joining = resume && round === replies.length ? resume.id : null;
         const onServer = Boolean(joining) || (!replaying() && (await useServerJobs()));
         const id = joining ?? newJobId();
-        if (onServer) keepJob(projectId, { id, model, request, maxTokens: params.maxTokens, started: pending.started, replies });
+        if (onServer && resumable) keepJob(projectId, { id, model, request, maxTokens: params.maxTokens, started: pending.started, replies });
         pending.onServer = onServer;
         pending.offline = false;
         const background = onServer
@@ -579,7 +647,32 @@ export async function askAgent(params: { projectId: string; model: string; reque
         if (stop === 'refusal') throw new Error(`${writer} declined that request.`);
       }
       reply = parseAgentReply(pending.reply);
-      if (!onlyReads(reply) || round >= READ_ROUNDS) break;
+      if (round >= replies.length) replies.push(pending.reply);
+      const asksToRun = params.run && reply.blocks.some((block) => block.kind === 'run');
+      if (asksToRun && commandRounds < COMMAND_ROUNDS) {
+        // Its files first, so the command runs the code it just wrote; then the commands, one by one, in the console.
+        await writeFiles(reply.blocks);
+        if (changes.length) params.onWrote?.(changes.slice());
+        commandRounds++;
+        resumable = false;
+        keepJob(projectId, null);
+        const batch = reply.blocks.flatMap((block) => (block.kind === 'run' ? [block.command] : [])).slice(0, COMMANDS_PER_ROUND);
+        const printed: string[] = [];
+        for (const command of batch) {
+          pending.step = `Running ${command.length > 48 ? `${command.slice(0, 48)}…` : command}`;
+          update(projectId, { pending: { ...pending } });
+          running = { projectId, abort: () => params.interrupt?.() };
+          const done = await params.run!(command);
+          runs.push(done);
+          printed.push(tag('command', `$ ${command}\n${runOutput(done.output) || '(nothing printed)'}`, { state: done.state }));
+          if (done.state === 'interrupted') break;
+        }
+        if (runs[runs.length - 1]?.state === 'interrupted') throw new Error('Stopped.');
+        messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${printed.join('\n\n')}\n\nGo on: fix what failed, run again if need be, or answer the request. Say in a few sentences what the runs showed.` });
+        continue;
+      }
+      if (!onlyReads(reply) || reads >= READ_ROUNDS) break;
+      reads++;
       // The files it asked for, read now and handed back.
       const paths = [...new Set(reply.blocks.flatMap((block) => (block.kind === 'read' ? block.paths : [])))].slice(0, 12);
       const read = await Promise.all(
@@ -590,21 +683,13 @@ export async function askAgent(params: { projectId: string; model: string; reque
         }),
       );
       pending.read.push(...paths.filter((path) => known.has(path)));
-      if (round >= replies.length) replies.push(pending.reply);
       messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${read.join('\n\n')}\n\nNow answer the request.` });
     }
-    // The files, written in one move; what was there before is kept for Undo.
-    const changes: AgentChange[] = [];
-    for (const block of reply.blocks) {
-      if (block.kind !== 'file') continue;
-      const old = known.has(block.path) ? await host.read(block.path).catch(() => null) : null;
-      if (old === block.text) continue;
-      await host.write(block.path, block.text);
-      changes.push({ path: block.path, before: old, after: block.text, ...lineDelta(old, block.text) });
-    }
-    const commands = reply.blocks.flatMap((block) => (block.kind === 'run' ? [block.command] : []));
-    if (!reply.note && !changes.length && !commands.length) throw new Error(`${writer} answered with nothing the page could use.${stop === 'max_tokens' ? ' It ran out of room — ask for less at once.' : ''}`);
-    const agentTurn: AgentTurn = { role: 'agent', text: reply.note, at: Date.now(), model, ...(pending.read.length ? { read: [...pending.read] } : {}), ...(changes.length ? { changes } : {}), ...(commands.length ? { commands } : {}), ...(stop === 'max_tokens' ? { cut: true } : {}) };
+    // The files, written in one move; what was there before is kept for Undo. Commands left in the last answer (the rounds used up, or none run for it) are buttons.
+    await writeFiles(reply.blocks);
+    commands.push(...reply.blocks.flatMap((block) => (block.kind === 'run' ? [block.command] : [])));
+    if (!reply.note && !changes.length && !commands.length && !runs.length) throw new Error(`${writer} answered with nothing the page could use.${stop === 'max_tokens' ? ' It ran out of room — ask for less at once.' : ''}`);
+    const agentTurn: AgentTurn = { role: 'agent', text: reply.note, at: Date.now(), model, ...(pending.read.length ? { read: [...pending.read] } : {}), ...(changes.length ? { changes } : {}), ...(runs.length ? { runs } : {}), ...(commands.length ? { commands } : {}), ...(stop === 'max_tokens' ? { cut: true } : {}) };
     update(projectId, { pending: undefined, turns: [...agentChatFor(projectId).turns, agentTurn].slice(-TURNS_KEPT) });
     if (changes.length) params.onWrote?.(changes);
   } catch (error) {

@@ -257,11 +257,88 @@ against a folder in memory with the gathering stood in for — all written the f
 the second, the explanation rewritten only when it changed, a text-only folder told so. `scripts/paper-context.test.mjs`,
 nine tests; the full suite otherwise unchanged.
 
+## 6.5 The agent runs its commands; Claude Code's web tools off
+
+Asked next: the agent redirected to the files (not just told), writing the code where it is and running it on the
+connected machine or GPU through the editor's terminal. Three things, in order:
+
+1. Claude Code's `--disallowedTools WebFetch WebSearch` whenever the project has the paper in its folder
+   (`noWeb` in `runArgv`, pinned in `cli-agent.test.mjs`); Codex has no web search unless its command line asks,
+   and the page never asks.
+2. The page's own agent runs its commands. `askAgent` grew a `run` callback: when a reply holds ```` ```sh run ````
+   blocks and the callback is there, the reply's files are written first, each command is run in the project's
+   console through the workspace's own `run` (which pushes the folder when it is kept elsewhere, as for a typed
+   command), the console entry's output is read back from the kernel state, clipped head and tail, and the loop goes
+   round again with it — 3 commands a round, 6 rounds, then the rest are buttons as before. `Stop` interrupts the
+   kernel; the saved job is let go of at the first command so a reload never re-runs one. The pane shows each run
+   folded under its command with how it ended, and a **runs commands** tick (on by default, kept per browser).
+3. The regime is told to the model in the request's `<where>` block, not the cached system prompt, so the cache
+   holds across a change of tick.
+
+Not verified here: a real model and machine running the loop end to end (no model key, no Colab in the container).
+The pieces around it are pinned — the `<where>` wording, the output clipping, the argv — and the loop itself is the
+reads loop with a second branch, typechecked. The first live run should ask for something small (a syntax error
+planted in `main.py`, say) and watch the console and the pane.
+
+## 6.6 Watching the agents, a Project for every implementation, and a sign-in that stays
+
+Three asks at once, built in this order:
+
+1. **Watching.** `CliAgent`'s poll already parsed each step; it now calls back on an edit event, and the
+   workspace's `onAgentEdit` pulls the working copy home after 2.5 s (debounced, one at a time) and reloads the
+   open files. No new parsing: the same events the pane draws.
+2. **A Project for every implementation.** `useProjectForImplementation` (store-bound) around two pure helpers in
+   `projects.ts` (`projectNameFor`, `projectQuestionFor`, pinned in `projects.test.mjs`): find the Project whose
+   `playgroundId` is the playground's, else create a collection, make it a project with the paper as core and the
+   playground as code, and add the paper to it. Called at both places a paper becomes a playground.
+3. **A sign-in that stays** (`src/lib/googleStay.ts`). The desktop app's code flow brought to the page: the
+   Worker's callback page now posts the code to its opener when it has one (the app's `reader-app://` link
+   otherwise, unchanged), the page exchanges it at `/google/desktop/token` with PKCE and keeps the refresh token
+   in `localStorage`; `tokenFor` and `renewQuietly` try the kept grant first, so a new tab signs in by itself and
+   a token that ran out is renewed with no window; the renewal banner hides when `renewsItself()`; sign-out revokes
+   through `/google/desktop/revoke`. The `/health` mapping had declared `googleDesktop` without reading it — fixed.
+   `scripts/google-stay.test.mjs`: the grants kept and found, PKCE, the consent address, the renewal and the
+   grant forgotten on `invalid_grant`, with `loadTogether` so the proxy address set reaches the module.
+
+Not verified here: the popup against real Google (no sign-in in the container); the exchange and refresh calls are
+the same the desktop app makes, tested in `google-desktop.test.mjs` against the Worker's handler.
+
+## 6.7 The evaluation event
+
+Asked for an evaluation event, with the caveat that papers evaluate their simulations differently. So the event is
+open — any metrics, the protocol in words, the paper's numbers beside ours, which way is better — and the choice of
+protocol is pushed to the agent reading the paper, with a stated default for when the paper gives none. Built in
+this order: the Python (`Run.evaluation`, `Run.evaluate`, `read_run`, `summary`), the TypeScript parser and the
+pure comparison (`evaluationRows`, `higherIsBetter`, `latestEvaluations`), the record (digest, Markdown table,
+list line, the Worker's cleaning, with an empty or malformed list dropped rather than kept), the pane's table, the
+five templates, the briefings, the schema row. Tests: the module writes one by hand and runs the default protocol
+on a fake env (no Gymnasium needed) and the pane's parser reads both back, the summary prints them against the
+paper; the comparison's signs and percentages; the record's table and the Worker's cleaning. Not run here: a real
+policy evaluated on a real simulator (no simulator installed in the container); the template code paths are the
+same calls, typechecked by Python's parser only.
+
+## 6.8 Data on Drive, compute on Colab
+
+Asked: Colab's disk is small; the data should be where the person chooses — Drive by default — whatever holds the
+code. Read first: the reader's own rule against mounting Drive in a kernel, and the moves' way of letting a machine
+reach Drive with a Worker-held token. Built on that: `koios_data.py` (a Drive client cut down from the mover's,
+plus `path`, `fetch`, `save`, `sync`, `ls` and a local plan for the machine's disk), the Worker's `data` plan (one
+line: a move that moves nothing), the page's `dataStore.ts` (the place, the link, the environment and the file
+beside the module, the renewal), the workspace writing both before every command and agent, the panel's section,
+the telemetry's self-sync and the checkpoint helper's copy, and the briefings. Tested without Drive: the local plan
+end to end (path, save, sync, fetch, ls), a `Run` whose folder is synced to a local place and a checkpoint copied
+there, the Worker's `data` plan starting and serving its token to the key, and the environment strings. Not run
+here: Drive itself (no sign-in in the container) — the client is the mover's, which has run against Drive, with the
+listing cached per folder and the MD5 check before an upload the only additions. Asked next for the person's own
+computer as a place, offered when it has room: the server plan (the Companion's contents API, in pieces) tested
+against a small contents API in Node — a 2,560-byte file in three pieces, a synced folder, the listing, a fetch
+back — the offer once per project, the panel's rows with the Companions' free space.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```
 npx tsc -b && npm run typecheck:vscode
-node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs   # python3 for some, Chromium for one
+node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs scripts/google-stay.test.mjs scripts/data-store.test.mjs scripts/moves.test.mjs   # python3 for some, Chromium for one
 npm test                                         # expect only glass.test.mjs's 4 pre-existing failures
 npx vite build --outDir /tmp/build && grep -l "koios_telemetry: what a simulation run" /tmp/build/assets/*.js
 (cd companion && python -m unittest $(ls tests/test_*.py | sed 's#/#.#; s#\.py$##'))   # the Companion: 157 tests, its port proxy's included

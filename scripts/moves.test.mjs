@@ -131,6 +131,19 @@ describe('a move on the Worker', () => {
     assert.equal((await machine(e, `/moves/token?id=${ID}`, 'wrong')).status, 403);
   });
 
+  it('holds the token for a data link — a plan that moves nothing — and hands it to the machine with the key, renewed by the page', async () => {
+    const e = env();
+    const pass = await issuePass('a@gmail.com', SECRET);
+    const body = { ...start, id: 'd'.repeat(32), plan: 'data', to: { kind: 'drive', label: 'Google Drive', folder: 'Trying-p1' }, token: 'ya29.first' };
+    const { key } = await (await page(e, '/moves/start', { pass, body })).json();
+    assert.match(key, /^[0-9a-f]{48}$/);
+    assert.equal(e.MOVES.uploads.size, 0, 'no archive is opened for a data link');
+    assert.deepEqual(await (await machine(e, `/moves/token?id=${body.id}`, key)).json(), { token: 'ya29.first' });
+    await page(e, '/moves/drive-token', { pass, body: { id: body.id, token: 'ya29.second' } });
+    assert.deepEqual(await (await machine(e, `/moves/token?id=${body.id}`, key)).json(), { token: 'ya29.second' });
+    assert.equal((await page(e, '/moves/start', { pass, body: { ...body, plan: 'elsewhere' } })).status, 400);
+  });
+
   it('keeps the parts, puts them together when packed, and serves them whole or from a Range', async () => {
     const e = env();
     const pass = await issuePass('a@gmail.com', SECRET);

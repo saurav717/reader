@@ -74,6 +74,9 @@ def main():
     model.learn(total_timesteps=args.total_steps, callback=Koios(run, args.video_every))
     model.save(f"{run.dir}/model")
     run.checkpoint(f"{run.dir}/model.zip", step=args.total_steps)
+    # The evaluation: the default protocol (10 seeded episodes, deterministic) unless the paper's is wired in here — read
+    # paper/paper.md for how the paper evaluates, pass its numbers as paper={...}, and say so in the protocol.
+    run.evaluate(make_env, lambda obs: model.predict(obs, deterministic=True)[0], episodes=10, seed=args.seed + 1000, step=args.total_steps)
     run.finish()
 
 

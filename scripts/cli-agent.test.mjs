@@ -20,6 +20,10 @@ describe('the command lines', () => {
     assert.deepEqual(argv.slice(0, 3), ['claude', '-p', 'fix it']);
     for (const flag of ['--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash', '--model', 'opus', '--resume', 's-1', '--append-system-prompt', 'ctx']) assert.ok(argv.includes(flag), flag);
     assert.ok(!cli.runArgv('claude', { prompt: 'x', commands: false, context: '' }).includes('Bash'));
+    // A project with the paper in its folder: Claude Code's web tools off, so it reads the paper there and nowhere else.
+    const noWeb = cli.runArgv('claude', { prompt: 'x', commands: true, context: '', noWeb: true });
+    assert.deepEqual(noWeb.slice(noWeb.indexOf('--disallowedTools'), noWeb.indexOf('--disallowedTools') + 3), ['--disallowedTools', 'WebFetch', 'WebSearch']);
+    assert.ok(!cli.runArgv('claude', { prompt: 'x', commands: true, context: '' }).includes('--disallowedTools'));
   });
   it('runs Codex with exec --json, resuming a thread', () => {
     const argv = cli.runArgv('codex', { prompt: 'go', session: 't-9', commands: false, context: 'ctx' });

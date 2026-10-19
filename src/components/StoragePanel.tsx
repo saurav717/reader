@@ -18,12 +18,13 @@ import type { MoveState } from '../lib/moves';
 import { isNewer } from '../lib/companion';
 import { cancelMove, companionDisk, MOVER_VERSION, kernelDisk, keepOldCopy, keyOf, moveStatus, removeOldCopy, renewDriveToken, settleMove, startMove, startUnpack, workerAddress } from '../lib/moves';
 import { driveFolderName } from '../lib/driveFiles';
+import { DATA_FOLDER, dataFolderId, dataFolderLink, dataFolderNameOf, dataPlaceOf, forgetDataLink } from '../lib/dataStore';
 import type { Compute, FilesHome, Playground } from '../lib/playground';
 import { driveConnected, driveTokenNow, machineRoot, serverById, updatePlayground, useDriveConnected, useServers } from '../lib/playground';
 import { useStore } from '../lib/store';
 import { ColabMark } from './Colab';
 import { MachineMark } from './MachinePool';
-import { CloseIcon } from './icons';
+import { CloseIcon, DriveMark } from './icons';
 import { isCompanion } from './VsCodeExtension';
 
 const POLL_MS = 3000;
@@ -220,6 +221,7 @@ export default function StoragePanel({ playground, machineName, connected, move,
   const { settings } = useStore();
   const servers = serversOn(settings, useServers(), playground.compute.kind === 'server' ? playground.compute.serverId : undefined);
   const driveOn = useDriveConnected();
+  const dataPlace = dataPlaceOf(playground, driveOn);
   const live = useLive();
   const shared = Boolean(live.room) && live.status === 'live';
   const [disks, setDisks] = useState<Record<string, { free: number; total: number; version?: string } | null | undefined>>({});
@@ -449,6 +451,69 @@ export default function StoragePanel({ playground, machineName, connected, move,
                 </li>
               );
             })}
+          </ul>
+        </section>
+
+        <section className="mv-section" aria-label="Data and results">
+          <h3>Data &amp; results</h3>
+          <p className="hint">
+            Datasets, checkpoints and run outputs — what a run reads and writes, apart from the code. The machine's disk is only a cache for them, so Colab's small disk and its ending runtimes don't matter: <code>koios_data.path("datasets/…")</code> in your code gives a local path fetched from here, <code>koios_data.save(…)</code> puts a file here, and every run's folder and every checkpoint are pushed here as they go.
+          </p>
+          <ul className="mv-list mv-data">
+            <li className={dataPlace.kind === 'drive' ? 'is-here' : ''}>
+              <DriveMark size={18} />
+              <span className="mv-name">
+                <b>Google Drive</b>
+                <small>Koios/{DATA_FOLDER}/{dataFolderNameOf(playground)} · the default while Drive is connected · reached with the account's token through the Worker, nothing mounted</small>
+              </span>
+              {dataPlace.kind === 'drive' ? (
+                <span className="mv-here">
+                  Data is here
+                  <button type="button" className="link" onClick={() => void dataFolderId(playground).then((id) => window.open(dataFolderLink(id), '_blank', 'noopener'))}>
+                    Open in Drive
+                  </button>
+                </span>
+              ) : (
+                <button type="button" className="btn sm" disabled={!driveOn} title={driveOn ? undefined : 'Sign in with Google, with Drive'} onClick={() => updatePlayground(playground.id, { data: { kind: 'drive' } })}>
+                  Keep data here
+                </button>
+              )}
+            </li>
+            {servers.filter((server) => isCompanion(server)).map((server) => {
+              const here = dataPlace.kind === 'server' && dataPlace.serverId === server.id;
+              const info = disks[server.id];
+              return (
+                <li key={server.id} className={here ? 'is-here' : ''}>
+                  <span className={`pg-mark ${server.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{server.where === 'pc' ? 'PC' : 'GPU'}</span>
+                  <span className="mv-name">
+                    <b>{server.name}</b>
+                    <small>{server.root ? `${server.root.replace(/\/$/, '')}/` : '~/Reader/'}koios-data/{dataFolderNameOf(playground)} · reached from {machineName} through the Companion · yours, fast, as big as the disk</small>
+                  </span>
+                  <Meter free={info?.free} total={info?.total} checked={looked} />
+                  {here ? (
+                    <span className="mv-here">Data is here</span>
+                  ) : (
+                    <button type="button" className="btn sm" disabled={online[server.id] === false} title={online[server.id] === false ? 'Offline' : undefined} onClick={() => (forgetDataLink(playground.id), updatePlayground(playground.id, { data: { kind: 'server', serverId: server.id } }))}>
+                      Keep data here
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+            <li className={dataPlace.kind === 'machine' ? 'is-here' : ''}>
+              <MachineMark compute={playground.compute} />
+              <span className="mv-name">
+                <b>{machineName}’s disk</b>
+                <small>under the project's folder there (.reader/data) · fastest · gone when a Colab runtime is</small>
+              </span>
+              {dataPlace.kind === 'machine' ? (
+                <span className="mv-here">Data is here</span>
+              ) : (
+                <button type="button" className="btn sm" onClick={() => (forgetDataLink(playground.id), updatePlayground(playground.id, { data: { kind: 'machine' } }))}>
+                  Keep data here
+                </button>
+              )}
+            </li>
           </ul>
         </section>
 

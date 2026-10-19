@@ -7,7 +7,8 @@
 // comes back — the tokens go to the app that asked, and only ever to it.
 //
 //   GET  /google/desktop/callback   where Google sends the browser after consent: a page that
-//                                   hands the code to the app (reader-app://google-code?code&state)
+//                                   hands the code to the app (reader-app://google-code?code&state) — or, opened
+//                                   as a popup by the site (src/lib/googleStay.ts), to the page that opened it
 //   POST /google/desktop/token      { code, code_verifier, redirect_uri }: the code for its tokens
 //   POST /google/desktop/refresh    { refresh_token }: a new access token
 //   POST /google/desktop/revoke     { token }: the grant given back to Google (sign-out)
@@ -50,7 +51,7 @@ function callbackPage(params) {
 <h1 style="font-size:20px;margin:0 0 8px">${failed ? 'Not signed in' : 'Signed in'}</h1>
 <p style="color:#6f6c63">${escape(text)}</p>
 ${failed ? '' : `<p><a href="${escape(link)}" style="display:inline-block;font-weight:600;border-radius:8px;padding:10px 18px;background:#1f5e52;color:#f6f4ec;text-decoration:none">Open Koios</a></p>`}
-<script>location.href=${JSON.stringify(link).replace(/</g, '\\u003c')}</script></body>`;
+<script>(function(){var p=${JSON.stringify({ type: 'koios-google-code', ...params }).replace(/</g, '\\u003c')};if(window.opener&&!window.opener.closed){try{window.opener.postMessage(p,'*');}catch(e){}window.close();}else{location.href=${JSON.stringify(link).replace(/</g, '\\u003c')};}})()</script></body>`;
   return new Response(html, {
     status: failed ? 400 : 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'", 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' },

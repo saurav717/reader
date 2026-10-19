@@ -25,13 +25,14 @@ const MODULE = resolve('src/sim/koios_telemetry.py');
 
 const t0 = 1_700_000_000;
 const line = (event) => JSON.stringify(event);
-function run({ returns = [], scalars = {}, media = [], notes = [], status = 'finished', live3d = false }) {
+function run({ returns = [], scalars = {}, media = [], notes = [], status = 'finished', live3d = false, evaluations = [] }) {
   const out = [line({ kind: 'start', t: t0, name: 'ppo', sim: 'mujoco/Ant-v5', config: { lr: 3e-4, env: 'Ant-v5' } })];
   if (live3d) out.push(line({ kind: 'live3d', t: t0, step: 0, grpc_port: 1, web_port: 2, rrd_port: 3, rrd: 'scene.rrd' }));
   returns.forEach((r, i) => out.push(line({ kind: 'episode', t: t0 + i, step: (i + 1) * 100, index: i, return: r, length: 10, success: r > 50 })));
   Object.entries(scalars).forEach(([k, vs]) => vs.forEach((v, i) => out.push(line({ kind: 'scalars', t: t0 + i, step: (i + 1) * 100, values: { [k]: v } }))));
   media.forEach((m, i) => out.push(line({ kind: 'media', t: t0 + i, step: i * 100, name: 'rollout', path: m.path, type: 'video', bytes: m.bytes })));
   notes.forEach((text, i) => out.push(line({ kind: 'note', t: t0 + i, step: i * 100, text, by: 'agent' })));
+  evaluations.forEach((ev, i) => out.push(line({ kind: 'evaluation', t: t0 + 50 + i, step: 5000 + i, name: 'eval', ...ev })));
   out.push(line({ kind: 'end', t: t0 + 100, status, step: 6000, episodes: returns.length, elapsed: 100 }));
   return tele.parseRun('runs/ppo-1', { id: 'ppo-1', name: 'ppo', sim: 'mujoco/Ant-v5', config: { lr: 3e-4 }, started: t0, ended: t0 + 100, status, host: { gpu: 'T4' } }, `${out.join('\n')}\n`);
 }
@@ -52,6 +53,20 @@ describe('the record', () => {
     assert.equal(d.config.lr, 3e-4);
     assert.equal(d.machine, 'T4');
     assert.equal(d.episodes, 60);
+  });
+
+  it('keeps the latest evaluation of each name, writes it as a table against the paper, and the Worker keeps it', () => {
+    const r = run({ returns: rising, evaluations: [{ metrics: { return: 700 }, paper: { return: 1000 } }, { metrics: { return: 900, success: 0.8 }, episodes: 10, protocol: '10 seeded episodes', paper: { return: 1000, success: 0.9, source: 'Table 2' } }] });
+    const d = xp.digestOf(r, { playgroundId: 'pg1', playground: 'Ant', by: 'me' }, t0 + 200);
+    assert.equal(d.evaluations.length, 1);
+    assert.deepEqual(d.evaluations[0].metrics, { return: 900, success: 0.8 });
+    assert.equal(d.evaluations[0].source, 'Table 2');
+    const md = xp.experimentMarkdown(d);
+    assert.match(md, /## Evaluation\n\n### eval · step 5001 · 10 episodes\n\n\| metric \| ours \| paper \| vs paper \|\n\| --- \| --- \| --- \| --- \|\n\| return \| 900 \| 1000 \| -100 \(-10%\) worse \|\n\| success \| 0\.8 \| 0\.9 \| -0\.1 \(-11%\) worse \|\n\n\*Protocol:\* 10 seeded episodes · \*paper:\* Table 2/);
+    assert.match(xp.experimentLine(d), /eval return 900 \(paper 1000\)/);
+    const kept = worker.cleanExperiment({ ...d, where: { kind: 'drive', label: 'Drive', path: 'x' }, files: [], leftOut: [] }, 'me');
+    assert.deepEqual(kept.evaluations, [{ step: 5001, name: 'eval', metrics: { return: 900, success: 0.8 }, episodes: 10, protocol: '10 seeded episodes', paper: { return: 1000, success: 0.9 }, source: 'Table 2' }]);
+    assert.equal(worker.cleanExperiment({ ...d, evaluations: [{ metrics: 'no' }], where: { kind: 'drive', label: 'Drive', path: 'x' }, files: [], leftOut: [] }, 'me').evaluations, undefined);
   });
 
   it('files the newest media within the caps, and says what it left out', () => {

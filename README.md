@@ -866,6 +866,20 @@ it roughly that way. The app cannot read anything in your Drive that it did not
 create, which is the whole point of using that scope rather than the blanket
 one. **Not now** goes straight to the app with everything kept in this browser.
 
+**With the Worker set up to keep sign-ins** (`GOOGLE_CLIENT_SECRET` on it and
+its callback among the OAuth client's redirect URIs — the same setup the desktop
+app uses, see [docs/desktop-app.md](docs/desktop-app.md) → *Staying signed in*),
+the site signs in by the authorization-code flow instead: consent in a popup
+that lands on the Worker's callback page, which hands the code back to the page;
+the page exchanges it at the Worker and keeps the refresh token in this browser.
+From then on a token that has run out is renewed from that grant with no window
+and no click — a run on Colab, the explorer reading Drive, an agent at work all
+carry on past the hour, for as long as Google honours the grant (months for a
+published OAuth client; a week for one still in **Testing**). A new tab signs in
+by itself, and the *ends in N min* prompt no longer appears. Sign out, and the
+grant is given back to Google. Without that setup, the page's token flow is as
+below.
+
 It asks **once an hour at most**, not on every visit. The sign-in is kept in
 this browser for as long as the token Google issued lasts — about an hour — so
 a reload, or a tab closed and reopened, comes back signed in and connected
@@ -4391,7 +4405,16 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   `IMPLEMENTATION_PLAN.md` — and every agent is told to read it there and not
   to go looking for it online: Claude Code and Codex in their briefing, the
   agent by the files in its, the page's own agent with the text in each
-  request, `AGENTS.md` for the rest.
+  request, `AGENTS.md` for the rest. Claude Code has its web tools turned off
+  in such a project, so it cannot fetch the paper even if it wanted to.
+  The page's own agent also runs its commands: a command it answers with is
+  run in the project's console on the connected machine (Colab's GPU as much
+  as a server), what it printed goes back to it, and it goes on — fixes what
+  failed, runs again, up to six rounds — before it answers; the pane shows
+  each run with its output, and **runs commands** under the box turns that off,
+  leaving the commands as buttons. It writes files where the project keeps
+  them (Drive, a computer of yours, this browser), and the console copies the
+  folder to the machine before each command, as it does for yours.
   The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
   (cells that load it and run it once), **a simulation** (below), or **a file
@@ -4409,7 +4432,19 @@ scratch, a starter on the simulator's own API, or DreamerV3, TD-MPC2 and Isaac
 Lab run from their own repositories. The project comes with `env.py`, the
 template, `setup.sh` (install, then a check of the machine), and an
 `AGENTS.md` telling the coding agents to log every run through
-`koios_telemetry` and to explain each change in `LEARNING.md`.
+`koios_telemetry` and to explain each change in `LEARNING.md`. Every formal
+evaluation is logged as its own event — the paper's measure, the protocol in
+words, the paper's numbers beside ours — and the pane and the logbook show the
+gap; the agents are told to read how the paper evaluates in `paper/paper.md`
+and measure that, with a stated default protocol when the paper gives none.
+A run's data — datasets, checkpoints, videos, the run folders — lives in the
+project's **data place**, Google Drive by default (Storage & compute → *Data &
+results*), whatever holds the code and wherever it runs: the compute's disk is
+only a cache, reached from code as `koios_data.path(...)` and
+`koios_data.save(...)`, and runs and checkpoints are pushed there as they go,
+so Colab's small disk and its ending runtimes cost nothing. A computer of
+yours with room is offered as the place instead, once, when the project
+opens; the panel lists every Companion with its free space.
 
 The **Sim** tab on the right (the screen icon in the activity bar) draws the
 runs as they go, read on the machine a few seconds apart:

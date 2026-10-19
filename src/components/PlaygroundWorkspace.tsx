@@ -57,11 +57,13 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
+import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
+import { companionDisk } from '../lib/moves';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
 import { computerOf, useReach } from '../lib/away';
-import type { AgentChange, ProjectView } from '../lib/projectAgent';
+import type { AgentChange, AgentRun, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
@@ -1061,6 +1063,59 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const { papers, settings: readerSettings } = useStore();
   const driveOn = useDriveConnected();
   const servers = useServers();
+  // The project's data place (src/lib/dataStore.ts): Google Drive by default, where its datasets, checkpoints and run
+  // outputs go while the code runs here or on Colab. For Drive, a link on the Worker holds the account's token for the
+  // machine's koios_data, started when the project opens and renewed every twenty minutes while it is open.
+  const dataPlace = dataPlaceOf(playground, driveOn);
+  const [dataLink, setDataLink] = useState<DataLink | null>(null);
+  useEffect(() => {
+    if (dataPlace.kind !== 'drive') {
+      setDataLink(null);
+      return;
+    }
+    let live = true;
+    const start = () => ensureDataLink(playground).then((link) => live && setDataLink(link)).catch(() => undefined);
+    void start();
+    const timer = window.setInterval(() => void renewDataLink(playground).then(start), 20 * 60_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id, playground.title, dataPlace.kind, driveOn]);
+  /** What the compute is told about the data place, for a command in `folder` there. A computer of yours that is not in the list any more falls back to the machine's disk. */
+  const dataServer = dataPlace.kind === 'server' ? serverById(dataPlace.serverId) : undefined;
+  const dataFor = (folder: string) => dataSetup(dataPlace, folder, machineName, dataLink ?? undefined, dataServer ? { url: dataServer.url, token: dataServer.token, name: dataServer.name, root: dataServer.root, project: dataFolderNameOf(playground) } : null);
+  // A computer of yours with room (the Companion, online, 20 GB or more free) offered as the data place, once, while the
+  // project is on Drive's default: the person may well prefer their own disk, and it is faster.
+  const offerKey = `reader.pgDataAsked:${playground.id}`;
+  const [dataOffer, setDataOffer] = useState<{ server: JupyterServer; free: number } | null>(null);
+  useEffect(() => {
+    if (playground.data || !driveOn || readLocal(offerKey, false)) return;
+    let live = true;
+    void (async () => {
+      for (const server of servers.filter((s) => isCompanion(s))) {
+        const disk = await companionDisk(server).catch(() => null);
+        if (!live) return;
+        if (disk && disk.free >= OFFER_FREE_BYTES) {
+          setDataOffer({ server, free: disk.free });
+          return;
+        }
+      }
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id, playground.data?.kind, driveOn, servers.map((s) => s.id).join()]);
+  const settleOffer = (choice: 'server' | 'drive' | 'later') => {
+    writeLocal(offerKey, true);
+    if (choice === 'server' && dataOffer) {
+      forgetDataLink(playground.id);
+      updatePlayground(playground.id, { data: { kind: 'server', serverId: dataOffer.server.id } });
+    } else if (choice === 'drive') updatePlayground(playground.id, { data: { kind: 'drive' } });
+    setDataOffer(null);
+  };
   const split = !filesAreOnMachine(playground);
   // The hosts follow the servers' list, so an edited address is used at once.
   const home = useMemo(() => homeHost(playground), [playground, servers]);
@@ -1596,9 +1651,12 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   /** The koios helper written to a machine's folder, once per machine in this tab, so `import koios` works there. */
   const ensureHelper = async (m: ProjectMachine) => {
-    if (helperOn.current.has(m.scope)) return;
     const host = m.member === null ? machine : machineHostFor(playground, m);
+    // The data place, written each time: the link to Drive is renewed as the project stays open (src/lib/dataStore.ts).
+    await host.write(dataConfigPath, JSON.stringify(dataFor(await folderOnMachine(m.member === null ? undefined : m)).config)).catch(() => undefined);
+    if (helperOn.current.has(m.scope)) return;
     await host.write(KOIOS_HELPER_PATH, KOIOS_PY);
+    await host.write(dataModulePath, KOIOS_DATA_PY);
     // The simulation telemetry beside it, so `import koios_telemetry` works in any project's commands (src/sim/).
     await host.write(`${KOIOS_PYLIB}/${TELEMETRY_FILE}`, KOIOS_TELEMETRY_PY);
     await host.write(`${KOIOS_PYLIB}/${CATALOGUE_FILE}`, catalogueJson());
@@ -1619,7 +1677,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       if (split && !(await push())) return;
       const folder = await folderOnMachine();
       await ensureHelper(m).catch(() => undefined);
-      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...extra };
+      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...dataFor(folder).env, ...extra };
       // Logged on the machine as it runs, so the project picked up from another computer shows it from the start.
       const log = runLogPath(folder, entry.id);
       await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env, log), { log });
@@ -1636,7 +1694,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       if (split) await pushFolder(playground, machineHostFor(playground, m));
       const folder = await folderOnMachine(m);
       await ensureHelper(m).catch(() => undefined);
-      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...extra };
+      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...dataFor(folder).env, ...extra };
       const log = runLogPath(folder, entry.id);
       await runCellFor(m.backend, m.scope, memberKey(consoleKey(playground.id, entry.id), m.member), shellCell(folder, trimmed, env, log), { log });
       if (split) await pullBack(playground, machineHostFor(playground, m));
@@ -1658,9 +1716,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setRefresh((n) => n + 1);
   };
 
-  const run = async (text: string) => {
+  const run = async (text: string): Promise<ConsoleEntry | null> => {
     const trimmed = text.trim();
-    if (!trimmed || targets.some(runningOn)) return;
+    if (!trimmed || targets.some(runningOn)) return null;
     setProblem(null);
     const entry: ConsoleEntry = { id: uid(), command: trimmed, at: Date.now(), ...(target !== 'first' ? { machine: target } : {}) };
     updatePlayground(playground.id, (p) => ({ console: [...p.console, entry].slice(-40), pending: p.pending === trimmed ? undefined : p.pending }));
@@ -1670,6 +1728,17 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     // On all machines at once: each gets the command in its own kernel, side by side.
     await Promise.all(targets.map((machine) => runOn(machine, entry, trimmed, targets.length)));
     setRefresh((n) => n + 1);
+    return entry;
+  };
+  /** A command run for the page's agent: in the console as any other, on the machine (the first of a pool), its output handed back once it ends. */
+  const runForAgent = async (command: string): Promise<AgentRun> => {
+    setPanelOpen(true);
+    setShellView('commands');
+    const entry = await run(command);
+    if (!entry) return { command, output: targets.some(runningOn) ? 'The console is busy with another command; wait for it, or stop it.' : '', state: 'not run' };
+    const done = colabNow().runs[consoleKey(playground.id, entry.id)];
+    if (!done) return { command, output: 'The command could not be started on the machine — is it connected?', state: 'not run' };
+    return { command, output: outputText(done.outputs), state: done.state === 'ran' ? 'ran' : done.state === 'interrupted' ? 'interrupted' : done.state === 'failed' ? 'failed' : 'not run' };
   };
 
   const plan = current ? runPlan(current.path, terminalHere ? projectFolder : null, machineTools) : null;
@@ -1831,6 +1900,31 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (connected && machines[0]) await ensureHelper(machines[0]).catch(() => undefined);
     return split ? push() : true;
   };
+  /** While it works: its edits brought home a few seconds after each (when the folder is kept elsewhere) and the open files read again, so the editor follows it; one pull at a time, and never while a push is on. */
+  const liveEdit = useRef<{ timer: number | null; busy: boolean; again: boolean }>({ timer: null, busy: false, again: false });
+  const onAgentEdit = () => {
+    const live = liveEdit.current;
+    if (live.timer !== null) return;
+    live.timer = window.setTimeout(async () => {
+      live.timer = null;
+      if (live.busy) {
+        live.again = true;
+        return;
+      }
+      live.busy = true;
+      try {
+        if (split) await pullEdits(playground, machine).catch(() => undefined);
+        setRefresh((n) => n + 1);
+        await reloadOpen();
+      } finally {
+        live.busy = false;
+        if (live.again) {
+          live.again = false;
+          onAgentEdit();
+        }
+      }
+    }, 2500);
+  };
   /** After: what it changed on the machine brought home (when the folder is kept elsewhere), and the explorer and open files read again. */
   const afterAgentRun = async () => {
     if (split) {
@@ -1963,7 +2057,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const homeFolder = agentsHere ? absoluteFolder(filesHere, homeRoot) : null;
   const inHomeFolder = (command: string) => (homeFolder ? (homeTools.os === 'windows' ? `cd "${homeFolder}"; ${command}` : `cd '${homeFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command);
   const hereBriefing = agentsHere
-    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.${cited ? ` ${PAPER_FILES_NOTE}` : ''}`
+    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.${cited ? ` ${PAPER_FILES_NOTE}` : ''} ${DATA_NOTE(dataFor(machineRoot(playground)).label)}`
     : undefined;
   const sideKey = mode === 'cli' ? 'agent' : 'side';
   const views: { id: Primary; label: string; icon: React.ReactNode; keys?: string; hidden?: boolean }[] = [
@@ -2389,6 +2483,22 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               </button>
             </p>
           ) : null}
+          {dataOffer ? (
+            <p className="pg-note vs-offer">
+              <span>
+                <b>{dataOffer.server.name}</b> has {Math.round(dataOffer.free / 1024 ** 3)} GB free. Keep this project’s data — datasets, checkpoints, run outputs — there instead of Google Drive? The code still runs on {machineName}; its disk is only a cache either way.
+              </span>
+              <button type="button" className="btn sm primary" onClick={() => settleOffer('server')}>
+                Use {dataOffer.server.name}
+              </button>
+              <button type="button" className="btn sm" onClick={() => settleOffer('drive')}>
+                Keep Google Drive
+              </button>
+              <button type="button" className="icon-btn sm" aria-label="Not now" onClick={() => settleOffer('later')}>
+                <CloseIcon size={12} />
+              </button>
+            </p>
+          ) : null}
           {panelOpen && !zen && layout.big !== 'console' ? (
             <Gutter
               axis="y"
@@ -2617,10 +2727,13 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     machineName={machineName}
                     folder={machineRoot(playground)}
                     paper={Boolean(cited)}
+                    extraEnv={dataFor(machineRoot(playground)).env}
+                    dataNote={DATA_NOTE(dataFor(machineRoot(playground)).label)}
                     connected={connected}
                     onConnect={() => void connect().catch(() => undefined)}
                     beforeRun={beforeAgentRun}
                     afterRun={() => void afterAgentRun()}
+                    onEdit={onAgentEdit}
                     onOpen={(path) => void open('home', path)}
                   />
                 ) : (
@@ -2637,6 +2750,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       else void run(line);
                     }}
                     onWrote={tookAgentFiles}
+                    run={runForAgent}
+                    interrupt={() => void interrupt().catch(() => undefined)}
                   />
                 )}
               </>

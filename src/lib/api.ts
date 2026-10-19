@@ -347,6 +347,7 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
               googleClientId: typeof body.googleClientId === 'string' ? body.googleClientId.trim() : '',
               mail: Boolean(body.mail),
               zoom: Boolean(body.zoom),
+              googleDesktop: Boolean(body.googleDesktop),
               notes: body.notes && typeof body.notes.recall === 'string' ? { recall: body.notes.recall } : null,
             }
           : null,

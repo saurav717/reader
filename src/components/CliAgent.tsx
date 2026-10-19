@@ -108,7 +108,7 @@ export function queueCliRequest(projectId: string, agent: CliAgentId, request: s
 }
 
 /** A run's log read until it ends, a second at a time; what it said parsed as it comes. */
-async function follow(projectId: string, agent: CliAgentId, job: string, host: FileHost, onDone: () => void) {
+async function follow(projectId: string, agent: CliAgentId, job: string, host: FileHost, onDone: () => void, onEdit?: () => void) {
   if (polling.has(job)) return;
   polling.add(job);
   try {
@@ -127,6 +127,8 @@ async function follow(projectId: string, agent: CliAgentId, job: string, host: F
       const lines = read.data ? read.data.split('\n').filter((line, i, all) => line || i < all.length - 1) : [];
       const all = [...turn.lines, ...lines];
       const { session } = parseRun(agent, all);
+      // A file edited or written in these lines: the page is told, so the explorer and the open files can show it as it happens.
+      if (onEdit && lines.length && parseRun(agent, lines).events.some((event) => event.kind === 'tool' && /^(Edit|Write|MultiEdit|NotebookEdit|Delete)$/.test(event.name))) onEdit();
       const now = savedFor(projectId).chats[agent]!;
       setChat(projectId, agent, { session: session ?? now.session, turns: now.turns.map((t) => (t.job === job ? { ...t, lines: all, offset: read.offset, done: read.done, code: read.code } : t)) });
       if (read.done) {
@@ -167,7 +169,10 @@ export default function CliAgent({
   beforeRun,
   afterRun,
   onOpen,
+  onEdit,
   paper = false,
+  extraEnv,
+  dataNote,
 }: {
   agent: CliAgentId;
   projectId: string;
@@ -182,9 +187,15 @@ export default function CliAgent({
   beforeRun: () => Promise<boolean>;
   /** After it: its edits brought home, the explorer and the open files read again. */
   afterRun: () => void;
+  /** As it works: a file it edited or wrote, so the page can bring the change home and show it before the run ends. */
+  onEdit?: () => void;
   onOpen: (path: string) => void;
   /** Whether the project started from a paper: the paper's files in the folder are named in the briefing, and the agent told not to fetch it. */
   paper?: boolean;
+  /** More for the agent's environment: the data place (KOIOS_DATA), as a console command gets it. */
+  extraEnv?: Record<string, string>;
+  /** The line about the data place, for the briefing. */
+  dataNote?: string;
 }) {
   const spec = CLI_AGENTS[agent];
   const saved = useSyncExternalStore(subscribe, () => savedFor(projectId));
@@ -236,7 +247,7 @@ export default function CliAgent({
   useEffect(() => {
     if (!connected) return;
     const open = chat.turns.find((turn) => !turn.done);
-    if (open) void follow(projectId, agent, open.job, host, afterRun);
+    if (open) void follow(projectId, agent, open.job, host, afterRun, onEdit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, agent, projectId, chat.turns.length]);
   useEffect(() => {
@@ -325,12 +336,12 @@ export default function CliAgent({
     const turn: CliTurn = { at: Date.now(), request: prompt, job, offset: 0, lines: [], done: false };
     setChat(projectId, agent, { ...chat, turns: [...chat.turns, turn].slice(-TURNS_KEPT) });
     try {
-      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). Read AGENTS.md when there is one.${paper ? ` ${PAPER_FILES_NOTE}` : ''}`;
+      const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). Read AGENTS.md when there is one.${paper ? ` ${PAPER_FILES_NOTE}` : ''}${dataNote ? ` ${dataNote}` : ''}`;
       // The Koios helpers (koios, koios_telemetry, the catalogue) on the agent's path too, as on the console's.
       const pylib = `${folder.replace(/\/$/, '')}/${KOIOS_PYLIB}`;
-      await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context }), { cwd: folder, env: { ...env, KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);
+      await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context, noWeb: paper }), { cwd: folder, env: { ...env, ...(extraEnv ?? {}), KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);
       await persist(projectId, host);
-      void follow(projectId, agent, job, host, afterRun);
+      void follow(projectId, agent, job, host, afterRun, onEdit);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
       const now = savedFor(projectId).chats[agent]!;

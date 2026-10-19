@@ -233,6 +233,9 @@ def dream(model, run, frames, actions, args, device, step):
     if errors:
         rest = errors[args.context:] or errors
         run.log({"dream/error_first": rest[0], "dream/error_last": rest[-1], "dream/error_mean": float(np.mean(rest))}, step=step)
+        # The world model's evaluation: open-loop prediction error over the horizon (lower is better). A paper may
+        # measure it otherwise (PSNR, SSIM, a downstream task): read paper/paper.md and log that instead, with its numbers.
+        run.evaluation({"dream/error_first": rest[0], "dream/error_last": rest[-1], "dream/error_mean": float(np.mean(rest))}, name="open-loop", step=step, protocol=f"per-frame MSE of imagined against real frames after {args.context} context frames, {len(rest)} steps ahead", higher_is_better=False)
 
 
 if __name__ == "__main__":

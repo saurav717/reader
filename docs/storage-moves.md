@@ -514,6 +514,15 @@ Nothing is needed on Colab or on a plain Jupyter server: the page sends the move
 
 A failed or cancelled move never changes the project: its home stays where it was until a move reports `done`.
 
+## 13a. Data and results, apart from the code
+
+The moves carry a project's *files*. Its data — datasets, checkpoints, run outputs, videos — has a place of its own,
+**Data & results** in the same panel: Google Drive by default (`Koios/Data/<project>/`), else the compute's disk. The
+compute reaches Drive the way a move does (Figure 7): with the account's token, which the Worker holds under a move
+with the plan `data` that moves nothing, renewed by the page every twenty minutes. In code, `koios_data.path(...)`,
+`koios_data.save(...)` and `koios_data.sync(...)` (`companion/reader_companion/koios_data.py`); runs and checkpoints go
+there by themselves. See docs/simulation.md, challenge 23.
+
 ## 14. Limits
 
 - **One move at a time per project.** While a move is under way, the other rows' **Move files here** buttons are

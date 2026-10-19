@@ -60,6 +60,20 @@ describe('the project, as the agent reads it', () => {
     assert.match(text, /<file path="main\.py" in_front="yes">/);
     assert.match(text, /\$ python main\.py\n1/);
   });
+  it('says whether its commands run for it or wait as buttons', () => {
+    const base = { where: 'Colab.', listing: [], open: [], console: [] };
+    assert.match(agent.projectBlock({ ...base, runs: 'auto' }), /<where>\nColab\. Your ```sh run blocks are run for you there, in the project's console, as soon as you answer — up to 3 a round, 6 rounds — and what each printed is handed back to you\.\n<\/where>/);
+    assert.match(agent.projectBlock({ ...base, runs: 'buttons' }), /are buttons the reader clicks; nothing runs until they do/);
+    assert.match(agent.projectBlock(base), /<where>\nColab\.\n<\/where>/);
+  });
+  it('hands a long output back as its head and its tail, cleaned of carriage returns and colours', () => {
+    assert.equal(agent.runOutput('a\r\nb\x1b[31mc\x1b[0m  \n'), 'a\nbc');
+    const long = `${'x'.repeat(100)}\n${'y'.repeat(100)}\n${'z'.repeat(100)}`;
+    const out = agent.runOutput(long, 90);
+    assert.equal(out.length < long.length, true);
+    assert.match(out, /^x{30}\n\[… 212 characters left out …\]\n/);
+    assert.match(out, /z{59}$/);
+  });
   it('puts the paper first when the project cites one', () => {
     const text = agent.projectBlock({ where: 'Colab.', listing: [], open: [], console: [], paper: { title: 'LoRA', authors: ['Edward Hu'], published: '2021-06-17', abstract: 'Low-rank  adapters.' } });
     assert.match(text, /^<paper>\nLoRA by Edward Hu \(2021\)\n\nAbstract: Low-rank adapters\.\n<\/paper>/);

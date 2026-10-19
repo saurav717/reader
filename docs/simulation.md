@@ -42,6 +42,9 @@ what is worked around and what is still open.
 | The Sim pane | `src/components/SimPane.tsx`, `src/lib/simTelemetry.ts` | The right-hand pane's **Sim** tab: run picker, status, findings, return and success charts, videos, dreams, grouped numbers with notes as dashed marks, timeline, traceback, config, checkpoints, and the machine's doctor. |
 | Sync fix | `src/lib/playground.ts` (`isBinaryPath`) | The sync carries text; binary files (videos, images, weights) are now left where they are instead of being copied as broken text. |
 | The paper in the folder | `src/lib/paperContext.ts`, `paperMarkdown.ts`, `paperFiles.ts` | A project from a paper carries the paper: `paper/paper.md` (its full text, from the reader's own reflow of the PDF, else arXiv's HTML), `paper/EXPLANATION.md`, `paper/paper.pdf`, `IMPLEMENTATION_PLAN.md`. Every agent is told to read it there, never to fetch it. |
+| Data on Drive, compute on Colab | `companion/reader_companion/koios_data.py`, `src/lib/dataStore.ts`, `worker/moves.js` (plan `data`) | The project's data place — Drive by default — reached from the compute with the account's token through the Worker: `koios_data.path/save/sync`; runs and checkpoints pushed as they go; chosen in Storage & compute. |
+| Evaluation, the paper's way | `koios_telemetry.py` (`Run.evaluation`, `Run.evaluate`), `simTelemetry.ts`, `experiments.ts`, `SimPane.tsx` | An `evaluation` event: the paper's own measure, with the paper's numbers beside ours; the Sim pane's table and the logbook's report show the gap. A default protocol when the paper gives none. |
+| The page's agent runs its commands | `src/lib/projectAgent.ts`, `src/components/ProjectAgent.tsx` | A ```` ```sh run ```` block is run in the project's console on the connected machine as the agent answers; what it printed goes back; up to 6 rounds of 3. Stop interrupts the command. Off with a tick, and the commands are buttons. |
 | Tests | `scripts/simulation.test.mjs`, `scripts/paper-context.test.mjs` | Catalogue integrity, every generated `.py` parses, parsing and diagnostics, and the Python module run for real: its events read by the pane's parser, its findings equal to the pane's. |
 
 ### The simulators
@@ -94,6 +97,7 @@ A run is a folder, `runs/<name>-<YYYYmmdd-HHMMSS>/`:
 | `dream` | `step`, `name`, `path`, `type`, `error: [per-frame MSE]`, `context` (frames given, not predicted), `fps`, `horizon` |
 | `note` | `step`, `text`, `by` (`code`, `agent`, `human`, `koios`), `tag?` (`problem`, `spaces`, `config`…) |
 | `checkpoint` | `step`, `path`, `metrics` |
+| `evaluation` | `step`, `name`, `metrics: {name: number}`, `episodes?`, `protocol?` (how it was measured), `paper?: {name: number, source?}` (the paper's numbers for the same metrics), `higher_is_better?` (bool or `{name: bool}`), `seeds?` |
 | `heartbeat` | every 10 s from a thread: `step`, `env_steps`, `sps` |
 | `end` | `status`, `step`, `episodes`, `elapsed`, `error?` (the traceback) |
 
@@ -301,6 +305,103 @@ file written says it too, in its front matter. The modules the briefings import 
 (`paperFiles.ts`), so the agent's prompt builder pulls in none of the reader's PDF machinery; the test bundler
 learned Vite's `?worker&url` imports on the way, so the gathering module can be tested in Node, and the
 HTML-to-Markdown walk is tested in Chromium, where a DOM is.
+
+### 19. The page's own agent could only suggest commands
+*Built.* The page's own agent (Koios AI) wrote files where the project keeps them, but its commands were buttons:
+it never saw a run, so it could not fix what failed without being asked again, and the GPU the project is
+connected to was a click away from it. Now a command it answers with is run for it in the project's console —
+the same console the reader types into, on the same machine: Colab's T4, a Jupyter server, a Companion — the
+folder copied over first when it is kept elsewhere, as for any command. What the command printed (its head and
+its tail, where the traceback is, up to 6,000 characters) goes back to the agent, which writes again, runs
+again, or answers: up to 3 commands a round, 6 rounds a request. Files in the same answer are written before the
+command, so it runs the code just written; a file written twice in one request undoes to what was there before
+the first. The agent is told which of the two regimes it is in, in the request's `<where>` block, so the cached
+system prompt never changes; **runs commands** under the box turns it off and the commands are buttons again.
+**Stop** interrupts the command on the machine (the agent is then stopped too). An answer that has run a
+command cannot be picked up after a reload, since the earlier rounds would run their commands again; the job is
+let go of at the first command, and the pane says what ran. Long trainings stay the reader's: the briefing asks
+the agent to keep its commands to what ends in a few minutes and to suggest a training rather than start it.
+
+Claude Code and Codex in the same pane already run their own commands, on the compute's copy of the folder, with
+their edits brought back; and in a project with the paper in its folder Claude Code now has its web tools off
+(`--disallowedTools WebFetch WebSearch`), so it cannot fetch the paper even if the briefing were ignored. Codex's
+web search is off unless asked for on its command line, which the page never does.
+
+### 20. Watching Claude Code and Codex work
+*Built.* Their pane already showed each step as it happened — every command with its output, every file edited
+with a button to open it, the model's words between — polled from the machine every second or so. What it did
+not do was show the edits *in the editor* until the run ended, because with the files kept elsewhere (Drive, a
+computer of yours) the agent edits the compute's working copy and the edits came home only at the end. Now the
+pane tells the page of each edit as it is seen in the stream, and the page brings the changed files home a couple
+of seconds later (one pull at a time, never during a push) and reads the open files again: the explorer and the
+tab in front follow the agent as it writes. The page's own agent writes home directly, so its edits were always
+live; its runs now show in its pane too, folded under each command.
+
+### 21. A paper's implementation had nowhere to log its runs
+*Built.* Runs are filed in a Project's logbook (challenge 15) — a Project being a collection with a question, papers
+in roles and a playground as its code. A playground made from a paper — the Playground's **from a paper**, the
+Implementation page's **Local → Open as a project…** — belonged to no Project, so its runs went to a lone folder
+with no logbook, no notes and no place in the project room. Now the moment such a playground is made, a Project
+is made for it (`src/lib/implementationProject.ts`): named after the paper's head (*Dreamer — implementation*,
+numbered beside one already so named), the paper in it as its **core**, the playground as its code, opening on
+the question *Reimplement "…": its method, a run of its experiments, and how the numbers compare with the
+paper's*. From then on every run the playground makes is filed in that Project's logbook with its notes, videos
+and results, and the Project page shows the code, the logbook and the paper side by side. A playground that
+already has a Project keeps it.
+
+### 22. Evaluating the way the paper does
+*Built.* Training episodes say whether a run learns; they are not what a paper reports. Papers evaluate in their
+own ways — a mean return over ten seeded episodes with a deterministic policy, a success rate over fifty, a
+human-normalised Atari score, an open-loop prediction error, a distance to the goal — and a reimplementation is
+judged by the same measure or not at all. So the telemetry has an `evaluation` event (`run.evaluation(metrics,
+name=, step=, episodes=, protocol=, paper=, higher_is_better=)`): whatever the paper measures, as numbers; how it
+was measured, in words; the paper's numbers for the same metrics (`paper={"return": 850, "source": "Table 1"}`),
+and which way is better where the name does not say (loss, error, distance, cost, regret and time are taken as
+lower-is-better). The Sim pane draws the latest evaluation of each name as a table — ours, the paper's, the gap
+in absolute and per cent, coloured by whether it is the better way — with the protocol under it; the logbook's
+record keeps the latest of each name and the report writes the same table; the notes are asked to read it.
+
+Which protocol is the agent's to find, not the toolkit's to guess: `AGENTS.md`, the plan file and the Claude
+Code briefing say to read how the paper evaluates in `paper/paper.md`, measure that, keep the paper's reported
+numbers in `paper_results.json`, and pass them as `paper=`. When the paper gives no protocol, `run.evaluate(make_env,
+act, episodes=10)` is the default — seeded episodes, deterministic actions, mean and standard deviation of the
+return, mean length, the success rate where the task reports one, the first episode on video — and its protocol
+string says it is the default, so a reader knows the comparison is loose. The templates evaluate at the end:
+PPO and SAC with the policy's mode, SB3 deterministically, the random agent as the baseline, the world model with
+its open-loop error. `python koios_telemetry.py summary` prints each run's evaluations against the paper's numbers,
+so an agent reads them before changing anything.
+
+### 23. Colab's disk is small and goes with the runtime; the data should not
+*Built.* The code can be kept anywhere (Drive, a computer, the browser) and copied to the compute before each
+run, but a run's data is another matter: a dataset of gigabytes, checkpoints, videos and the run folders have no
+business on Colab's disk, which is small and gone when the runtime is, and the sync that carries the code (text,
+under 2 MB) is no way to move them. The reader already refuses to mount Drive in a kernel (docs/colab-run.md: a
+mounted Drive is every file in it) and its moves had the answer: a machine reaches Drive itself with the account's
+token, which the Worker holds and the page renews (docs/storage-moves.md, Figure 7), under the `drive.file` scope
+that sees only what Koios made. So every project has a **data place**, Google Drive by default while Drive is
+connected (`Koios/Data/<project>/`), else the machine's own disk; chosen in Storage & compute → *Data & results*.
+
+On the compute, `koios_data.py` (on the helper path beside the other Koios modules, told where the place is by
+`KOIOS_DATA` in each command's environment and by `koios_data.json` beside it for anything started another way):
+`koios_data.path("datasets/x")` gives a local path in a cache under the project's `.reader/`, fetched from the place
+when it is there; `save(path, evict=True)` puts a file or folder there and frees the disk; `sync(folder)` keeps a
+folder pushed every few minutes and at exit, only what changed, with Drive's MD5 as the check; `fetch`, `ls`, a
+CLI. The way in for Drive is a *data link*: a move on the Worker with the plan `data`, which moves nothing and
+only holds the token, started when the project opens on a Drive data place and renewed every twenty minutes
+while it is open (and now by itself past the hour, with the sign-in that stays), remembered in the browser and made
+again after six days. `koios_telemetry.Run` syncs its run folder by itself (`KOIOS_RUN_SYNC_MINUTES`, 3 by
+default) and says so in the run's timeline; `koios.checkpoint` puts every checkpoint and `latest.json` there as it
+saves. The briefings tell the agents to download datasets into `koios_data.path(...)`, never into the project
+folder. Uploads of more than 5 MB go in 16 MB resumable pieces; a token that ran out is waited for, a quarter-minute
+at a time, up to an hour, with a line on stderr saying so.
+
+A computer of yours is the third kind of place: a Koios Companion, reached from the compute through its address
+with its token — the Jupyter contents API, files in base64 in pieces of 8 MB (`chunk` as Jupyter takes it) — under
+`koios-data/<project>/` beside its playgrounds in `~/Reader`. It is often the better choice (fast, as big as the
+disk, nothing to pay), so when a project opens on Drive's default and a Companion of yours is online with 20 GB or
+more free, the page offers it once: *Ann's Mac has 350 GB free. Keep this project's data there instead of Google
+Drive?* — **Use Ann's Mac** / **Keep Google Drive** / not now — and the panel lists every Companion with its free
+space beside Drive and the compute's disk. Not done yet: a size meter for the Drive place.
 
 ---
 

@@ -240,6 +240,22 @@ describe('reading a run', () => {
   });
 });
 
+describe('an evaluation against the paper', () => {
+  it('knows which way is better, from what the run said or the metric’s name, and sizes the gap', () => {
+    assert.equal(tele.higherIsBetter('return', undefined), true);
+    assert.equal(tele.higherIsBetter('loss/model', undefined), false);
+    assert.equal(tele.higherIsBetter('return', false), false);
+    assert.equal(tele.higherIsBetter('loss', { loss: true }), true);
+    const rows = tele.evaluationRows({ metrics: { return: 900, loss: 0.3, length: 50, extra: 1 }, paper: { return: 1000, loss: 0.2, length: 50 } });
+    assert.deepEqual(rows[0], { metric: 'return', ours: 900, paper: 1000, delta: { abs: -100, pct: -10, better: false } });
+    assert.deepEqual(rows[1], { metric: 'loss', ours: 0.3, paper: 0.2, delta: { abs: 0.3 - 0.2, pct: (100 * (0.3 - 0.2)) / 0.2, better: false } });
+    assert.deepEqual(rows[2].delta, { abs: 0, pct: 0, better: null });
+    assert.deepEqual(rows[3], { metric: 'extra', ours: 1 });
+    const latest = tele.latestEvaluations([{ name: 'a', step: 1 }, { name: 'b', step: 2 }, { name: 'a', step: 3 }]);
+    assert.deepEqual(latest.map((e) => [e.name, e.step]), [['a', 3], ['b', 2]]);
+  });
+});
+
 describe('the Python module', { skip: !python && 'no python3' }, () => {
   it('writes a run the pane reads, and records its crash', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sim-run-'));
@@ -250,6 +266,21 @@ for i in range(5):
     run.episode(float(i), 10, step=i * 10, success=i > 2)
     run.log({"loss/policy": 1.0 / (i + 1), "bad": float("nan") if i == 4 else 0.0}, step=i * 10)
 run.note("changed something", by="agent")
+run.evaluation({"return": 812.5, "success": 0.9, "loss": 0.2}, step=40, episodes=10, protocol="10 episodes, seeds 0-9", paper={"return": 850.0, "success": 0.95, "source": "Table 1"}, higher_is_better={"loss": False})
+
+class Env:
+    def __init__(self):
+        self.n = 0
+    def reset(self, seed=None):
+        self.n = 0
+        return [0.0], {}
+    def step(self, action):
+        self.n += 1
+        return [float(self.n)], 1.0, self.n >= 3, False, {"is_success": self.n >= 3}
+    def close(self):
+        pass
+
+run.evaluate(lambda **kw: Env(), lambda obs: 0, episodes=4, seed=7, video=False, step=41)
 raise RuntimeError("boom")
 `;
     const ran = py(code, dir);
@@ -264,11 +295,138 @@ raise RuntimeError("boom")
     assert.equal(run.status, 'crashed');
     assert.match(run.error, /RuntimeError: boom/);
     assert.equal(run.notes[0].text, 'changed something');
+    // The evaluations: the one written by hand, with the paper's numbers, and the default protocol's on a fake env.
+    assert.equal(run.evaluations.length, 2);
+    assert.deepEqual(run.evaluations[0].metrics, { return: 812.5, success: 0.9, loss: 0.2 });
+    assert.deepEqual(run.evaluations[0].paper, { return: 850, success: 0.95 });
+    assert.equal(run.evaluations[0].source, 'Table 1');
+    assert.deepEqual(run.evaluations[0].higherIsBetter, { loss: false });
+    assert.equal(run.evaluations[0].protocol, '10 episodes, seeds 0-9');
+    const auto = run.evaluations[1];
+    assert.equal(auto.name, 'eval');
+    assert.equal(auto.episodes, 4);
+    assert.deepEqual(auto.metrics, { return: 3, return_std: 0, length: 3, success: 1 });
+    assert.match(auto.protocol, /^4 episodes, seeds 7-10, deterministic actions \(Koios default protocol/);
     const ids = tele.diagnose(run, run.lastT).map((f) => f.id);
     assert.ok(ids.includes('crashed') && ids.includes('nan'), ids.join());
     const summary = spawnSync(python, [MODULE, 'summary', '.'], { cwd: dir, encoding: 'utf8', env: { ...process.env, KOIOS_HEADLESS: '0' } });
     assert.match(summary.stdout, /\[crashed\]/);
     assert.match(summary.stdout, /note @ \d+: \[agent\] changed something/);
+    assert.match(summary.stdout, /evaluation 'eval' @ 40: return=812\.5, success=0\.9, loss=0\.2 · return: paper 850, success: paper 0\.95 · 10 episodes, seeds 0-9/);
+  });
+
+  it('keeps a run’s folder and its checkpoints in the project’s data place as it goes (the local plan)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-data-'));
+    const place = join(dir, 'place');
+    const pylib = join(dir, '.reader', 'pylib');
+    mkdirSync(join(pylib, 'koios'), { recursive: true });
+    writeFileSync(join(pylib, 'koios_data.py'), readFileSync(resolve('companion/reader_companion/koios_data.py')));
+    const { KOIOS_PY } = await load('src/lib/koiosHelper.ts');
+    writeFileSync(join(pylib, 'koios', '__init__.py'), KOIOS_PY);
+    const code = `
+import os, koios_data
+from koios_telemetry import Run
+import koios
+assert koios_data.enabled() and "a box" in koios_data.where(), koios_data.where()
+p = koios_data.path("datasets/tiny.txt")
+open(p, "w").write("data")
+run = Run("d", config={"lr": 1})
+run.log({"loss": 0.5}, step=1)
+ck = koios.checkpoint("checkpoints", every_steps=1)
+ck.on_save(lambda path: open(path, "w").write("weights"))
+ck.step(1)
+run.finish()
+print(run.dir)
+print(sorted(x["path"] for x in koios_data.ls()))
+`;
+    const ran = py(code, dir, { KOIOS_DATA: `local|${place}|a box`, PYTHONPATH: `${resolve('src/sim')}:${pylib}` });
+    assert.equal(ran.status, 0, ran.stderr);
+    const [runDir, listed] = ran.stdout.trim().split('\n').slice(-2);
+    const runName = runDir.split('/').pop();
+    const paths = JSON.parse(listed.replace(/'/g, '"'));
+    // The dataset where path() put it, the run's events and run.json pushed at the end, the checkpoint and its sidecars copied as they were saved.
+    assert.ok(paths.includes('datasets/tiny.txt'), listed);
+    assert.ok(paths.includes(`runs/${runName}/events.jsonl`) && paths.includes(`runs/${runName}/run.json`), listed);
+    assert.ok(paths.includes('checkpoints/step-00000001.pt') && paths.includes('checkpoints/latest.json') && paths.includes('checkpoints/step-00000001.pt.koios.json'), listed);
+    assert.match(JSON.parse(readFileSync(join(place, 'runs', runName, 'run.json'), 'utf8')).status, /finished/);
+    const run = tele.parseRun(runName, {}, readFileSync(join(place, 'runs', runName, 'events.jsonl'), 'utf8'));
+    assert.match(run.notes[0].text, /^run folder kept in a box/);
+    assert.equal(run.notes[0].tag, 'data');
+    // Without a data place set, nothing of this happens and nothing is said.
+    const bare = py('from koios_telemetry import Run\nr = Run("b")\nr.finish()\nimport koios_data\nprint(koios_data.enabled())', mkdtempSync(join(tmpdir(), 'sim-bare-')), { PYTHONPATH: `${resolve('src/sim')}:${pylib}` });
+    assert.equal(bare.stdout.trim().split('\n').pop(), 'False', bare.stderr);
+  });
+
+  it('keeps data on a computer of yours through the Companion’s contents API, in pieces (the server plan)', async () => {
+    const { createServer } = await import('node:http');
+    const files = new Map();
+    const dirs = new Set(['']);
+    const server = createServer((request, response) => {
+      const url = new URL(request.url, 'http://x');
+      const path = decodeURIComponent(url.pathname.replace(/^\/api\/contents\/?/, '')).replace(/\/$/, '');
+      const say = (status, body) => (response.writeHead(status, { 'Content-Type': 'application/json' }), response.end(JSON.stringify(body)));
+      if (request.headers.authorization !== 'token t-1') return say(403, { message: 'no' });
+      if (request.method === 'GET') {
+        if (dirs.has(path)) {
+          const content = url.searchParams.get('content') === '1' ? [...[...dirs].filter((d) => d && d.slice(0, d.lastIndexOf('/') + 1).replace(/\/$/, '') === path && d !== path).map((d) => ({ name: d.split('/').pop(), path: d, type: 'directory' })), ...[...files.entries()].filter(([f]) => f.slice(0, f.lastIndexOf('/')) === path).map(([f, data]) => ({ name: f.split('/').pop(), path: f, type: 'file', size: data.length }))] : null;
+          return say(200, { type: 'directory', path, content });
+        }
+        if (files.has(path)) return say(200, { type: 'file', path, size: files.get(path).length, last_modified: new Date().toISOString(), format: 'base64', content: url.searchParams.get('content') === '1' ? files.get(path).toString('base64') : null });
+        return say(404, { message: 'not found' });
+      }
+      if (request.method === 'PUT') {
+        let raw = '';
+        request.on('data', (c) => (raw += c));
+        request.on('end', () => {
+          const body = JSON.parse(raw);
+          if (body.type === 'directory') return (dirs.add(path), say(201, { type: 'directory', path }));
+          const piece = Buffer.from(body.content, 'base64');
+          if (body.chunk === undefined || body.chunk === 1) files.set(path, piece);
+          else files.set(path, Buffer.concat([files.get(path) ?? Buffer.alloc(0), piece]));
+          say(201, { type: 'file', path, size: files.get(path).length });
+        });
+        return;
+      }
+      say(405, {});
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+    try {
+      const dir = mkdtempSync(join(tmpdir(), 'sim-server-'));
+      const code = `
+import os, koios_data
+koios_data._Server.PIECE = 1024
+assert koios_data.where().startswith("Ann's Mac · koios-data/p1"), koios_data.where()
+big = koios_data.path("datasets/big.bin")
+open(big, "wb").write(bytes(range(256)) * 10)   # 2560 bytes: three pieces
+koios_data.save(big, "datasets/big.bin")
+os.makedirs("runs/r", exist_ok=True); open("runs/r/events.jsonl", "w").write("{}")
+s = koios_data.sync("runs"); print(s.now()); s.stop.set()
+print(sorted(x["path"] for x in koios_data.ls()))
+os.remove(big)
+print(open(koios_data.fetch("datasets/big.bin"), "rb").read() == bytes(range(256)) * 10)
+`;
+      // Spawned, not spawnSync: the fake server lives on this event loop and has to answer while Python runs.
+      // no_proxy: a container's HTTP proxy would otherwise be asked for 127.0.0.1 and never answer.
+      const { spawn } = await import('node:child_process');
+      const ran = await new Promise((done) => {
+        const child = spawn(python, ['-c', code], { cwd: dir, env: { ...process.env, PYTHONPATH: `${resolve('src/sim')}:${resolve('companion/reader_companion')}`, KOIOS_HEADLESS: '0', KOIOS_DATA: `server|http://127.0.0.1:${port}|t-1|koios-data/p1|Ann's Mac`, no_proxy: '127.0.0.1,localhost', NO_PROXY: '127.0.0.1,localhost' } });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (c) => (stdout += c));
+        child.stderr.on('data', (c) => (stderr += c));
+        child.on('close', (status) => done({ status, stdout, stderr }));
+      });
+      assert.equal(ran.status, 0, ran.stderr);
+      const lines = ran.stdout.trim().split('\n');
+      assert.equal(lines[0], '1');
+      assert.deepEqual(JSON.parse(lines[1].replace(/'/g, '"')), ['datasets/big.bin', 'runs/r/events.jsonl']);
+      assert.equal(lines[2], 'True');
+      assert.equal(files.get('koios-data/p1/datasets/big.bin').length, 2560);
+      assert.ok(dirs.has('koios-data/p1/runs/r'));
+    } finally {
+      server.close();
+    }
   });
 
   it('writes videos and dreams the pane can play', { skip: !hasNumpy && 'no numpy' }, () => {

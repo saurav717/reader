@@ -46,6 +46,7 @@ import {
   useServers,
 } from '../lib/playground';
 import { useStore } from '../lib/store';
+import { useProjectForImplementation } from '../lib/implementationProject';
 import type { Paper } from '../types';
 import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, DriveMark, TrashIcon } from './icons';
@@ -185,6 +186,7 @@ function useLiveCompanions(servers: JupyterServer[]): Record<string, Liveness> {
 function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; ready: boolean; onOpen: (id?: string) => void }) {
   const where = usePlaygroundsWhere();
   const { papers, settings } = useStore();
+  const projectFor = useProjectForImplementation();
   const servers = useServers();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [asking, setAsking] = useState<'paper' | 'repo' | 'model' | null>(null);
@@ -610,6 +612,8 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
           onClose={() => setDraft(null)}
           onCreate={async (spec) => {
             const made = await createPlayground(spec);
+            // From a paper: a Project of its own, so its runs are filed in a logbook with notes, videos and results.
+            if (draft.start === 'paper' && draft.cites?.[0]) await projectFor(draft.cites[0].paperId, made).catch(() => null);
             setDraft(null);
             onOpen(made.id);
           }}
