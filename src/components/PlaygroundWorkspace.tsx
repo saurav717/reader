@@ -1794,6 +1794,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** Before Claude Code or Codex works: what is on screen saved, and the folder copied to the machine when it is kept elsewhere. */
   const beforeAgentRun = async () => {
     await saveAll();
+    // The helpers on the machine before the agent starts, as before a console command: `python koios_telemetry.py use …` works from its shell.
+    if (connected && machines[0]) await ensureHelper(machines[0]).catch(() => undefined);
     return split ? push() : true;
   };
   /** After: what it changed on the machine brought home (when the folder is kept elsewhere), and the explorer and open files read again. */

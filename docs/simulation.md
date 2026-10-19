@@ -257,8 +257,10 @@ Drive through its own; and a run must be filed once, which this browser remember
 `python koios_telemetry.py simulators` lists them with what each needs, `python koios_telemetry.py use
 <simulator> [env]` writes `env.py` and `setup.sh` (and a starter for a simulator with its own API), log every run
 through `koios_telemetry.Run`, keep the paper's reported numbers in the README. The page writes the same two files
-to every machine's helper path, so the commands work in any project's console. A test holds the `env.py` the
-machine writes equal to the one the page writes.
+to every machine's helper path, so the commands work in any project's console; Claude Code and Codex started
+from the page get that path in their `PYTHONPATH` and a line in their briefing naming the commands, and `use`
+run from there copies the module and the catalogue into the folder, so the project stands on its own. A test
+holds the `env.py` the machine writes equal to the one the page writes.
 
 ### 17. Not every browser plays H.264
 *Worked around.* Videos are MP4/H.264, which Chrome, Edge, Safari and Firefox play. Open-source Chromium builds
