@@ -155,6 +155,17 @@ describe('a move on the Worker', () => {
     assert.equal(e.MOVES.objects.has(`moves/${ID}/archive.tar.gz`), false);
   });
 
+  it('shows the files found while a machine lists them, before the totals are known', async () => {
+    const e = env();
+    const pass = await issuePass('a@gmail.com', SECRET);
+    const { key } = await (await page(e, '/moves/start', { pass, body: start })).json();
+    const listed = await machine(e, `/moves/report?id=${ID}`, key, { method: 'POST', body: JSON.stringify({ step: 'listing', runner: 'r', files: 140, bytes: 5_000, totalFiles: 0, totalBytes: 0 }) });
+    assert.equal(listed.status, 200);
+    const status = (await (await page(e, `/moves/status?id=${ID}`, { pass })).json()).move;
+    assert.equal(status.status, 'listing');
+    assert.deepEqual(status.progress, { files: 140, bytes: 5_000, totalFiles: 0, totalBytes: 0 });
+  });
+
   it('tells a second machine on the same step to stop', async () => {
     const e = env();
     const { key } = await (await page(e, '/moves/start', { pass: await issuePass('a@gmail.com', SECRET), body: start })).json();

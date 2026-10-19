@@ -13,7 +13,7 @@ import { COLAB, isOn, serversOn } from '../lib/compute';
 import { driveFetch } from '../lib/google';
 import { useLive } from '../lib/liveRoom';
 import type { Destination } from '../lib/movePlan';
-import { computeChangeRefused, homeFor, planOf, sameHome, sizeOf, stepWords } from '../lib/movePlan';
+import { computeChangeRefused, homeFor, keepSample, moveRate, moveShare, moveStages, planOf, sameHome, sizeOf, stepWords, timeLeft, type MoveSample } from '../lib/movePlan';
 import type { MoveState } from '../lib/moves';
 import { isNewer } from '../lib/companion';
 import { cancelMove, companionDisk, MOVER_VERSION, kernelDisk, keepOldCopy, keyOf, moveStatus, removeOldCopy, renewDriveToken, settleMove, startMove, startUnpack, workerAddress } from '../lib/moves';
@@ -105,29 +105,32 @@ export function useMove(playground: Playground, connected: boolean): { move: Mov
   return { move, problem };
 }
 
-const percent = (move: MoveState) => {
-  const { bytes, totalBytes, files, totalFiles } = move.progress;
-  const share = totalBytes ? bytes / totalBytes : totalFiles ? files / totalFiles : 0;
-  // Two halves for an archive: packed, then unpacked.
-  const half = move.plan === 'archive' ? (['packed', 'unpacking', 'unpacked', 'done'].includes(move.status) ? 0.5 + share / 2 : share / 2) : share;
-  return Math.max(0, Math.min(1, move.status === 'done' ? 1 : half));
-};
-
-/** The move as one line and a bar: in the strip above the editor, and in the panel. */
+/** The move as one line, its steps and a bar: in the strip above the editor, and in the panel. */
 export function MoveProgress({ playground, move, problem, compact, onShow }: { playground: Playground; move: MoveState | null; problem: string | null; compact?: boolean; onShow?: () => void }) {
+  // The bytes done as this page saw them, for the speed and the time left.
+  const samples = useRef<MoveSample[]>([]);
+  const progress = move?.progress;
+  if (move && progress) samples.current = keepSample(samples.current, { at: move.updated || Date.now(), step: move.status, bytes: progress.bytes });
   if (!playground.moving) return null;
   const failed = move?.status === 'failed';
   const words = move ? (failed ? `It stopped: ${move.error ?? 'an error on the machine'}` : stepWords(move.step, move.plan, move.from.label, move.to.label)) : 'Asking the proxy how the move is going…';
+  const share = move && !failed ? moveShare(move) : null;
+  const stages = move ? moveStages(move) : null;
+  const rate = move && share !== null && share < 1 ? moveRate(samples.current) : null;
+  const left = move ? timeLeft(move, rate) : null;
+  const counts = !move || !progress
+    ? null
+    : move.status === 'listing'
+      ? `${progress.files.toLocaleString('en')} file${progress.files === 1 ? '' : 's'} found so far · ${sizeOf(progress.bytes)}`
+      : progress.totalFiles
+        ? `${progress.files.toLocaleString('en')} / ${progress.totalFiles.toLocaleString('en')} files · ${sizeOf(progress.bytes)} / ${sizeOf(progress.totalBytes)}`
+        : null;
+  const pace = [rate ? `${sizeOf(rate)}/s` : null, left].filter(Boolean).join(' · ');
   return (
     <div className={`mv-progress${compact ? ' is-compact' : ''}${failed ? ' is-problem' : ''}`} role="status">
       <div className="mv-progress-line">
         <b>{move ? `Moving the files to ${move.to.label}` : 'Moving the files'}</b>
         <span>{words}</span>
-        {move?.progress.totalFiles ? (
-          <small>
-            {move.progress.files.toLocaleString('en')} / {move.progress.totalFiles.toLocaleString('en')} files · {sizeOf(move.progress.bytes)} / {sizeOf(move.progress.totalBytes)}
-          </small>
-        ) : null}
         <span className="spacer" />
         {onShow ? (
           <button type="button" className="link" onClick={onShow}>
@@ -138,9 +141,35 @@ export function MoveProgress({ playground, move, problem, compact, onShow }: { p
           {failed ? 'Dismiss' : 'Cancel'}
         </button>
       </div>
+      {!failed ? (
+        <div className="mv-gauge">
+          <div
+            className={`mv-bar${share === null ? ' is-unknown' : ''}`}
+            role="progressbar"
+            aria-label="How much of the move is done"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={share === null ? undefined : Math.round(share * 100)}
+          >
+            <i style={share === null ? undefined : { width: `${Math.max(1, Math.round(share * 100))}%` }} />
+          </div>
+          <span className="mv-pct">{share === null ? '' : `${Math.floor(share * 100)}%`}</span>
+        </div>
+      ) : null}
       {move && !failed ? (
-        <div className="mv-bar" aria-hidden="true">
-          <i style={{ width: `${Math.round(percent(move) * 100)}%` }} />
+        <div className="mv-facts">
+          {stages && stages.names.length > 1 ? (
+            <ol className="mv-stages" aria-label="Steps">
+              {stages.names.map((name, index) => (
+                <li key={name} className={index < stages.at ? 'is-done' : index === stages.at ? 'is-now' : ''}>
+                  <span>{index + 1}</span>
+                  {name}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {counts ? <small>{counts}</small> : null}
+          {pace ? <small>{pace}</small> : null}
         </div>
       ) : null}
       {problem ? <p className="pg-note is-problem">{problem}</p> : null}

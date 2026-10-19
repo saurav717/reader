@@ -32,7 +32,7 @@ export const MAX_PART_BYTES = 95 * 1024 * 1024;
 export const RUNNER_QUIET_MS = 2 * 60_000;
 const PLANS = ['archive', 'drive-pull', 'drive-push'];
 const KINDS = ['drive', 'server', 'machine'];
-const STEPS = ['packing', 'packed', 'unpacking', 'unpacked', 'pulling', 'pulled', 'pushing', 'pushed', 'waiting', 'failed', 'removed'];
+const STEPS = ['listing', 'packing', 'packed', 'unpacking', 'unpacked', 'pulling', 'pulled', 'pushing', 'pushed', 'waiting', 'failed', 'removed'];
 
 export const isMoveId = (id) => typeof id === 'string' && /^[a-f0-9]{32}$/.test(id);
 const archiveKey = (id) => `moves/${id}/archive.tar.gz`;

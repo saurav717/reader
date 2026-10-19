@@ -60,6 +60,54 @@ describe('a move', () => {
   });
 });
 
+describe('a move’s progress', () => {
+  const reading = (plan, status, progress) => ({ plan, status, step: status, progress: { files: 0, bytes: 0, totalFiles: 0, totalBytes: 0, ...progress } });
+
+  it('has no share to show until there is something to count against', () => {
+    assert.equal(plan.moveShare(reading('drive-pull', 'started')), null);
+    assert.equal(plan.moveShare(reading('drive-pull', 'listing', { files: 30, bytes: 900 })), null);
+    assert.equal(plan.moveShare(reading('archive', 'packed', { bytes: 10, totalBytes: 10 })), null);
+    assert.equal(plan.moveShare(reading('drive-pull', 'pulling', { bytes: 25, totalBytes: 100 })), 0.25);
+    assert.equal(plan.moveShare(reading('drive-push', 'done')), 1);
+  });
+
+  it('gives an archive two halves: packed, then unpacked', () => {
+    assert.equal(plan.moveShare(reading('archive', 'packing', { bytes: 50, totalBytes: 100 })), 0.25);
+    assert.equal(plan.moveShare(reading('archive', 'unpacking', { bytes: 50, totalBytes: 100 })), 0.75);
+    // Files counted when there are no bytes to count: empty files.
+    assert.equal(plan.moveShare(reading('drive-push', 'pushing', { files: 1, totalFiles: 4 })), 0.25);
+  });
+
+  it('names the steps and the one it is on', () => {
+    assert.deepEqual(plan.moveStages(reading('drive-pull', 'listing')), { names: ['List the files', 'Fetch and check'], at: 0 });
+    assert.equal(plan.moveStages(reading('drive-pull', 'pulling')).at, 1);
+    assert.equal(plan.moveStages(reading('archive', 'packed')).at, 1);
+    assert.equal(plan.moveStages(reading('archive', 'done')).at, 2);
+    assert.deepEqual(plan.moveStages(reading('drive-push', 'pushing')), { names: ['Send and check'], at: 0 });
+  });
+
+  it('takes the speed over the readings of one step, and says the time left', () => {
+    let samples = [];
+    samples = plan.keepSample(samples, { at: 0, step: 'pulling', bytes: 0 });
+    assert.equal(plan.moveRate(samples), null);
+    samples = plan.keepSample(samples, { at: 10_000, step: 'pulling', bytes: 10_000_000 });
+    samples = plan.keepSample(samples, { at: 10_000, step: 'pulling', bytes: 10_000_000 }); // the same reading twice
+    assert.equal(samples.length, 2);
+    assert.equal(plan.moveRate(samples), 1_000_000);
+    assert.equal(plan.timeLeft(reading('drive-pull', 'pulling', { bytes: 10_000_000, totalBytes: 190_000_000 }), 1_000_000), 'about 3 min left');
+    assert.equal(plan.timeLeft(reading('drive-pull', 'pulling', { bytes: 10, totalBytes: 20 }), 1_000_000), 'less than a minute left');
+    assert.equal(plan.timeLeft(reading('drive-pull', 'pulling', { bytes: 0, totalBytes: 7_200_000_000 }), 1_000_000), 'about 2 h left');
+    assert.equal(plan.timeLeft(reading('drive-pull', 'pulling', { bytes: 0, totalBytes: 100 }), null), null);
+    // A new step starts the readings over; old readings drop out of the window.
+    assert.equal(plan.keepSample(samples, { at: 11_000, step: 'unpacking', bytes: 0 }).length, 1);
+    assert.equal(plan.keepSample(samples, { at: 45_000, step: 'pulling', bytes: 40_000_000 }).length, 1);
+  });
+
+  it('says what the listing is doing', () => {
+    assert.equal(plan.stepWords('listing', 'drive-pull', 'Google Drive', 'the MacBook'), 'the MacBook is listing the files in Drive');
+  });
+});
+
 const python = spawnSync('python3', ['--version']).status === 0;
 describe('the mover started in a kernel', { skip: !python && 'no python3' }, () => {
   it('writes the mover, starts it on its own with its config, and the config is gone once read', () => {

@@ -28,6 +28,7 @@ class FakeWorker:
         self.token = "drive-token"
         self.corrupt = False
         self.drop_once = False
+        self.refuse_step = None
 
 
 class FakeDrive:
@@ -89,6 +90,8 @@ def serve(worker: FakeWorker, drive: FakeDrive):
                     return self.answer(200, b"{}")
                 if url.path == "/moves/report":
                     report = json.loads(self.body())
+                    if report.get("step") == worker.refuse_step:
+                        return self.answer(400, b'{"error":"which step?"}')
                     worker.reports.append(report)
                     if report.get("manifest") is not None:
                         worker.manifest = report["manifest"]
@@ -234,6 +237,19 @@ class MoverTest(unittest.TestCase):
         result = mover.run(self.config("drive-pull", dest, drive="root"))
         self.assertEqual(result["files"], 2)
         self.assertEqual((dest / "envtrans" / "spec.py").read_text(), "X = 2\n")
+        self.assertEqual(self.worker.reports[-1]["step"], "pulled")
+        # The listing comes first: files found so far, the totals not yet known; then the pull counts against them.
+        steps = [report["step"] for report in self.worker.reports]
+        self.assertEqual(steps[0], "listing")
+        self.assertEqual(self.worker.reports[0]["totalFiles"], 0)
+        pulling = next(report for report in self.worker.reports if report["step"] == "pulling")
+        self.assertEqual((pulling["totalFiles"], pulling["totalBytes"]), (2, len(b"print(1)\n") + len(b"X = 2\n")))
+
+    def test_a_worker_that_refuses_the_listing_step_still_gets_the_pull(self):
+        self.drive.add("main.py", "root", b"print(1)\n")
+        self.worker.refuse_step = "listing"  # a Worker from before the listing step
+        result = mover.run(self.config("drive-pull", self.tmp / "pulled", drive="root"))
+        self.assertEqual(result["files"], 1)
         self.assertEqual(self.worker.reports[-1]["step"], "pulled")
 
     def test_pushes_to_drive_and_waits_for_a_renewed_token(self):
