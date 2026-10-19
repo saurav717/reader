@@ -188,8 +188,12 @@ describe('a move on the Worker', () => {
   });
 
   it('tells a computer with the Companion to unpack, through its tunnel', async () => {
-    const devices = { get: () => ({ fetch: async () => Response.json({ devices: [{ id: 'abcdef0123', url: 'https://laptop.trycloudflare.com/', token: 'jt', online: true }] }) }), idFromName: (n) => n };
+    const devices = { get: () => ({ fetch: async () => Response.json({ devices: [{ id: 'abcdef0123', url: 'https://laptop.trycloudflare.com/', token: 'jt', online: true, version: '0.16.0' }] }) }), idFromName: (n) => n };
+    const older = { get: () => ({ fetch: async () => Response.json({ devices: [{ id: 'abcdef0123', url: 'https://laptop.trycloudflare.com/', token: 'jt', online: true, version: '0.15.0' }] }) }), idFromName: (n) => n };
     const calls = [];
+    // A Companion whose mover would write over an old copy there isn't told: the page offers it the update.
+    assert.equal(await tellDestination({ DEVICES: older }, { id: ID, key: 'k', api: 'https://api.example', email: 'a@gmail.com', origin: 'https://koios.dev', to: start.to }, new Request('https://x'), async () => (calls.push('older'), new Response('{}'))), false);
+    assert.deepEqual(calls, []);
     const told = await tellDestination({ DEVICES: devices }, { id: ID, key: 'k', api: 'https://api.example', email: 'a@gmail.com', origin: 'https://koios.dev', to: start.to }, new Request('https://x'), async (url, init) => (calls.push({ url, init }), new Response('{}')));
     assert.equal(told, true);
     assert.equal(calls[0].url, 'https://laptop.trycloudflare.com/companion/move');

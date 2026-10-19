@@ -9,12 +9,13 @@
 //  place. The old copy stays until the person removes it.
 //
 //  A machine is told to start one of two ways: a computer with the Reader
-//  Companion (0.15.0 and later) by its `companion/move`; Colab or another
+//  Companion (MOVER_VERSION and later) by its `companion/move`; Colab or another
 //  Jupyter server, which has no Companion, by a few lines in the project's
 //  own small kernel that write the mover there and start it on its own.
 // ===========================================================================
 
 import { apiFetch } from './api';
+import { isNewer } from './companion';
 import { runQuietly, type JupyterServer } from './colab';
 import { driveFolderName } from './driveFiles';
 import { trashFile } from './google';
@@ -76,7 +77,12 @@ export interface CompanionDisk {
   version?: string;
 }
 
-/** A Companion's free disk where the project's folder is, and whether it moves files at all (0.15.0): null when it can't say. */
+/**
+ * The Companion that moves files the way this page expects: from 0.16.0, whose mover weighs an arrival over an older
+ * copy three ways rather than writing over it (mover.Arrival). An older one is offered the update, not a move.
+ */
+export const MOVER_VERSION = '0.16.0';
+/** A Companion's free disk where the project's folder is, and its version: null when it can't say (off, or older than 0.15.0). */
 export async function companionDisk(server: JupyterServer, root = '', fresh = false): Promise<CompanionDisk | null> {
   const key = `${server.id}:${root}`;
   const held = probes.get(key);
@@ -122,7 +128,8 @@ export function endOf(playground: Playground, home: FilesHome, machineName: stri
 export async function runnerFor(playground: Playground, home: FilesHome, connected: boolean): Promise<Runner | null> {
   if (home.kind === 'server') {
     const server = serverById(home.serverId);
-    if (server && (await companionDisk(server, home.root))) return { how: 'companion', server };
+    const disk = server ? await companionDisk(server, home.root) : null;
+    if (server && disk && !isNewer(MOVER_VERSION, disk.version ?? '0')) return { how: 'companion', server };
     const onCompute = playground.compute.kind === 'server' && playground.compute.serverId === home.serverId;
     return onCompute && connected ? { how: 'kernel', scope: playground.id } : null;
   }
@@ -134,7 +141,7 @@ export async function runnerFor(playground: Playground, home: FilesHome, connect
 export function whyNoRunner(home: FilesHome, machineName: string): string {
   if (home.kind === 'server') {
     const name = serverById(home.serverId)?.name ?? home.name ?? 'That computer';
-    return `${name} isn’t reachable with a Companion that moves files (0.15.0 or later): start it, or update it.`;
+    return `${name} isn’t reachable with a Companion that moves files (${MOVER_VERSION} or later): start it, or update it under Settings → Updates.`;
   }
   if (home.kind === 'machine') return `Connect to ${machineName} first: its disk is reached through its kernel.`;
   return '';

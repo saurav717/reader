@@ -15,7 +15,8 @@ import { useLive } from '../lib/liveRoom';
 import type { Destination } from '../lib/movePlan';
 import { computeChangeRefused, homeFor, planOf, sameHome, sizeOf, stepWords } from '../lib/movePlan';
 import type { MoveState } from '../lib/moves';
-import { cancelMove, companionDisk, kernelDisk, keepOldCopy, keyOf, moveStatus, removeOldCopy, renewDriveToken, settleMove, startMove, startUnpack, workerAddress } from '../lib/moves';
+import { isNewer } from '../lib/companion';
+import { cancelMove, companionDisk, MOVER_VERSION, kernelDisk, keepOldCopy, keyOf, moveStatus, removeOldCopy, renewDriveToken, settleMove, startMove, startUnpack, workerAddress } from '../lib/moves';
 import { driveFolderName } from '../lib/driveFiles';
 import type { Compute, FilesHome, Playground } from '../lib/playground';
 import { driveConnected, driveTokenNow, machineRoot, serverById, updatePlayground, useDriveConnected, useServers } from '../lib/playground';
@@ -192,7 +193,7 @@ export default function StoragePanel({ playground, machineName, connected, move,
   const driveOn = useDriveConnected();
   const live = useLive();
   const shared = Boolean(live.room) && live.status === 'live';
-  const [disks, setDisks] = useState<Record<string, { free: number; total: number } | null | undefined>>({});
+  const [disks, setDisks] = useState<Record<string, { free: number; total: number; version?: string } | null | undefined>>({});
   const [online, setOnline] = useState<Record<string, boolean | null>>({});
   const [looked, setLooked] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -266,14 +267,14 @@ export default function StoragePanel({ playground, machineName, connected, move,
       return {
         key: server.id,
         label: server.name,
-        detail: `${server.where === 'pc' ? 'This computer' : 'Your computer'} · the Reader Companion${info === null && online[server.id] ? ' — update it to 0.15.0 to move files' : ''}`,
+        detail: `${server.where === 'pc' ? 'This computer' : 'Your computer'} · the Reader Companion${online[server.id] && (info === null || isNewer(MOVER_VERSION, info?.version ?? '0')) ? ` — update it to ${MOVER_VERSION} to move files` : ''}`,
         icon: <span className={`pg-mark ${server.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{server.where === 'pc' ? 'PC' : 'GPU'}</span>,
         to: { kind: 'server', serverId: server.id, name: server.name, ...(server.companionId ? { deviceId: server.companionId } : {}) },
         free: info?.free,
         total: info?.total,
         checked: looked,
         online: online[server.id] ?? null,
-        blocked: online[server.id] === false ? 'Offline' : info === null ? 'Needs Companion 0.15.0' : undefined,
+        blocked: online[server.id] === false ? 'Offline' : info === null || isNewer(MOVER_VERSION, info?.version ?? '0') ? `Needs Companion ${MOVER_VERSION}` : undefined,
       };
     }),
     ...(playground.compute.kind === 'colab'

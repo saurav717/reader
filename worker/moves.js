@@ -364,10 +364,20 @@ export async function handleMoves(request, env, ctx, path, helpers) {
 
 /**
  * The destination told to unpack, when it is a computer with the Reader Companion: its address and token from the
- * account's list of computers (worker/devices.js), and the Companion's `companion/move` (0.15.0 and later). A
- * computer that is off, or an older Companion, is left for the page, which starts the unpack when it is next open.
+ * account's list of computers (worker/devices.js), and the Companion's `companion/move` (MOVER_VERSION and later).
+ * A computer that is off, or an older Companion, is left for the page, which starts the unpack when it is next open.
  */
 /** A computer of the account's, by its Companion's id: its tunnel and token from the account's list (worker/devices.js), or null when it is off or unknown. */
+/** The Companion whose mover weighs an arrival over an older copy three ways (src/lib/moves.ts, MOVER_VERSION). */
+export const MOVER_VERSION = '0.16.0';
+/** Whether version a is at least b, for dotted numbers. */
+export function atLeast(a, b) {
+  const x = String(a || '0').split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return true;
+}
+
 async function companionOf(env, email, deviceId) {
   if (!deviceId || !env.DEVICES) return null;
   const list = await (await env.DEVICES.get(env.DEVICES.idFromName(`devices:${email.toLowerCase()}`)).fetch('https://devices/list', { method: 'POST', body: '{}' })).json();
@@ -385,13 +395,14 @@ const callCompanion = (device, meta, request, body, fetchImpl) =>
 
 /**
  * The destination told to unpack, when it is a computer with the Reader Companion: its address and token from the
- * account's list of computers (worker/devices.js), and the Companion's `companion/move` (0.15.0 and later). A
- * computer that is off, or an older Companion, is left for the page, which starts the unpack when it is next open.
+ * account's list of computers (worker/devices.js), and the Companion's `companion/move` (MOVER_VERSION and later).
+ * A computer that is off, or an older Companion, is left for the page, which starts the unpack when it is next open.
  */
 export async function tellDestination(env, meta, request, fetchImpl = (...args) => fetch(...args)) {
   try {
     const device = await companionOf(env, meta.email, meta.to?.deviceId);
-    if (!device) return false;
+    // An older Companion's mover would write over an old copy there: the page offers it the update instead.
+    if (!device || !atLeast(device.version, MOVER_VERSION)) return false;
     const answer = await callCompanion(device, meta, request, { mode: 'unpack', api: meta.api, id: meta.id, key: meta.key, root: meta.to.root || '' }, fetchImpl);
     return answer.ok;
   } catch {

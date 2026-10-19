@@ -188,7 +188,7 @@ A machine has to be told to start, and there are two ways to tell it (`runnerFor
 
 ```mermaid
 flowchart TD
-  A{"Where is this end?"} -->|"a computer with the Companion ≥ 0.15.0"| C["POST companion/move<br/>on that computer<br/>(its token, the site's origin)"]
+  A{"Where is this end?"} -->|"a computer with the Companion ≥ 0.16.0"| C["POST companion/move<br/>on that computer<br/>(its token, the site's origin)"]
   A -->|"Colab's disk, or the server the project runs on"| K["A few lines in the project's small kernel:<br/>write mover.py to ~/.reader-agent,<br/>start it on its own (start_new_session)"]
   A -->|"Google Drive"| N["Nothing to start:<br/>the machine at the other end does it"]
   A -->|"anything else"| X["Not now:<br/>the panel says why<br/>(offline, needs the update, not connected)"]
@@ -425,10 +425,10 @@ curl -s -X POST https://api.koios.dev/moves/start -H 'Origin: https://koios.dev'
 `{"error":"which move?"}` means it is set up. `{"error":"moves need an R2 bucket…","setup":true}` means the bucket
 or the Durable Object isn't bound yet.
 
-**4. Update the Companion on each computer to 0.15.0.** That's the version with `companion/move`. The site's build
+**4. Update the Companion on each computer to 0.16.0.** That's the version whose mover handles moves (and moving back over an old copy, section 7). The site's build
 publishes the new wheel. Then, in **Settings → Updates**, each paired computer shows **Update**: the Companion
 installs the new version itself and starts again (see [companion.md](companion.md)). Until a computer is updated,
-the panel shows it with **Needs Companion 0.15.0**, and moves to or from it are disabled.
+the panel shows it with **Needs Companion 0.16.0**, and moves to or from it are disabled.
 
 Nothing is needed on Colab or on a plain Jupyter server: the page sends the mover there each time.
 
@@ -465,7 +465,7 @@ Nothing is needed on Colab or on a plain Jupyter server: the page sends the move
 
 | You see | What it means | What to do |
 | --- | --- | --- |
-| **Needs Companion 0.15.0** on a computer | Its Companion is older than moves. | Settings → Updates → **Update** for that computer. |
+| **Needs Companion 0.16.0** on a computer | Its Companion is older than moves. | Settings → Updates → **Update** for that computer. |
 | **Offline** on a computer | It didn't answer when the panel asked (it's asleep, off, or its Companion isn't running). | Wake it up or start its Companion, then **Check again**. A move already waiting for it carries on once it's back. |
 | *Packed — waiting for … to unpack* | The archive is complete in R2, and the destination hasn't started. | If it's a computer, it unpacks when it comes online; if it's Colab, open the project with Colab connected. |
 | *Waiting for your Google sign-in to be renewed* | A Drive move ran past the token's hour with no page open. | Open the project; the page hands on a fresh token and the move continues. |
