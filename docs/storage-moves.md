@@ -315,8 +315,11 @@ These are one-time steps for the site's owner. In order:
 npx wrangler r2 bucket create reader-moves
 ```
 
-If R2 isn't enabled on the Cloudflare account yet, the dashboard asks you to enable it first (**R2 → Purchase R2 /
-Enable**). The free tier is 10 GB of storage with no charge for downloads, and moves only use it briefly.
+If R2 isn't enabled on the Cloudflare account yet, enable it first. In the dashboard's left menu it's under
+**Storage & databases → R2 object storage** (or type "R2" in **Quick search**); the first visit asks you to add a
+payment method and turn R2 on. The free tier is 10 GB of storage with no charge for downloads, and moves only use
+it briefly. The bucket can be made there too (**Create bucket**, named `reader-moves`, location Automatic) instead
+of with the command.
 
 The merge also does this step for you: the **Deploy worker** workflow now creates the bucket when it's missing,
 before it deploys. That needs the `CLOUDFLARE_API_TOKEN` secret to include **Workers R2 Storage: Edit**. The "Edit
