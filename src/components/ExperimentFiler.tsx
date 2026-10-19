@@ -15,6 +15,8 @@ import type { Project } from '../lib/projects';
 import { projectsOf } from '../lib/projects';
 import { readSimRuns, shownStatus } from '../lib/simTelemetry';
 import { useStore } from '../lib/store';
+import { openProject, useLibrarySettled, useProjectForImplementation } from '../lib/implementationProject';
+import { saveExperiment } from '../lib/logbookStore';
 
 /** Runs that ended longer ago than this are not filed by themselves: they were over before the filing was. */
 const FRESH_S = 2 * 24 * 3600;
@@ -35,6 +37,21 @@ export default function ExperimentFiler({ playground, folder, connected }: { pla
   projectRef.current = project;
   const busy = useRef(false);
   const by = user?.email ?? 'you';
+  const projectFor = useProjectForImplementation();
+  const settled = useLibrarySettled();
+  const paperId = playground.cites[0]?.paperId;
+  /** The experiment on the toast, waiting for the Project just made for the playground, to go into its logbook. */
+  const [toLog, setToLog] = useState<Experiment | null>(null);
+  useEffect(() => {
+    if (!toLog || !project) return;
+    setToLog(null);
+    void saveExperiment(project, toLog).catch(() => undefined);
+  }, [toLog, project]);
+  const makeProject = async () => {
+    if (!paperId) return;
+    const id = await projectFor(paperId, playground).catch(() => null);
+    if (id) setToLog(toast?.experiment ?? null);
+  };
 
   useEffect(() => {
     if (!connected) return;
@@ -105,7 +122,16 @@ export default function ExperimentFiler({ playground, folder, connected }: { pla
           ) : (
             `${exp.where.label}: ${exp.where.path}`
           )}
-          {projectRef.current ? ` · in ${projectRef.current.name}’s logbook` : ' · no project holds this playground, so only the files'}
+          {projectRef.current ? (
+            <>
+              {' · in '}
+              <button type="button" className="link" onClick={() => openProject(projectRef.current!.id, 'experiments')}>
+                {projectRef.current.name}’s logbook
+              </button>
+            </>
+          ) : (
+            ' · not in any logbook yet: this playground has no Project'
+          )}
           {toast.notes === 'writing' ? ' · notes being written…' : toast.notes === 'done' ? ' · notes written' : toast.notes === 'failed' ? ' · the notes could not be written (the Experiments tab can try again)' : ''}
         </span>
       ) : null}
@@ -124,6 +150,11 @@ export default function ExperimentFiler({ playground, folder, connected }: { pla
                 </option>
               ))}
           </select>
+        ) : null}
+        {!projectRef.current && paperId && settled && filedSomewhere ? (
+          <button type="button" className="btn sm primary" onClick={() => void makeProject()} title="A Project on the Projects page for this playground, named after its paper: this run and every one after it are kept in its logbook, with notes">
+            Make it a Project
+          </button>
         ) : null}
         <button type="button" className="btn sm" onClick={() => setToast(null)}>
           Close

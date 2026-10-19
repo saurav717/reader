@@ -14,6 +14,7 @@ import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
 import { colabNow, machineLabel, useClient as useColabClient } from './lib/colab';
 import { explanationFor, setExplainDrive } from './lib/explain';
+import { OPEN_PROJECT } from './lib/implementationProject';
 import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
@@ -606,6 +607,20 @@ export default function App() {
     window.addEventListener('reader:discover', onDiscover);
     return () => window.removeEventListener('reader:discover', onDiscover);
   }, []);
+  // A project asked for from anywhere (Explain's Project menu, an experiment's toast): Explain put away, the project shown.
+  const opensOn = useRef(settings.projectOpensOn);
+  opensOn.current = settings.projectOpensOn;
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string; section?: string }>).detail;
+      if (!detail?.id) return;
+      setExplainOpen(false);
+      setUsageOpen(false);
+      setView(detail.section ? { kind: 'project', id: detail.id, mode: 'logbook', section: detail.section } : projectView(detail.id, opensOn.current));
+    };
+    window.addEventListener(OPEN_PROJECT, onOpen);
+    return () => window.removeEventListener(OPEN_PROJECT, onOpen);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reopening the tab should put you back on the paper you were reading.
   useEffect(() => {

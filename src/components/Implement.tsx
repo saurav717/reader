@@ -20,7 +20,7 @@ import type { Compute, Estimate, Fit, Hardware } from '../lib/hardware';
 import { computeOf, hardwareNow, parseTree, setHardware, slugOf, subscribeHardware } from '../lib/implement';
 import type { Bundle } from '../lib/implement';
 import { useStore } from '../lib/store';
-import { useProjectForImplementation } from '../lib/implementationProject';
+import { openProject, useProjectForImplementation } from '../lib/implementationProject';
 import { runInWorkspace, workspaceStatus, writeScaffold } from '../lib/workspace';
 import type { WorkspaceStatus, Written } from '../lib/workspace';
 import { gigabytes } from '../lib/telemetry';
@@ -613,6 +613,7 @@ export function LocalMenu({
   paper,
   onPlan,
   existing,
+  projectCard,
   projectOpen = false,
   onProject,
 }: {
@@ -624,6 +625,8 @@ export function LocalMenu({
   onPlan?: () => void;
   /** The project already set up from this paper's plan, to open again rather than make another. */
   existing?: Playground;
+  /** The Project on the Projects page that holds it (its overview, logbook and experiments). */
+  projectCard?: string;
   /** Its editor is the one showing. */
   projectOpen?: boolean;
   /** Opens a project in the page's own place; without it, the Playground opens on it. */
@@ -699,13 +702,13 @@ export function LocalMenu({
         className={`btn sm local-open${mine || projectOpen ? ' is-on' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={!bundle && !draft}
+        disabled={!bundle && !draft && !existing}
         onClick={() => setOpen(!open)}
-        title={bundle ? `Write ${what} onto this machine, through the reader's proxy, and run it there` : 'Ready once the page is written'}
+        title={paper ? 'The paper as a project: its code in an editor here (files, terminals, the agents, the Sim pane), and a Project on the Projects page whose logbook keeps every run with notes' : bundle ? `Write ${what} onto this machine, through the reader's proxy, and run it there` : 'Ready once the page is written'}
       >
-        <LocalIcon size={15} /> Local
+        <LocalIcon size={15} /> {paper ? 'Project' : 'Local'}
       </button>
-      {open && (bundle || draft) ? (
+      {open && (bundle || draft || existing) ? (
         <div className="menu right local-menu" role="menu" aria-label="Local workspace">
           {paper ? (
             <>
@@ -724,6 +727,36 @@ export function LocalMenu({
                   <b>{projectOpen ? 'Open below' : `Open ${existing.title}`}</b>
                   <span>the project set up from this plan — its files, a terminal and the agent, here on this page</span>
                 </button>
+              ) : null}
+              {existing && projectCard ? (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="colab-action local-project"
+                    onClick={() => {
+                      setOpen(false);
+                      openProject(projectCard, 'experiments');
+                    }}
+                  >
+                    <b>Its experiments log</b>
+                    <span>every simulation run, filed as it ends — numbers, videos, and notes the model writes on the results — in the Project's logbook, beside its meetings</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="colab-action local-project"
+                    onClick={() => {
+                      setOpen(false);
+                      openProject(projectCard);
+                    }}
+                  >
+                    <b>Open its Project</b>
+                    <span>on the Projects page: its overview, papers, to-dos, the people on it</span>
+                  </button>
+                </>
+              ) : existing ? (
+                <div className="colab-status">Its Project, where runs are logged, is made once the library has loaded (the paper has to be in the library).</div>
               ) : null}
               {draft ? (
                 <button
