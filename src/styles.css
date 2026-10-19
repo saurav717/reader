@@ -6352,7 +6352,7 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-right-tabs [role='tab'].is-on { color: var(--ink); border-bottom-color: var(--accent); }
 .vs-right { overflow: hidden; }
 .vs-right > .rt-pane, .vs-right > .metrics-pane, .vs-right > .tb-pane, .vs-right > .pg-pad { overflow-y: auto; }
-.vs-right > :not(.vs-agent-head):not(.vs-agent-pick):not(.vs-agent-chat):not(.pg-agent):not(.cli-setup) { flex: 1; min-height: 0; overflow-y: auto; }
+.vs-right > :not(.vs-agent-head):not(.vs-agent-pick):not(.vs-agent-chat):not(.pg-agent):not(.cli-setup):not(.pg-agent-note) { flex: 1; min-height: 0; overflow-y: auto; }
 .vs-agent-pick { flex: none; display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border-soft); overflow-x: auto; scrollbar-width: none; }
 .vs-agent-pick button { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border: 1px solid var(--border-soft); border-radius: 999px; background: transparent; color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
 .vs-agent-pick button.is-on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); color: var(--accent-ink); }
@@ -8658,6 +8658,8 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .xp-toast { position: fixed; right: 16px; bottom: 16px; z-index: 40; max-width: 360px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow-sm); font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 6px; }
 .xp-toast b { color: var(--ink); }
 .pg-agent-note { margin: 0 12px 6px; font-size: 11.5px; }
+/* Above the agent's chat, the line about the paper's files takes only its own lines: the chat has the rest of the pane. */
+.vs-right > .pg-agent-note { flex: none; margin: 6px 12px; max-height: 4.5em; overflow-y: auto; }
 .xp-toast .xp-acts { gap: 6px; }
 .lb-empty p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
 
