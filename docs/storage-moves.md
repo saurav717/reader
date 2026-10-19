@@ -53,6 +53,30 @@ more detail:
 *Figure 3. A move from the laptop to the GPU box, partway through. The strip at the top stays visible while you work.
 Its Details link opens this panel.*
 
+### Reading the progress bar
+
+The strip and the panel show the same bar and the same three facts beneath it:
+
+![The strip and the panel while fetching from Drive: a bar at 33%, steps "1 List the files" (done) and "2 Fetch and check" (now), "96 / 214 files · 436 MB / 1.3 GB", and "4.7 MB/s · about 3 min left"](storage-move-bar.png)
+
+*Figure 3a. Fetching from Drive, a third of the way through.*
+
+| What | What it says |
+| --- | --- |
+| **The bar and the %** | How much of the move is done, by bytes (by files when every file is empty). An archive move counts twice, so packing fills the first half and unpacking the second. |
+| **The steps** | Which step the move is on. Drive → computer: *List the files*, then *Fetch and check*. Computer → computer: *Pack*, then *Unpack and check*. Computer → Drive has one step, *Send and check*. A filled circle is a finished step. |
+| **The counts** | Files and bytes done, against the totals. |
+| **The speed and time left** | Measured over the last 30 seconds of the current step. They appear after a few readings, about 10 seconds into a step. |
+
+Before there is anything to count against, the bar has no number. A stretch runs along it instead. This happens
+while the machine is being asked to start, while it lists a Drive folder, and while a packed archive waits for the
+other end. A large Drive folder takes one call per folder to list, so listing can take a minute or more. During
+that time the line counts the files found so far:
+
+![While listing: an empty bar with no number, step 1 "List the files" current, and "151 files found so far · 347 MB"](storage-move-listing.png)
+
+*Figure 3b. Listing a Drive folder. The totals aren't known yet, so the count only goes up.*
+
 When every file has arrived and been checked, the project switches to the new place by itself. The old copy is kept
 until you decide what to do with it:
 
@@ -220,13 +244,15 @@ stateDiagram-v2
   packing --> packed: report packed (archive complete in R2)
   packed --> unpacking: destination reports
   unpacking --> done: report unpacked (every file checked)
-  started --> pulling: drive-pull
+  started --> listing: drive-pull (lists the Drive folder)
+  listing --> pulling: totals known
   pulling --> done: report pulled
   started --> pushing: drive-push
   pushing --> done: report pushed
   pulling --> pulling: waiting for a Google token
   pushing --> pushing: waiting for a Google token
   started --> cancelled: Cancel
+  listing --> cancelled: Cancel
   packing --> cancelled: Cancel
   packed --> cancelled: Cancel
   unpacking --> cancelled: Cancel

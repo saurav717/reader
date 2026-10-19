@@ -114,6 +114,8 @@ export function stepWords(step: string, plan: MovePlan, from: string, to: string
   switch (step) {
     case 'started':
       return plan === 'drive-pull' ? `Asking ${to} to fetch the files from Drive` : `Asking ${from} to pack the files`;
+    case 'listing':
+      return `${to} is listing the files in Drive`;
     case 'packing':
       return `${from} is packing the files`;
     case 'packed':
@@ -135,4 +137,75 @@ export function stepWords(step: string, plan: MovePlan, from: string, to: string
     default:
       return step;
   }
+}
+
+/** What the progress card reads of a move (moves.ts, MoveState). */
+export interface MoveReading {
+  plan: MovePlan;
+  status: string;
+  step: string;
+  progress: { files: number; bytes: number; totalFiles: number; totalBytes: number };
+}
+
+/** The steps a move goes through, in words, and which one it is on: 0, 1 … or the count of them when done. */
+export function moveStages(move: MoveReading): { names: string[]; at: number } {
+  const done = move.status === 'done' || ['unpacked', 'pulled', 'pushed'].includes(move.step);
+  if (move.plan === 'archive') {
+    const second = ['packed', 'unpacking'].includes(move.status);
+    return { names: ['Pack', 'Unpack and check'], at: done ? 2 : second ? 1 : 0 };
+  }
+  if (move.plan === 'drive-pull') return { names: ['List the files', 'Fetch and check'], at: done ? 2 : move.status === 'pulling' ? 1 : 0 };
+  return { names: ['Send and check'], at: done ? 1 : 0 };
+}
+
+/**
+ * How far the move is, 0 to 1, or null while there is nothing yet to count against (asked, listing, packed and
+ * waiting for the other end): the bar runs without a number then.
+ */
+export function moveShare(move: MoveReading): number | null {
+  if (move.status === 'done') return 1;
+  const { bytes, totalBytes, files, totalFiles } = move.progress;
+  const counting = ['packing', 'unpacking', 'pulling', 'pushing'].includes(move.status) && (totalBytes > 0 || totalFiles > 0);
+  if (!counting) return null;
+  const share = totalBytes ? bytes / totalBytes : files / totalFiles;
+  // An archive goes twice: packed, then unpacked — each half the bar.
+  const whole = move.plan === 'archive' ? (move.status === 'unpacking' ? 0.5 + share / 2 : share / 2) : share;
+  return Math.max(0, Math.min(1, whole));
+}
+
+/** A reading of the bytes done, as the page saw it. */
+export interface MoveSample {
+  at: number;
+  step: string;
+  bytes: number;
+}
+
+/** The last reading kept, and older ones of the same step within the window: the speed is taken over those. */
+export function keepSample(samples: MoveSample[], next: MoveSample, windowMs = 30_000): MoveSample[] {
+  const last = samples[samples.length - 1];
+  if (last && last.step === next.step && last.bytes === next.bytes) return samples;
+  const same = last && last.step === next.step && next.bytes >= last.bytes ? samples : [];
+  return [...same, next].filter((sample) => next.at - sample.at <= windowMs || sample === next).slice(-20);
+}
+
+/** Bytes a second over the samples kept, or null with fewer than two of them or too short a span to say. */
+export function moveRate(samples: MoveSample[]): number | null {
+  if (samples.length < 2) return null;
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const seconds = (last.at - first.at) / 1000;
+  if (seconds < 2 || last.bytes <= first.bytes) return null;
+  return (last.bytes - first.bytes) / seconds;
+}
+
+/** About how long the current step has left, in words: "about 3 min left"; null when it can't be said. */
+export function timeLeft(move: MoveReading, rate: number | null): string | null {
+  const { bytes, totalBytes } = move.progress;
+  if (!rate || !totalBytes || bytes >= totalBytes) return null;
+  // The archive's second half moves the same bytes again.
+  const seconds = (totalBytes - bytes) / rate + (move.plan === 'archive' && move.status === 'packing' ? totalBytes / rate : 0);
+  if (seconds < 45) return 'less than a minute left';
+  if (seconds < 90 * 60) return `about ${Math.round(seconds / 60)} min left`;
+  const hours = seconds / 3600;
+  return `about ${hours < 10 ? hours.toFixed(1).replace(/\.0$/, '') : Math.round(hours)} h left`;
 }

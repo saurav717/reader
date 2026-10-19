@@ -25,7 +25,7 @@ import { driveFolderIdOf, driveTokenNow, machineRoot, serverById, updatePlaygrou
 
 export interface MoveState {
   id: string;
-  status: 'started' | 'packing' | 'packed' | 'unpacking' | 'pulling' | 'pushing' | 'done' | 'failed' | 'cancelled';
+  status: 'started' | 'listing' | 'packing' | 'packed' | 'unpacking' | 'pulling' | 'pushing' | 'done' | 'failed' | 'cancelled';
   step: string;
   plan: MovePlan;
   from: MoveEnd;

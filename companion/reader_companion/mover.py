@@ -128,8 +128,10 @@ class Worker:
 class Progress:
     """Reports at most every REPORT_S seconds, and always at the end of a step."""
 
-    def __init__(self, worker: Worker, step: str, total_files: int = 0, total_bytes: int = 0):
+    def __init__(self, worker: Worker, step: str, total_files: int = 0, total_bytes: int = 0, best_effort: bool = False):
         self.worker, self.step = worker, step
+        # A report that only shows how it is going (the listing) doesn't stop the move when a Worker refuses it.
+        self.best_effort = best_effort
         self.files = self.bytes = 0
         self.total_files, self.total_bytes = total_files, total_bytes
         self.lock = threading.Lock()
@@ -146,7 +148,12 @@ class Progress:
             self.send()
 
     def send(self, **extra) -> dict:
-        return self.worker.report(step=self.step, files=self.files, bytes=self.bytes, totalFiles=self.total_files, totalBytes=self.total_bytes, **extra)
+        try:
+            return self.worker.report(step=self.step, files=self.files, bytes=self.bytes, totalFiles=self.total_files, totalBytes=self.total_bytes, **extra)
+        except MoveError:
+            if self.best_effort:
+                return {}
+            raise
 
 
 # ------------------------------------------------------------------- the folder --
@@ -507,15 +514,18 @@ class Drive:
             if not page:
                 return found
 
-    def tree(self, folder: str, prefix: str = "") -> list[dict]:
+    def tree(self, folder: str, prefix: str = "", found: "Progress | None" = None) -> list[dict]:
+        """Every file under folder; `found`, when given, counts them as they are listed (one call per folder)."""
         out = []
         for child in self.children(folder):
             path = f"{prefix}{child['name']}"
             if child["mimeType"] == FOLDER_MIME:
                 if child["name"] not in SKIP:
-                    out += self.tree(child["id"], f"{path}/")
+                    out += self.tree(child["id"], f"{path}/", found)
             elif not child["mimeType"].startswith("application/vnd.google-apps."):
                 out.append({**child, "path": path})
+                if found:
+                    found.add(files=1, size=int(child.get("size") or 0))
         return out
 
     def folder(self, name: str, parent: str) -> str:
@@ -572,7 +582,10 @@ class Drive:
 
 def drive_pull(worker: Worker, root: Path, folder: str) -> dict:
     drive = Drive(worker)
-    every = [f for f in drive.tree(folder) if safe_member(f["path"])]
+    # Listing a big folder takes a call per folder: what has been found so far is shown, the totals not yet known.
+    listing = Progress(worker, "listing", best_effort=True)
+    listing.send()
+    every = [f for f in drive.tree(folder, found=listing) if safe_member(f["path"])]
     files = [f for f in every if f["path"] != BASE]
     total = sum(int(f.get("size") or 0) for f in files)
     progress = Progress(worker, "pulling", len(files), total)
