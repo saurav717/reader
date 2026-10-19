@@ -290,11 +290,12 @@ export function simProject(sim: Simulator, env: SimEnv | undefined, template: Te
     title,
     files,
     pending: `bash setup.sh && ${run}`,
+    // The console in Files runs in the project's folder; a notebook cell runs where the kernel started (Colab's
+    // /content, a server's home), so the cells say to change into the folder first rather than assuming it.
     cells: [
-      { type: 'markdown', source: `# ${title}\n\n${sim.name}${env ? ` · ${env.label}` : ''} · ${TEMPLATES[template].name}. The project's files are in **Files**; this notebook runs on the same machine.` },
-      { type: 'code', source: `!bash setup.sh` },
-      { type: 'code', source: `!${run}` },
-      { type: 'code', source: '!python koios_telemetry.py summary' },
+      { type: 'markdown', source: `# ${title}\n\n${sim.name}${env ? ` · ${env.label}` : ''} · ${TEMPLATES[template].name}.\n\nThe project's files and its console are in **Files**, where \`bash setup.sh && ${run}\` waits for a click and runs in the project's folder; the **Sim** pane on the right draws the runs. To run the scripts from this notebook instead, change into the folder first: its path on the machine is shown over the console.` },
+      { type: 'code', source: `# %cd <the project's folder on the machine, as shown over the console in Files>\n!bash setup.sh && ${run}` },
+      { type: 'code', source: '!python koios_telemetry.py summary   # every run, digested, with what looks wrong and what to try' },
     ],
   };
 }

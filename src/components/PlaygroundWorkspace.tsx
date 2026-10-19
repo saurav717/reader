@@ -2889,7 +2889,7 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
       {report ? (
         <p className="pg-ok">
           {report.what === 'push' ? `${report.sent.length} ${report.sent.length === 1 ? 'file' : 'files'} copied to the machine` : `${report.back.length} ${report.back.length === 1 ? 'file' : 'files'} brought back`}
-          {report.skipped.length ? ` · ${report.skipped.length} left where they were, over 2 MB` : ''} · {new Date(report.at).toLocaleTimeString()}
+          {report.skipped.length ? ` · ${report.skipped.length} left where they were: over 2 MB, or not text (videos, images, weights)` : ''} · {new Date(report.at).toLocaleTimeString()}
         </p>
       ) : null}
       <label className="pg-rules">

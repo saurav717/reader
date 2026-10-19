@@ -373,14 +373,19 @@ focus = json.loads(${py(focus)})
 CAP = ${READ_CAP}
 out = {'now': time.time(), 'runs': []}
 found = []
-for path in glob.glob(os.path.join(root, '**', 'events.jsonl'), recursive=True):
-    rel = os.path.relpath(os.path.dirname(path), root)
-    if any(part in ('.git', '.reader', 'node_modules', 'wandb') for part in rel.split(os.sep)):
-        continue
-    try:
-        found.append((os.path.getmtime(path), rel, path))
-    except OSError:
-        pass
+# Walked with the folders that can't hold a run pruned, and no deeper than six levels, so a project with a
+# node_modules or a data/ folder of a million files costs nothing more than one without.
+PRUNE = {'.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints'}
+for here, dirs, files in os.walk(root):
+    dirs[:] = [d for d in dirs if d not in PRUNE and not d.startswith('.')]
+    if here[len(root):].count(os.sep) >= 6:
+        dirs[:] = []
+    if 'events.jsonl' in files:
+        path = os.path.join(here, 'events.jsonl')
+        try:
+            found.append((os.path.getmtime(path), os.path.relpath(here, root), path))
+        except OSError:
+            pass
 found.sort(reverse=True)
 for mtime, rel, path in found[:40]:
     meta = {}

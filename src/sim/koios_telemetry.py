@@ -635,11 +635,15 @@ def read_run(directory: str) -> dict:
 
 def find_runs(root: str = ".") -> list[str]:
     """Every run folder under root (an events.jsonl in it), newest first."""
+    # The same walk as the Sim pane's (src/lib/simTelemetry.ts, READ_CODE): folders that can't hold a run pruned.
+    prune = {".git", ".reader", "node_modules", "wandb", "data", "datasets", "__pycache__", ".venv", "venv", "site-packages", ".ipynb_checkpoints"}
     found = []
-    for path in glob.glob(os.path.join(root, "**", "events.jsonl"), recursive=True):
-        if any(part in path.split(os.sep) for part in (".git", ".reader", "node_modules", "wandb")):
-            continue
-        found.append(os.path.dirname(path))
+    for here, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in prune and not d.startswith(".")]
+        if here[len(root):].count(os.sep) >= 6:
+            dirs[:] = []
+        if "events.jsonl" in files:
+            found.append(here)
     return sorted(found, key=lambda d: os.path.getmtime(os.path.join(d, "events.jsonl")), reverse=True)
 
 

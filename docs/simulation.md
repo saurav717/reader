@@ -14,7 +14,9 @@ each change in `LEARNING.md`, so the person can follow and learn.
 |---|---|
 | ![the Sim pane: finished, "Return is climbing", the return chart with its running mean, 23 videos, the losses](sim-pane.png) | ![the Sim pane on a world-model run: the data video, the dream, the error over the horizon rising after the 5 given frames, the error over training](sim-dream.png) |
 
-This document records what was built, what was hard about it, and how each difficulty was handled. It is a log
+This document records what was built, what was hard about it, and how each difficulty was handled.
+[simulation-process.md](simulation-process.md) is the process: the order of work, every background run and its
+result, the review against the existing code, and the checklist. It is a log
 as much as a design. Each entry under [Challenges](#challenges-and-how-they-are-handled) says what is resolved,
 what is worked around and what is still open.
 

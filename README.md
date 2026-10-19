@@ -4425,7 +4425,9 @@ runs as they go, read on the machine a few seconds apart:
 agents; `doctor`, `tail`, `note` and `bridge` (another codebase's
 `metrics.jsonl` or `.csv`, followed into the pane) are beside it.
 [docs/simulation.md](docs/simulation.md) has the catalogue, the event format,
-and what was hard about each part and how it was handled.
+and what was hard about each part and how it was handled;
+[docs/simulation-process.md](docs/simulation-process.md) how it was built,
+tested and reviewed.
 
 #### Open a file or folder
 
