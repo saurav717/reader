@@ -230,16 +230,30 @@ export function scalarCharts(run: SimRun, filter = ''): { title: string; series:
   }
   const out: { title: string; series: Series[] }[] = [];
   for (const [prefix, names] of groups) {
-    for (let i = 0; i < names.length; i += 4) {
-      const part = names.slice(i, i + 4);
+    // A prefix's names share a chart only in fours, and only while their sizes are close: SB3 logs
+    // train/value_loss (~1000) and train/learning_rate (0.0003) under one prefix, and on one chart only the big
+    // one can be read.
+    const parts: string[][] = [];
+    for (const name of names) {
+      const size = magnitude(run.scalars.get(name)!);
+      const last = parts[parts.length - 1];
+      if (last && last.length < 4 && last.every((other) => sameScale(size, magnitude(run.scalars.get(other)!)))) last.push(name);
+      else parts.push([name]);
+    }
+    parts.forEach((part, index) => {
       out.push({
-        title: part.length === 1 ? part[0] : `${prefix}${names.length > 4 ? ` (${i / 4 + 1})` : ''}`,
+        title: part.length === 1 ? part[0] : `${prefix}${parts.length > 1 ? ` (${index + 1})` : ''}`,
         series: part.map((name) => ({ name: part.length === 1 ? name : name.slice(prefix.length + 1) || name, stepped: true, points: downsample(run.scalars.get(name)!.filter((p) => Number.isFinite(p.y))) })).filter((s) => s.points.length),
       });
-    }
+    });
   }
   return out.filter((chart) => chart.series.length);
 }
+
+/** How big a series is: the largest |y| it reaches, 0 for one that never leaves zero. */
+const magnitude = (points: Point[]) => Math.max(0, ...points.map((p) => Math.abs(p.y)).filter(Number.isFinite));
+/** Whether two sizes can share one y axis: both zero, or within a factor of twenty (past that the smaller is a flat line). */
+const sameScale = (a: number, b: number) => (a === 0 && b === 0) || (a > 0 && b > 0 && Math.max(a, b) / Math.min(a, b) <= 20);
 
 /** A dream's error over its horizon, and every dream's mean error over training. */
 export function dreamSeries(dream: Dream): Series[] {

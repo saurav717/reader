@@ -159,6 +159,20 @@ Review fixes made after the first commit (section 2, step 8):
    Python `find_runs` does the same, so `summary` and the pane see the same runs. A run under `data/` is not
    found, by design.
 
+## 6.1 A second look, with a game and a made-up world
+
+After the review, two more runs were made specifically to see the pane as someone training a game-playing agent
+or dreaming a world would see it: SB3's PPO on LunarLander (a Box2D game) for 60k steps, and the world-model
+template on its built-in ball world, both with `KOIOS_VIDEO=gif` so the screenshot browser could play them, and
+with a note added from the terminal as an agent would (`koios_telemetry.py note … --by agent`). The live
+screenshot found one more thing:
+
+- **Series of one prefix on one chart only when their scales are close.** SB3 logs everything under `train/`,
+  so `train/value_loss` (~1000) and `train/learning_rate` (0.0003) shared a chart on which only the big one
+  could be read, and the four-name legend overflowed the pane. `scalarCharts` now lets a prefix's names share a
+  chart only while their largest values are within 20× of each other (a test covers SB3's names), and the legend
+  wraps. The screenshots in `simulation.md` were retaken after the fix.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```

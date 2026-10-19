@@ -6388,6 +6388,8 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-right > .sim-pane { overflow-y: auto; }
 .sim-pane { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 20px; font-size: 12.5px; color: var(--ink-2); }
 .sim-pane .cell-chart { margin: 0; }
+.sim-pane .cell-chart figcaption { flex-wrap: wrap; row-gap: 2px; }
+.sim-pane .cell-chart .chart-legend { flex-wrap: wrap; }
 .sim-bar { display: flex; gap: 6px; }
 .sim-bar select { flex: 1; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); }
 .sim-status { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: 11.5px; color: var(--muted); }

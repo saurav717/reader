@@ -200,6 +200,9 @@ describe('reading a run', () => {
     assert.deepEqual(charts.map((c) => c.title), ['loss', 'entropy']);
     assert.deepEqual(charts[0].series.map((s) => s.name), ['policy', 'value']);
     assert.deepEqual(tele.scalarCharts(run, 'entr').map((c) => c.title), ['entropy']);
+    // Series of a prefix that differ by orders of magnitude get charts of their own: SB3's train/value_loss and train/learning_rate.
+    const sb3 = tele.parseRun('r', {}, events({ scalars: { 'train/value_loss': [900, 1100], 'train/learning_rate': [3e-4, 3e-4], 'train/approx_kl': [0.01, 0.02], 'train/clip_fraction': [0.1, 0.12] } }));
+    assert.deepEqual(tele.scalarCharts(sb3).map((c) => c.series.map((s) => s.name)), [['train/value_loss'], ['train/learning_rate'], ['approx_kl', 'clip_fraction']]);
   });
 
   it('calls a quiet running run stalled', () => {
