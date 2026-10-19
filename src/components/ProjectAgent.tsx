@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getState as assistantState, modelSpec, PROVIDERS, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
-import type { AgentChange, ProjectView } from '../lib/projectAgent';
+import type { AgentRun, AgentChange, ProjectView } from '../lib/projectAgent';
 import { AGENT_FILE, agentChatFor, askAgent, canUndo, clearAgentChat, dismissAgentError, isAgentRunning, loadAgentChats, openAgentChat, stopAgent, subscribeAgent, undoAgentTurn } from '../lib/projectAgent';
 import { followProjectAgent } from '../lib/jobWatch';
 import FileIcon from './FileIcon';
@@ -25,6 +25,22 @@ const SUGGESTIONS = [
 ];
 
 /** The first suggestion when the project cites a paper. */
+const RUNS_KEY = 'reader.pgAgentRuns';
+const readLocal = <T,>(name: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(name);
+    return raw === null ? fallback : (JSON.parse(raw) as T);
+  } catch {
+    return fallback;
+  }
+};
+const writeLocal = (name: string, value: unknown) => {
+  try {
+    localStorage.setItem(name, JSON.stringify(value));
+  } catch {
+    // Storage full or off: the choice lasts the session.
+  }
+};
 const PAPER_SUGGESTION = 'Implement the paper’s method: a small faithful version, a seeded training run sized for this machine, and an evaluation';
 
 export default function ProjectAgent({
@@ -36,6 +52,8 @@ export default function ProjectAgent({
   onOpen,
   onRun,
   onWrote,
+  run,
+  interrupt,
 }: {
   projectId: string;
   host: FileHost;
@@ -47,6 +65,10 @@ export default function ProjectAgent({
   onOpen: (path: string) => void;
   onRun: (command: string) => void;
   onWrote: (changes: AgentChange[]) => void;
+  /** Runs one of its commands in the project's console on the machine and answers with what it printed; with it, the agent runs its own commands unless that is turned off below. */
+  run?: (command: string) => Promise<AgentRun>;
+  /** Stops the command running for it. */
+  interrupt?: () => void;
 }) {
   const assistant = useSyncExternalStore(subscribeAssistant, assistantState);
   const chat = useSyncExternalStore(subscribeAgent, () => agentChatFor(projectId));
@@ -55,6 +77,10 @@ export default function ProjectAgent({
   const ready = Boolean(assistant.keys[modelSpec(model).provider]);
   const writer = PROVIDERS[modelSpec(model).provider].name;
   const [text, setText] = useState('');
+  // Whether its commands run for it (the default) or wait as buttons: kept per browser, for every project.
+  const [autoRun, setAutoRunState] = useState(() => readLocal<boolean>(RUNS_KEY, true));
+  const setAutoRun = (on: boolean) => (setAutoRunState(on), writeLocal(RUNS_KEY, on));
+  const runsFor = Boolean(run) && autoRun;
   const log = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   // The conversations are in the project's folder: read when the panel opens, and again whenever the folder can be reached.
@@ -70,7 +96,7 @@ export default function ProjectAgent({
   const send = (request: string) => {
     if (!request.trim() || running || !ready) return;
     setText('');
-    void askAgent({ projectId, model, request, host, view, onWrote });
+    void askAgent({ projectId, model, request, host, view: async () => ({ ...(await view()), runs: run ? (runsFor ? 'auto' : 'buttons') : undefined }), onWrote, run: runsFor ? run : undefined, interrupt });
   };
 
   return (
@@ -116,7 +142,7 @@ export default function ProjectAgent({
             </span>
             <b>An agent for this project</b>
             <p>
-              It reads the files, the one in front of you and what the console printed; it writes files straight into the folder — one Undo puts them back — and suggests commands to run on {machineName}. Nothing runs by itself.
+              It reads the files, the one in front of you and what the console printed; it writes files straight into the folder — one Undo puts them back — and {runsFor ? <>runs its commands in the console on {machineName}, reading what they print, a few rounds at a time.</> : <>suggests commands to run on {machineName}. Nothing runs by itself.</>}
             </p>
             <div className="vs-agent-sugs">
               {(context.paper ? [PAPER_SUGGESTION, ...SUGGESTIONS.slice(1)] : SUGGESTIONS).map((suggestion) => (
@@ -163,6 +189,17 @@ export default function ProjectAgent({
                   ))}
                 </div>
               ) : null}
+              {turn.runs?.map((done, index) => (
+                <details key={`${index}-${done.command}`} className={`vs-run is-${done.state.replace(' ', '-')}`}>
+                  <summary>
+                    <code>
+                      <span className="pg-prompt">$</span> {done.command}
+                    </code>
+                    <span className="vs-run-state">{done.state === 'ran' ? 'ran' : done.state === 'failed' ? 'failed' : done.state === 'interrupted' ? 'stopped' : 'not run'}</span>
+                  </summary>
+                  <pre>{done.output.slice(-4000) || '(nothing printed)'}</pre>
+                </details>
+              ))}
               {turn.commands?.map((command) => (
                 <div key={command} className="vs-cmd">
                   <code>
@@ -224,6 +261,11 @@ export default function ProjectAgent({
           {context.commands ? <span className="vs-chip">console · {context.commands}</span> : null}
           {context.paper ? <span className="vs-chip" title={context.paper}>¶ the paper</span> : null}
           <span className="spacer" />
+          {run ? (
+            <label className="vs-agent-runs" title={autoRun ? `Its commands run in the console on ${machineName} as it answers, and it reads what they print. Untick to make them buttons you click.` : `Its commands wait as buttons; tick to let it run them on ${machineName} itself.`}>
+              <input type="checkbox" checked={autoRun} disabled={running} onChange={(event) => setAutoRun(event.target.checked)} /> runs commands
+            </label>
+          ) : null}
           {chat.turns.length && !running ? (
             <button type="button" className="link" onClick={() => clearAgentChat(projectId, host)} title="Start a new conversation (the files stay as they are)">
               New chat

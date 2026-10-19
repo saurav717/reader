@@ -61,7 +61,7 @@ import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
 import { computerOf, useReach } from '../lib/away';
-import type { AgentChange, ProjectView } from '../lib/projectAgent';
+import type { AgentChange, AgentRun, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
@@ -1658,9 +1658,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setRefresh((n) => n + 1);
   };
 
-  const run = async (text: string) => {
+  const run = async (text: string): Promise<ConsoleEntry | null> => {
     const trimmed = text.trim();
-    if (!trimmed || targets.some(runningOn)) return;
+    if (!trimmed || targets.some(runningOn)) return null;
     setProblem(null);
     const entry: ConsoleEntry = { id: uid(), command: trimmed, at: Date.now(), ...(target !== 'first' ? { machine: target } : {}) };
     updatePlayground(playground.id, (p) => ({ console: [...p.console, entry].slice(-40), pending: p.pending === trimmed ? undefined : p.pending }));
@@ -1670,6 +1670,17 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     // On all machines at once: each gets the command in its own kernel, side by side.
     await Promise.all(targets.map((machine) => runOn(machine, entry, trimmed, targets.length)));
     setRefresh((n) => n + 1);
+    return entry;
+  };
+  /** A command run for the page's agent: in the console as any other, on the machine (the first of a pool), its output handed back once it ends. */
+  const runForAgent = async (command: string): Promise<AgentRun> => {
+    setPanelOpen(true);
+    setShellView('commands');
+    const entry = await run(command);
+    if (!entry) return { command, output: targets.some(runningOn) ? 'The console is busy with another command; wait for it, or stop it.' : '', state: 'not run' };
+    const done = colabNow().runs[consoleKey(playground.id, entry.id)];
+    if (!done) return { command, output: 'The command could not be started on the machine — is it connected?', state: 'not run' };
+    return { command, output: outputText(done.outputs), state: done.state === 'ran' ? 'ran' : done.state === 'interrupted' ? 'interrupted' : done.state === 'failed' ? 'failed' : 'not run' };
   };
 
   const plan = current ? runPlan(current.path, terminalHere ? projectFolder : null, machineTools) : null;
@@ -2637,6 +2648,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       else void run(line);
                     }}
                     onWrote={tookAgentFiles}
+                    run={runForAgent}
+                    interrupt={() => void interrupt().catch(() => undefined)}
                   />
                 )}
               </>

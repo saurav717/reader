@@ -189,6 +189,8 @@ export interface RunOptions {
   commands: boolean;
   /** What it is told about where it is. */
   context: string;
+  /** Claude Code's web tools off: the project holds the paper, so nothing is to be fetched for it. Codex has no web search unless asked for. */
+  noWeb?: boolean;
 }
 
 /** The command line of one request. */
@@ -204,6 +206,7 @@ export function runArgv(agent: CliAgentId, options: RunOptions): string[] {
       '--permission-mode',
       'acceptEdits',
       ...(options.commands ? ['--allowedTools', 'Bash'] : []),
+      ...(options.noWeb ? ['--disallowedTools', 'WebFetch', 'WebSearch'] : []),
       ...(options.model ? ['--model', options.model] : []),
       ...(options.session ? ['--resume', options.session] : []),
       '--append-system-prompt',

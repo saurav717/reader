@@ -4391,7 +4391,16 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   `IMPLEMENTATION_PLAN.md` — and every agent is told to read it there and not
   to go looking for it online: Claude Code and Codex in their briefing, the
   agent by the files in its, the page's own agent with the text in each
-  request, `AGENTS.md` for the rest.
+  request, `AGENTS.md` for the rest. Claude Code has its web tools turned off
+  in such a project, so it cannot fetch the paper even if it wanted to.
+  The page's own agent also runs its commands: a command it answers with is
+  run in the project's console on the connected machine (Colab's GPU as much
+  as a server), what it printed goes back to it, and it goes on — fixes what
+  failed, runs again, up to six rounds — before it answers; the pane shows
+  each run with its output, and **runs commands** under the box turns that off,
+  leaving the commands as buttons. It writes files where the project keeps
+  them (Drive, a computer of yours, this browser), and the console copies the
+  folder to the machine before each command, as it does for yours.
   The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
   (cells that load it and run it once), **a simulation** (below), or **a file

@@ -42,6 +42,7 @@ what is worked around and what is still open.
 | The Sim pane | `src/components/SimPane.tsx`, `src/lib/simTelemetry.ts` | The right-hand pane's **Sim** tab: run picker, status, findings, return and success charts, videos, dreams, grouped numbers with notes as dashed marks, timeline, traceback, config, checkpoints, and the machine's doctor. |
 | Sync fix | `src/lib/playground.ts` (`isBinaryPath`) | The sync carries text; binary files (videos, images, weights) are now left where they are instead of being copied as broken text. |
 | The paper in the folder | `src/lib/paperContext.ts`, `paperMarkdown.ts`, `paperFiles.ts` | A project from a paper carries the paper: `paper/paper.md` (its full text, from the reader's own reflow of the PDF, else arXiv's HTML), `paper/EXPLANATION.md`, `paper/paper.pdf`, `IMPLEMENTATION_PLAN.md`. Every agent is told to read it there, never to fetch it. |
+| The page's agent runs its commands | `src/lib/projectAgent.ts`, `src/components/ProjectAgent.tsx` | A ```` ```sh run ```` block is run in the project's console on the connected machine as the agent answers; what it printed goes back; up to 6 rounds of 3. Stop interrupts the command. Off with a tick, and the commands are buttons. |
 | Tests | `scripts/simulation.test.mjs`, `scripts/paper-context.test.mjs` | Catalogue integrity, every generated `.py` parses, parsing and diagnostics, and the Python module run for real: its events read by the pane's parser, its findings equal to the pane's. |
 
 ### The simulators
@@ -301,6 +302,27 @@ file written says it too, in its front matter. The modules the briefings import 
 (`paperFiles.ts`), so the agent's prompt builder pulls in none of the reader's PDF machinery; the test bundler
 learned Vite's `?worker&url` imports on the way, so the gathering module can be tested in Node, and the
 HTML-to-Markdown walk is tested in Chromium, where a DOM is.
+
+### 19. The page's own agent could only suggest commands
+*Built.* The page's own agent (Koios AI) wrote files where the project keeps them, but its commands were buttons:
+it never saw a run, so it could not fix what failed without being asked again, and the GPU the project is
+connected to was a click away from it. Now a command it answers with is run for it in the project's console —
+the same console the reader types into, on the same machine: Colab's T4, a Jupyter server, a Companion — the
+folder copied over first when it is kept elsewhere, as for any command. What the command printed (its head and
+its tail, where the traceback is, up to 6,000 characters) goes back to the agent, which writes again, runs
+again, or answers: up to 3 commands a round, 6 rounds a request. Files in the same answer are written before the
+command, so it runs the code just written; a file written twice in one request undoes to what was there before
+the first. The agent is told which of the two regimes it is in, in the request's `<where>` block, so the cached
+system prompt never changes; **runs commands** under the box turns it off and the commands are buttons again.
+**Stop** interrupts the command on the machine (the agent is then stopped too). An answer that has run a
+command cannot be picked up after a reload, since the earlier rounds would run their commands again; the job is
+let go of at the first command, and the pane says what ran. Long trainings stay the reader's: the briefing asks
+the agent to keep its commands to what ends in a few minutes and to suggest a training rather than start it.
+
+Claude Code and Codex in the same pane already run their own commands, on the compute's copy of the folder, with
+their edits brought back; and in a project with the paper in its folder Claude Code now has its web tools off
+(`--disallowedTools WebFetch WebSearch`), so it cannot fetch the paper even if the briefing were ignored. Codex's
+web search is off unless asked for on its command line, which the page never does.
 
 ---
 

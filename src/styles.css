@@ -6159,6 +6159,17 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-minus { color: var(--ul-pink); }
 .vs-cmd { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--paper); }
 .vs-cmd code { flex: 1; min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A command the agent ran for itself: the line, how it ended, and what it printed on request. */
+.vs-run { border: 1px solid var(--border); border-radius: 9px; background: var(--paper); font-size: 12px; }
+.vs-run summary { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; list-style: none; }
+.vs-run summary::-webkit-details-marker { display: none; }
+.vs-run summary code { flex: 1; min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-run-state { flex: none; font-size: 11px; color: var(--muted); }
+.vs-run.is-failed .vs-run-state { color: var(--danger, #b4473c); }
+.vs-run.is-ran .vs-run-state { color: var(--ok, #2f7d5a); }
+.vs-run pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--border); font: 11.5px/1.45 var(--mono); max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.vs-agent-runs { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.vs-agent-runs input { margin: 0; }
 .vs-agent-box { flex: none; margin: 0 12px 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 6px; }
 .vs-agent-box:focus-within { border-color: var(--accent); }
 .vs-agent-box textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); font: 13px/1.45 var(--sans); }

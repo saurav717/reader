@@ -257,6 +257,29 @@ against a folder in memory with the gathering stood in for — all written the f
 the second, the explanation rewritten only when it changed, a text-only folder told so. `scripts/paper-context.test.mjs`,
 nine tests; the full suite otherwise unchanged.
 
+## 6.5 The agent runs its commands; Claude Code's web tools off
+
+Asked next: the agent redirected to the files (not just told), writing the code where it is and running it on the
+connected machine or GPU through the editor's terminal. Three things, in order:
+
+1. Claude Code's `--disallowedTools WebFetch WebSearch` whenever the project has the paper in its folder
+   (`noWeb` in `runArgv`, pinned in `cli-agent.test.mjs`); Codex has no web search unless its command line asks,
+   and the page never asks.
+2. The page's own agent runs its commands. `askAgent` grew a `run` callback: when a reply holds ```` ```sh run ````
+   blocks and the callback is there, the reply's files are written first, each command is run in the project's
+   console through the workspace's own `run` (which pushes the folder when it is kept elsewhere, as for a typed
+   command), the console entry's output is read back from the kernel state, clipped head and tail, and the loop goes
+   round again with it — 3 commands a round, 6 rounds, then the rest are buttons as before. `Stop` interrupts the
+   kernel; the saved job is let go of at the first command so a reload never re-runs one. The pane shows each run
+   folded under its command with how it ended, and a **runs commands** tick (on by default, kept per browser).
+3. The regime is told to the model in the request's `<where>` block, not the cached system prompt, so the cache
+   holds across a change of tick.
+
+Not verified here: a real model and machine running the loop end to end (no model key, no Colab in the container).
+The pieces around it are pinned — the `<where>` wording, the output clipping, the argv — and the loop itself is the
+reads loop with a second branch, typechecked. The first live run should ask for something small (a syntax error
+planted in `main.py`, say) and watch the console and the pane.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```

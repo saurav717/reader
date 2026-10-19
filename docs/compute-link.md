@@ -25,7 +25,9 @@ briefing (its `--append-system-prompt`); another agent you tell in your first me
 show in the Sim pane and are filed as experiments like any other. The **Claude Code** and **Codex** choices beside
 it still run on the compute's copy of the folder, with their edits brought back when they finish. In a project from a
 paper, the briefing also names the paper's files in the folder — `paper/paper.md`, `paper/EXPLANATION.md`,
-`paper/paper.pdf`, `IMPLEMENTATION_PLAN.md` — and says to read them there rather than fetch the paper online.
+`paper/paper.pdf`, `IMPLEMENTATION_PLAN.md` — and says to read them there rather than fetch the paper online. The
+**Koios AI** choice, the page's own agent, writes the files where they are too and runs its commands in the
+console, which sends them to the compute as it does yours.
 
 The computer with the files can be a Mac, a Windows PC or a Linux box: the Companion runs on all three, `koios`
 keeps its terminal raw mode to POSIX systems and works through PowerShell otherwise, and the agent's command is
