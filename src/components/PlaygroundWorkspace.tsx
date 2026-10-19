@@ -770,7 +770,7 @@ const shortId = () => Math.random().toString(36).slice(2, 8);
  * buttons. The session lives on the machine, so closing the pane and opening
  * it again finds the same conversation; Start again begins a new one.
  */
-function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgroundId, briefing, note }: { server: JupyterServer | undefined; machineName: string; agents: { id: string; name: string }[]; asked: boolean; cwd: string; inFolder: (command: string) => string; playgroundId: string; /** What Claude Code is told about where it is (its --append-system-prompt); other agents are told by the person. */ briefing?: string; /** A line over the pane saying where the agent works. */ note?: string }) {
+function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgroundId, briefing, note, os }: { server: JupyterServer | undefined; machineName: string; agents: { id: string; name: string }[]; asked: boolean; cwd: string; inFolder: (command: string) => string; playgroundId: string; /** What Claude Code is told about where it is (its --append-system-prompt); other agents are told by the person. */ briefing?: string; /** A line over the pane saying where the agent works. */ note?: string; /** The computer's system, for how a word is quoted in its shell: PowerShell on Windows, a POSIX shell elsewhere. */ os?: 'mac' | 'linux' | 'windows' }) {
   const installed = new Set(agents.map((agent) => agent.id));
   // An agent the Companion found that the list doesn't name yet still shows, by its own name, with extra arguments only.
   const catalog: AgentSpec[] = [...AGENTS, ...agents.filter((agent) => !AGENTS.some((known) => known.id === agent.id)).map((agent) => ({ ...agent, install: '' }))];
@@ -787,7 +787,9 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
     setAllOptions(next);
     saveAgentOptions(next);
   };
-  const command = agentCommand(chosen, options) + (briefing && chosen.id === 'claude' ? ` --append-system-prompt ${shellWord(briefing)}` : '');
+  // PowerShell takes a single-quoted word with the quotes inside doubled; a POSIX shell with '\''.
+  const quoted = (word: string) => (os === 'windows' ? `'${word.replace(/'/g, "''")}'` : shellWord(word));
+  const command = agentCommand(chosen, options) + (briefing && chosen.id === 'claude' ? ` --append-system-prompt ${quoted(briefing)}` : '');
   const isThere = installed.has(chosen.id);
   const running = session ? catalog.find((agent) => agent.id === session.agent) : undefined;
   // What a new session types, once its shell is open (queued until then by typeInTerminal).
@@ -2567,9 +2569,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 </div>
                 {mode === 'cli' ? (
                   agentsHere ? (
-                    <AgentPane server={filesHere} machineName={filesHere!.name} agents={homeTools.agents} asked={asked} cwd={homeRoot} inFolder={inHomeFolder} playgroundId={playground.id} briefing={hereBriefing} note={`By the files, on ${filesHere!.name}: the agent edits them where they are. Anything for ${machineName} — training, the GPU — it runs with koios run; results come back with koios pull. Claude Code is told this; tell another agent in your first message.`} />
+                    <AgentPane server={filesHere} machineName={filesHere!.name} agents={homeTools.agents} asked={asked} cwd={homeRoot} inFolder={inHomeFolder} playgroundId={playground.id} os={homeTools.os} briefing={hereBriefing} note={`By the files, on ${filesHere!.name}: the agent edits them where they are. Anything for ${machineName} — training, the GPU — it runs with koios run; results come back with koios pull. Claude Code is told this; tell another agent in your first message.`} />
                   ) : (
-                    <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} />
+                    <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} os={machineTools.os} />
                   )
                 ) : mode === 'claude' || mode === 'codex' ? (
                   <CliAgent

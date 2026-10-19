@@ -25,6 +25,10 @@ briefing (its `--append-system-prompt`); another agent you tell in your first me
 show in the Sim pane and are filed as experiments like any other. The **Claude Code** and **Codex** choices beside
 it still run on the compute's copy of the folder, with their edits brought back when they finish.
 
+The computer with the files can be a Mac, a Windows PC or a Linux box: the Companion runs on all three, `koios`
+keeps its terminal raw mode to POSIX systems and works through PowerShell otherwise, and the agent's command is
+quoted for the shell it lands in (PowerShell doubles a single quote inside a word; a POSIX shell takes `'\''`).
+
 ## 1. What you see
 
 The panel's first terminal is now **here**, on the computer the files are on, in the project's folder. The **+**
