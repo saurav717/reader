@@ -4888,6 +4888,14 @@ its limits are in [docs/storage-moves.md](docs/storage-moves.md).
 
 ![The Storage & compute panel: places for the files with their free space and Move files here, machines with Run here](docs/storage-compute-panel.png)
 
+With the files on your computer and the code on Colab or a server, the panel's
+first terminal is a shell on your computer, in the project's folder. From it,
+`koios run python train.py` copies what changed to the compute, runs the command
+there and shows its output live. `koios shell` opens a shell there, and
+`koios pull outputs/` brings results back. **+** opens a terminal on the compute
+directly. This needs Companion 0.17.0 or later; details in
+[docs/compute-link.md](docs/compute-link.md).
+
 ### Running playgrounds
 
 Each playground has its own kernel: its own Python, on its own machine. The

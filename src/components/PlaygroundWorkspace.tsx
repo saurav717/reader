@@ -7,6 +7,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
+import { renewRuntimeProxy } from '../lib/colab';
+import { COMPUTE_SHELL, colabTarget, linkCompute, pushThroughCompanion, remoteLine, renewAt, serverTarget, type LinkState } from '../lib/computeLink';
 import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
 import { latestCheckpoint } from '../lib/telemetry';
@@ -167,6 +169,9 @@ const entryRuns = (playgroundId: string, machines: ProjectMachine[], entry: Cons
 };
 /** Which machine a terminal tab is on: the member's id after an `@` in its id; the first machine otherwise. */
 const shellMember = (id: string): string | null => (id.includes('@') ? id.slice(id.lastIndexOf('@') + 1) : null);
+/** A terminal tab on the project's compute, reached from the files' computer (`koios shell`), rather than a shell there. */
+const COMPUTE_TAB = '!compute';
+const isComputeTab = (id: string) => id.endsWith(COMPUTE_TAB);
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /** The backend a playground's compute names, when it can be had: its Colab machine, or a server that is still in the list. */
@@ -1220,6 +1225,36 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const { tools: machineTools, asked } = useMachineTools(computeServer);
   const homeServer = playground.home.kind === 'server' ? servers.find((server) => server.id === (playground.home.kind === 'server' ? playground.home.serverId : '')) : undefined;
   const { tools: homeTools } = useMachineTools(homeServer);
+  // The files on a computer with the Companion, the code elsewhere: the shell opens there, by the files, and reaches the
+  // compute through the Companion (src/lib/computeLink.ts) — at a local shell's speed, the machine a command away.
+  const filesHere = split && playground.home.kind === 'server' && homeServer && isCompanion(homeServer) ? homeServer : undefined;
+  const homeRoot = playground.home.kind === 'server' ? playground.home.root : '';
+  const proxy = playground.compute.kind === 'colab' && connected ? colab.runtime?.proxy : undefined;
+  const linkTarget = !filesHere
+    ? null
+    : proxy && proxy.kind !== 'jupyter'
+      ? colabTarget(proxy, machineName, machineRoot(playground), playground.sync.ignore)
+      : computeServer && computeServer.id !== filesHere.id
+        ? serverTarget(computeServer, machineRoot(playground), playground.sync.ignore)
+        : null;
+  const [link, setLink] = useState<LinkState | null>(null);
+  const linkKey = linkTarget ? `${linkTarget.url}|${linkTarget.token}|${linkTarget.folder}|${linkTarget.ignore}|${linkTarget.label}` : '';
+  useEffect(() => {
+    if (!filesHere || !linkTarget) {
+      setLink(null);
+      return;
+    }
+    let live = true;
+    void linkCompute(filesHere, homeRoot, linkTarget).then((state) => live && setLink(state));
+    // Colab's pass runs out after an hour or so: renewed while the page is open, and handed over again.
+    const at = renewAt(linkTarget);
+    const timer = at ? window.setTimeout(() => void renewRuntimeProxy(), at - Date.now()) : 0;
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [filesHere?.id, filesHere?.url, filesHere?.token, homeRoot, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const linked = Boolean(filesHere && link?.linked);
   // VS Code in the page opens a folder on a Companion's computer: the project's, when its files are kept there —
   // in a folder of its (home) or on its own disk as the machine the code runs on.
   const vscodeAt: { server: JupyterServer; folder: string } | null =
@@ -1251,6 +1286,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     keepShells([...shells, id]);
     setActiveShell(id);
   };
+  /** A terminal on the compute, from the files' computer: `koios shell` typed into a shell there, the tab closing with it. */
+  const addComputeShell = () => {
+    const id = `${playground.id}~${shortId()}${COMPUTE_TAB}`;
+    keepShells([...shells, id]);
+    setActiveShell(id);
+    if (linked) typeInTerminal(id, `${COMPUTE_SHELL}\r`);
+    return id;
+  };
   const [addShellMenu, setAddShellMenu] = useState(false);
   const addShellBox = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -1260,9 +1303,12 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     return () => window.removeEventListener('mousedown', away);
   }, [addShellMenu]);
   /** Which machine a terminal tab is on, and how its shell is reached: through its server's terminals, or a shell in its kernel. */
-  const shellOn = (id: string): { machine: ProjectMachine; server: JupyterServer | undefined; kernel: boolean } => {
+  const shellOn = (id: string): { machine: ProjectMachine; server: JupyterServer | undefined; kernel: boolean; here?: boolean; via?: boolean } => {
     const member = shellMember(id);
     const machine = (member ? machines.find((m) => m.member === member) : undefined) ?? machines[0];
+    // By the files: a shell on their computer. A compute tab, there too, running `koios shell` while the link holds.
+    if (machine.member === null && filesHere && !isComputeTab(id)) return { machine, server: filesHere, kernel: false, here: true };
+    if (machine.member === null && filesHere && linked) return { machine, server: filesHere, kernel: false, via: true };
     if (machine.member === null) return { machine, server: computeServer, kernel: kernelTerms || !computeServer };
     // A member's server: its own terminals when it is a Companion (which has them); a shell in its kernel otherwise.
     const server = machine.compute.kind === 'server' ? serverById(machine.compute.serverId) : undefined;
@@ -1285,6 +1331,13 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setPanelOpen(true);
     // The folder kept elsewhere: copied over first, so the command runs the code on screen.
     if (split && !(await push())) return;
+    const on = shellOn(activeShell);
+    if (on.here) {
+      // The shell by the files runs it on the compute, its output here; without the link, a terminal on the compute does.
+      if (linked) typeInTerminal(activeShell, `${remoteLine(command)}\r`);
+      else typeInTerminal(shells.find((id) => isComputeTab(id)) ?? addComputeShell(), `${command}\r`);
+      return;
+    }
     typeInTerminal(activeShell, `${command}\r`);
   };
 
@@ -1478,7 +1531,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     try {
       // Unsaved edits first: what is sent is what is on screen.
       for (const file of files) if (file.where === 'home' && file.text !== file.saved) await save(file);
-      const done = await pushFolder(playground, machine);
+      // Linked: the Companion sends what changed, as one archive, straight to the machine.
+      const done = linked && filesHere ? await pushThroughCompanion(filesHere, homeRoot).then((r) => ({ sent: r.sent, skipped: r.big, back: [] })) : await pushFolder(playground, machine);
       setReport({ ...done, at: Date.now(), what: 'push' });
       return true;
     } catch (error) {
@@ -2288,9 +2342,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
                   {shells.map((id, index) => (
                     <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
-                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)} title={pooled ? `Terminal ${index + 1}, on machine ${shellOn(id).machine.rank}: ${shellOn(id).machine.label}` : undefined}>
+                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)} title={filesHere && shellOn(id).machine.member === null ? (shellOn(id).here ? `Terminal ${index + 1}, on ${filesHere.name}, by the files` : `Terminal ${index + 1}, on ${machineName}`) : pooled ? `Terminal ${index + 1}, on machine ${shellOn(id).machine.rank}: ${shellOn(id).machine.label}` : undefined}>
                         {index + 1}
-                        {pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
+                        {filesHere && shellOn(id).machine.member === null ? <small className="pg-shell-on">{shellOn(id).here ? 'here' : 'gpu'}</small> : pooled ? <small className="pg-shell-on">m{shellOn(id).machine.rank}</small> : null}
                       </button>
                       {shells.length > 1 ? (
                         <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
@@ -2299,7 +2353,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       ) : null}
                     </span>
                   ))}
-                  {pooled ? (
+                  {pooled || filesHere ? (
                     <span className="menu-wrap" ref={addShellBox}>
                       <button type="button" className="icon-btn sm" onClick={() => setAddShellMenu(!addShellMenu)} aria-haspopup="menu" aria-expanded={addShellMenu} aria-label="A new terminal, on one of the machines" title="New Terminal — on which machine">
                         +
@@ -2307,9 +2361,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       {addShellMenu ? (
                         <div className="menu pg-chip-menu" role="menu">
                           <div className="menu-label">A terminal on</div>
+                          {filesHere ? (
+                            <button type="button" role="menuitem" onClick={() => (setAddShellMenu(false), addShell(null))} title="A shell by the files: koios run, koios shell and koios pull reach the compute from it">
+                              <span className="pg-shell-on">here</span> {filesHere.name} — the files
+                            </button>
+                          ) : null}
                           {machines.map((m) => (
-                            <button key={m.scope} type="button" role="menuitem" onClick={() => (setAddShellMenu(false), addShell(m.member))}>
-                              <MachineMark compute={m.compute} /> {m.rank} · {m.label}
+                            <button key={m.scope} type="button" role="menuitem" onClick={() => (setAddShellMenu(false), m.member === null && filesHere ? addComputeShell() : addShell(m.member))}>
+                              <MachineMark compute={m.compute} /> {pooled ? `${m.rank} · ` : ''}
+                              {m.member === null ? machineName : m.label}
+                              {m.member === null && filesHere && linked ? <small className="pg-menu-note"> through {filesHere.name}</small> : null}
                             </button>
                           ))}
                         </div>
@@ -2322,11 +2383,20 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   )}
                 </div>
               ) : null}
-              <span className="vs-panel-where" title={`${machineName}:${base ?? machineRoot(playground)}`}>
-                <span className="vs-panel-machine">{machineName}</span>
-                <span className="vs-panel-sep" aria-hidden="true">›</span>
-                <span className="vs-panel-folder">{(base ?? machineRoot(playground)).split('/').filter(Boolean).pop()}</span>
-              </span>
+              {view === 'terminal' && filesHere && shellOn(activeShell).here ? (
+                <span className="vs-panel-where" title={`${filesHere.name}:${homeRoot}${linked ? ` — koios run, koios shell and koios pull reach ${machineName} from here` : ''}`}>
+                  <span className="vs-panel-machine">{filesHere.name}</span>
+                  <span className="vs-panel-sep" aria-hidden="true">›</span>
+                  <span className="vs-panel-folder">{homeRoot.split('/').filter(Boolean).pop()}</span>
+                  {linked ? <span className="vs-panel-link">⇄ {machineName}</span> : null}
+                </span>
+              ) : (
+                <span className="vs-panel-where" title={`${machineName}:${base ?? machineRoot(playground)}`}>
+                  <span className="vs-panel-machine">{machineName}</span>
+                  <span className="vs-panel-sep" aria-hidden="true">›</span>
+                  <span className="vs-panel-folder">{(base ?? machineRoot(playground)).split('/').filter(Boolean).pop()}</span>
+                </span>
+              )}
               <span className="spacer" />
               {split ? (
                 <button
@@ -2361,7 +2431,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   const up = first ? connected : isConnected(sessionOf(sessions, on.machine.scope));
                   return (
                     <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
-                      {on.kernel || !on.server ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={label} connected={up} playgroundId={playground.id} scope={first ? undefined : on.machine.scope} /> : <Terminal server={on.server} cwd={machineRoot(playground)} sessionId={id} label={label} playgroundId={playground.id} />}
+                      {on.kernel || !on.server ? (
+                        <KernelTerminal name={id} cwd={machineRoot(playground)} label={label} connected={up} playgroundId={playground.id} scope={first ? undefined : on.machine.scope} />
+                      ) : (
+                        <Terminal server={on.server} cwd={on.here || on.via ? homeRoot : machineRoot(playground)} sessionId={id} label={on.here ? on.server.name : on.via ? `${machineName} (through ${on.server.name})` : label} playgroundId={playground.id} />
+                      )}
                     </div>
                   );
                 })

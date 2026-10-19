@@ -2037,3 +2037,27 @@ export const rememberedRuntime = (): Runtime | undefined => {
   const held = read<Runtime>(session(), RUNTIME_KEY);
   return held && held.proxy?.expiresAt > Date.now() && held.proxy.kind !== 'jupyter' ? held : undefined;
 };
+
+/**
+ * The runtime's pass renewed without a sign-in window: Colab's list of the account's runtimes hands out a fresh
+ * proxy token for each, and the one with this session's endpoint is taken. For the compute link (computeLink.ts),
+ * whose pass is the shell's on another computer. Null when there is no runtime, no grant held, or Colab says no.
+ */
+export async function renewRuntimeProxy(scope?: string): Promise<RuntimeProxy | null> {
+  const s = sessionOfScope(scope);
+  const runtime = s?.state.runtime;
+  if (!s || !runtime || runtime.proxy.kind === 'jupyter' || !clientIdNow) return null;
+  const googleToken = await colabToken(clientIdNow).catch(() => null);
+  if (!googleToken) return null;
+  try {
+    const { runtimes } = await relay<{ runtimes: Runtime[] }>('/colab/runtimes', googleToken);
+    const fresh = runtimes.find((r) => r.endpoint === runtime.endpoint);
+    if (!fresh) return null;
+    const renewed = { ...runtime, proxy: fresh.proxy };
+    set(s, { runtime: renewed });
+    if (s.notebook) writeRuntime(s.notebook, renewed);
+    return fresh.proxy;
+  } catch {
+    return null;
+  }
+}
