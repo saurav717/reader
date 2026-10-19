@@ -395,8 +395,13 @@ saves. The briefings tell the agents to download datasets into `koios_data.path(
 folder. Uploads of more than 5 MB go in 16 MB resumable pieces; a token that ran out is waited for, a quarter-minute
 at a time, up to an hour, with a line on stderr saying so.
 
-Not done yet: a computer of yours as the data place when the compute is elsewhere (the mover's archive-through-R2
-path would carry it; for now Drive or the compute's own disk), and a size meter for the Drive place in the panel.
+A computer of yours is the third kind of place: a Koios Companion, reached from the compute through its address
+with its token — the Jupyter contents API, files in base64 in pieces of 8 MB (`chunk` as Jupyter takes it) — under
+`koios-data/<project>/` beside its playgrounds in `~/Reader`. It is often the better choice (fast, as big as the
+disk, nothing to pay), so when a project opens on Drive's default and a Companion of yours is online with 20 GB or
+more free, the page offers it once: *Ann's Mac has 350 GB free. Keep this project's data there instead of Google
+Drive?* — **Use Ann's Mac** / **Keep Google Drive** / not now — and the panel lists every Companion with its free
+space beside Drive and the compute's disk. Not done yet: a size meter for the Drive place.
 
 ---
 

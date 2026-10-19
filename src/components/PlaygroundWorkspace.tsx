@@ -57,7 +57,8 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
-import { DATA_NOTE, dataConfigPath, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, KOIOS_DATA_PY, renewDataLink, type DataLink } from '../lib/dataStore';
+import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
+import { companionDisk } from '../lib/moves';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
@@ -1082,8 +1083,39 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playground.id, playground.title, dataPlace.kind, driveOn]);
-  /** What the compute is told about the data place, for a command in `folder` there. */
-  const dataFor = (folder: string) => dataSetup(dataPlace, folder, machineName, dataLink ?? undefined);
+  /** What the compute is told about the data place, for a command in `folder` there. A computer of yours that is not in the list any more falls back to the machine's disk. */
+  const dataServer = dataPlace.kind === 'server' ? serverById(dataPlace.serverId) : undefined;
+  const dataFor = (folder: string) => dataSetup(dataPlace, folder, machineName, dataLink ?? undefined, dataServer ? { url: dataServer.url, token: dataServer.token, name: dataServer.name, root: dataServer.root, project: dataFolderNameOf(playground) } : null);
+  // A computer of yours with room (the Companion, online, 20 GB or more free) offered as the data place, once, while the
+  // project is on Drive's default: the person may well prefer their own disk, and it is faster.
+  const offerKey = `reader.pgDataAsked:${playground.id}`;
+  const [dataOffer, setDataOffer] = useState<{ server: JupyterServer; free: number } | null>(null);
+  useEffect(() => {
+    if (playground.data || !driveOn || readLocal(offerKey, false)) return;
+    let live = true;
+    void (async () => {
+      for (const server of servers.filter((s) => isCompanion(s))) {
+        const disk = await companionDisk(server).catch(() => null);
+        if (!live) return;
+        if (disk && disk.free >= OFFER_FREE_BYTES) {
+          setDataOffer({ server, free: disk.free });
+          return;
+        }
+      }
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id, playground.data?.kind, driveOn, servers.map((s) => s.id).join()]);
+  const settleOffer = (choice: 'server' | 'drive' | 'later') => {
+    writeLocal(offerKey, true);
+    if (choice === 'server' && dataOffer) {
+      forgetDataLink(playground.id);
+      updatePlayground(playground.id, { data: { kind: 'server', serverId: dataOffer.server.id } });
+    } else if (choice === 'drive') updatePlayground(playground.id, { data: { kind: 'drive' } });
+    setDataOffer(null);
+  };
   const split = !filesAreOnMachine(playground);
   // The hosts follow the servers' list, so an edited address is used at once.
   const home = useMemo(() => homeHost(playground), [playground, servers]);
@@ -2447,6 +2479,22 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             <p className="pg-note is-problem vs-problem">
               {problem}
               <button type="button" className="icon-btn sm" aria-label="Dismiss" onClick={() => setProblem(null)}>
+                <CloseIcon size={12} />
+              </button>
+            </p>
+          ) : null}
+          {dataOffer ? (
+            <p className="pg-note vs-offer">
+              <span>
+                <b>{dataOffer.server.name}</b> has {Math.round(dataOffer.free / 1024 ** 3)} GB free. Keep this project’s data — datasets, checkpoints, run outputs — there instead of Google Drive? The code still runs on {machineName}; its disk is only a cache either way.
+              </span>
+              <button type="button" className="btn sm primary" onClick={() => settleOffer('server')}>
+                Use {dataOffer.server.name}
+              </button>
+              <button type="button" className="btn sm" onClick={() => settleOffer('drive')}>
+                Keep Google Drive
+              </button>
+              <button type="button" className="icon-btn sm" aria-label="Not now" onClick={() => settleOffer('later')}>
                 <CloseIcon size={12} />
               </button>
             </p>

@@ -40,8 +40,11 @@ export const DATA_CONFIG_FILE = 'koios_data.json';
 /** The folder under the Koios root that holds every project's data: Koios/Data/<project>/. */
 export const DATA_FOLDER = 'Data';
 
-/** Where a project keeps its data: Drive (the default, when Drive is connected) or the machine's own disk. */
-export type DataPlace = { kind: 'drive' } | { kind: 'machine' };
+/** Where a project keeps its data: Drive (the default, when Drive is connected), a computer of yours (a Koios Companion), or the machine's own disk. */
+export type DataPlace = { kind: 'drive' } | { kind: 'machine' } | { kind: 'server'; serverId: string };
+
+/** A computer with at least this much free is offered as the data place when a project opens on Drive's default. */
+export const OFFER_FREE_BYTES = 20 * 1024 ** 3;
 
 export const dataPlaceOf = (playground: Pick<Playground, 'data'>, driveOn: boolean): DataPlace => playground.data ?? (driveOn ? { kind: 'drive' } : { kind: 'machine' });
 
@@ -145,8 +148,14 @@ export interface DataSetup {
  * The data place as koios_data reads it. `folder` is the project's folder on the machine; the cache and a local
  * place go under its .reader/, which the sync and the pulls leave alone.
  */
-export function dataSetup(place: DataPlace, folder: string, machineName: string, link?: DataLink): DataSetup {
+export function dataSetup(place: DataPlace, folder: string, machineName: string, link?: DataLink, server?: { url: string; token: string; name: string; root?: string; project: string } | null): DataSetup {
   const cache = `${folder.replace(/\/$/, '')}/.reader/data-cache`;
+  if (place.kind === 'server' && server) {
+    // A folder of the Companion's root (~/Reader): koios-data/<project>, beside its playgrounds.
+    const root = `koios-data/${server.project}`;
+    const config = { kind: 'server', url: server.url.replace(/\/$/, ''), token: server.token, root, label: server.name };
+    return { env: { KOIOS_DATA: ['server', config.url, server.token, root, server.name].join('|'), KOIOS_DATA_CACHE: cache }, config, label: `${server.name} · ${server.root ? `${server.root.replace(/\/$/, '')}/` : '~/Reader/'}${root}` };
+  }
   if (place.kind === 'drive' && link) {
     const label = 'Google Drive';
     const config = { kind: 'drive', api: link.api, id: link.id, key: link.key, folder: link.folder, label };

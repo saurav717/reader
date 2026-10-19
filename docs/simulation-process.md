@@ -329,7 +329,10 @@ the telemetry's self-sync and the checkpoint helper's copy, and the briefings. T
 end to end (path, save, sync, fetch, ls), a `Run` whose folder is synced to a local place and a checkpoint copied
 there, the Worker's `data` plan starting and serving its token to the key, and the environment strings. Not run
 here: Drive itself (no sign-in in the container) — the client is the mover's, which has run against Drive, with the
-listing cached per folder and the MD5 check before an upload the only additions.
+listing cached per folder and the MD5 check before an upload the only additions. Asked next for the person's own
+computer as a place, offered when it has room: the server plan (the Companion's contents API, in pieces) tested
+against a small contents API in Node — a 2,560-byte file in three pieces, a synced folder, the listing, a fetch
+back — the offer once per project, the panel's rows with the Companions' free space.
 
 ## 7. Checklist: before merging, or after changing any of it
 

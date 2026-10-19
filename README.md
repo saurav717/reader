@@ -4442,7 +4442,9 @@ project's **data place**, Google Drive by default (Storage & compute → *Data &
 results*), whatever holds the code and wherever it runs: the compute's disk is
 only a cache, reached from code as `koios_data.path(...)` and
 `koios_data.save(...)`, and runs and checkpoints are pushed there as they go,
-so Colab's small disk and its ending runtimes cost nothing.
+so Colab's small disk and its ending runtimes cost nothing. A computer of
+yours with room is offered as the place instead, once, when the project
+opens; the panel lists every Companion with its free space.
 
 The **Sim** tab on the right (the screen icon in the activity bar) draws the
 runs as they go, read on the machine a few seconds apart:

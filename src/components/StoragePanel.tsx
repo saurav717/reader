@@ -479,6 +479,27 @@ export default function StoragePanel({ playground, machineName, connected, move,
                 </button>
               )}
             </li>
+            {servers.filter((server) => isCompanion(server)).map((server) => {
+              const here = dataPlace.kind === 'server' && dataPlace.serverId === server.id;
+              const info = disks[server.id];
+              return (
+                <li key={server.id} className={here ? 'is-here' : ''}>
+                  <span className={`pg-mark ${server.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{server.where === 'pc' ? 'PC' : 'GPU'}</span>
+                  <span className="mv-name">
+                    <b>{server.name}</b>
+                    <small>{server.root ? `${server.root.replace(/\/$/, '')}/` : '~/Reader/'}koios-data/{dataFolderNameOf(playground)} · reached from {machineName} through the Companion · yours, fast, as big as the disk</small>
+                  </span>
+                  <Meter free={info?.free} total={info?.total} checked={looked} />
+                  {here ? (
+                    <span className="mv-here">Data is here</span>
+                  ) : (
+                    <button type="button" className="btn sm" disabled={online[server.id] === false} title={online[server.id] === false ? 'Offline' : undefined} onClick={() => (forgetDataLink(playground.id), updatePlayground(playground.id, { data: { kind: 'server', serverId: server.id } }))}>
+                      Keep data here
+                    </button>
+                  )}
+                </li>
+              );
+            })}
             <li className={dataPlace.kind === 'machine' ? 'is-here' : ''}>
               <MachineMark compute={playground.compute} />
               <span className="mv-name">

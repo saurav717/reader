@@ -357,6 +357,78 @@ print(sorted(x["path"] for x in koios_data.ls()))
     assert.equal(bare.stdout.trim().split('\n').pop(), 'False', bare.stderr);
   });
 
+  it('keeps data on a computer of yours through the Companion’s contents API, in pieces (the server plan)', async () => {
+    const { createServer } = await import('node:http');
+    const files = new Map();
+    const dirs = new Set(['']);
+    const server = createServer((request, response) => {
+      const url = new URL(request.url, 'http://x');
+      const path = decodeURIComponent(url.pathname.replace(/^\/api\/contents\/?/, '')).replace(/\/$/, '');
+      const say = (status, body) => (response.writeHead(status, { 'Content-Type': 'application/json' }), response.end(JSON.stringify(body)));
+      if (request.headers.authorization !== 'token t-1') return say(403, { message: 'no' });
+      if (request.method === 'GET') {
+        if (dirs.has(path)) {
+          const content = url.searchParams.get('content') === '1' ? [...[...dirs].filter((d) => d && d.slice(0, d.lastIndexOf('/') + 1).replace(/\/$/, '') === path && d !== path).map((d) => ({ name: d.split('/').pop(), path: d, type: 'directory' })), ...[...files.entries()].filter(([f]) => f.slice(0, f.lastIndexOf('/')) === path).map(([f, data]) => ({ name: f.split('/').pop(), path: f, type: 'file', size: data.length }))] : null;
+          return say(200, { type: 'directory', path, content });
+        }
+        if (files.has(path)) return say(200, { type: 'file', path, size: files.get(path).length, last_modified: new Date().toISOString(), format: 'base64', content: url.searchParams.get('content') === '1' ? files.get(path).toString('base64') : null });
+        return say(404, { message: 'not found' });
+      }
+      if (request.method === 'PUT') {
+        let raw = '';
+        request.on('data', (c) => (raw += c));
+        request.on('end', () => {
+          const body = JSON.parse(raw);
+          if (body.type === 'directory') return (dirs.add(path), say(201, { type: 'directory', path }));
+          const piece = Buffer.from(body.content, 'base64');
+          if (body.chunk === undefined || body.chunk === 1) files.set(path, piece);
+          else files.set(path, Buffer.concat([files.get(path) ?? Buffer.alloc(0), piece]));
+          say(201, { type: 'file', path, size: files.get(path).length });
+        });
+        return;
+      }
+      say(405, {});
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+    try {
+      const dir = mkdtempSync(join(tmpdir(), 'sim-server-'));
+      const code = `
+import os, koios_data
+koios_data._Server.PIECE = 1024
+assert koios_data.where().startswith("Ann's Mac · koios-data/p1"), koios_data.where()
+big = koios_data.path("datasets/big.bin")
+open(big, "wb").write(bytes(range(256)) * 10)   # 2560 bytes: three pieces
+koios_data.save(big, "datasets/big.bin")
+os.makedirs("runs/r", exist_ok=True); open("runs/r/events.jsonl", "w").write("{}")
+s = koios_data.sync("runs"); print(s.now()); s.stop.set()
+print(sorted(x["path"] for x in koios_data.ls()))
+os.remove(big)
+print(open(koios_data.fetch("datasets/big.bin"), "rb").read() == bytes(range(256)) * 10)
+`;
+      // Spawned, not spawnSync: the fake server lives on this event loop and has to answer while Python runs.
+      // no_proxy: a container's HTTP proxy would otherwise be asked for 127.0.0.1 and never answer.
+      const { spawn } = await import('node:child_process');
+      const ran = await new Promise((done) => {
+        const child = spawn(python, ['-c', code], { cwd: dir, env: { ...process.env, PYTHONPATH: `${resolve('src/sim')}:${resolve('companion/reader_companion')}`, KOIOS_HEADLESS: '0', KOIOS_DATA: `server|http://127.0.0.1:${port}|t-1|koios-data/p1|Ann's Mac`, no_proxy: '127.0.0.1,localhost', NO_PROXY: '127.0.0.1,localhost' } });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (c) => (stdout += c));
+        child.stderr.on('data', (c) => (stderr += c));
+        child.on('close', (status) => done({ status, stdout, stderr }));
+      });
+      assert.equal(ran.status, 0, ran.stderr);
+      const lines = ran.stdout.trim().split('\n');
+      assert.equal(lines[0], '1');
+      assert.deepEqual(JSON.parse(lines[1].replace(/'/g, '"')), ['datasets/big.bin', 'runs/r/events.jsonl']);
+      assert.equal(lines[2], 'True');
+      assert.equal(files.get('koios-data/p1/datasets/big.bin').length, 2560);
+      assert.ok(dirs.has('koios-data/p1/runs/r'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('writes videos and dreams the pane can play', { skip: !hasNumpy && 'no numpy' }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'sim-media-'));
     const code = `

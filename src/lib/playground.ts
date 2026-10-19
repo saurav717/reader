@@ -126,7 +126,7 @@ export interface Playground {
   /** Where they were before the last move, until the old copy is removed or kept for good. */
   movedFrom?: MovedFrom;
   /** Where its data, checkpoints and run outputs are kept (src/lib/dataStore.ts): Drive when Drive is connected, else the machine's disk. */
-  data?: { kind: 'drive' } | { kind: 'machine' };
+  data?: { kind: 'drive' } | { kind: 'machine' } | { kind: 'server'; serverId: string };
 }
 
 /** Where the files were before the last move, and what came of it: the old copy (kept, to go, gone) and what met an older copy at the new place. */

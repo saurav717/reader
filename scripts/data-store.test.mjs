@@ -26,6 +26,13 @@ describe('the data place, as the compute is told it', () => {
     assert.deepEqual(setup.env, { KOIOS_DATA: 'local|/content/playgrounds/p1/.reader/data|Colab · T4', KOIOS_DATA_CACHE: '/content/playgrounds/p1/.reader/data-cache' });
     assert.deepEqual(store.dataSetup({ kind: 'machine' }, '/home/me/p1', 'Lab box').config, { kind: 'local', dir: '/home/me/p1/.reader/data', label: 'Lab box' });
   });
+  it('is a computer of yours, through its Companion, under koios-data beside its playgrounds', () => {
+    const setup = store.dataSetup({ kind: 'server', serverId: 's1' }, '/content/playgrounds/p1', 'Colab · T4', undefined, { url: 'https://ann-mac.example/', token: 't-1', name: 'Ann’s Mac', root: '/Users/ann/Reader', project: 'Trying-p1' });
+    assert.deepEqual(setup.env, { KOIOS_DATA: 'server|https://ann-mac.example|t-1|koios-data/Trying-p1|Ann’s Mac', KOIOS_DATA_CACHE: '/content/playgrounds/p1/.reader/data-cache' });
+    assert.equal(setup.label, 'Ann’s Mac · /Users/ann/Reader/koios-data/Trying-p1');
+    // The computer gone from the list: the machine's disk, not a broken link.
+    assert.equal(store.dataSetup({ kind: 'server', serverId: 's1' }, '/content/playgrounds/p1', 'Colab · T4', undefined, null).config.kind, 'local');
+  });
   it('names the Drive folder after the project, as its Playgrounds folder is named, and says the line the briefings share', () => {
     assert.equal(store.dataFolderNameOf({ id: 'p1', title: 'Trying: Dreamer/v3?' }), 'Trying  Dreamer v3-p1');
     assert.match(store.DATA_NOTE('Google Drive'), /^Data, checkpoints and run outputs live in the project's data place — Google Drive — not on this machine's disk/);

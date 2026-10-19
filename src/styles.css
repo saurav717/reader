@@ -6159,6 +6159,9 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-minus { color: var(--ul-pink); }
 .vs-cmd { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--paper); }
 .vs-cmd code { flex: 1; min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The offer of a computer of yours as the data place: one line, two buttons, a close. */
+.vs-offer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; margin: 6px 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--paper); color: var(--ink); }
+.vs-offer > span { flex: 1 1 320px; min-width: 0; }
 /* An evaluation in the Sim pane: ours against the paper's, with the protocol under it. */
 .sim-eval-one { margin: 6px 0 10px; }
 .sim-eval-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; margin-bottom: 4px; }

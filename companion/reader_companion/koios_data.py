@@ -16,8 +16,9 @@ runtime that goes away loses at most a few minutes.
 
 How it is set up: Koios writes the place beside this module (koios_data.json on the helper path) and in the
 environment (KOIOS_DATA) before anything runs — a Drive folder reached with the account's token, which the Worker
-hands over and the page renews; or a folder on this machine. Nothing is mounted; the token sees only files Koios
-made (drive.file), and lives on the Worker, not in the folder.
+hands over and the page renews; a computer of yours running the Koios Companion, reached through its address with
+its token (the Jupyter contents API, in pieces); or a folder on this machine. Nothing is mounted; the Drive token
+sees only files Koios made (drive.file), and lives on the Worker, not in the folder.
 
 From a terminal:
 
@@ -72,6 +73,8 @@ def _config() -> dict | None:
             return {"kind": "local", "dir": parts[1], "label": parts[2] if len(parts) > 2 else "this machine"}
         if parts[0] == "drive" and len(parts) >= 5:
             return {"kind": "drive", "api": parts[1], "id": parts[2], "key": parts[3], "folder": parts[4], "label": parts[5] if len(parts) > 5 else "Google Drive"}
+        if parts[0] == "server" and len(parts) >= 4:
+            return {"kind": "server", "url": parts[1], "token": parts[2], "root": parts[3], "label": parts[4] if len(parts) > 4 else "your computer"}
         return None
     for candidate in (os.path.join(os.path.dirname(os.path.abspath(__file__)), CONFIG_FILE), os.path.join(os.environ.get("KOIOS_PYLIB", ""), CONFIG_FILE) if os.environ.get("KOIOS_PYLIB") else ""):
         if candidate and os.path.exists(candidate):
@@ -98,6 +101,8 @@ def where() -> str:
         return "nowhere: KOIOS_DATA is not set (data stays on this disk)"
     if c["kind"] == "local":
         return f"{c.get('label') or 'this machine'} · {c['dir']}"
+    if c["kind"] == "server":
+        return f"{c.get('label') or 'your computer'} · {c['root']}"
     return f"{c.get('label') or 'Google Drive'} · Koios/Data (folder {c['folder']})"
 
 
@@ -264,18 +269,135 @@ class _Drive:
         self.children(parent)[name] = {"id": made.get("id") or (existing or {}).get("id"), "name": name, "mimeType": "application/octet-stream", "md5Checksum": made.get("md5Checksum") or _md5(path), "size": str(size)}
 
 
+class _Server:
+    """A computer of yours running the Koios Companion, through its Jupyter contents API: files listed, read and
+    written in base64, in pieces of a few megabytes, under a folder of the Companion's root."""
+
+    PIECE = 8 * 1024 * 1024
+
+    def __init__(self, c: dict):
+        self.base = c["url"].rstrip("/")
+        self.token = c["token"]
+        self.root = c["root"].strip("/")
+        self.made: set[str] = set()
+
+    def _call(self, method: str, path: str, body: dict | None = None, query: dict | None = None) -> dict | None:
+        url = f"{self.base}/api/contents/{urllib.parse.quote(path.strip('/'))}" + (f"?{urllib.parse.urlencode(query)}" if query else "")
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(url, data=data, method=method, headers={"Authorization": f"token {self.token}", "Content-Type": "application/json"})
+        for attempt in range(6):
+            try:
+                with urllib.request.urlopen(request, timeout=600) as response:
+                    raw = response.read()
+                    return json.loads(raw) if raw else None
+            except urllib.error.HTTPError as error:
+                if error.code == 404:
+                    return None
+                if error.code >= 500 or error.code == 429:
+                    time.sleep(min(30.0, 2**attempt))
+                    continue
+                raise DataError(f"{self.base} answered {error.code}: {error.read().decode(errors='replace')[:200]}") from error
+            except (urllib.error.URLError, OSError, TimeoutError):
+                time.sleep(min(30.0, 2**attempt))
+        raise DataError(f"{self.base} couldn't be reached (is the computer on, and the Companion running?)")
+
+    def full(self, rel: str) -> str:
+        return f"{self.root}/{rel}".strip("/") if rel else self.root
+
+    def mkdirs(self, rel_dir: str) -> None:
+        parts = [p for p in self.full(rel_dir).split("/") if p]
+        for i in range(1, len(parts) + 1):
+            at = "/".join(parts[:i])
+            if at in self.made:
+                continue
+            if self._call("GET", at, query={"content": "0"}) is None:
+                self._call("PUT", at, {"type": "directory"})
+            self.made.add(at)
+
+    def entry(self, rel: str) -> dict | None:
+        return self._call("GET", self.full(rel), query={"content": "0"})
+
+    def tree(self, rel: str) -> list[tuple[str, dict]]:
+        out = []
+        stack = [(self.full(rel), "")]
+        while stack:
+            at, prefix = stack.pop()
+            listing = self._call("GET", at, query={"content": "1"})
+            if not listing or listing.get("type") != "directory":
+                continue
+            for item in listing.get("content") or []:
+                if item.get("type") == "directory":
+                    if item["name"] not in SKIP:
+                        stack.append((item["path"], f"{prefix}{item['name']}/"))
+                else:
+                    out.append((f"{prefix}{item['name']}", item))
+        return out
+
+    def download(self, rel: str, target: Path) -> None:
+        import base64
+
+        got = self._call("GET", self.full(rel), query={"content": "1", "format": "base64"})
+        if not got or got.get("type") == "directory":
+            raise DataError(f"nothing called {rel} on the computer")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = got.get("content") or ""
+        data = base64.b64decode(content) if got.get("format") == "base64" else str(content).encode()
+        tmp = target.with_name(target.name + ".part")
+        tmp.write_bytes(data)
+        os.replace(tmp, target)
+
+    def upload(self, path: Path, rel: str) -> None:
+        import base64
+
+        self.mkdirs(rel.rpartition("/")[0])
+        size = path.stat().st_size
+        there = self.entry(rel)
+        if there and there.get("type") == "file" and int(there.get("size") or -1) == size and size and _same_server_file(path, there):
+            return
+        full = self.full(rel)
+        if size <= self.PIECE:
+            self._call("PUT", full, {"type": "file", "format": "base64", "content": base64.b64encode(path.read_bytes()).decode()})
+            return
+        # In pieces, as Jupyter takes them: chunk 1, 2, … and -1 for the last.
+        with open(path, "rb") as handle:
+            n, sent = 0, 0
+            while True:
+                piece = handle.read(self.PIECE)
+                sent += len(piece)
+                last = sent >= size
+                n += 1
+                self._call("PUT", full, {"type": "file", "format": "base64", "content": base64.b64encode(piece).decode(), "chunk": -1 if last else n})
+                if last:
+                    break
+
+
+def _same_server_file(path: Path, there: dict) -> bool:
+    """Whether the copy on the computer is this file: the same size, and not older than it (the API has no hash)."""
+    try:
+        modified = there.get("last_modified") or ""
+        when = time.mktime(time.strptime(modified[:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone if modified else 0
+        return when >= path.stat().st_mtime - 2
+    except (ValueError, OverflowError):
+        return False
+
+
 _drive: _Drive | None = None
+_server: _Server | None = None
 _drive_lock = threading.Lock()
 
 
-def _place() -> tuple[dict, _Drive | None]:
+def _place() -> tuple[dict, "_Drive | _Server | None"]:
     c = _config()
     if not c:
         raise DataError("KOIOS_DATA is not set: open the project in Koios with its compute connected, and run again")
     if c["kind"] == "local":
         return c, None
-    global _drive
+    global _drive, _server
     with _drive_lock:
+        if c["kind"] == "server":
+            if _server is None:
+                _server = _Server(c)
+            return c, _server
         if _drive is None:
             _drive = _Drive(c)
     return c, _drive
@@ -329,20 +451,32 @@ def fetch(name: str) -> str:
     return str(local)
 
 
-def _fetch(drive: _Drive, rel: str, local: Path) -> None:
-    entry = drive.entry(rel)
+def _fetch(remote, rel: str, local: Path) -> None:
+    entry = remote.entry(rel)
     if entry is None:
         raise DataError(f"nothing called {rel} in the data place")
+    if isinstance(remote, _Server):
+        if entry.get("type") == "directory":
+            for sub, f in remote.tree(rel):
+                target = local / sub
+                if target.exists() and target.stat().st_size == int(f.get("size") or -1):
+                    continue
+                remote.download(f"{rel}/{sub}", target)
+        else:
+            if local.exists() and local.stat().st_size == int(entry.get("size") or -1):
+                return
+            remote.download(rel, local)
+        return
     if entry["mimeType"] == FOLDER_MIME:
-        for sub, f in drive.tree(rel):
+        for sub, f in remote.tree(rel):
             target = local / sub
             if target.exists() and target.stat().st_size == int(f.get("size") or 0) and _md5(target) == f.get("md5Checksum"):
                 continue
-            drive.download(f["id"], target)
+            remote.download(f["id"], target)
     else:
         if local.exists() and _md5(local) == entry.get("md5Checksum"):
             return
-        drive.download(entry["id"], local)
+        remote.download(entry["id"], local)
 
 
 def save(local: str, name: str | None = None, evict: bool = False) -> str:
@@ -470,7 +604,7 @@ def ls(prefix: str = "") -> list[dict]:
     if drive is None:
         base = Path(c["dir"]) / rel
         return [{"path": f"{rel}/{sub}" if rel else sub, "size": file.stat().st_size} for file, sub in _files(base)] if base.exists() else []
-    return [{"path": f"{rel}/{sub}" if rel else sub, "size": int(f.get("size") or 0)} for sub, f in drive.tree(rel)]
+    return [{"path": f"{rel}/{sub}" if rel else sub, "size": int(f.get("size") or 0)} for sub, f in drive.tree(rel)]  # Drive's or the computer's tree
 
 
 # --------------------------------------------------------------------- CLI --
