@@ -24,6 +24,15 @@ export function accountDbName(email: string | null | undefined): string {
 
 let current = GUEST_DB;
 let dbPromise: Promise<IDBDatabase> | null = null;
+const switchListeners = new Set<() => void>();
+
+/** Told whenever reads and writes move to another database, so what was read from the last one is read again. */
+export function subscribeDb(listener: () => void) {
+  switchListeners.add(listener);
+  return () => {
+    switchListeners.delete(listener);
+  };
+}
 
 function openNamed(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -60,6 +69,7 @@ export function switchDb(email: string | null | undefined): void {
   current = name;
   dbPromise = null;
   void previous?.then((db) => db.close()).catch(() => undefined);
+  switchListeners.forEach((listener) => listener());
 }
 
 /**

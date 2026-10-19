@@ -24,7 +24,7 @@
 
 import { explainError, FULL_TEXT_MAX_CHARS, modelSpec, PROVIDERS, sdk, streamModel, tag } from './assistant';
 import type { Screen, SDK } from './assistant';
-import { db } from './db';
+import { currentDbName, db } from './db';
 import { MOTION_FORMAT, parseMotion } from './motion';
 import type { MotionSpec } from './motion';
 import { figureList, gatherPaperFigures } from './paperFigures';
@@ -649,6 +649,8 @@ const REVISIONS_KEPT = 12;
 
 const KEY = (paperId: string) => `explain:${paperId}`;
 const cache = new Map<string, Explanation>();
+/** The database each paper's page was last read from: one read from another (nobody's, before the sign-in came back) is read again. */
+const readFrom = new Map<string, string>();
 const listeners = new Set<() => void>();
 let running: { paperId: string; stream: { abort(): void } } | null = null;
 
@@ -682,12 +684,22 @@ function keep(entry: Explanation) {
  * another browser comes here rather than being written again.
  */
 export async function loadExplanation(paperId: string): Promise<Explanation | undefined> {
-  if (!cache.has(paperId)) {
+  const from = currentDbName();
+  if (readFrom.get(paperId) !== from) {
     try {
       const kept = await db.getKv<Explanation>(KEY(paperId));
-      if (kept && !cache.has(paperId)) {
-        cache.set(paperId, { ...kept, streaming: false, thinking: undefined, pending: undefined });
-        notify();
+      // The database moved on while this was read: the load that follows the move reads the new one.
+      if (currentDbName() === from) {
+        readFrom.set(paperId, from);
+        const now = cache.get(paperId);
+        const busy = running?.paperId === paperId || now?.streaming || now?.pending;
+        if (kept && !busy && (!now?.content || (kept.updated ?? 0) > (now.updated ?? 0))) {
+          cache.set(paperId, { ...kept, streaming: false, thinking: undefined, pending: undefined });
+          notify();
+        } else if (now?.content && !busy && !now.error && (now.updated ?? 0) > (kept?.updated ?? 0)) {
+          // Written here while another database was open (nobody's, before the sign-in came back): kept in this one too.
+          persistLocal(now);
+        }
       }
     } catch {
       // no IndexedDB: Drive, or writing it again

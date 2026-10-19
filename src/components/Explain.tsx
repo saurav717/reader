@@ -44,6 +44,7 @@ import { SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
 import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
+import { currentDbName, subscribeDb } from '../lib/db';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
 import { typesetMath } from '../lib/typesetMath';
@@ -1047,10 +1048,12 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const opacity = settings.explainOpacity;
   // What the material shows when nothing is chosen: frosted glass, or solid paper.
   const defaultOpacity = settings.glass ? Math.round((0.5 + 0.2 * settings.glassFrost) * 100) / 100 : 1;
+  // And read again when the browser's database changes: at sign-in it moves from nobody's to the account's.
+  const dbName = useSyncExternalStore(subscribeDb, currentDbName);
   useEffect(() => {
     setChecked(false);
     void store.load(paperId).finally(() => setChecked(true));
-  }, [paperId, driveConnected, store]);
+  }, [paperId, driveConnected, dbName, store]);
   // The paper's own figures the page places, as they were kept when it was written.
   useEffect(() => void loadPaperFigures(paperId), [paperId]);
   useEffect(() => {

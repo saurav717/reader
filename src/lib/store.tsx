@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -419,9 +420,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const githubTimer = useRef<number | undefined>(undefined);
   const githubRunning = useRef(false);
 
+  // Before any passive effect of this commit: the pages inside (Explain, notes) read the
+  // browser's copy in their own effects, which run before this provider's, and would
+  // otherwise read nobody's database on the render that signs an account in.
+  useLayoutEffect(() => switchDb(account), [account]);
+
   useEffect(() => {
     let cancelled = false;
-    switchDb(account);
     pulled.current = false;
     setReady(false);
     setOpened(false);
