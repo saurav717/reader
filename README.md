@@ -4895,6 +4895,8 @@ there and shows its output live. `koios shell` opens a shell there, and
 `koios pull outputs/` brings results back. **+** opens a terminal on the compute
 directly. This needs Companion 0.17.0 or later; details in
 [docs/compute-link.md](docs/compute-link.md).
+The whole process, from the move to the first `koios run`, with flowcharts, is in
+[docs/files-here-compute-there.md](docs/files-here-compute-there.md).
 
 ### Running playgrounds
 

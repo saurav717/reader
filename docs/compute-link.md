@@ -12,6 +12,9 @@ koios pull outputs/         # bring results back here
 koios status                # where the project runs, and whether it can be reached
 ```
 
+The end-to-end process, from moving the files to the first run, is in
+[files-here-compute-there.md](files-here-compute-there.md). This page is the detail.
+
 This needs Koios Companion **0.17.0 or later** on the computer that has the files. Update it under Settings →
 Updates.
 
