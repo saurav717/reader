@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.16.0';
+export const COMPANION_VERSION = '0.16.1';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -196,9 +196,9 @@ export function desktopSystem(userAgent = typeof navigator === 'undefined' ? '' 
 export function companionDownloads(site: string): Record<DesktopSystem, { label: string; href: string; file: string; command: string }> {
   const base = site.replace(/\/?$/, '/');
   return {
-    mac: { label: 'macOS', href: `${base}download/Reader-Companion-mac.zip`, file: 'Reader Companion.command', command: `curl -LsSf ${base}companion-setup.sh | sh` },
-    windows: { label: 'Windows', href: `${base}download/Reader-Companion-Setup.cmd`, file: 'Reader-Companion-Setup.cmd', command: `powershell -ExecutionPolicy ByPass -c "irm ${base}companion-setup.ps1 | iex"` },
-    linux: { label: 'Linux', href: `${base}download/reader-companion-setup.sh`, file: 'reader-companion-setup.sh', command: `curl -LsSf ${base}companion-setup.sh | sh` },
+    mac: { label: 'macOS', href: `${base}download/Koios-Companion-mac.zip`, file: 'Koios Companion.command', command: `curl -LsSf ${base}companion-setup.sh | sh` },
+    windows: { label: 'Windows', href: `${base}download/Koios-Companion-Setup.cmd`, file: 'Koios-Companion-Setup.cmd', command: `powershell -ExecutionPolicy ByPass -c "irm ${base}companion-setup.ps1 | iex"` },
+    linux: { label: 'Linux', href: `${base}download/koios-companion-setup.sh`, file: 'koios-companion-setup.sh', command: `curl -LsSf ${base}companion-setup.sh | sh` },
   };
 }
 
@@ -259,14 +259,17 @@ export interface DesktopApps {
   linux?: { appImage?: AppDownload; deb?: AppDownload; rpm?: AppDownload };
 }
 
-/** Which installer an asset of a release is, by its name (desktop/app/electron-builder.config.cjs and the workflow name them). */
+/**
+ * Which installer an asset of a release is, by its name (desktop/app/electron-builder.config.cjs and the workflow
+ * name them): Koios-…, or Reader-… in the releases from before 0.16, when the app was called Reader.
+ */
 export function appAssetKind(name: string): { kind: 'mac' | 'windows' | 'appImage' | 'deb' | 'rpm'; signed: boolean } | null {
-  if (/^Reader(-[\d.]+)?-unsigned\.dmg$/.test(name)) return { kind: 'mac', signed: false };
-  if (/^Reader(-[\d.]+)?\.dmg$/.test(name)) return { kind: 'mac', signed: true };
-  if (/^Reader-Setup-[\d.]+(-unsigned)?\.exe$/.test(name)) return { kind: 'windows', signed: !name.includes('-unsigned') };
-  if (/^Reader-[\d.]+-x86_64\.AppImage$/.test(name)) return { kind: 'appImage', signed: false };
-  if (/^reader_[\d.]+_amd64\.deb$/.test(name)) return { kind: 'deb', signed: false };
-  if (/^reader-[\d.]+\.x86_64\.rpm$/.test(name)) return { kind: 'rpm', signed: false };
+  if (/^(Koios|Reader)(-[\d.]+)?-unsigned\.dmg$/.test(name)) return { kind: 'mac', signed: false };
+  if (/^(Koios|Reader)(-[\d.]+)?\.dmg$/.test(name)) return { kind: 'mac', signed: true };
+  if (/^(Koios|Reader)-Setup-[\d.]+(-unsigned)?\.exe$/.test(name)) return { kind: 'windows', signed: !name.includes('-unsigned') };
+  if (/^(Koios|Reader)-[\d.]+-x86_64\.AppImage$/.test(name)) return { kind: 'appImage', signed: false };
+  if (/^(koios|reader)_[\d.]+_amd64\.deb$/.test(name)) return { kind: 'deb', signed: false };
+  if (/^(koios|reader)-[\d.]+\.x86_64\.rpm$/.test(name)) return { kind: 'rpm', signed: false };
   return null;
 }
 
@@ -278,7 +281,7 @@ export function appAssetKind(name: string): { kind: 'mac' | 'windows' | 'appImag
  */
 export async function latestDesktopApps(repo = APP_RELEASES): Promise<DesktopApps> {
   try {
-    const cached = sessionStorage.getItem('reader.desktopApps');
+    const cached = sessionStorage.getItem('reader.desktopApps.koios');
     if (cached !== null) return JSON.parse(cached) as DesktopApps;
   } catch {
     // no storage, or not ours: ask
@@ -306,7 +309,7 @@ export async function latestDesktopApps(repo = APP_RELEASES): Promise<DesktopApp
   if (found.windows) apps.windows = found.windows;
   if (found.appImage || found.deb || found.rpm) apps.linux = { appImage: found.appImage, deb: found.deb, rpm: found.rpm };
   try {
-    sessionStorage.setItem('reader.desktopApps', JSON.stringify(apps));
+    sessionStorage.setItem('reader.desktopApps.koios', JSON.stringify(apps));
   } catch {
     // fine
   }

@@ -307,7 +307,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         ) : null}
         <span className="spacer" />
         {vscode ? (
-          <a className="btn sm ghost" href={vscode} title="Open this project's folder in VS Code (the Reader extension adds the papers, the machine and Open on the site)">
+          <a className="btn sm ghost" href={vscode} title="Open this project's folder in VS Code (the Koios extension adds the papers, the machine and Open on the site)">
             <VsCodeMark /> Open in VS Code
           </a>
         ) : null}

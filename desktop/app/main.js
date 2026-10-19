@@ -1,17 +1,17 @@
-// Reader as a desktop app: the reader in a window of its own, with no browser
+// Koios as a desktop app: the reader in a window of its own, with no browser
 // needed or looked for. Electron carries its own engine, so the page runs the
 // same here on every system, Google sign-in included, and reaches the Companion
 // on 127.0.0.1 as it does in Chrome.
 //
 // The first time it opens (and after an update that brings a newer Companion)
-// it sets the Reader Companion up from what is inside the app (resources/companion:
+// it sets the Koios Companion up from what is inside the app (resources/companion:
 // uv and the Companion's wheel, see scripts/prepare-companion.mjs) and runs
 // `reader-companion setup --no-app --print-url`: the Jupyter server at every
 // login, the VS Code extension, and the page paired. Every time after it runs
 // `reader-companion open --print-url`: the Companion started if it isn't running.
 // Either way the address it prints opens in this window.
 //
-// Uninstall Reader… (the Reader menu on macOS, Help elsewhere, `reader --uninstall`,
+// Uninstall Koios… (the Koios menu on macOS, Help elsewhere, `koios --uninstall`,
 // or the system's own uninstaller on Windows, build/installer.nsh) takes it all away again.
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
@@ -35,7 +35,10 @@ const COMPANION_HOME = process.env.READER_COMPANION_HOME || path.join(HOME, '.re
 const UV_EXE = IS_WIN ? 'uv.exe' : 'uv';
 const COMPANION_EXE = IS_WIN ? 'reader-companion.exe' : 'reader-companion';
 
-app.setName('Reader');
+app.setName('Koios');
+// The app was called Reader until 0.16: what it keeps (the sign-ins, a library not in Google Drive, the window's
+// place) stays in the folder it always had, so an install of Koios over Reader finds it all where it was.
+app.setPath('userData', path.join(app.getPath('appData'), 'Reader'));
 // Google turns sign-in down in what it takes for an embedded browser; the page is the
 // same one Chrome shows, so it gets Chrome's name for itself, without Electron's word.
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|reader)\/\S+/gi, '');
@@ -162,22 +165,22 @@ function installedVersion() {
 async function companionAddress(say) {
   const installed = installedVersion();
   if (installed && !isOlder(installed, INFO.version || '0')) {
-    say({ status: 'Starting Reader…' });
+    say({ status: 'Starting Koios…' });
     let url = null;
     const code = await run(companionPath(), ['open', '--print-url'], (line) => {
       if (line.startsWith('READER_URL=')) url = line.slice('READER_URL='.length).trim();
       else say({ line });
     });
     if (code === 0 && url) return url;
-    throw new Error('The Reader Companion didn’t start.');
+    throw new Error('The Koios Companion didn’t start.');
   }
   return setUp(say);
 }
 
 /** Installs the Companion from the wheel inside the app, with the uv inside the app, then runs `setup`. */
 async function setUp(say) {
-  say({ status: INFO.version ? `Setting up Reader (Companion ${INFO.version})…` : 'Setting up Reader…', setup: true });
-  say({ line: 'Reader runs your code on this computer: a Jupyter server in the background, your files in ~/Reader.' });
+  say({ status: INFO.version ? `Setting up Koios (Companion ${INFO.version})…` : 'Setting up Koios…', setup: true });
+  say({ line: 'Koios runs your code on this computer: a Jupyter server in the background, your files in ~/Reader.' });
   say({ line: 'The first time takes a minute or two: it installs its own Python and the Companion’s packages.\n' });
   // Our own copy of uv, outside the app: it stays put when the app is moved or updated, and on a Mac
   // it doesn't carry the "downloaded from the internet" mark, which would stop it on its own.
@@ -192,7 +195,7 @@ async function setUp(say) {
   const wheel = path.join(RESOURCES, INFO.wheel || '');
   const steps = [
     ['Installing Python…', ['python', 'install', '3.12'], 'Installing Python didn’t finish.'],
-    ['Installing the Reader Companion…', ['tool', 'install', '--force', '--python', '3.12', '--from', wheel, 'reader-companion'], 'Installing the Reader Companion didn’t finish.'],
+    ['Installing the Koios Companion…', ['tool', 'install', '--force', '--python', '3.12', '--from', wheel, 'reader-companion'], 'Installing the Koios Companion didn’t finish.'],
   ];
   for (const [line, args, failed] of steps) {
     say({ line });
@@ -212,7 +215,7 @@ async function setUp(say) {
     else say({ line });
   });
   if (code !== 0 || !url) throw new Error('Setting up didn’t finish.');
-  say({ status: 'Reader is set up.', line: '\nDone. From now on, open Reader like any app: it starts the Companion each time.' });
+  say({ status: 'Koios is set up.', line: '\nDone. From now on, open Koios like any app: it starts the Companion each time.' });
   return url;
 }
 
@@ -242,8 +245,8 @@ function windowOptions(extra = {}) {
     ...(Number.isFinite(saved.x) && Number.isFinite(saved.y) ? { x: saved.x, y: saved.y } : {}),
     minWidth: 720,
     minHeight: 480,
-    title: 'Reader',
-    backgroundColor: '#fbfaf6',
+    title: 'Koios',
+    backgroundColor: '#fbf8f1',
     icon: path.join(__dirname, 'build', 'icon.png'),
     show: false,
     ...extra,
@@ -348,7 +351,7 @@ const PROTOCOL = 'reader-app';
 // site's pages in this app, for this computer's own Companion only (its id), when the person says so.
 ipcMain.handle('companion:release', async (event, id) => {
   const from = event.senderFrame?.url || '';
-  if (!from.startsWith(SITE_ORIGIN + '/')) return { ok: false, error: 'Not the Reader site.' };
+  if (!from.startsWith(SITE_ORIGIN + '/')) return { ok: false, error: 'Not the Koios site.' };
   const mine = readJson(path.join(COMPANION_HOME, 'config.json'))?.id;
   if (!mine || mine !== id) return { ok: false, error: 'That Companion isn’t this computer’s.' };
   const said = [];
@@ -381,7 +384,7 @@ ipcMain.on('start:retry', () => {
 });
 
 ipcMain.on('start:without', async () => {
-  // Reader works without the Companion; only running code on this computer needs it.
+  // Koios works without the Companion; only running code on this computer needs it.
   if (main) await showSite(main, `${SITE}#app=1`);
 });
 
@@ -414,8 +417,8 @@ function openUninstall() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: 'Uninstall Reader',
-    backgroundColor: '#fbfaf6',
+    title: 'Uninstall Koios',
+    backgroundColor: '#fbf8f1',
     icon: path.join(__dirname, 'build', 'icon.png'),
     parent: main ?? undefined,
     modal: Boolean(main) && !IS_WIN,
@@ -440,11 +443,14 @@ ipcMain.handle('uninstall:details', () => ({
 
 ipcMain.on('uninstall:cancel', () => uninstallWindow?.close());
 
+/** The Linux package's name (it was "reader" until 0.16; koios replaces it). */
+const LINUX_PACKAGE = 'koios';
+
 /** How this copy was installed on Linux: an AppImage, a .deb, an .rpm, or by hand. */
 function linuxPackage() {
   if (process.env.APPIMAGE) return 'appimage';
-  if (fs.existsSync('/var/lib/dpkg/info/reader.list')) return 'deb';
-  if (spawnSync('rpm', ['-q', 'reader'], { stdio: 'ignore' }).status === 0) return 'rpm';
+  if (fs.existsSync(`/var/lib/dpkg/info/${LINUX_PACKAGE}.list`)) return 'deb';
+  if (spawnSync('rpm', ['-q', LINUX_PACKAGE], { stdio: 'ignore' }).status === 0) return 'rpm';
   return null;
 }
 
@@ -468,11 +474,11 @@ ipcMain.handle('uninstall:run', async (_event, { vscode = true, deleteFiles = fa
   let afterExit = [];
   if (deleteFiles) {
     fs.rmSync(COMPANION_HOME, { recursive: true, force: true });
-    // What Reader keeps in this app: cleared now, and its folder deleted once the app has quit (Electron
+    // What Koios keeps in this app: cleared now, and its folder deleted once the app has quit (Electron
     // writes to it until the very end).
     await session.defaultSession.clearStorageData().catch(() => undefined);
     afterExit = [app.getPath('userData'), ...(fs.existsSync(COMPANION_HOME) ? [COMPANION_HOME] : [])];
-    say('What Reader keeps in this app (a library not in Google Drive, sign-ins) is deleted as it closes.');
+    say('What Koios keeps in this app (a library not in Google Drive, sign-ins) is deleted as it closes.');
   }
   removeLinuxEntries();
   // 4. The app.
@@ -483,15 +489,15 @@ ipcMain.handle('uninstall:run', async (_event, { vscode = true, deleteFiles = fa
   if (IS_MAC) {
     try {
       await shell.trashItem(appLocation());
-      say('Moved Reader to the Bin.');
+      say('Moved Koios to the Bin.');
     } catch (error) {
-      say(`Couldn’t move Reader to the Bin (${error.message}): drag it there from Applications.`);
+      say(`Couldn’t move Koios to the Bin (${error.message}): drag it there from Applications.`);
     }
   } else if (IS_WIN) {
     // The system's uninstaller, silently: it removes the files, the shortcuts and the entry in
     // Settings → Apps (and does steps 1–3 again, which find nothing left). It waits for this app to quit.
     // (ping is the wait: timeout won't run without a console.)
-    const uninstaller = path.join(path.dirname(process.execPath), 'Uninstall Reader.exe');
+    const uninstaller = path.join(path.dirname(process.execPath), 'Uninstall Koios.exe');
     const steps = ['ping -n 4 127.0.0.1 >nul', `"${uninstaller}" /S`, ...afterExit.map((dir) => `rmdir /s /q "${dir}"`)];
     spawn('cmd.exe', ['/d', '/s', '/c', `"${steps.join(' & ')}"`], { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
     say('Removing the app…');
@@ -502,12 +508,12 @@ ipcMain.handle('uninstall:run', async (_event, { vscode = true, deleteFiles = fa
       fs.rmSync(process.env.APPIMAGE, { force: true });
       say(`Deleted ${process.env.APPIMAGE}.`);
     } else if (kind === 'deb' || kind === 'rpm') {
-      const command = kind === 'deb' ? ['apt-get', 'remove', '-y', 'reader'] : ['rpm', '-e', 'reader'];
+      const command = kind === 'deb' ? ['apt-get', 'remove', '-y', LINUX_PACKAGE] : ['rpm', '-e', LINUX_PACKAGE];
       say(`Removing the package (it asks for your password): sudo ${command.join(' ')}`);
       const code = await run('pkexec', command, say, { timeout: 300_000 });
       if (code !== 0) say(`It wasn’t removed. In a terminal: sudo ${command.join(' ')}`);
     } else {
-      say(`Delete the folder Reader is in to finish: ${path.dirname(process.execPath)}`);
+      say(`Delete the folder Koios is in to finish: ${path.dirname(process.execPath)}`);
     }
   }
   if (afterExit.length) {
@@ -523,7 +529,7 @@ ipcMain.on('uninstall:quit', () => app.quit());
 const applications = () => path.join(process.env.XDG_DATA_HOME || path.join(HOME, '.local', 'share'), 'applications');
 const AppImageEntry = 'reader-app.desktop';
 
-/** An AppImage puts itself in the applications menu (packages have their own entry): Reader, and Uninstall Reader beside it. */
+/** An AppImage puts itself in the applications menu (packages have their own entry): Koios, and Uninstall Koios beside it. */
 function integrateAppImage() {
   if (process.platform !== 'linux' || !process.env.APPIMAGE) return;
   try {
@@ -534,11 +540,11 @@ function integrateAppImage() {
     fs.mkdirSync(applications(), { recursive: true });
     fs.writeFileSync(
       path.join(applications(), AppImageEntry),
-      `[Desktop Entry]\nType=Application\nName=Reader\nComment=Read research papers, keep notes and run code on this computer\nExec=${exec} %U\nIcon=reader-app\nTerminal=false\nCategories=Education;Science;\nStartupWMClass=reader\nMimeType=x-scheme-handler/reader-app;\nActions=Uninstall;\n\n[Desktop Action Uninstall]\nName=Uninstall Reader\nExec=${exec} --uninstall\n`,
+      `[Desktop Entry]\nType=Application\nName=Koios\nComment=Read research papers, keep notes and run code on this computer\nExec=${exec} %U\nIcon=reader-app\nTerminal=false\nCategories=Education;Science;\nStartupWMClass=koios\nMimeType=x-scheme-handler/reader-app;\nActions=Uninstall;\n\n[Desktop Action Uninstall]\nName=Uninstall Koios\nExec=${exec} --uninstall\n`,
     );
     fs.writeFileSync(
       path.join(applications(), 'reader-app-uninstall.desktop'),
-      `[Desktop Entry]\nType=Application\nName=Uninstall Reader\nExec=${exec} --uninstall\nIcon=reader-app\nTerminal=false\nCategories=Education;\n`,
+      `[Desktop Entry]\nType=Application\nName=Uninstall Koios\nExec=${exec} --uninstall\nIcon=reader-app\nTerminal=false\nCategories=Education;\n`,
     );
   } catch {
     // the menu entry is a convenience
@@ -558,14 +564,14 @@ function focused() {
 }
 
 function buildMenu() {
-  const uninstall = { label: 'Uninstall Reader…', click: openUninstall };
+  const uninstall = { label: 'Uninstall Koios…', click: openUninstall };
   const update = { label: 'Check for Updates…', click: () => void checkForUpdates({ manual: true }) };
   const template = [
     ...(IS_MAC
       ? [
           {
-            label: 'Reader',
-            submenu: [{ role: 'about', label: 'About Reader' }, update, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, uninstall, { type: 'separator' }, { role: 'quit' }],
+            label: 'Koios',
+            submenu: [{ role: 'about', label: 'About Koios' }, update, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, uninstall, { type: 'separator' }, { role: 'quit' }],
           },
         ]
       : []),
@@ -590,11 +596,11 @@ function buildMenu() {
     {
       role: 'help',
       submenu: [
-        { label: 'Reader on the Web', click: () => shell.openExternal(SITE) },
+        { label: 'Koios on the Web', click: () => shell.openExternal(SITE) },
         { label: 'Show the Companion’s Log', click: () => shell.openPath(path.join(COMPANION_HOME, 'companion.log')) },
         { label: 'Show the Recorder’s Log', click: () => shell.openPath(recorderLogPath()) },
-        { label: 'Every Version of Reader', click: () => shell.openExternal(RELEASES) },
-        ...(IS_MAC ? [] : [{ type: 'separator' }, update, uninstall, { type: 'separator' }, { role: 'about', label: 'About Reader' }]),
+        { label: 'Every Version of Koios', click: () => shell.openExternal(RELEASES) },
+        ...(IS_MAC ? [] : [{ type: 'separator' }, update, uninstall, { type: 'separator' }, { role: 'about', label: 'About Koios' }]),
       ],
     },
   ];
@@ -624,7 +630,7 @@ if (!app.requestSingleInstanceLock()) {
   else if (process.argv[1]) app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
 
   app.whenReady().then(() => {
-    app.setAboutPanelOptions({ applicationName: 'Reader', applicationVersion: app.getVersion(), copyright: 'saurav717', website: SITE, iconPath: path.join(__dirname, 'build', 'icon.png') });
+    app.setAboutPanelOptions({ applicationName: 'Koios', applicationVersion: app.getVersion(), copyright: 'saurav717', website: SITE, iconPath: path.join(__dirname, 'build', 'icon.png') });
     // The site and the Companion get what they ask for (the clipboard, notifications, the
     // computer's own network for 127.0.0.1); nothing else is asked for, and nothing else gets it.
     const trusted = (url) => Boolean(url) && staysInApp(url);

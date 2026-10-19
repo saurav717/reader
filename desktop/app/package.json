@@ -1,9 +1,9 @@
 {
-  "name": "reader",
-  "productName": "Reader",
-  "version": "0.14.0",
+  "name": "koios",
+  "productName": "Koios",
+  "version": "0.16.0",
   "private": true,
-  "description": "Reader for research papers, as an app: its own window, the Reader Companion set up and started with it.",
+  "description": "Koios for research papers, as an app: its own window, the Koios Companion set up and started with it.",
   "homepage": "https://koios.dev/",
   "author": {
     "name": "saurav717",
@@ -24,5 +24,5 @@
     "electron": "44.4.5",
     "electron-builder": "26.15.3"
   },
-  "desktopName": "reader.desktop"
+  "desktopName": "koios.desktop"
 }

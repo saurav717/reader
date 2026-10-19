@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 
 import { cleanup, load } from './bundle.mjs';
-import { buildWheel, installers, projectOf, setupInstallers } from './build-companion.mjs';
+import { buildWheel, downloads, installers, projectOf, setupInstallers } from './build-companion.mjs';
 
 const companion = await load('src/lib/companion.ts');
 after(cleanup);
@@ -135,8 +135,10 @@ describe('the page’s side', () => {
     assert.equal(companion.desktopSystem('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'), 'windows');
     assert.equal(companion.desktopSystem('Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0'), 'linux');
     const downloads = companion.companionDownloads('https://saurav717.github.io/reader');
-    assert.equal(downloads.mac.href, 'https://saurav717.github.io/reader/download/Reader-Companion-mac.zip');
-    assert.equal(downloads.windows.href, 'https://saurav717.github.io/reader/download/Reader-Companion-Setup.cmd');
+    assert.equal(downloads.mac.href, 'https://saurav717.github.io/reader/download/Koios-Companion-mac.zip');
+    assert.equal(downloads.mac.file, 'Koios Companion.command');
+    assert.equal(downloads.windows.href, 'https://saurav717.github.io/reader/download/Koios-Companion-Setup.cmd');
+    assert.equal(downloads.linux.href, 'https://saurav717.github.io/reader/download/koios-companion-setup.sh');
     assert.equal(downloads.linux.command, 'curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh');
   });
   it('offers the newest Reader desktop app for each system, signed before unsigned, and nothing while there is none', async () => {
@@ -171,6 +173,19 @@ describe('the page’s side', () => {
       // What the app updates itself from, beside the installers: not offered as downloads.
       for (const name of ['latest-mac.yml', 'latest.yml', 'latest-linux.yml', 'Reader-0.14.312-mac.zip', 'Reader-Setup-0.14.312-unsigned.exe.blockmap']) assert.equal(companion.appAssetKind(name), null, name);
       assert.deepEqual(companion.appAssetKind('Reader-0.14.312-unsigned.dmg'), { kind: 'mac', signed: false });
+      // Koios, from 0.16: the newest release's installers are offered under the new name, the older ones still found.
+      for (const name of ['Koios-0.16.44-mac.zip', 'Koios-Setup-0.16.44-unsigned.exe.blockmap', 'Koios-Companion-Setup.cmd']) assert.equal(companion.appAssetKind(name), null, name);
+      store.clear();
+      answer([
+        { assets: [asset('Koios-0.16.44-unsigned.dmg'), asset('Koios-Setup-0.16.44-unsigned.exe'), asset('koios_0.16.44_amd64.deb'), asset('Koios-0.16.44-x86_64.AppImage'), asset('koios-0.16.44.x86_64.rpm')] },
+        { assets: [asset('Reader-0.16.43-unsigned.dmg')] },
+      ]);
+      const now = await companion.latestDesktopApps();
+      assert.equal(now.mac.file, 'Koios-0.16.44-unsigned.dmg');
+      assert.equal(now.windows.file, 'Koios-Setup-0.16.44-unsigned.exe');
+      assert.equal(now.linux.deb.file, 'koios_0.16.44_amd64.deb');
+      assert.equal(now.linux.rpm.file, 'koios-0.16.44.x86_64.rpm');
+      assert.equal(now.linux.appImage.file, 'Koios-0.16.44-x86_64.AppImage');
     } finally {
       globalThis.fetch = realFetch;
       delete globalThis.sessionStorage;
@@ -244,8 +259,12 @@ describe('the wheel and the installers', () => {
     assert.ok(setup.ps1.includes(`$wheel = '${url}'`) && setup.ps1.includes("'reader-companion.exe') setup --site $site"));
     // The Mac's .command, executable inside its zip, as a bare download wouldn't be.
     const mac = unzip(setup.mac);
-    assert.deepEqual([...mac.keys()], ['Reader Companion.command']);
-    assert.ok(mac.get('Reader Companion.command').toString().includes('curl -LsSf https://example.org/reader/companion-setup.sh | sh'));
+    assert.deepEqual([...mac.keys()], ['Koios Companion.command']);
+    assert.ok(mac.get('Koios Companion.command').toString().includes('curl -LsSf https://example.org/reader/companion-setup.sh | sh'));
+    // Served under Koios's names, and under Reader's too for links from before 0.16.
+    const files = downloads(setupInstallers('https://example.org/reader/', 'reader_companion-0.16.1-py3-none-any.whl'));
+    assert.deepEqual(Object.keys(files).sort(), ['Koios-Companion-Setup.cmd', 'Koios-Companion-mac.zip', 'Reader-Companion-Setup.cmd', 'Reader-Companion-mac.zip', 'koios-companion-setup.sh', 'reader-companion-setup.sh']);
+    assert.equal(files['Reader-Companion-mac.zip'], files['Koios-Companion-mac.zip']);
     const end = setup.mac.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
     const central = setup.mac.readUInt32LE(end + 16);
     assert.equal((setup.mac.readUInt32LE(central + 38) >>> 16) & 0o777, 0o755);

@@ -547,7 +547,7 @@ async def shut_down(serverapp, why: str) -> None:
     state.set_off(True)
     if account.owner():  # the account's list says it is off, so its other browsers don't wait for it
         await IOLoop.current().run_in_executor(None, lambda: account.beat(state.current, off=True))
-    print(f"  {why} It stays off until it is started again: the Reader app, or reader-companion start.", flush=True)
+    print(f"  {why} It stays off until it is started again: the Koios app, or reader-companion start.", flush=True)
     # The jobs running in the kernels first: asked to stop (SIGTERM), and given a moment — a job that uses the koios
     # helper saves a checkpoint and leaves; one that does not goes with the kernel, as it would have.
     await IOLoop.current().run_in_executor(None, lambda: stop_jobs_gently(serverapp))
@@ -630,13 +630,13 @@ class AppWindow:
         def gone():
             self.closing = None
             if self.heard <= said and stops_with_app():
-                self.stop(serverapp, "The Reader window was closed: shut down with it.")
+                self.stop(serverapp, "The Koios window was closed: shut down with it.")
 
         self.closing = IOLoop.current().call_later(APP_GOODBYE_S, gone)
 
     def _quiet(self, serverapp) -> None:
         if self.heard and time.time() - self.heard > APP_QUIET_S and stops_with_app():
-            self.stop(serverapp, "The Reader window went quiet (closed without a word): shut down with it.")
+            self.stop(serverapp, "The Koios window went quiet (closed without a word): shut down with it.")
 
     def stop(self, serverapp, why: str) -> None:
         if self.watch is not None:

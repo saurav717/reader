@@ -70,7 +70,7 @@ function CompanionRow({ server }: { server: JupyterServer }) {
             : row.state === 'offline'
               ? 'Not running (shut down, or the computer is off). Start starts it, through the Koios app.'
               : row.state === 'starting'
-                ? 'Starting… your browser may ask whether to open Reader Companion.'
+                ? 'Starting… your browser may ask whether to open Koios Companion.'
               : row.state === 'unstarted'
                 ? 'It didn’t start from here. Open the Koios app on it, or run reader-companion start in a terminal there.'
               : row.state === 'manual'
@@ -273,7 +273,7 @@ export default function CompanionUpdates() {
         </a>
         .) The <b>Companion</b> is the one part installed on your computer: the Jupyter server that runs
         your playgrounds. A website can’t replace a program on your computer, so the Companion updates when you press Update:
-        it installs the newest one from this site, refreshes the Reader extension in VS Code, and starts again; your files and
+        it installs the newest one from this site, refreshes the Koios extension in VS Code, and starts again; your files and
         settings stay as they are.
       </p>
     </>

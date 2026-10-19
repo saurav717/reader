@@ -1,8 +1,9 @@
-# Builds the Reader desktop app (desktop/app, Electron) and its installers, on each system's own runner:
-#   macOS    Reader-<version>.dmg                    one universal app (Apple silicon and Intel)
-#   Windows  Reader-Setup-<version>.exe              a setup wizard; uninstalled from Settings → Apps
-#   Linux    Reader-<version>-x86_64.AppImage, reader_<version>_amd64.deb, reader-<version>.x86_64.rpm
-# and what the app updates itself from (desktop/app/updates.js): latest-mac.yml and Reader-<version>-mac.zip,
+# Builds the Koios desktop app (desktop/app, Electron) and its installers, on each system's own runner:
+#   macOS    Koios-<version>.dmg                     one universal app (Apple silicon and Intel)
+#   Windows  Koios-Setup-<version>.exe               a setup wizard; uninstalled from Settings → Apps
+#   Linux    Koios-<version>-x86_64.AppImage, koios_<version>_amd64.deb, koios-<version>.x86_64.rpm
+# (Reader-… until 0.16, when the app was called Reader.)
+# and what the app updates itself from (desktop/app/updates.js): latest-mac.yml and Koios-<version>-mac.zip,
 # latest.yml and the .exe's .blockmap, latest-linux.yml.
 #
 # <version> is the Companion's major.minor (companion/pyproject.toml) and this run's number — 0.14.312 —
@@ -22,8 +23,8 @@
 #   APPLE_APP_PASSWORD          an app-specific password for it (account.apple.com)
 #   WINDOWS_CERTIFICATE         a code signing certificate for Windows, a .pfx, base64
 #   WINDOWS_CERTIFICATE_PASSWORD  its password
-# Without them the .dmg is named Reader-<version>-unsigned.dmg (macOS stops it once) and the .exe
-# Reader-Setup-<version>-unsigned.exe (Windows SmartScreen warns once).
+# Without them the .dmg is named Koios-<version>-unsigned.dmg (macOS stops it once) and the .exe
+# Koios-Setup-<version>-unsigned.exe (Windows SmartScreen warns once).
 name: Desktop app
 
 on:
@@ -60,7 +61,7 @@ jobs:
           esac
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "not a version: $VERSION"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Reader $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "Koios $VERSION" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     needs: version
@@ -148,11 +149,11 @@ jobs:
           SUFFIX=""; [ -z "$READER_UNSIGNED" ] || SUFFIX="-unsigned"
           case "$RUNNER_OS" in
             macOS)
-              cp "dist/Reader-$VERSION$SUFFIX.dmg" "dist/Reader-$VERSION-mac.zip" dist/latest-mac.yml out/ ;;
+              cp "dist/Koios-$VERSION$SUFFIX.dmg" "dist/Koios-$VERSION-mac.zip" dist/latest-mac.yml out/ ;;
             Windows)
-              cp "dist/Reader-Setup-$VERSION$SUFFIX.exe" "dist/Reader-Setup-$VERSION$SUFFIX.exe.blockmap" dist/latest.yml out/ ;;
+              cp "dist/Koios-Setup-$VERSION$SUFFIX.exe" "dist/Koios-Setup-$VERSION$SUFFIX.exe.blockmap" dist/latest.yml out/ ;;
             Linux)
-              cp "dist/Reader-$VERSION-x86_64.AppImage" "dist/reader_${VERSION}_amd64.deb" "dist/reader-$VERSION.x86_64.rpm" dist/latest-linux.yml out/ ;;
+              cp "dist/Koios-$VERSION-x86_64.AppImage" "dist/koios_${VERSION}_amd64.deb" "dist/koios-$VERSION.x86_64.rpm" dist/latest-linux.yml out/ ;;
           esac
           # The update files name what is published beside them, with the version the app compares against its own.
           for yml in out/latest*.yml; do
@@ -170,16 +171,18 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           VERSION="$READER_APP_VERSION"
-          dpkg-deb -I "out/reader_${VERSION}_amd64.deb"
-          dpkg-deb -c "out/reader_${VERSION}_amd64.deb" | grep -E 'resources/companion/(uv|info.json|reader_companion-.*\.whl|python/.*x86_64-unknown-linux-gnu.*\.tar\.gz)'
-          rpm -qip "out/reader-$VERSION.x86_64.rpm"
+          dpkg-deb -I "out/koios_${VERSION}_amd64.deb"
+          # It takes the place of the reader package (the app's name until 0.16).
+          dpkg-deb -f "out/koios_${VERSION}_amd64.deb" Replaces Conflicts | grep -q reader
+          dpkg-deb -c "out/koios_${VERSION}_amd64.deb" | grep -E 'resources/companion/(uv|info.json|reader_companion-.*\.whl|python/.*x86_64-unknown-linux-gnu.*\.tar\.gz)'
+          rpm -qip "out/koios-$VERSION.x86_64.rpm"
 
       - name: Check the app on macOS
         if: runner.os == 'macOS'
         run: |
-          APP="dist/mac-universal/Reader.app"
+          APP="dist/mac-universal/Koios.app"
           codesign --verify --verbose=2 "$APP" || true
-          lipo -archs "$APP/Contents/MacOS/Reader"
+          lipo -archs "$APP/Contents/MacOS/Koios"
           lipo -archs "$APP/Contents/Resources/companion/uv"
           "$APP/Contents/Resources/companion/uv" --version
           ls "$APP"/Contents/Resources/companion/python/*/ | grep -c 'apple-darwin' | grep -qx 2 # Python for both Apple silicon and Intel
@@ -228,11 +231,11 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           COMPANION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
           TAG="app-v$VERSION"
-          NOTES="Reader $VERSION as an app: its own window, no browser needed, with the Reader Companion $COMPANION set up the first time it opens. An app already installed updates itself to it (Check for Updates… in the Reader menu on a Mac, in Help elsewhere); older versions stay on the releases page.
+          NOTES="Koios $VERSION as an app: its own window, no browser needed, with the Koios Companion $COMPANION set up the first time it opens. An app already installed updates itself to it (Check for Updates… in the Koios menu on a Mac, in Help elsewhere); older versions stay on the releases page. The app was called Reader until 0.16. On a Mac that has the Reader app, download this one once (Reader can't update itself into the new name), drag Koios to Applications, then delete Reader: your sign-ins and settings carry over.
 
-          - **macOS**: open the .dmg and drag Reader to Applications. To uninstall: Reader menu → Uninstall Reader…
-          - **Windows**: run Reader-Setup. To uninstall: Settings → Apps → Reader → Uninstall.
-          - **Linux**: the .deb (Ubuntu, Debian), the .rpm (Fedora, openSUSE) or the AppImage (any). To uninstall: Uninstall Reader in your applications, or sudo apt remove reader.
+          - **macOS**: open the .dmg and drag Koios to Applications. To uninstall: Koios menu → Uninstall Koios…
+          - **Windows**: run Koios-Setup (it installs over Reader). To uninstall: Settings → Apps → Koios → Uninstall.
+          - **Linux**: the .deb (Ubuntu, Debian), the .rpm (Fedora, openSUSE) or the AppImage (any). To uninstall: Uninstall Koios in your applications, or sudo apt remove koios.
 
           An installer named …-unsigned isn't signed: macOS stops it once (Done, then Open Anyway in System Settings → Privacy & Security), and Windows asks once (More info → Run anyway)."
           ls -la installers
@@ -241,5 +244,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" installers/* --clobber
           else
-            gh release create "$TAG" installers/* --title "Reader $VERSION" --notes "$NOTES" --generate-notes --latest
+            gh release create "$TAG" installers/* --title "Koios $VERSION" --notes "$NOTES" --generate-notes --latest
           fi

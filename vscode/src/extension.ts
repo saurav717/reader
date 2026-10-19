@@ -83,7 +83,7 @@ class CompanionTree implements vscode.TreeDataProvider<vscode.TreeItem> {
 
 // --------------------------------------------------------------- helpers --
 
-/** The Reader project the open folder or the active file is in, if any. */
+/** The Koios project the open folder or the active file is in, if any. */
 function currentFolder(): string | null {
   const file = vscode.window.activeTextEditor?.document.uri;
   if (file?.scheme === 'file') {
@@ -102,7 +102,7 @@ async function currentMarker(): Promise<Marker | null> {
   return folder ? readMarker(folder) : null;
 }
 
-/** In a Reader project, the Python extension uses the Companion's environment, unless a Python was already chosen there. */
+/** In a Koios project, the Python extension uses the Companion's environment, unless a Python was already chosen there. */
 async function pickInterpreter(ask: boolean) {
   if (!vscode.workspace.getConfiguration('reader').get<boolean>('setPythonInterpreter') && !ask) return;
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
@@ -117,7 +117,17 @@ async function pickInterpreter(ask: boolean) {
 
 // ------------------------------------------------------------- activate --
 
+/** The themes were called Reader Light and Reader Dark until 0.3.0: whoever picked one keeps it under its new name. */
+export const RENAMED_THEMES: Record<string, string> = { 'Reader Light': 'Koios Light', 'Reader Dark': 'Koios Dark' };
+
+async function keepRenamedTheme() {
+  const workbench = vscode.workspace.getConfiguration('workbench');
+  const now = workbench.get<string>('colorTheme');
+  if (now && RENAMED_THEMES[now]) await workbench.update('colorTheme', RENAMED_THEMES[now], vscode.ConfigurationTarget.Global);
+}
+
 export async function activate(context: vscode.ExtensionContext) {
+  void keepRenamedTheme();
   companion = await readCompanion(siteSetting());
   const projects = new ProjectsTree();
   const papers = new PapersTree();
@@ -128,8 +138,8 @@ export async function activate(context: vscode.ExtensionContext) {
     companion = await readCompanion(siteSetting());
     running = await ping(companion);
     await vscode.commands.executeCommand('setContext', 'reader.running', running !== null);
-    bar.text = running !== null ? `$(pass-filled) Reader: ${companion.config.name ?? 'this computer'}` : '$(circle-outline) Reader';
-    bar.tooltip = running !== null ? `The Reader Companion is running on 127.0.0.1:${companion.port}. Click to open this project on the site.` : 'The Reader Companion isn’t running. Click to start it.';
+    bar.text = running !== null ? `$(pass-filled) Koios: ${companion.config.name ?? 'this computer'}` : '$(circle-outline) Koios';
+    bar.tooltip = running !== null ? `The Koios Companion is running on 127.0.0.1:${companion.port}. Click to open this project on the site.` : 'The Koios Companion isn’t running. Click to start it.';
     bar.command = running !== null ? 'reader.openOnSite' : 'reader.start';
     bar.show();
     projects.refresh();
@@ -159,17 +169,17 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('reader.useLook', async () => {
       const pick = await vscode.window.showQuickPick(
         [
-          { label: 'Reader Light', description: 'paper and ink, the site’s light theme' },
-          { label: 'Reader Dark', description: 'the site’s dark theme' },
+          { label: 'Koios Light', description: 'paper and ink, the site’s light theme' },
+          { label: 'Koios Dark', description: 'the site’s dark theme' },
         ],
         { title: 'The site’s look for VS Code' },
       );
       if (pick) await vscode.workspace.getConfiguration('workbench').update('colorTheme', pick.label, vscode.ConfigurationTarget.Global);
     }),
     vscode.commands.registerCommand('reader.start', async () => {
-      const existing = vscode.window.terminals.find((t) => t.name === 'Reader Companion');
+      const existing = vscode.window.terminals.find((t) => t.name === 'Koios Companion' || t.name === 'Reader Companion');
       if (existing) return existing.show();
-      const terminal = vscode.window.createTerminal({ name: 'Reader Companion', iconPath: new vscode.ThemeIcon('plug') });
+      const terminal = vscode.window.createTerminal({ name: 'Koios Companion', iconPath: new vscode.ThemeIcon('plug') });
       terminal.show();
       terminal.sendText(startCommand(companion.site, process.platform, Boolean(companion.config.tunnel)));
       // Look again until it answers, for a minute or two: the first run installs things.

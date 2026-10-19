@@ -7,7 +7,7 @@
 //   Windows, Linux  electron-updater: the setup .exe run again silently, the AppImage replaced, or
 //                   the .deb/.rpm installed (it asks for the password)
 //   macOS           our own: electron-updater's way on a Mac (Squirrel) needs an app signed with a
-//                   Developer ID, which an unsigned build is not. The new Reader.app comes as a .zip,
+//                   Developer ID, which an unsigned build is not. The new Koios.app comes as a .zip,
 //                   is checked against its SHA-512 in latest-mac.yml, and, once the app has quit,
 //                   takes the old one's place, the old one kept until the new one is in. An app
 //                   where it can't be replaced (on the disk image, or where this user can't write)
@@ -33,14 +33,14 @@ const EVERY = 6 * 60 * 60_000;
 let state = { status: 'idle', version: app.getVersion() };
 let siteOrigin = '';
 let updater = null;
-/** macOS: the new Reader.app, unpacked and checked, waiting for the app to quit. */
+/** macOS: the new Koios.app, unpacked and checked, waiting for the app to quit. */
 let pendingMac = null;
 /** A check someone asked for (the menu, Settings), as opposed to the one in the background: it says when there is nothing new. */
 let asked = false;
 let busy = null;
 let stopped = false;
 
-const notUpdatable = () => ({ status: 'unsupported', error: app.isPackaged ? 'This copy of Reader can’t update itself: download the newest from the releases page.' : 'Run from source: nothing to update.' });
+const notUpdatable = () => ({ status: 'unsupported', error: app.isPackaged ? 'This copy of Koios can’t update itself: download the newest from the releases page.' : 'Run from source: nothing to update.' });
 
 /** Whether this copy can update itself at all: an installed app, not one run from source or a .zip unpacked by hand. */
 function updatable() {
@@ -86,7 +86,7 @@ function compareVersions(a, b) {
  * shape electron-builder writes is read:
  *   version: 0.14.312
  *   files:
- *     - url: Reader-0.14.312-mac.zip
+ *     - url: Koios-0.16.312-mac.zip
  *       sha512: …
  *       size: 123
  */
@@ -116,15 +116,15 @@ function parseUpdateInfo(text) {
 
 // ----------------------------------------------------------------- macOS ----
 
-/** …/Reader.app, the bundle this is running from. */
+/** …/Koios.app (or Reader.app, installed before 0.16), the bundle this is running from. */
 const macBundle = () => path.resolve(process.execPath, '..', '..', '..');
 
 /** Why the app can't replace itself where it is; null when it can. */
 function macReplaceBlocked() {
   const bundle = macBundle();
-  if (!bundle.endsWith('.app')) return 'This copy of Reader is not an app bundle.';
-  if (bundle.startsWith('/Volumes/')) return 'Reader is running from its disk image: drag it to Applications first.';
-  if (bundle.includes('/AppTranslocation/')) return 'macOS is running Reader from a hidden copy: move it to Applications (and open it from there) first.';
+  if (!bundle.endsWith('.app')) return 'This copy of Koios is not an app bundle.';
+  if (bundle.startsWith('/Volumes/')) return 'Koios is running from its disk image: drag it to Applications first.';
+  if (bundle.includes('/AppTranslocation/')) return 'macOS is running Koios from a hidden copy: move it to Applications (and open it from there) first.';
   try {
     fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
     fs.accessSync(bundle, fs.constants.W_OK);
@@ -168,7 +168,7 @@ async function checkMac() {
   if (!info.version || compareVersions(info.version, app.getVersion()) <= 0) return { status: 'current' };
   if (pendingMac?.version === info.version) return { status: 'ready', available: info.version };
   const zip = info.files.find((file) => file.url.endsWith('.zip'));
-  if (!zip) throw new Error(`Reader ${info.version} has no .zip for macOS to update from.`);
+  if (!zip) throw new Error(`Koios ${info.version} has no .zip for macOS to update from.`);
   const blocked = macReplaceBlocked();
   if (blocked) return { status: 'manual', available: info.version, error: blocked };
 
@@ -177,14 +177,17 @@ async function checkMac() {
   const dir = path.join(app.getPath('temp'), `reader-update-${info.version}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'Reader.zip');
+  const file = path.join(dir, 'Koios.zip');
   setState({ status: 'downloading', available: info.version, percent: 0 });
   await download(zip.url, zip.sha512, zip.size, file, (percent) => setState({ status: 'downloading', available: info.version, percent }));
   // ditto keeps what a .app needs that unzip may not: its symlinks, permissions and signature.
   const unpacked = path.join(dir, 'app');
   const result = spawnSync('/usr/bin/ditto', ['-x', '-k', file, unpacked], { encoding: 'utf8' });
-  const next = path.join(unpacked, 'Reader.app');
-  if (result.status !== 0 || !fs.existsSync(path.join(next, 'Contents', 'MacOS', 'Reader'))) throw new Error(`Unpacking Reader ${info.version}: ${result.stderr || 'no Reader.app inside'}`);
+  // The bundle inside, whatever it is called: Koios.app, or Reader.app (the app's name until 0.16).
+  const bundle = result.status === 0 ? fs.readdirSync(unpacked).find((name) => name.endsWith('.app')) : null;
+  const next = bundle ? path.join(unpacked, bundle) : null;
+  const runs = next && fs.existsSync(path.join(next, 'Contents', 'MacOS')) && fs.readdirSync(path.join(next, 'Contents', 'MacOS')).length > 0;
+  if (!runs) throw new Error(`Unpacking Koios ${info.version}: ${result.stderr || 'no app inside'}`);
   fs.rmSync(file, { force: true });
   if (stopped) return { status: 'idle' };
   pendingMac = { version: info.version, app: next, dir };
@@ -192,7 +195,7 @@ async function checkMac() {
 }
 
 /**
- * Once this app has quit: the new Reader.app in the old one's place (the old one moved aside until the
+ * Once this app has quit: the new Koios.app in the old one's place (the old one moved aside until the
  * new one is in, and put back if it can't be), then opened when `relaunch`.
  */
 function replaceMacOnExit(relaunch) {
@@ -278,12 +281,12 @@ function checkForUpdates({ manual = false } = {}) {
 /** What a check someone asked for found, when it was not a new version ready to go. */
 async function tellNothing() {
   if (state.status === 'current') {
-    await ask({ type: 'info', message: 'Reader is up to date', detail: `This is the newest version, ${app.getVersion()}.`, buttons: ['OK'] });
+    await ask({ type: 'info', message: 'Koios is up to date', detail: `This is the newest version, ${app.getVersion()}.`, buttons: ['OK'] });
     return;
   }
   const { response } = await ask({
     type: state.status === 'failed' ? 'warning' : 'info',
-    message: state.status === 'manual' ? `Reader ${state.available} is out` : state.status === 'failed' ? 'Couldn’t check for a new version' : 'Reader can’t update itself here',
+    message: state.status === 'manual' ? `Koios ${state.available} is out` : state.status === 'failed' ? 'Couldn’t check for a new version' : 'Koios can’t update itself here',
     detail: `${state.error ?? ''}\n\nEvery version, for every system, is on the releases page.`.trim(),
     buttons: ['Open the releases page', 'OK'],
     defaultId: 0,
@@ -305,8 +308,8 @@ async function offerRestart(version) {
   try {
     const { response } = await ask({
       type: 'info',
-      message: `Reader ${version} is ready`,
-      detail: `You have ${app.getVersion()}. Restart now to use the new version, or it is put in place the next time you quit Reader.${process.platform === 'darwin' ? '\n\nIf meeting notes stop recording afterwards, switch Reader off and on again in System Settings → Privacy & Security (an unsigned app is new to macOS each time).' : ''}`,
+      message: `Koios ${version} is ready`,
+      detail: `You have ${app.getVersion()}. Restart now to use the new version, or it is put in place the next time you quit Koios.${process.platform === 'darwin' ? '\n\nIf meeting notes stop recording afterwards, switch Koios off and on again in System Settings → Privacy & Security (an unsigned app is new to macOS each time).' : ''}`,
       buttons: ['Restart Now', 'Later', 'What’s New'],
       defaultId: 0,
       cancelId: 1,
@@ -325,7 +328,7 @@ function installNow() {
     replaceMacOnExit(true);
     app.quit();
   } else {
-    // isSilent, isForceRunAfter: the setup .exe runs with no wizard and opens Reader when it is done.
+    // isSilent, isForceRunAfter: the setup .exe runs with no wizard and opens Koios when it is done.
     setImmediate(() => loadUpdater().quitAndInstall(true, true));
   }
 }
@@ -335,7 +338,7 @@ function installOnQuit() {
   if (process.platform === 'darwin' && pendingMac) replaceMacOnExit(false);
 }
 
-/** Nothing put in place as the app quits, and no more checks: Reader is being uninstalled. */
+/** Nothing put in place as the app quits, and no more checks: Koios is being uninstalled. */
 function cancelUpdates() {
   stopped = true;
   if (pendingMac) fs.rmSync(pendingMac.dir, { recursive: true, force: true });

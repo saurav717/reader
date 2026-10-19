@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'">
-<title>Uninstall Reader</title>
+<title>Uninstall Koios</title>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="uninstall.css">
 </head>
@@ -12,19 +12,19 @@
   <header>
     <img class="icon" src="../build/icon.png" alt="">
     <div>
-      <h1>Uninstall Reader?</h1>
-      <p id="what">This removes the Reader app and the Companion that starts when you log in. Your files stay unless you tick the second box.</p>
+      <h1>Uninstall Koios?</h1>
+      <p id="what">This removes the Koios app and the Companion that starts when you log in. Your files stay unless you tick the second box.</p>
     </div>
   </header>
   <form id="form">
     <label class="choice">
       <input type="checkbox" id="vscode" checked>
-      <span>Remove the Reader extension from VS Code</span>
+      <span>Remove the Koios extension from VS Code</span>
     </label>
     <label class="choice">
       <input type="checkbox" id="delete">
       <span>Also delete my files and settings
-        <small>Your projects and notebooks in <span class="mono" id="files">~/Reader</span>, the Companion’s settings and the Python it installed, in <span class="mono" id="settings">~/.reader-companion</span>, and what Reader keeps in this app: a library you didn’t sign in to Google Drive with. Your library in Google Drive isn’t touched.</small>
+        <small>Your projects and notebooks in <span class="mono" id="files">~/Reader</span>, the Companion’s settings and the Python it installed, in <span class="mono" id="settings">~/.reader-companion</span>, and what Koios keeps in this app: a library you didn’t sign in to Google Drive with. Your library in Google Drive isn’t touched.</small>
       </span>
     </label>
     <pre class="log" id="log" hidden></pre>

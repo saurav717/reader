@@ -57,7 +57,7 @@ export default function VsCodeExtension({ server, compact = false }: { server: J
   if (compact) {
     if (!missing.length) return null;
     return (
-      <button type="button" className="btn sm ghost" onClick={() => void install()} disabled={busy} title={problem ?? 'Installs the Reader extension into VS Code on this computer, through the Companion: the projects, the papers they cite and this Python in its side bar'}>
+      <button type="button" className="btn sm ghost" onClick={() => void install()} disabled={busy} title={problem ?? 'Installs the Koios extension into VS Code on this computer, through the Companion: the projects, the papers they cite and this Python in its side bar'}>
         <VsCodeMark /> {busy ? 'Adding…' : problem ? 'Try again' : 'Add Koios to VS Code'}
       </button>
     );
@@ -66,16 +66,16 @@ export default function VsCodeExtension({ server, compact = false }: { server: J
     <div className="pg-vscode">
       <VsCodeMark />
       {!status.editors.length ? (
-        <small>No VS Code on this computer. Once it’s installed, this adds the Reader extension to it.</small>
+        <small>No VS Code on this computer. Once it’s installed, this adds the Koios extension to it.</small>
       ) : missing.length ? (
         <>
-          <small>VS Code is here without the Reader extension.</small>
+          <small>VS Code is here without the Koios extension.</small>
           <button type="button" className="btn sm primary" onClick={() => void install()} disabled={busy}>
             {busy ? 'Adding…' : 'Add Koios to VS Code'}
           </button>
         </>
       ) : (
-        <small>The Reader extension is in {status.editors.map((editor) => editor.name).join(', ')}.</small>
+        <small>The Koios extension is in {status.editors.map((editor) => editor.name).join(', ')}.</small>
       )}
       {problem ? <p className="pg-bad">{problem}</p> : null}
     </div>

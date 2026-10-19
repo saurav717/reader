@@ -359,7 +359,7 @@ def sync(root: Path, folder_rel: str, token: str, message: str, git_path: str = 
     staged = step(["diff", "--cached", "--quiet"])
     committed = False
     if staged.returncode == 1:
-        done = step(["-c", "user.name=Reader", "-c", "user.email=reader@localhost", "commit", "-q", "-m", message or "Edits from Reader"])
+        done = step(["-c", "user.name=Koios", "-c", "user.email=reader@localhost", "commit", "-q", "-m", message or "Edits from Koios"])
         committed = done.returncode == 0
     before = step(["rev-parse", "HEAD"])
     pulled = step(["pull", "--no-rebase", "--no-edit", "-q"])

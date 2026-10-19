@@ -91,7 +91,7 @@ def quote_systemd(word: str) -> str:
 def systemd_unit(command: list[str], environment: dict[str, str]) -> str:
     lines = [
         "[Unit]",
-        "Description=Reader Companion: the reader's Playground on this computer",
+        "Description=Koios Companion: the Playground of Koios on this computer",
         "",
         "[Service]",
         f"ExecStart={' '.join(quote_systemd(word) for word in [*command, '--no-browser'])}",
@@ -112,7 +112,7 @@ def autostart_path() -> Path:
 
 def autostart_entry(command: list[str]) -> str:
     exec_line = " ".join(f'"{word}"' if " " in word else word for word in [*command, "--no-browser"])
-    return f"[Desktop Entry]\nType=Application\nName=Reader Companion\nComment=The reader's Playground on this computer\nExec={exec_line}\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
+    return f"[Desktop Entry]\nType=Application\nName=Koios Companion\nComment=The Playground of Koios on this computer\nExec={exec_line}\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
 
 
 def startup_path() -> Path:
@@ -418,7 +418,9 @@ def extension_status() -> dict:
 # notarize. Opening it runs `reader-companion open`: the Companion is started
 # if it isn't running, and the site opens in a window of its own.
 
-APP_NAME = "Reader"
+APP_NAME = "Koios"
+# What the launcher was called before 0.16.1, when the app was called Reader: taken away when Koios is made.
+LEGACY_APP_NAMES = ("Reader",)
 
 
 def app_browser(system: str | None = None) -> list[str] | None:
@@ -494,20 +496,20 @@ def fetch_icons(site: str) -> dict[int, bytes]:
     icons = {}
     for size in (256, 512):
         try:
-            with urllib.request.urlopen(f"{site.rstrip('/')}/icons/reader-{size}.png", timeout=20) as response:
+            with urllib.request.urlopen(f"{site.rstrip('/')}/icons/koios-{size}.png", timeout=20) as response:
                 icons[size] = response.read()
         except (OSError, urllib.error.URLError):
             pass
     return icons
 
 
-def mac_app_path() -> Path:
-    return Path.home() / "Applications" / f"{APP_NAME}.app"
+def mac_app_path(name: str = APP_NAME) -> Path:
+    return Path.home() / "Applications" / f"{name}.app"
 
 
 def mac_app(command: list[str], icons: dict[int, bytes]) -> dict[str, bytes]:
-    """The files of Reader.app, by path inside it: a shell script that runs `reader-companion open`."""
-    script = "#!/bin/sh\n# Reader: starts the Reader Companion if it isn't running, and opens the site in its own window.\nexec " + " ".join(f"'{word}'" for word in [*command, "open"]) + "\n"
+    """The files of Koios.app, by path inside it: a shell script that runs `reader-companion open`."""
+    script = "#!/bin/sh\n# Koios: starts the Koios Companion if it isn't running, and opens the site in its own window.\nexec " + " ".join(f"'{word}'" for word in [*command, "open"]) + "\n"
     info = {
         "CFBundleName": APP_NAME,
         "CFBundleDisplayName": APP_NAME,
@@ -525,18 +527,42 @@ def mac_app(command: list[str], icons: dict[int, bytes]) -> dict[str, bytes]:
     return files
 
 
-def linux_entry_path() -> Path:
-    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications" / "reader.desktop"
+def linux_entry_path(name: str = "koios") -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications" / f"{name}.desktop"
 
 
-def windows_shortcuts() -> list[Path]:
+def windows_shortcuts(name: str = APP_NAME) -> list[Path]:
     appdata = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
-    return [appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{APP_NAME}.lnk", Path.home() / "Desktop" / f"{APP_NAME}.lnk"]
+    return [appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{name}.lnk", Path.home() / "Desktop" / f"{name}.lnk"]
+
+
+def legacy_app_paths(system: str | None = None) -> list[Path]:
+    """The launcher as an older Companion made it, under the app's old name."""
+    system = system or platform.system()
+    if system == "Darwin":
+        return [mac_app_path(name) for name in LEGACY_APP_NAMES]
+    if system == "Windows":
+        return [shortcut for name in LEGACY_APP_NAMES for shortcut in windows_shortcuts(name)]
+    return [linux_entry_path(name.lower()) for name in LEGACY_APP_NAMES]
+
+
+def remove_legacy_apps(system: str | None = None) -> list[str]:
+    removed = []
+    for path in legacy_app_paths(system):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink()
+        else:
+            continue
+        removed.append(str(path))
+    return removed
 
 
 def install_app(command: list[str], site: str, system: str | None = None) -> str:
-    """Makes the Reader app on this computer. Says where."""
+    """Makes the Koios app on this computer (the old Reader one taken away). Says where."""
     system = system or platform.system()
+    remove_legacy_apps(system)
     icons = fetch_icons(site)
     home = state.config_dir()
     home.mkdir(parents=True, exist_ok=True)
@@ -551,10 +577,10 @@ def install_app(command: list[str], site: str, system: str | None = None) -> str
         run_quietly("touch", str(app))  # Finder and the Dock pick up the icon
         return str(app)
     if system == "Windows":
-        launcher = home / "Reader.vbs"
+        launcher = home / "Koios.vbs"
         line = " ".join(f'""{word}""' for word in [*command, "open"])
         launcher.write_text(f'CreateObject("WScript.Shell").Run "{line}", 0, False\r\n', encoding="utf-8")
-        icon = home / "Reader.ico"
+        icon = home / "Koios.ico"
         if 256 in icons:
             icon.write_bytes(ico(icons[256]))
         made = []
@@ -563,12 +589,12 @@ def install_app(command: list[str], site: str, system: str | None = None) -> str
             make = (
                 "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($args[0]); "
                 "$s.TargetPath = 'wscript.exe'; $s.Arguments = '\"' + $args[1] + '\"'; "
-                "if (Test-Path $args[2]) { $s.IconLocation = $args[2] }; $s.Description = 'Reader'; $s.Save()"
+                "if (Test-Path $args[2]) { $s.IconLocation = $args[2] }; $s.Description = 'Koios'; $s.Save()"
             )
             if run_quietly("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", make, str(shortcut), str(launcher), str(icon)):
                 made.append(str(shortcut))
         return " and ".join(made) or str(launcher)
-    icon = home / "reader.png"
+    icon = home / "koios.png"
     if 512 in icons:
         icon.write_bytes(icons[512])
     entry = linux_entry_path()
@@ -580,7 +606,7 @@ def install_app(command: list[str], site: str, system: str | None = None) -> str
 
 def uninstall_app(system: str | None = None) -> list[str]:
     system = system or platform.system()
-    removed = []
+    removed = remove_legacy_apps(system)
     if system == "Darwin":
         if mac_app_path().exists():
             shutil.rmtree(mac_app_path(), ignore_errors=True)
@@ -618,8 +644,9 @@ def mac_bundle_id(app: str | Path) -> str | None:
 
 
 def find_mac_app(recorded: str | None = None) -> str | None:
-    """Where Reader.app is now: where it was, where it is usually put, or wherever Spotlight finds it (not in the Trash)."""
-    for candidate in (recorded, "/Applications/Reader.app", str(mac_app_path())):
+    """Where the app is now (Koios.app, or Reader.app before 0.16): where it was, where it is usually put, or wherever
+    Spotlight finds it by its bundle id, which the rename kept (not in the Trash)."""
+    for candidate in (recorded, "/Applications/Koios.app", "/Applications/Reader.app", str(mac_app_path())):
         if candidate and "/.Trash/" not in candidate and mac_bundle_id(candidate) == MAC_BUNDLE_ID:
             return candidate
     try:
@@ -630,7 +657,7 @@ def find_mac_app(recorded: str | None = None) -> str | None:
 
 
 def find_app(recorded: str | None = None, system: str | None = None) -> str | None:
-    """Where the Reader app is now. On a Mac, wherever it was moved (find_mac_app); elsewhere, where the desktop app said it is."""
+    """Where the Koios app is now. On a Mac, wherever it was moved (find_mac_app); elsewhere, where the desktop app said it is."""
     system = system or platform.system()
     if system == "Darwin":
         return find_mac_app(recorded)
@@ -748,7 +775,7 @@ def url_handler_path(system: str | None = None) -> Path:
 
 def mac_url_app(command: list[str]) -> dict[str, bytes]:
     """The files of the app that answers reader-companion:// links: a script that runs `reader-companion start`."""
-    script = "#!/bin/sh\n# Opened by a reader-companion:// link (the page's Start): starts the Reader Companion if it isn't running.\nexec " + " ".join(f"'{word}'" for word in [*command, "start", "--quiet"]) + "\n"
+    script = "#!/bin/sh\n# Opened by a reader-companion:// link (the page's Start): starts the Koios Companion if it isn't running.\nexec " + " ".join(f"'{word}'" for word in [*command, "start", "--quiet"]) + "\n"
     info = {
         "CFBundleName": URL_APP,
         "CFBundleDisplayName": URL_APP,
@@ -769,7 +796,7 @@ def windows_url_launcher(command: list[str]) -> str:
 
 def linux_url_entry(command: list[str]) -> str:
     exec_line = " ".join(f'"{word}"' if " " in word else word for word in [*command, "start", "--quiet"])
-    return f"[Desktop Entry]\nType=Application\nName=Reader Companion\nComment=Starts the Reader Companion, for the reader's Start button\nExec={exec_line} %u\nTerminal=false\nNoDisplay=true\nMimeType=x-scheme-handler/{SCHEME};\n"
+    return f"[Desktop Entry]\nType=Application\nName=Koios Companion\nComment=Starts the Koios Companion, for the Start button on Koios\nExec={exec_line} %u\nTerminal=false\nNoDisplay=true\nMimeType=x-scheme-handler/{SCHEME};\n"
 
 
 def install_url_handler(command: list[str], system: str | None = None, force: bool = False) -> str | None:
@@ -831,14 +858,14 @@ def uninstall_url_handler(system: str | None = None) -> list[str]:
 def code_dialog(code: str, name: str, system: str | None = None) -> list[str] | None:
     """The command that puts the pairing code on this computer's screen, or None when there is nothing to show it with."""
     system = system or platform.system()
-    text = f"The code to connect a browser to {name}:\n\n{code}\n\nType it on the Reader page. It works once, for 15 minutes."
+    text = f"The code to connect a browser to {name}:\n\n{code}\n\nType it on the Koios page. It works once, for 15 minutes."
     if system == "Darwin":
         quoted = text.replace("\\", "\\\\").replace('"', '\\"')
-        return ["osascript", "-e", f'display dialog "{quoted}" with title "Reader" buttons {{"OK"}} default button 1 giving up after 300']
+        return ["osascript", "-e", f'display dialog "{quoted}" with title "Koios" buttons {{"OK"}} default button 1 giving up after 300']
     if system == "Windows":
         quoted = text.replace("'", "''")
-        return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", f"Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('{quoted}', 'Reader')"]
-    for tool, args in (("zenity", ["--info", "--title=Reader", f"--text={text}"]), ("kdialog", ["--title", "Reader", "--msgbox", text]), ("notify-send", ["--expire-time=300000", "Reader", text])):
+        return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", f"Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('{quoted}', 'Koios')"]
+    for tool, args in (("zenity", ["--info", "--title=Koios", f"--text={text}"]), ("kdialog", ["--title", "Koios", "--msgbox", text]), ("notify-send", ["--expire-time=300000", "Koios", text])):
         if shutil.which(tool):
             return [tool, *args]
     return None

@@ -7,7 +7,7 @@ const actions = document.getElementById('actions');
 
 window.readerApp.start.onProgress((message) => {
   if (message.setup) {
-    note.textContent = 'One-time setup: a minute or two. Reader installs its own Python, the Jupyter server it runs your code with, and the VS Code extension if you have VS Code.';
+    note.textContent = 'One-time setup: a minute or two. Koios installs its own Python, the Jupyter server it runs your code with, and the VS Code extension if you have VS Code.';
     log.hidden = false;
   }
   if (message.status) status.textContent = message.status;
@@ -16,8 +16,8 @@ window.readerApp.start.onProgress((message) => {
     log.scrollTop = log.scrollHeight;
   }
   if (message.failed) {
-    status.textContent = 'Reader’s Companion didn’t start';
-    note.textContent = `${message.failed} What it said is below. Reader still opens without it: only running code on this computer needs it.`;
+    status.textContent = 'Koios’s Companion didn’t start';
+    note.textContent = `${message.failed} What it said is below. Koios still opens without it: only running code on this computer needs it.`;
     bar.classList.add('failed');
     log.hidden = false;
     actions.hidden = false;

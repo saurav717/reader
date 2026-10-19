@@ -1,8 +1,8 @@
 {
   "name": "reader-playground",
-  "displayName": "Reader Playground",
-  "description": "Your Reader playgrounds in VS Code: the Companion's projects, the papers they cite, and the machine they run on.",
-  "version": "0.2.0",
+  "displayName": "Koios Playground",
+  "description": "Your Koios playgrounds in VS Code: the Companion's projects, the papers they cite, and the machine they run on.",
+  "version": "0.3.0",
   "publisher": "saurav717",
   "icon": "media/icon.png",
   "repository": {
@@ -35,7 +35,7 @@
       "activitybar": [
         {
           "id": "reader",
-          "title": "Reader",
+          "title": "Koios",
           "icon": "media/reader.svg"
         }
       ]
@@ -63,55 +63,55 @@
       },
       {
         "view": "reader.papers",
-        "contents": "Open a Reader project to see the papers it cites."
+        "contents": "Open a Koios project to see the papers it cites."
       }
     ],
     "commands": [
       {
         "command": "reader.start",
         "title": "Start the Companion",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(play)"
       },
       {
         "command": "reader.refresh",
         "title": "Refresh",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(refresh)"
       },
       {
         "command": "reader.openProject",
         "title": "Open Project",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(folder-opened)"
       },
       {
         "command": "reader.openOnSite",
         "title": "Open on the Site",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(link-external)"
       },
       {
         "command": "reader.openPlayground",
         "title": "Open the Playground",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(globe)"
       },
       {
         "command": "reader.openPaper",
         "title": "Open the Paper",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(book)"
       },
       {
         "command": "reader.useEnvironment",
         "title": "Use the Companion's Python for This Project",
-        "category": "Reader"
+        "category": "Koios"
       },
       {
         "command": "reader.useLook",
         "title": "Use the Site's Look",
-        "category": "Reader",
+        "category": "Koios",
         "icon": "$(paintcan)"
       }
     ],
@@ -157,7 +157,7 @@
       ]
     },
     "configuration": {
-      "title": "Reader",
+      "title": "Koios",
       "properties": {
         "reader.site": {
           "type": "string",
@@ -167,18 +167,18 @@
         "reader.setPythonInterpreter": {
           "type": "boolean",
           "default": true,
-          "description": "In a Reader project, point the Python extension at the Companion's environment (~/Reader/.venv), so notebooks and the terminal use the same Python as the site."
+          "description": "In a Koios project, point the Python extension at the Companion's environment (~/Reader/.venv), so notebooks and the terminal use the same Python as the site."
         }
       }
     },
     "themes": [
       {
-        "label": "Reader Light",
+        "label": "Koios Light",
         "uiTheme": "vs",
         "path": "./themes/reader-light-color-theme.json"
       },
       {
-        "label": "Reader Dark",
+        "label": "Koios Dark",
         "uiTheme": "vs-dark",
         "path": "./themes/reader-dark-color-theme.json"
       }
