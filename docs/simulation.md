@@ -260,7 +260,9 @@ through `koios_telemetry.Run`, keep the paper's reported numbers in the README. 
 to every machine's helper path, so the commands work in any project's console; Claude Code and Codex started
 from the page get that path in their `PYTHONPATH` and a line in their briefing naming the commands, and `use`
 run from there copies the module and the catalogue into the folder, so the project stands on its own. A test
-holds the `env.py` the machine writes equal to the one the page writes.
+holds the `env.py` the machine writes equal to the one the page writes. When the files are on a Companion of yours
+and the code runs elsewhere (Colab, a GPU server), the agent pane also offers the agent **on the files' computer**,
+editing them where they are and running on the compute with `koios run` (docs/compute-link.md, section 0).
 
 ### 17. Not every browser plays H.264
 *Worked around.* Videos are MP4/H.264, which Chrome, Edge, Safari and Firefox play. Open-source Chromium builds

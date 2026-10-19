@@ -15,6 +15,16 @@ koios status                # where the project runs, and whether it can be reac
 This needs Koios Companion **0.17.0 or later** on the computer that has the files. Update it under Settings →
 Updates.
 
+## 0. The agent, by the files
+
+With the link up, the agent pane's last choice is **On <your computer>**: Claude Code, Codex or any agent with a
+command line, in a terminal on the computer that has the files, in the project's folder. It edits the files where
+they are — no copy, nothing to bring back — and reaches the compute the way you do from that terminal: `koios run`
+for anything that needs the GPU or a simulator, `koios pull` for the results. Claude Code is told all this in its
+briefing (its `--append-system-prompt`); another agent you tell in your first message. The runs it starts there
+show in the Sim pane and are filed as experiments like any other. The **Claude Code** and **Codex** choices beside
+it still run on the compute's copy of the folder, with their edits brought back when they finish.
+
 ## 1. What you see
 
 The panel's first terminal is now **here**, on the computer the files are on, in the project's folder. The **+**
