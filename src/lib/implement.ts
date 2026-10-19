@@ -24,7 +24,7 @@
 
 import { explainError, FULL_TEXT_MAX_CHARS, modelSpec, PROVIDERS, sdk, streamModel, tag } from './assistant';
 import type { Screen, SDK } from './assistant';
-import { db } from './db';
+import { currentDbName, db } from './db';
 import { applyEdits, notebook, sectionTitles } from './explain';
 import type { Explanation, Revision, RevisionScope, Section } from './explain';
 import { hardwareText, parseCompute, readHardware, writeHardware } from './hardware';
@@ -273,6 +273,8 @@ export const colabUrl = (owner: string, repo: string, branch: string, path: stri
 const REVISIONS_KEPT = 12;
 const KEY = (paperId: string) => `implement:${paperId}`;
 const cache = new Map<string, Explanation>();
+/** The database each paper's page was last read from: one read from another (nobody's, before the sign-in came back) is read again. */
+const readFrom = new Map<string, string>();
 const listeners = new Set<() => void>();
 let running: { paperId: string; stream: { abort(): void } } | null = null;
 
@@ -289,16 +291,30 @@ export const implementationFor = (paperId: string) => cache.get(paperId);
 
 function persist(entry: Explanation) {
   const { pending: _pending, streaming: _streaming, thinking: _thinking, ...kept } = entry;
-  void db.setKv(KEY(entry.paperId), { ...kept, updated: Date.now() }).catch(() => undefined);
+  const updated = Date.now();
+  // Stamped here too, so a copy read later from the browser's database is weighed against it.
+  const current = cache.get(entry.paperId);
+  if (current) cache.set(entry.paperId, { ...current, updated });
+  void db.setKv(KEY(entry.paperId), { ...kept, updated }).catch(() => undefined);
 }
 
 export async function loadImplementation(paperId: string): Promise<Explanation | undefined> {
-  if (!cache.has(paperId)) {
+  const from = currentDbName();
+  if (readFrom.get(paperId) !== from) {
     try {
       const kept = await db.getKv<Explanation>(KEY(paperId));
-      if (kept && !cache.has(paperId)) {
-        cache.set(paperId, { ...kept, streaming: false, thinking: undefined, pending: undefined });
-        notify();
+      // The database moved on while this was read: the load that follows the move reads the new one.
+      if (currentDbName() === from) {
+        readFrom.set(paperId, from);
+        const now = cache.get(paperId);
+        const busy = running?.paperId === paperId || now?.streaming || now?.pending;
+        if (kept && !busy && (!now?.content || (kept.updated ?? 0) > (now.updated ?? 0))) {
+          cache.set(paperId, { ...kept, streaming: false, thinking: undefined, pending: undefined });
+          notify();
+        } else if (now?.content && !busy && !now.error && (now.updated ?? 0) > (kept?.updated ?? 0)) {
+          // Written here while another database was open (nobody's, before the sign-in came back): kept in this one too.
+          persist(now);
+        }
       }
     } catch {
       // no IndexedDB: written again
