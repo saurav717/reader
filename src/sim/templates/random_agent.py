@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
 
     run = Run("random", config={**vars(args), "env": ENV_ID}, sim=f"{SIM}/{ENV_ID}", video_every=args.video_every)
-    env = run.wrap(make_env(render_mode="rgb_array"))
+    env = run.wrap(make_env(render_mode="rgb_array"))  # episodes, videos and, for a MuJoCo env, the live 3D view
     print("observations:", env.observation_space)
     print("actions:     ", env.action_space)
     run.note(f"observations {env.observation_space}; actions {env.action_space}", step=0, tag="spaces")

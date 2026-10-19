@@ -32,7 +32,7 @@ export interface SimProject {
 
 const SCRIPTS: Partial<Record<TemplateId, string>> = { random: RANDOM, ppo: PPO, sac: SAC, sb3: SB3, 'world-model': WORLD_MODEL };
 
-const BASE_REQUIREMENTS = ['numpy', 'imageio', 'imageio-ffmpeg', 'pillow'];
+const BASE_REQUIREMENTS = ['numpy', 'imageio', 'imageio-ffmpeg', 'pillow', 'rerun-sdk'];
 
 /** setup.sh: the simulator's install lines, the template's packages, and the doctor at the end. */
 export function setupSh(sim: Simulator, template: TemplateId): string {
@@ -193,7 +193,8 @@ it goes. Watch ${WATCH[template]}
 
 - \`env.py\`: the environment, made in one place (\`make_env\`)
 - \`${t.file}\`: the ${t.name.toLowerCase()}
-- \`koios_telemetry.py\`: what every run logs, and \`python koios_telemetry.py summary | doctor | tail | note | bridge\`
+- \`koios_telemetry.py\`: what every run logs, and \`python koios_telemetry.py summary | doctor | tail | note | bridge\`;
+  with rerun-sdk installed, a live 3D view of a MuJoCo scene in the Sim pane and \`runs/<run>/scene.rrd\`
 - \`runs/<run>/\`: \`run.json\`, \`events.jsonl\` and \`media/\` for each run
 - \`AGENTS.md\`: what a coding agent is told here; \`LEARNING.md\`: the notes it keeps for you
 `;
@@ -229,6 +230,9 @@ read it). The Koios Sim pane reads \`runs/*/events.jsonl\` on the machine and dr
 - Every change you make to a run (a hyperparameter, the reward, the network, the algorithm) gets a note with the
   reason: \`run.note("lr 3e-4 -> 1e-4: approx_kl was 0.2", by="agent")\` in code, or from the terminal
   \`python koios_telemetry.py note runs/<run> "what and why" --by agent\`.
+- Live 3D: with \`rerun-sdk\` installed (setup.sh does it) a run streams to a Rerun viewer the Sim pane embeds and
+  writes \`scene.rrd\`; \`run.wrap(env)\` and \`run.scene(env)\` put a MuJoCo env's bodies in it, \`run.scene_step()\` moves
+  them (PPO and SB3 call it each step). Log your own 3D through \`run._rr\` (the rerun module) under \`world/…\`.
 - \`run.finish()\` at the end; a crash is recorded by itself.
 - Another codebase's logs: \`python koios_telemetry.py bridge <metrics.jsonl|.csv> --videos <dir> --follow\`.
 

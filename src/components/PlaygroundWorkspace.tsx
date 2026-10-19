@@ -2608,7 +2608,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
             ) : rightTab === 'sim' ? (
-              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
+              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} />
             ) : (
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
             )}

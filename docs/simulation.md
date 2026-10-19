@@ -10,9 +10,15 @@ each change in `LEARNING.md`, so the person can follow and learn.
 
 ![the picker on "Dexterous hands": six simulators with hands, Gymnasium-Robotics chosen, its Shadow-hand environments and the templates](sim-picker.png)
 
-| A SAC run on InvertedPendulum | A world model's dream on the ball world |
+| A game: SB3's PPO on LunarLander, finished | A made world: a world model dreaming the ball world |
 |---|---|
-| ![the Sim pane: finished, "Return is climbing", the return chart with its running mean, 23 videos, the losses](sim-pane.png) | ![the Sim pane on a world-model run: the data video, the dream, the error over the horizon rising after the 5 given frames, the error over training](sim-dream.png) |
+| ![the Sim pane: finished, "Return is climbing" from −173 to −46, the return chart with an agent's note as a dashed mark, five videos of the policy with the lander on screen, the numbers one chart each](sim-pane.png) | ![the Sim pane on a world-model run: the data video, the dream as real · imagined · difference, the error over the horizon rising after the 5 given frames, the error over training](sim-dream.png) |
+
+![the picker on "Games & open worlds": Atari, MiniGrid, Crafter, Craftax, ViZDoom, NetHack, MineRL, with Atari's environments and templates](sim-picker-games.png)
+
+| Live 3D in the Sim pane, through the Companion | The viewer in a window of its own |
+|---|---|
+| ![the Sim pane on a live Humanoid run: the return chart, then Rerun's viewer embedded with the humanoid on the floor and the episodes and numbers beside it](sim-live3d.png) | ![Rerun's viewer: the humanoid mid-fall in the World view, episodes, numbers and the notes table on the right, the timeline at the foot](sim-live3d-viewer.png) |
 
 This document records what was built, what was hard about it, and how each difficulty was handled.
 [simulation-process.md](simulation-process.md) is the process: the order of work, every background run and its
@@ -187,7 +193,40 @@ registered version of the name asked for. `make_env` retries without a render mo
 offer `rgb_array`. Simulators with fragile installs say so on their card (Box2D's swig, MineRL's JDK 8,
 ML-Agents' Python 3.10, Habitat's conda).
 
-### 14. Not every browser plays H.264
+### 14. A live 3D view, from a browser
+*Resolved, for a Companion; a file elsewhere.* Watching a robot move as it trains, not a clip of it after. The
+choice was [Rerun](https://rerun.io): its web viewer runs in the page, it shows 3D, images and time series on
+one timeline, and its Python SDK logs anything. What a run does now (`koios_telemetry`, with `rerun-sdk`
+installed, which `setup.sh` does): a gRPC server sink and a `scene.rrd` file sink together (a plain `rr.save()`
+would replace the stream), the web viewer on a port, and **scene.rrd served as a stream that follows the file**
+on a third port. `run.scene(env)` logs a MuJoCo model's geoms once — spheres, capsules, boxes, cylinders,
+ellipsoids, planes, meshes, with their colours — and `run.scene_step()` moves them (every second step, at most
+thirty times a second); `run.wrap(env)` does both by itself. Scalars, episodes and notes are mirrored, and a
+default blueprint opens the world large with the series beside it. The Sim pane embeds the viewer in a **Live
+3D** section.
+
+Three things were hard:
+- **A browser can't reach the machine's ports.** The Companion (0.18.0) gains `/companion/ports/<ticket>/<port>/…`
+  (`PortProxy`): a reverse proxy to a port on its computer, the ticket an HMAC of the port with the token (an
+  iframe carries no Authorization header), answers **streamed chunk by chunk** — the VS Code proxy beside it
+  buffers whole answers, which would never show a frame — and websockets relayed. The page and the Companion
+  compute the ticket the same way; both test suites pin one vector. On a plain Jupyter server or Colab there is no
+  proxy: the pane offers `scene.rrd` to download and open in Rerun on this computer.
+- **Rerun's own stream can't be proxied by path.** The viewer takes its gRPC source only as
+  `rerun+http://host:port/proxy`, an origin and nothing else; found when the viewer said *Failed to parse URL* for
+  the proxied address. Instead the run serves its `scene.rrd` over HTTP as a never-ending chunked response that
+  follows the file, which the viewer loads from any URL and decodes as the bytes arrive. The gRPC server stays
+  for the native viewer on the machine itself (`rerun rerun+http://127.0.0.1:<port>/proxy`).
+- **MuJoCo's floor.** A 40 m plane drawn whole makes the body a speck in the viewer's first framing; the floor
+  drawn is capped at 6 m across. Rerun's capsules start at the origin where MuJoCo's are centred; they are shifted
+  by half their length.
+
+Verified here: a random Humanoid-v5 run, the viewer loaded in headless Chromium through the real `PortProxy`
+(a tornado app with the handler and a paired Companion's state), the humanoid moving, the series and notes beside
+it; and the same inside the Sim pane (the pictures at the top). Not verified: through the Companion's HTTPS tunnel
+from another network (the proxy is the same code either way), and in the desktop app's Electron window.
+
+### 15. Not every browser plays H.264
 *Worked around.* Videos are MP4/H.264, which Chrome, Edge, Safari and Firefox play. Open-source Chromium builds
 (the one Playwright drives, some Linux packages) ship without H.264: found when screenshotting the pane, where
 the player loaded the video but stayed at 0:00. `KOIOS_VIDEO=gif` makes the module write GIFs instead, which every

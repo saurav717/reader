@@ -139,6 +139,7 @@ def main():
     agent = Agent(envs.single_observation_space, envs.single_action_space).to(device)
     optimizer = torch.optim.Adam(agent.parameters(), lr=args.lr, eps=1e-5)
     run.note(f"observations {envs.single_observation_space}, actions {envs.single_action_space}, {sum(p.numel() for p in agent.parameters())} parameters", step=0, tag="spaces")
+    run.scene(envs.envs[0])  # a MuJoCo env: the first one, live in the Sim pane's 3D view (nothing for the others)
 
     T, N = args.num_steps, args.num_envs
     obs = torch.zeros((T, N) + envs.single_observation_space.shape, device=device)
@@ -163,6 +164,7 @@ def main():
             values[t], actions[t], logps[t] = value.flatten(), action, logp
             o, reward, terminated, truncated, infos = envs.step(action.cpu().numpy())
             run.count(N)
+            run.scene_step()
             if frames is not None and len(frames) < 400:
                 frame = envs.envs[0].render()
                 if frame is not None:

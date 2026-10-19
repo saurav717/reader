@@ -181,6 +181,12 @@ describe('reading a run', () => {
     assert.equal(run.step, 1000);
   });
 
+  it('knows where a run’s live 3D view is', () => {
+    const run = tele.parseRun('r', {}, `${line({ kind: 'live3d', t: t0, step: 0, grpc_port: 41737, web_port: 42911, rrd_port: 40001, rrd: 'scene.rrd', sdk: '0.39.0' })}\n`);
+    assert.deepEqual(run.live3d, { grpcPort: 41737, webPort: 42911, rrdPort: 40001, rrd: 'scene.rrd', sdk: '0.39.0' });
+    assert.equal(tele.parseRun('r', {}, events({ returns: [1] })).live3d, undefined);
+  });
+
   it('reads a file in pieces as it would read it whole', () => {
     const text = events({ returns: rising, scalars: { loss: [3, 2, 1] }, end: { status: 'finished' } });
     const whole = tele.parseRun('r', {}, text);
@@ -348,6 +354,15 @@ describe('the code the pane runs on the machine', { skip: !python && 'no python3
     assert.deepEqual([...Buffer.from(got.data, 'base64')], [1, 2, 255]);
     const outside = py(tele.MEDIA_CODE(root, join('runs', 'a'), '../../../../etc/passwd', 0));
     assert.notEqual(outside.status, 0);
+  });
+});
+
+describe('the Companion’s port ticket', () => {
+  it('is the one the Companion computes (extension.port_ticket; its test pins the same vector)', async () => {
+    const { portTicket, portUrl } = await load('src/lib/companion.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
+    assert.equal(await portTicket('t', 9090), '5c42279cfbe380ac8195601bb240a93b1448e359');
+    assert.notEqual(await portTicket('t', 9091), await portTicket('t', 9090));
+    assert.equal(portUrl({ url: 'https://pc.example' }, 'abc', 9090, 'proxy'), 'https://pc.example/companion/ports/abc/9090/proxy');
   });
 });
 

@@ -77,6 +77,8 @@ export interface SimRun {
   dreams: Dream[];
   notes: Note[];
   checkpoints: { step: number; path: string }[];
+  /** The run's live 3D view (Rerun): a web viewer and a gRPC stream on the machine's ports, and scene.rrd in the run's folder. */
+  live3d?: { grpcPort: number; webPort: number; /** Where the run streams scene.rrd as it grows (the port the page's viewer reads from). */ rrdPort?: number; rrd: string; sdk?: string };
   status: RunStatus;
   error?: string;
   firstT?: number;
@@ -154,6 +156,9 @@ export function applyEvents(run: SimRun, text: string): SimRun {
         break;
       case 'heartbeat':
         if (typeof e.sps === 'number') run.sps = e.sps;
+        break;
+      case 'live3d':
+        if (typeof e.grpc_port === 'number' && typeof e.web_port === 'number') run.live3d = { grpcPort: e.grpc_port, webPort: e.web_port, rrdPort: typeof e.rrd_port === 'number' ? e.rrd_port : undefined, rrd: typeof e.rrd === 'string' ? e.rrd : 'scene.rrd', sdk: typeof e.sdk === 'string' ? e.sdk : undefined };
         break;
       case 'end':
         run.status = (['finished', 'crashed', 'stopped'].includes(String(e.status)) ? e.status : 'finished') as RunStatus;

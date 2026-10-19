@@ -12,7 +12,10 @@ import { SIMULATORS, simulatorById } from '../lib/simulators';
 import type { Doctor, Dream, Media, RunListing, SimRun } from '../lib/simTelemetry';
 import { applyEvents, diagnose, dreamSeries, dreamTrend, lengthSeries, newRun, readMedia, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
 import { short } from '../lib/telemetry';
+import type { JupyterServer } from '../lib/colab';
+import { portTicket, portUrl } from '../lib/companion';
 import { LineChart } from './Charts';
+import { isCompanion } from './VsCodeExtension';
 
 const ago = (seconds: number) => (seconds < 90 ? `${Math.max(0, Math.round(seconds))} s ago` : seconds < 5400 ? `${Math.round(seconds / 60)} min ago` : seconds < 172_800 ? `${Math.round(seconds / 3600)} h ago` : `${Math.round(seconds / 86_400)} days ago`);
 const span = (seconds: number) => (seconds < 120 ? `${Math.round(seconds)} s` : seconds < 7200 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} h`);
@@ -86,6 +89,118 @@ function DreamView({ folder, run, dream }: { folder: string; run: SimRun; dream:
   );
 }
 
+/**
+ * The run's live 3D view: Rerun's web viewer, served by the run on the
+ * machine and reached through the Companion's port proxy (0.18.0), with the
+ * stream's address handed to it the same way. On a machine whose ports the
+ * page can't reach — Colab, a plain Jupyter server — the run's scene.rrd is
+ * offered instead, to open in Rerun on this computer.
+ */
+function Live3D({ folder, run, server, live }: { folder: string; run: SimRun; server?: JupyterServer; live: boolean }) {
+  const scene = run.live3d!;
+  const companion = server && isCompanion(server) ? server : undefined;
+  const [urls, setUrls] = useState<{ viewer: string; probe: string } | null>(null);
+  const [state, setState] = useState<'checking' | 'ok' | 'old' | 'down'>('checking');
+  const [saving, setSaving] = useState<number | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    if (!companion || !live || !scene.rrdPort) return;
+    let alive = true;
+    void (async () => {
+      const [webTicket, rrdTicket] = await Promise.all([portTicket(companion.token, scene.webPort), portTicket(companion.token, scene.rrdPort!)]);
+      const web = portUrl(companion, webTicket, scene.webPort);
+      // The viewer's own page, told to load the run's scene.rrd as the run streams it (the gRPC server can't be
+      // reached through a path, so the stream is the file, followed as it grows: koios_telemetry, _RrdTail).
+      const viewer = `${web}?url=${encodeURIComponent(portUrl(companion, rrdTicket, scene.rrdPort!, scene.rrd))}`;
+      if (!alive) return;
+      setUrls({ viewer, probe: web });
+      try {
+        const answer = await fetch(web, { cache: 'no-store' });
+        if (!alive) return;
+        setState(answer.ok ? 'ok' : answer.status === 404 ? 'old' : 'down');
+      } catch {
+        if (alive) setState('down');
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [companion?.url, companion?.token, scene.webPort, scene.rrdPort, live]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async () => {
+    setProblem(null);
+    setSaving(0);
+    try {
+      const blob = await readMedia(folder, run.dir, scene.rrd, undefined, (done, size) => setSaving(size ? done / size : 0));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${run.meta.id ?? run.dir.split('/').pop() ?? 'run'}.rrd`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(null);
+    }
+  };
+  const download = (
+    <p className="pg-note">
+      <button type="button" className="btn sm" onClick={() => void save()} disabled={saving !== null}>
+        {saving !== null ? `Fetching scene.rrd… ${Math.round(saving * 100)}%` : 'Download scene.rrd'}
+      </button>{' '}
+      and open it on this computer: <code>pip install rerun-sdk && rerun {run.meta.id ?? 'run'}.rrd</code>
+      {problem ? <span className="is-problem"> · {problem}</span> : null}
+    </p>
+  );
+  return (
+    <section className="sim-section-open">
+      <div className="rt-part-label">
+        Live 3D <small>· Rerun{scene.sdk ? ` ${scene.sdk}` : ''}</small>
+      </div>
+      {!live ? (
+        <>
+          <p className="pg-note">The run is over, and its stream with it; what it logged is in its scene.rrd.</p>
+          {download}
+        </>
+      ) : !scene.rrdPort ? (
+        <>
+          <p className="pg-note">This run's telemetry is older than the streamed scene: its scene.rrd is still here.</p>
+          {download}
+        </>
+      ) : !companion ? (
+        <>
+          <p className="pg-note">{server ? `${server.name} isn’t a Companion, so the page can’t reach the viewer’s port there` : 'Colab’s ports can’t be reached from outside'}: the scene is kept as a file instead.</p>
+          {download}
+        </>
+      ) : state === 'old' ? (
+        <>
+          <p className="pg-note">This Companion is older than Live 3D (0.18.0): update it in Settings → Updates, and the viewer opens here.</p>
+          {download}
+        </>
+      ) : state === 'down' ? (
+        <>
+          <p className="pg-note is-problem">The viewer on {companion.name} isn’t answering on port {scene.webPort}.</p>
+          {download}
+        </>
+      ) : urls && state === 'ok' ? (
+        <>
+          <iframe className="sim-live3d" src={urls.viewer} title="Live 3D" allow="fullscreen" />
+          <p className="pg-note">
+            Orbit with the mouse, scrub the timeline at the bottom; the layout is the viewer&rsquo;s own.{' '}
+            <a href={urls.viewer} target="_blank" rel="noreferrer noopener">
+              Open in a window ↗
+            </a>
+          </p>
+        </>
+      ) : (
+        <p className="pg-note">
+          <span className="spinner" /> Reaching the viewer on {companion.name}…
+        </p>
+      )}
+    </section>
+  );
+}
+
 function DoctorView() {
   const [state, setState] = useState<{ doctor?: Doctor; problem?: string; busy?: boolean }>({});
   const check = async () => {
@@ -130,7 +245,7 @@ function DoctorView() {
   );
 }
 
-export default function SimPane({ folder, connected, machineName, busy }: { folder: string; connected: boolean; machineName: string; busy: boolean }) {
+export default function SimPane({ folder, connected, machineName, busy, server }: { folder: string; connected: boolean; machineName: string; busy: boolean; /** The machine, when it is a Jupyter server the page added: a Companion's ports can be reached for Live 3D. */ server?: JupyterServer }) {
   const [runs, setRuns] = useState<RunListing[]>([]);
   const [now, setNow] = useState(0);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -279,6 +394,8 @@ run.finish()`}</pre>
 
       {returns.length ? <LineChart series={returns} title="Episode return" xLabel="step" marks={marks} /> : null}
       {success.length ? <LineChart series={success} title="Success rate" xLabel="step" unit="%" marks={marks} /> : null}
+
+      {run?.live3d ? <Live3D folder={folder} run={run} server={server} live={status === 'running'} /> : null}
 
       {media ? (
         <section className="sim-section-open">

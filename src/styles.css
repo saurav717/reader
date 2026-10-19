@@ -6412,6 +6412,7 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .sim-chips button { border: 1px solid var(--border-soft); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 2px 8px; font: 11px var(--sans); cursor: pointer; }
 .sim-chips button.is-on { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
 .sim-dream { display: flex; flex-direction: column; gap: 8px; }
+.sim-live3d { width: 100%; height: 440px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
 .sim-section-open { display: flex; flex-direction: column; gap: 6px; }
 .sim-numbers-head { display: flex; align-items: center; gap: 8px; }
 .sim-numbers-head input { flex: 1; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12px var(--sans); }

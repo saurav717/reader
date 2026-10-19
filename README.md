@@ -4419,7 +4419,12 @@ runs as they go, read on the machine a few seconds apart:
   dreams: real, imagined and their difference side by side, with the error
   over the horizon;
 - **This machine**: GPUs, off-screen rendering, video encoding, which
-  simulators are installed, and whether torch is faster here on one CPU thread.
+  simulators are installed, and whether torch is faster here on one CPU thread;
+- **Live 3D**: a MuJoCo scene as it moves, in a [Rerun](https://rerun.io)
+  viewer inside the pane — orbit it, scrub its timeline — when the machine is
+  a Companion (0.18.0 on), whose port proxy the page reaches it through; on
+  Colab or a plain Jupyter server, the run's `scene.rrd` to download and open
+  in Rerun on this computer.
 
 `python koios_telemetry.py summary` prints the same in a terminal, for the
 agents; `doctor`, `tail`, `note` and `bridge` (another codebase's

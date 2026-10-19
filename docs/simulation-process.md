@@ -173,6 +173,33 @@ screenshot found one more thing:
   chart only while their largest values are within 20× of each other (a test covers SB3's names), and the legend
   wraps. The screenshots in `simulation.md` were retaken after the fix.
 
+## 6.2 Live 3D
+
+Asked for after the first review: a live, orbitable 3D view of the simulation rather than clips. Built on Rerun,
+in this order, each step checked before the next:
+
+1. A smoke test of the SDK here: log a box and a ball, serve, load the web viewer in headless Chromium with a
+   software rasterizer. Found that `rr.save()` replaces the stream sink, then that `set_sinks` with
+   `serve_grpc`'s server does the same: the pairing that works is `GrpcServerSink` + `FileSink` in one
+   `set_sinks`.
+2. `koios_telemetry`: the sinks, the viewer, the `live3d` event, scalars/episodes/notes mirrored, `scene()` for
+   MuJoCo geoms, `scene_step()`. A Humanoid-v5 run showed a speck: MuJoCo's 40 m floor; capped, and a default
+   blueprint added.
+3. The Companion's `PortProxy` (0.18.0), with a unit test that proves answers stream (three chunks 50 ms apart
+   must arrive as three), the ticket is the credential, POSTs carry body/path/query, nothing-listening is a 502,
+   websockets relay. The first run of the POST test failed in the test's own upstream handler, not the proxy.
+4. The end-to-end chain through the real handler: the viewer page came through; the stream didn't — Rerun's URL
+   parser refuses a path before `/proxy`. Resolved by streaming `scene.rrd` over HTTP from the run (`_RrdTail`),
+   which the viewer loads from any URL. Then the humanoid moved live through the proxy.
+5. The Sim pane's Live 3D section, with the harness feeding it a paired-Companion server pointed at the proxy:
+   `docs/sim-live3d.png`. The first screenshot showed the Colab fallback instead: Vite caches files under
+   `node_modules` as immutable, where the harness lived, so the edited page never reached the browser until the
+   dev server restarted with `--force`.
+
+Three background commands in this phase ended with code 144 again: each was a long command whose Python child
+(a run holding ports, a proxy) I ended by hand once it had served its purpose; the `pkill -f` pattern also
+matched the shell running it twice, which is why the pattern changed to `[r]r-smoke`.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```
@@ -180,6 +207,7 @@ npx tsc -b && npm run typecheck:vscode
 node --test scripts/simulation.test.mjs          # 32 tests; needs python3 for 14 of them
 npm test                                         # expect only glass.test.mjs's 4 pre-existing failures
 npx vite build --outDir /tmp/build && grep -l "koios_telemetry: what a simulation run" /tmp/build/assets/*.js
+(cd companion && python -m unittest $(ls tests/test_*.py | sed 's#/#.#; s#\.py$##'))   # the Companion: 157 tests, its port proxy's included
 ```
 
 And on a machine with Python (a venv is enough), the thing itself:

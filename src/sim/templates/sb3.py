@@ -28,6 +28,7 @@ class Koios(BaseCallback):
 
     def _on_step(self) -> bool:
         self.run.count(self.training_env.num_envs)
+        self.run.scene_step()
         for info in self.locals.get("infos", []):
             if "episode" in info:
                 self.run.episode(info["episode"]["r"], info["episode"]["l"], step=self.num_timesteps, success=info.get("is_success"))
@@ -69,6 +70,7 @@ def main():
     policy = "MultiInputPolicy" if isinstance(env.observation_space, gym.spaces.Dict) else "CnnPolicy" if len(env.observation_space.shape or ()) == 3 else "MlpPolicy"
     model = ALGOS[args.algo](policy, env, seed=args.seed, verbose=0)
     run.note(f"{args.algo} with {policy} on {env.observation_space} -> {env.action_space}", step=0, tag="spaces")
+    run.scene(env)  # a MuJoCo env, live in the Sim pane's 3D view; nothing for the others
     model.learn(total_timesteps=args.total_steps, callback=Koios(run, args.video_every))
     model.save(f"{run.dir}/model")
     run.checkpoint(f"{run.dir}/model.zip", step=args.total_steps)
