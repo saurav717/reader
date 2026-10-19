@@ -367,6 +367,23 @@ class_name = "AgentJob"
 tag = "v8"
 new_sqlite_classes = ["AgentJob"]
 
+# A project's files moved from one place to another by the machines at each
+# end (worker/moves.js, docs/storage-moves.md): one object per move, saying
+# how far it has got, and the archive between the two machines in an R2
+# bucket, deleted once it is unpacked (and anything left after a week). Make
+# the bucket once: npx wrangler r2 bucket create reader-moves
+[[durable_objects.bindings]]
+name = "PROJECT_MOVES"
+class_name = "ProjectMove"
+
+[[migrations]]
+tag = "v9"
+new_sqlite_classes = ["ProjectMove"]
+
+[[r2_buckets]]
+binding = "MOVES"
+bucket_name = "reader-moves"
+
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,
 # worker/tavilyUsage.js). Does nothing until DEEPSEEK_KEY or TAVILY_KEY is set:

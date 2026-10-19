@@ -42,7 +42,7 @@ jobs:
         run: npm ci
 
       - name: Test the Worker
-        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs scripts/devices.test.mjs scripts/latex-github.test.mjs scripts/secrets.test.mjs scripts/github-token.test.mjs
+        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs scripts/devices.test.mjs scripts/latex-github.test.mjs scripts/secrets.test.mjs scripts/github-token.test.mjs scripts/moves.test.mjs
 
       - name: Build it, deploying nothing
         if: github.event_name == 'pull_request'
@@ -51,6 +51,13 @@ jobs:
       - name: Without the Cloudflare token, nothing to deploy
         if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN == ''
         run: echo "::notice::CLOUDFLARE_API_TOKEN isn't set, so the Worker isn't deployed from here (docs/deploy.md). npm run deploy:worker does it by hand."
+
+      # The bucket a project's files pass through on a move (worker/moves.js, docs/storage-moves.md): made the first
+      # time, so the deploy that binds it finds it. The token needs "Workers R2 Storage: Edit", which the Edit
+      # Cloudflare Workers template has.
+      - name: The R2 bucket for moves, made once
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
+        run: npx --yes wrangler@4 r2 bucket list | grep -q 'reader-moves' || npx --yes wrangler@4 r2 bucket create reader-moves
 
       - name: Deploy it
         if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''

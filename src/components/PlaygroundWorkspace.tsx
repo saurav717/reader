@@ -51,6 +51,7 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import ProjectStart from './ProjectStart';
+import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
 import { computerOf, useReach } from '../lib/away';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
@@ -180,6 +181,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   const [side, setSide] = useState<NbSide>(null);
   const [title, setTitle] = useState(playground.title);
   const [changing, setChanging] = useState(false);
+  const [storage, setStorage] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   /** The pool row shown with Add a machine out, from the chip's menu, before the project has a pool. */
   const [poolOpen, setPoolOpen] = useState(false);
@@ -260,6 +262,8 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   const seed = useCallback(() => takeSeed(playground.id) ?? blankCells(playground.title), [playground.id, playground.title]);
   const connected = colab.status === 'idle' || colab.status === 'busy';
   const usable = Boolean(backend) && colabAvailable(settings.googleClientId);
+  // A move of the files under way, from any browser: followed from here, and finished here when it is done.
+  const { move, problem: moveProblem } = useMove(playground, connected);
 
   const vscode = vscodeLink(playground);
   const homeServer = playground.home.kind === 'server' ? serverById(playground.home.serverId) : undefined;
@@ -313,6 +317,9 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
             Open everywhere…
           </button>
         ) : null}
+        <button type="button" className={`btn sm ghost${storage ? ' is-on' : ''}`} onClick={() => setStorage(true)} title="Where the files are kept and where the code runs: move the files, or change the machine">
+          Storage & compute
+        </button>
         <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} onPool={() => setPoolOpen(true)} onNote={setNote} />
         {tab === 'notebook' ? (
           <>
@@ -339,6 +346,8 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
       ) : colab.sharing && colab.scope === playground.id ? (
         <div className="pg-banner">{colab.sharing}</div>
       ) : null}
+      {playground.moving ? <MoveProgress playground={playground} move={move} problem={moveProblem} compact onShow={() => setStorage(true)} /> : null}
+      {storage ? <StoragePanel playground={playground} machineName={machineName} connected={connected} move={move} problem={moveProblem} onConnect={() => void connect().catch(() => undefined)} onClose={() => setStorage(false)} onNote={setNote} /> : null}
       {note ? (
         <div className="pg-banner">
           {note}
@@ -383,7 +392,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
             if (ownColab(playground.compute) && !ownColab(spec.compute)) void shutDownScope(playground.id);
             updatePlayground(playground.id, { compute: spec.compute, home: spec.home.kind === 'server' && !spec.home.root ? { ...spec.home, root: playground.home.kind === 'server' ? playground.home.root : `playgrounds/${playground.id}` } : spec.home, idleStopMin: spec.idleStopMin });
             setChanging(false);
-            setNote(movedFiles ? 'The files now live in the new place; the ones kept in the old place stay there — copy what you need across from the Files tab.' : `Cells now run on ${spec.compute.kind === 'colab' ? 'your Colab' : serverById(spec.compute.serverId)?.name}. The kernel there starts fresh: re-run the cells that set things up.`);
+            setNote(movedFiles ? 'The project now looks for its files in the new place; the ones in the old place stay there. To have the machines move them across for you, use Storage & compute instead.' : `Cells now run on ${spec.compute.kind === 'colab' ? 'your Colab' : serverById(spec.compute.serverId)?.name}. The kernel there starts fresh: re-run the cells that set things up.`);
           }}
         />
       ) : null}
