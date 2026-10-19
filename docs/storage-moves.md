@@ -19,38 +19,46 @@ limits. The figures are Mermaid diagrams, which GitHub draws.
 - [3. The three ways files travel](#3-the-three-ways-files-travel)
 - [4. Who starts each step](#4-who-starts-each-step)
 - [5. A move's states](#5-a-moves-states)
-- [6. Changing the machine](#6-changing-the-machine)
-- [7. Why it is faster](#7-why-it-is-faster)
-- [8. Safety and privacy](#8-safety-and-privacy)
-- [9. Setting it up](#9-setting-it-up)
-- [10. Using it, step by step](#10-using-it-step-by-step)
-- [11. When something goes wrong](#11-when-something-goes-wrong)
-- [12. Limits](#12-limits)
-- [13. Reference: files, routes, tests](#13-reference-files-routes-tests)
+- [6. Deleting the old copy](#6-deleting-the-old-copy)
+- [7. Moving back over an old copy](#7-moving-back-over-an-old-copy)
+- [8. Changing the machine](#8-changing-the-machine)
+- [9. Why it is faster](#9-why-it-is-faster)
+- [10. Safety and privacy](#10-safety-and-privacy)
+- [11. Setting it up](#11-setting-it-up)
+- [12. Using it, step by step](#12-using-it-step-by-step)
+- [13. When something goes wrong](#13-when-something-goes-wrong)
+- [14. Limits](#14-limits)
+- [15. Reference: files, routes, tests](#15-reference-files-routes-tests)
 
 ## 1. What you see
 
-The project's bar has a **Storage & compute** button, beside the machine chip. It opens the panel.
+The project's bar has a **Storage & compute** button, just left of the machine chip, on both the Notebook and Files
+tabs. It opens the panel.
 
-![The Storage & compute panel: under Storage, Google Drive (files are here), Saurav's MacBook online with 312 GB free and Move files here, a GPU box offline, and the Colab machine's disk; under Compute, Your Colab with a T4 picked and Runs here, the MacBook, the GPU box offline, and a RunPod A100 Jupyter server, each with Run here](storage-compute-panel.png)
+![A project open on its Files tab, with the Storage & compute button outlined in the top bar, left of "Colab · not connected"](storage-project-bar.png)
 
-*Figure 1. The panel. Each row shows its state (online, offline, not signed in) and, for storage, how much disk is
-free. The place the files are now, and the machine the code runs on now, are outlined.*
+*Figure 1. Where the button is.*
+
+![The Storage & compute panel: under Storage, Google Drive (not signed in), Saurav's MacBook with "Files are here" and 312 GB free, a lab GPU box online with 1.6 TB free and Move files here, a home desktop offline, and Colab's disk; under Compute, Your Colab with a T4 picked and Runs here, then each computer with Run here](storage-compute-panel.png)
+
+*Figure 2. The panel. Each row shows its state (online, offline, not signed in) and, for storage, how much disk is
+free. The place the files are now, and the machine the code runs on now, are outlined. Above the list is the choice
+to delete the old copy after a move (section 6).*
 
 Once a move starts, a strip above the editor shows it from any page of the project. The panel shows the same thing in
 more detail:
 
-![The panel with a move under way: "Moving the files to Saurav's MacBook — Saurav's MacBook is fetching the files from Drive, 120 / 214 files · 732 MB / 1.3 GB", a progress bar, and Cancel](storage-move-progress.png)
+![The panel with a move under way: "Moving the files to Lab GPU box (RTX 4090) — Saurav's MacBook is packing the files, 132 / 214 files · 810 MB / 1.3 GB", a progress bar, and Cancel](storage-move-progress.png)
 
-*Figure 2. A move from Drive to a laptop, partway through. The strip at the top stays visible while you work. Its
-Details link opens this panel.*
+*Figure 3. A move from the laptop to the GPU box, partway through. The strip at the top stays visible while you work.
+Its Details link opens this panel.*
 
 When every file has arrived and been checked, the project switches to the new place by itself. The old copy is kept
 until you decide what to do with it:
 
-![After the move: "Moved from Google Drive. The old copy is still there." with Remove the old copy and Keep it; the MacBook is now outlined under Storage and under Compute](storage-move-done.png)
+![After the move: "Moved from Saurav's MacBook. The old copy is still there." with Delete the old copy and Keep it; the GPU box is now outlined under Storage, and the explorer and status bar name it](storage-move-done.png)
 
-*Figure 3. Done. **Remove the old copy** sends Drive's folder to the bin (Drive keeps it for 30 days), or deletes the
+*Figure 4. Done. **Delete the old copy** sends Drive's folder to the bin (Drive keeps it for 30 days), or deletes the
 folder on a computer. **Keep it** leaves the old copy alone and stops asking.*
 
 ## 2. How a move works
@@ -95,7 +103,7 @@ flowchart LR
   P -- "polls /moves/status every 3 s" --> W
 ```
 
-*Figure 4. A move between two machines. The bytes go from the source to R2 and from R2 to the destination, never
+*Figure 5. A move between two machines. The bytes go from the source to R2 and from R2 to the destination, never
 through the page. The dotted arrows are the two times a machine is told to start: once by the page, once by the
 Worker.*
 
@@ -131,7 +139,7 @@ sequenceDiagram
   Page->>Worker: POST /moves/settled
 ```
 
-*Figure 5. Each machine reports its progress (files, bytes, totals) about every two seconds. That is what the
+*Figure 6. Each machine reports its progress (files, bytes, totals) about every two seconds. That is what the
 page's progress bar shows.*
 
 ## 3. The three ways files travel
@@ -166,7 +174,7 @@ sequenceDiagram
   Machine->>Worker: report pulled + manifest
 ```
 
-*Figure 6. Drive to a machine. Moving to Drive is the mirror image (`drive-push`): folders are made first, then files
+*Figure 7. Drive to a machine. Moving to Drive is the mirror image (`drive-push`): folders are made first, then files
 go up eight at a time. Files up to 5 MB go in one request; bigger ones go in 16 MB resumable pieces. Sending the same
 folder again replaces the files rather than doubling them.*
 
@@ -186,7 +194,7 @@ flowchart TD
   A -->|"anything else"| X["Not now:<br/>the panel says why<br/>(offline, needs the update, not connected)"]
 ```
 
-*Figure 7. Either way, the mover is started as its own process. It outlives the kernel, the Companion's request, and
+*Figure 8. Either way, the mover is started as its own process. It outlives the kernel, the Companion's request, and
 the page.*
 
 The **first** step (pack, or fetch from Drive, or send to Drive) is always started by the page when you click. The
@@ -232,7 +240,7 @@ stateDiagram-v2
   failed --> [*]
 ```
 
-*Figure 8. The project's own record (`Playground.moving`) holds the move's id until the page sees `done`. Then the
+*Figure 9. The project's own record (`Playground.moving`) holds the move's id until the page sees `done`. Then the
 page sets `home` to the new place and `movedFrom` to the old one. The record is synced through Drive like the rest
 of the project, so any browser of the account follows the move and can finish it.*
 
@@ -247,7 +255,82 @@ What is cleaned up, and when:
 | The Google token | As soon as the move is done, failed or cancelled. |
 | The mover's config file on a machine (it holds the key) | Deleted by the mover the moment it has read it. |
 
-## 6. Changing the machine
+## 6. Deleting the old copy
+
+By default a move copies: the old place keeps its files until you decide. To free its space as part of the move,
+tick **Delete the copy in … after the move** above the list of places before clicking **Move files here**:
+
+![The Storage list with "Delete the copy in Saurav's MacBook after the move — once every file is in the new place and checked, to free its space. Off: it stays, and you choose later." ticked](storage-delete-option.png)
+
+*Figure 10. The choice is remembered in this browser. With it on, the page asks once more before the move starts.*
+
+The old copy goes **only after** the destination has reported every file in and checked. If the move fails or is
+cancelled, nothing is deleted. Who deletes it depends on where it is:
+
+| The old copy is on | Deleted by | When |
+| --- | --- | --- |
+| Google Drive | the Worker, with the account's token, before the token is let go | at once: the folder goes to Drive's **bin**, kept there 30 days |
+| A computer with the Companion | the Worker, through the computer's tunnel (`companion/move`, `remove`) | at once if it is online; otherwise the page does it when it can reach it |
+| The Colab machine's disk | the page, through the project's kernel | as soon as the page is open with Colab connected |
+
+A linked folder (a folder of your own that the Companion links into its folder) is only **unlinked**, never emptied.
+The Worker and the page both refuse to delete anything when the old place and the new one are the same folder.
+
+Until it is gone, the panel says so: "Its old copy is deleted as soon as … can be reached", with **Delete it now** and
+**Keep it instead**. Without the box ticked, the panel offers **Delete the old copy** and **Keep it** after the move,
+as before.
+
+## 7. Moving back over an old copy
+
+A project can return to a place it left, say back to your laptop after a week on the GPU box. Your laptop may still
+have the old copy, and that copy may have been edited since. Copying straight over it would lose those edits, and
+files deleted on the GPU box would come back. So a move never copies straight over an old copy. It compares each file
+three ways:
+
+- **as it left:** when the project leaves a place, the old copy keeps a small record of every file's MD5 in
+  `.reader/moved-away.json`. That record never travels with the files.
+- **as it is there now:** the old copy, possibly edited since.
+- **as it arrives:** the newer copy.
+
+```mermaid
+flowchart TD
+  A["A file arrives,<br/>or is only in the old copy"] --> B{"Is it in the<br/>newer copy?"}
+  B -- "yes" --> C{"Is it in the<br/>old copy too?"}
+  C -- "no" --> T1["Write it"]
+  C -- "yes" --> D{"Same as<br/>the newer one?"}
+  D -- "yes" --> S["Nothing to do"]
+  D -- "no" --> E{"Unchanged there since<br/>the project left?"}
+  E -- "yes" --> T2["Write the newer one"]
+  E -- "no, or no record" --> K["Keep the old one beside it as<br/>name (conflict 2026-10-19).ext,<br/>then write the newer one"]
+  B -- "no: deleted in<br/>the newer copy" --> F{"Unchanged there since<br/>the project left?"}
+  F -- "yes" --> R["Delete it there too"]
+  F -- "no, or made there since" --> KEEP["Keep it"]
+```
+
+*Figure 11. How each file is decided (`decide` in `mover.py`). Nothing is lost on either side, and nothing is asked
+mid-move. The project's own files under `.reader/` (the agent's conversations) simply follow the newer copy.*
+
+| What happened | Example | Result |
+| --- | --- | --- |
+| Changed only in the newer copy | `train.py` edited on the GPU box | the newer version |
+| Changed in both places | `config.yaml` edited on both | the newer version, with the old copy's version kept beside it as `config (conflict 2026-10-19).yaml` |
+| Deleted in the newer copy, untouched in the old | `old_experiment.py` deleted on the GPU box | deleted in the old copy too |
+| Deleted in the newer copy, but edited in the old | | kept |
+| Made in the old copy after the project left | `notes.md` written on the laptop | kept |
+| An old copy with no record (a folder that was there before) | | anything that differs is kept beside the newer version |
+
+The panel reports what it found once the move is done:
+
+![After moving back: "2 files had changed in both places. The newer copy is in place; the version that was already in Lab GPU box is kept beside each as name (conflict 2026-10-19).ext, for you to compare: envtrans/train/ppo_jax.py, configs/default.yaml. 1 file made in Lab GPU box after the project left it was kept."](storage-moved-back-conflicts.png)
+
+*Figure 12. A move back with the old copy also deleted from the MacBook. Open the conflict copies in the editor to
+compare and keep what you want, then delete them.*
+
+The same rules apply whichever way the files travel. On a machine, the mover renames the old file. In Drive, it
+renames the Drive file, and sends files deleted in the newer copy to the bin. Moving to Drive also skips files that
+are already identical there, which makes a move back to Drive quicker.
+
+## 8. Changing the machine
 
 **Run here** changes only where the code runs. The files stay where they are:
 
@@ -263,7 +346,7 @@ What is cleaned up, and when:
 The new machine's kernel starts fresh, so re-run the cells that set things up. Colab's row has a picker for the
 machine type (CPU, T4, L4, A100…). A machine that is offline can't be picked.
 
-## 7. Why it is faster
+## 9. Why it is faster
 
 The browser used to copy a project through Drive's API one file at a time, a read and a write for each file. A move
 now sends one compressed archive, written and read by the machines over their own connections:
@@ -284,9 +367,9 @@ xychart-beta
   bar [4000, 25]
 ```
 
-*Figure 9. Most of the time in the old way went on waiting for each request to come back, not on sending the bytes.*
+*Figure 13. Most of the time in the old way went on waiting for each request to come back, not on sending the bytes.*
 
-## 8. Safety and privacy
+## 10. Safety and privacy
 
 - **Who can start or see a move.** Starting a move, reading its status, cancelling it, or handing on a token takes
   the person's pass from a page of the site. A move belongs to the account that started it; anyone else gets 403.
@@ -305,7 +388,7 @@ xychart-beta
 - **Your files in R2.** The archive sits in your Cloudflare account's bucket only between the two machines. It is
   deleted once unpacked, and anything left over is deleted after a week.
 
-## 9. Setting it up
+## 11. Setting it up
 
 These are one-time steps for the site's owner. In order:
 
@@ -349,7 +432,7 @@ the panel shows it with **Needs Companion 0.15.0**, and moves to or from it are 
 
 Nothing is needed on Colab or on a plain Jupyter server: the page sends the mover there each time.
 
-## 10. Using it, step by step
+## 12. Using it, step by step
 
 **To move a project's files:**
 
@@ -360,7 +443,8 @@ Nothing is needed on Colab or on a plain Jupyter server: the page sends the move
    be reachable. For Colab's disk, connect to Colab first.
 4. Watch the strip above the editor, or don't: you can close the page. The machines carry on.
 5. When it says every file is in and checked, the project opens its files from the new place.
-6. Open the panel again and choose **Remove the old copy** or **Keep it**.
+6. Open the panel again and choose **Delete the old copy** or **Keep it**. Or tick **Delete the copy … after the
+   move** before step 3, and it goes on its own once the move is checked (section 6).
 
 **To change where the code runs:**
 
@@ -377,7 +461,7 @@ Nothing is needed on Colab or on a plain Jupyter server: the page sends the move
 | Open the project from any device | Google Drive | any |
 | A big run on a rented GPU | your computer | the RunPod / lab server |
 
-## 11. When something goes wrong
+## 13. When something goes wrong
 
 | You see | What it means | What to do |
 | --- | --- | --- |
@@ -391,7 +475,7 @@ Nothing is needed on Colab or on a plain Jupyter server: the page sends the move
 
 A failed or cancelled move never changes the project: its home stays where it was until a move reports `done`.
 
-## 12. Limits
+## 14. Limits
 
 - **One move at a time per project.** While a move is under way, the other rows' **Move files here** buttons are
   off.
@@ -405,7 +489,7 @@ A failed or cancelled move never changes the project: its home stays where it wa
 - **A plain Jupyter server** that isn't the project's machine and has no Companion can't be told to start, so it isn't
   offered as storage.
 
-## 13. Reference: files, routes, tests
+## 15. Reference: files, routes, tests
 
 | File | What is in it |
 | --- | --- |
@@ -436,7 +520,7 @@ Tests:
 
 | Test | Checks |
 | --- | --- |
-| `scripts/moves.test.mjs` | The Worker's routes against a stand-in R2. The real `mover.py` packing a folder through the real Worker and unpacking it elsewhere, byte for byte. |
+| `scripts/moves.test.mjs` | The Worker's routes against a stand-in R2. Deleting the old copy (Drive to the bin, a computer through its Companion, never the same folder) and what the move keeps of the conflicts. The real `mover.py` packing a folder through the real Worker and unpacking it elsewhere, byte for byte. |
 | `scripts/move-plan.test.mjs` | Every pair of places, which end goes first, the machine-change guard. The kernel launch code, run in a real Python, starting the mover on its own. |
-| `companion/tests/test_mover.py` | Pack → unpack in several parts with binaries and links; a damaged archive and a changed file caught; cancel; paths that climb out; Drive pull and push against a stand-in Drive; remove (a linked folder only unlinked); `prepare`'s refusals. |
+| `companion/tests/test_mover.py` | The three-way decision for every case; a round trip out and back with edits on both sides (nothing lost, conflicts kept beside, stale files gone, files made there kept); an old copy with no record; Drive as the old copy; the record left in Drive. Pack → unpack in several parts with binaries and links; a damaged archive and a changed file caught; cancel; paths that climb out; Drive pull and push against a stand-in Drive; remove (a linked folder only unlinked); `prepare`'s refusals. |
 | `companion/tests/test_move_handler.py` | `companion/move`: free disk, the token, a folder outside its own refused. |

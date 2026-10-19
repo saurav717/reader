@@ -9622,8 +9622,14 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .mv-bar { height: 4px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
 .mv-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.6s ease; }
 .mv-progress .hint { margin: 0; }
-.mv-old { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 10px; font-size: 12.5px; }
-.mv-old .spacer { flex: 1; }
+.mv-old { display: grid; gap: 8px; margin-top: 12px; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 10px; font-size: 12.5px; }
+.mv-old-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mv-old-line .spacer { flex: 1; }
+.mv-met { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.mv-met b { color: var(--ink); font-weight: 600; }
+.mv-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.5; color: var(--muted); cursor: pointer; }
+.mv-check input { margin-top: 3px; }
+.mv-check b { color: var(--ink); font-weight: 600; }
 @media (max-width: 640px) { .mv-list li { grid-template-columns: 28px minmax(0, 1fr); } .mv-free { justify-content: flex-start; } }
 .mv-sheet .link, .mv-progress .link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; }
 .mv-sheet .link:hover, .mv-progress .link:hover { text-decoration: underline; }

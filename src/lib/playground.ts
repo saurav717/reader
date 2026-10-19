@@ -123,7 +123,22 @@ export interface Playground {
   /** Its files on their way to another place, by the machines themselves (src/lib/moves.ts): until then, `home` is where they are. */
   moving?: Moving;
   /** Where they were before the last move, until the old copy is removed or kept for good. */
-  movedFrom?: { home: FilesHome; at: number; move: string; removed?: boolean };
+  movedFrom?: MovedFrom;
+}
+
+/** Where the files were before the last move, and what came of it: the old copy (kept, to go, gone) and what met an older copy at the new place. */
+export interface MovedFrom {
+  home: FilesHome;
+  at: number;
+  move: string;
+  removed?: boolean;
+  /** The move was started with "delete the old copy", and it couldn't be done yet: done when the old place is reachable. */
+  removeWanted?: boolean;
+  /** Files that had changed both there and here: the version that was there is kept beside each, "(conflict <date>)". */
+  conflicts?: number;
+  conflictPaths?: string[];
+  /** Files only in the old copy there, made after the project left it: kept. */
+  kept?: number;
 }
 
 /** A move under way, as the project keeps it, so any browser of the account follows it. */
@@ -133,6 +148,8 @@ export interface Moving {
   to: FilesHome;
   plan: 'archive' | 'drive-pull' | 'drive-push';
   started: number;
+  /** Delete the old copy once every file is in and checked at the new place. */
+  removeOld?: boolean;
 }
 
 export interface Snapshot {

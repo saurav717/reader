@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-const { ProjectMove, tellDestination } = await import('../worker/moves.js');
+const { ProjectMove, tellDestination, removeSource } = await import('../worker/moves.js');
 const { default: worker } = await import('../worker/index.js');
 const { issuePass } = await import('../server/passes.js');
 
@@ -196,6 +196,36 @@ describe('a move on the Worker', () => {
     assert.equal(calls[0].init.headers.Authorization, 'token jt');
     assert.equal(calls[0].init.headers.Origin, 'https://koios.dev');
     assert.deepEqual(JSON.parse(calls[0].init.body), { mode: 'unpack', api: 'https://api.example', id: ID, key: 'k', root: 'playgrounds/p1' });
+  });
+
+  it('removes the old copy once every file is checked, when asked to: Drive to the bin, a computer through its Companion', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => (calls.push({ url, init }), new Response('{}'));
+    const devices = { get: () => ({ fetch: async () => Response.json({ devices: [{ id: 'abcdef0123', url: 'https://laptop.trycloudflare.com/', token: 'jt', online: true }] }) }), idFromName: (n) => n };
+    const fromDrive = await removeSource({}, { email: 'a@gmail.com', token: 'ya29.x', from: { kind: 'drive', folder: 'F1' }, to: start.to }, new Request('https://x'), fetchImpl);
+    assert.equal(fromDrive.state, 'removed');
+    assert.equal(calls[0].url, 'https://www.googleapis.com/drive/v3/files/F1?fields=id');
+    assert.deepEqual(JSON.parse(calls[0].init.body), { trashed: true });
+    const fromLaptop = await removeSource({ DEVICES: devices }, { email: 'a@gmail.com', origin: 'https://koios.dev', from: { kind: 'server', deviceId: 'abcdef0123', root: 'playgrounds/p1' }, to: { kind: 'drive', folder: 'F2' } }, new Request('https://x'), fetchImpl);
+    assert.equal(fromLaptop.state, 'removed');
+    assert.deepEqual(JSON.parse(calls[1].init.body), { mode: 'remove', root: 'playgrounds/p1' });
+    // Colab's disk, or a computer that is off: left for the page.
+    assert.equal((await removeSource({ DEVICES: devices }, { email: 'a@gmail.com', from: { kind: 'machine', root: 'playgrounds/p1' }, to: start.to }, new Request('https://x'), fetchImpl)).state, 'pending');
+    // Never the folder the files just went to.
+    const same = await removeSource({ DEVICES: devices }, { email: 'a@gmail.com', from: { kind: 'server', deviceId: 'abcdef0123', root: 'p' }, to: { kind: 'server', deviceId: 'abcdef0123', root: 'p' } }, new Request('https://x'), fetchImpl);
+    assert.equal(same.state, 'failed');
+    assert.equal(calls.length, 2);
+  });
+
+  it('keeps what met an older copy, and whether the old copy is still to go', async () => {
+    const e = env();
+    const pass = await issuePass('a@gmail.com', SECRET);
+    const { key } = await (await page(e, '/moves/start', { pass, body: { ...start, from: { kind: 'machine', label: 'Colab', root: 'playgrounds/p1' }, removeOld: true } })).json();
+    await machine(e, `/moves/report?id=${ID}`, key, { method: 'POST', body: JSON.stringify({ step: 'unpacked', runner: 'r', verified: 3, conflicts: 1, conflictPaths: ['both.py'], kept: 2, keptPaths: ['a.md', 'b.md'], stale: 1 }) });
+    const move = (await (await page(e, `/moves/status?id=${ID}`, { pass })).json()).move;
+    assert.deepEqual(move.met, { conflicts: 1, conflictPaths: ['both.py'], kept: 2, keptPaths: ['a.md', 'b.md'], stale: 1 });
+    assert.equal(move.removeOld, true);
+    assert.equal(move.oldCopy, 'pending');
   });
 
   it('says what to set up where there is no bucket', async () => {

@@ -26,6 +26,7 @@ import { CloseIcon } from './icons';
 import { isCompanion } from './VsCodeExtension';
 
 const POLL_MS = 3000;
+const REMOVE_OLD_KEY = 'reader.moves.removeOld';
 const DRIVE_RENEW_MS = 20 * 60_000;
 /** How long the page leaves a computer with the Companion to be told by the Worker before it tells it itself. */
 const WORKER_FIRST_MS = 20_000;
@@ -91,6 +92,15 @@ export function useMove(playground: Playground, connected: boolean): { move: Mov
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moving?.id, connected]);
+  // The old copy, when the move was to delete it and the Worker couldn't (Colab's disk, a computer that was off): done
+  // from here once, as soon as the old place can be reached from this page.
+  const removing = useRef<string | null>(null);
+  const wanted = playground.movedFrom?.removeWanted && !playground.movedFrom.removed ? playground.movedFrom.move : null;
+  useEffect(() => {
+    if (!wanted || removing.current === `${wanted}:${connected}`) return;
+    removing.current = `${wanted}:${connected}`;
+    void removeOldCopy(latest.current, connected, '').catch(() => undefined);
+  }, [wanted, connected]);
   return { move, problem };
 }
 
@@ -186,6 +196,22 @@ export default function StoragePanel({ playground, machineName, connected, move,
   const [online, setOnline] = useState<Record<string, boolean | null>>({});
   const [looked, setLooked] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // "Delete the old copy once every file is checked": this browser remembers the choice.
+  const [removeOld, setRemoveOldState] = useState(() => {
+    try {
+      return localStorage.getItem(REMOVE_OLD_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setRemoveOld = (next: boolean) => {
+    setRemoveOldState(next);
+    try {
+      localStorage.setItem(REMOVE_OLD_KEY, next ? '1' : '0');
+    } catch {
+      // only a convenience
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const [colabMachine, setColabMachine] = useState(playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : 'NONE');
   const companions = servers.filter(isCompanion);
@@ -275,8 +301,9 @@ export default function StoragePanel({ playground, machineName, connected, move,
     setError(null);
     setBusy(place.key);
     try {
-      await startMove(playground, place.to, machineName, connected);
-      onNote(`Moving the files to ${place.label}: the machines do it themselves, and the project switches over once every file is in and checked.`);
+      if (removeOld && !confirm(`Move the files to ${place.label}, then delete the copy in ${homeName}? It is deleted only once every file is in ${place.label} and checked${playground.home.kind === 'drive' ? ', and Drive keeps it in the bin for 30 days' : ''}.`)) return;
+      await startMove(playground, place.to, machineName, connected, { removeOld });
+      onNote(`Moving the files to ${place.label}: the machines do it themselves, and the project switches over once every file is in and checked${removeOld ? `; then the copy in ${homeName} is deleted` : ''}.`);
     } catch (problemNow) {
       setError(problemNow instanceof Error ? problemNow.message : String(problemNow));
     } finally {
@@ -294,8 +321,8 @@ export default function StoragePanel({ playground, machineName, connected, move,
   };
 
   const homeName = playground.home.kind === 'drive' ? 'Google Drive' : playground.home.kind === 'server' ? (serverById(playground.home.serverId)?.name ?? playground.home.name ?? 'a computer') : playground.home.kind === 'machine' ? `${machineName}’s disk` : 'this browser';
-  const old = playground.movedFrom && !playground.movedFrom.removed ? playground.movedFrom : null;
-  const oldName = old ? (old.home.kind === 'drive' ? 'Google Drive' : old.home.kind === 'server' ? (serverById(old.home.serverId)?.name ?? old.home.name ?? 'a computer') : `${machineName}’s disk`) : '';
+  const last = playground.movedFrom ?? null;
+  const oldName = last ? (last.home.kind === 'drive' ? 'Google Drive' : last.home.kind === 'server' ? (serverById(last.home.serverId)?.name ?? last.home.name ?? 'a computer') : `${machineName}’s disk`) : '';
 
   return (
     <div className="scrim pg-scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -315,41 +342,59 @@ export default function StoragePanel({ playground, machineName, connected, move,
         <div className="mv-body">
         {shared ? <p className="banner warn">This project is shared with others right now: its storage and machine stay as they are while it is.</p> : null}
         <MoveProgress playground={playground} move={move} problem={problem} />
-        {old && !playground.moving ? (
+        {last && !playground.moving ? (
           <div className="mv-old">
-            <span>
-              Moved from <b>{oldName}</b> {new Date(old.at).toLocaleDateString()}. The old copy is still there.
-            </span>
-            <span className="spacer" />
-            <button
-              type="button"
-              className="btn sm"
-              disabled={busy !== null}
-              onClick={async () => {
-                if (!confirm(`Remove the old copy from ${oldName}? The files in ${homeName} were checked against it; this can't be undone${old.home.kind === 'drive' ? ' (Drive keeps it in the bin for 30 days)' : ''}.`)) return;
-                setBusy('remove');
-                setError(null);
-                try {
-                  await removeOldCopy(playground, connected, machineName);
-                } catch (problemNow) {
-                  setError(problemNow instanceof Error ? problemNow.message : String(problemNow));
-                } finally {
-                  setBusy(null);
-                }
-              }}
-            >
-              {busy === 'remove' ? 'Removing…' : 'Remove the old copy'}
-            </button>
-            <button type="button" className="link" onClick={() => keepOldCopy(playground)}>
-              Keep it
-            </button>
+            <div className="mv-old-line">
+              <span>
+                Moved from <b>{oldName}</b> {new Date(last.at).toLocaleDateString()}.{' '}
+                {last.removed ? (last.home.kind === 'drive' ? 'Its old copy is in Drive’s bin (kept there 30 days).' : 'Its old copy was deleted.') : last.removeWanted ? `Its old copy is deleted as soon as ${oldName} can be reached.` : 'The old copy is still there.'}
+              </span>
+              <span className="spacer" />
+              {!last.removed ? (
+                <button
+                  type="button"
+                  className="btn sm"
+                  disabled={busy !== null}
+                  onClick={async () => {
+                    if (!confirm(`Delete the old copy in ${oldName}? The files in ${homeName} were checked against it; this can't be undone${last.home.kind === 'drive' ? ' (Drive keeps it in the bin for 30 days)' : ''}.`)) return;
+                    setBusy('remove');
+                    setError(null);
+                    try {
+                      await removeOldCopy(playground, connected, machineName);
+                    } catch (problemNow) {
+                      setError(problemNow instanceof Error ? problemNow.message : String(problemNow));
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                >
+                  {busy === 'remove' ? 'Deleting…' : last.removeWanted ? 'Delete it now' : 'Delete the old copy'}
+                </button>
+              ) : null}
+              <button type="button" className="link" onClick={() => keepOldCopy(playground)}>
+                {last.removed ? 'Dismiss' : 'Keep it'}
+              </button>
+            </div>
+            {last.conflicts ? (
+              <p className="mv-met">
+                <b>{last.conflicts === 1 ? '1 file' : `${last.conflicts} files`} had changed in both places.</b> The newer copy is in place; the version that was already in {homeName} is kept beside {last.conflicts === 1 ? 'it' : 'each'} as “name (conflict {new Date(last.at).toISOString().slice(0, 10)}).ext”, for you to compare: {last.conflictPaths?.slice(0, 6).join(', ')}
+                {(last.conflictPaths?.length ?? 0) > 6 ? '…' : ''}
+              </p>
+            ) : null}
+            {last.kept ? <p className="mv-met">{last.kept === 1 ? '1 file' : `${last.kept} files`} made in {homeName} after the project left it {last.kept === 1 ? 'was' : 'were'} kept.</p> : null}
           </div>
         ) : null}
         {error ? <p className="banner error">{error}</p> : null}
 
         <section className="mv-section" aria-label="Storage">
           <h3>Storage</h3>
-          <p className="hint">Where the files are kept. Everything moves, checkpoints and data included; caches (__pycache__, virtual environments) are rebuilt instead.</p>
+          <p className="hint">Where the files are kept. Everything moves, checkpoints and data included; caches (__pycache__, virtual environments) are rebuilt instead. Moving back to a place with an older copy loses nothing: files changed in both places are kept side by side.</p>
+          <label className="mv-check">
+            <input type="checkbox" checked={removeOld} onChange={(event) => setRemoveOld(event.target.checked)} disabled={Boolean(playground.moving)} />
+            <span>
+              <b>Delete the copy in {homeName} after the move</b> — once every file is in the new place and checked, to free its space{playground.home.kind === 'drive' ? ' (Drive keeps it in the bin for 30 days)' : ''}. Off: it stays, and you choose later.
+            </span>
+          </label>
           <ul className="mv-list">
             {places.map((place) => {
               const here = isHere(place.to);

@@ -19,7 +19,7 @@ import { runQuietly, type JupyterServer } from './colab';
 import { driveFolderName } from './driveFiles';
 import { trashFile } from './google';
 import MOVER from './moverScript';
-import { homeFor, launchCode, planOf, stepsOf, type Destination, type MoveEnd, type MovePlan } from './movePlan';
+import { homeFor, launchCode, planOf, sameHome, stepsOf, type Destination, type MoveEnd, type MovePlan } from './movePlan';
 import { driveFolderIdOf, driveTokenNow, machineRoot, serverById, updatePlayground, type FilesHome, type Playground } from './playground';
 
 export interface MoveState {
@@ -37,6 +37,12 @@ export interface MoveState {
   created: number;
   updated: number;
   done?: number;
+  removeOld?: boolean;
+  /** The old copy, when the move was to delete it: removed by the Worker, still to go (the page does it), or refused. */
+  oldCopy?: 'removed' | 'pending' | 'failed';
+  oldCopyError?: string;
+  /** What met an older copy at the new place (mover.py, Arrival). */
+  met?: { conflicts: number; conflictPaths: string[]; kept: number; keptPaths: string[]; stale: number };
 }
 
 /** How a machine is told to do a step: its Companion, or the project's own kernel on it. */
@@ -160,7 +166,7 @@ export const moveStatus = (id: string) => call<{ move: MoveState }>(`/moves/stat
  * A move started: the Worker's job, the project marked as moving, and the first step started on its machine.
  * Throws, with nothing started, when the machine that goes first can't be told now.
  */
-export async function startMove(playground: Playground, to: Destination, machineName: string, connected: boolean): Promise<string> {
+export async function startMove(playground: Playground, to: Destination, machineName: string, connected: boolean, options: { removeOld?: boolean } = {}): Promise<string> {
   const toHome = homeFor(playground, to, driveFolderName);
   const planned = planOf(playground.home, toHome);
   if ('refused' in planned) throw new Error(planned.refused);
@@ -176,9 +182,10 @@ export async function startMove(playground: Playground, to: Destination, machine
   const from = endOf(playground, playground.home, machineName, plan === 'drive-pull' ? driveFolder : undefined)!;
   const toEnd = endOf(playground, toHome, machineName, plan === 'drive-push' ? driveFolder : undefined)!;
   const id = newId();
-  const started = await call<{ key: string; api: string }>('/moves/start', { id, project: playground.id, title: playground.title, plan, from, to: toEnd, token });
+  const removeOld = Boolean(options.removeOld);
+  const started = await call<{ key: string; api: string }>('/moves/start', { id, project: playground.id, title: playground.title, plan, from, to: toEnd, token, removeOld });
   keepKey(id, started.key);
-  updatePlayground(playground.id, { moving: { id, to: toHome, plan, started: Date.now() } });
+  updatePlayground(playground.id, { moving: { id, to: toHome, plan, started: Date.now(), ...(removeOld ? { removeOld } : {}) } });
   const root = (steps.first === 'source' ? from : toEnd).root ?? '';
   try {
     await runStep(runner, { mode: steps.firstMode, api: started.api, id, key: started.key, root, ...(driveFolder ? { drive: driveFolder } : {}) });
@@ -215,7 +222,21 @@ export function workerAddress(base: string | null): string {
 export async function settleMove(playground: Playground, move: MoveState): Promise<void> {
   const moving = playground.moving;
   if (!moving || moving.id !== move.id) return;
-  updatePlayground(playground.id, { home: moving.to, moving: undefined, movedFrom: { home: playground.home, at: Date.now(), move: move.id } });
+  const met = move.met;
+  const removed = move.oldCopy === 'removed';
+  updatePlayground(playground.id, {
+    home: moving.to,
+    moving: undefined,
+    movedFrom: {
+      home: playground.home,
+      at: Date.now(),
+      move: move.id,
+      ...(removed ? { removed } : {}),
+      ...(moving.removeOld && !removed && move.oldCopy !== 'failed' ? { removeWanted: true } : {}),
+      ...(met?.conflicts ? { conflicts: met.conflicts, conflictPaths: met.conflictPaths.slice(0, 20) } : {}),
+      ...(met?.kept ? { kept: met.kept } : {}),
+    },
+  });
   await call('/moves/settled', { id: move.id }).catch(() => undefined);
 }
 
@@ -236,6 +257,9 @@ export async function renewDriveToken(id: string): Promise<void> {
 export async function removeOldCopy(playground: Playground, connected: boolean, machineName: string): Promise<void> {
   const old = playground.movedFrom;
   if (!old || old.removed) return;
+  // Never the folder the files are in now.
+  const sameFolder = sameHome(old.home, playground.home) || (old.home.kind === 'machine' && playground.home.kind === 'server' && playground.compute.kind === 'server' && playground.compute.serverId === playground.home.serverId && machineRoot({ ...playground, home: old.home }) === playground.home.root);
+  if (sameFolder) throw new Error('The old place and the new one are the same folder: there is nothing to remove.');
   if (old.home.kind === 'drive') {
     await trashFile(await driveTokenNow(), await driveFolderIdOf(old.home));
   } else {
@@ -244,7 +268,7 @@ export async function removeOldCopy(playground: Playground, connected: boolean, 
     const root = old.home.kind === 'server' ? old.home.root : machineRoot({ ...playground, home: old.home });
     await runStep(runner, { mode: 'remove', api: '', id: '', key: '', root });
   }
-  updatePlayground(playground.id, { movedFrom: { ...old, removed: true } });
+  updatePlayground(playground.id, { movedFrom: { ...old, removed: true, removeWanted: undefined } });
 }
 
 /** The old copy kept for good: the project forgets it was moved. */

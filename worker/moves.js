@@ -106,6 +106,7 @@ export class ProjectMove {
         origin: text(body.origin, 200),
         key: newKey(),
         token: text(body.token, 4000),
+        removeOld: body.removeOld === true,
         uploadId: text(body.uploadId, 400),
         parts: {},
         status: 'started',
@@ -187,6 +188,17 @@ export class ProjectMove {
           meta.verified = finite(body.verified);
           meta.done = now;
           meta.token = '';
+          // What met an older copy there (mover.py, Arrival): kept beside, kept, and gone.
+          meta.met = {
+            conflicts: finite(body.conflicts),
+            conflictPaths: (Array.isArray(body.conflictPaths) ? body.conflictPaths : []).slice(0, 50).map((path) => text(path, 300)),
+            kept: finite(body.kept),
+            keptPaths: (Array.isArray(body.keptPaths) ? body.keptPaths : []).slice(0, 50).map((path) => text(path, 300)),
+            stale: finite(body.stale),
+          };
+          // The old copy, when it was to go: removed by the Worker (Drive, a Companion), or left for the page.
+          if (meta.removeOld) meta.oldCopy = ['removed', 'pending', 'failed'].includes(body.oldCopy) ? body.oldCopy : 'pending';
+          if (body.oldCopyError) meta.oldCopyError = text(body.oldCopyError, 300);
         } else if (step === 'removed') {
           meta.removed = now;
         } else if (step !== 'waiting') {
@@ -271,6 +283,12 @@ export async function handleMoves(request, env, ctx, path, helpers) {
           report.error = `The archive couldn't be put together in R2: ${String(error?.message || error)}`;
         }
       }
+      // Every file in and checked: the old copy goes now, when it was asked to and the Worker can reach it.
+      if (['unpacked', 'pulled', 'pushed'].includes(report.step) && meta.removeOld && !['cancelled', 'failed', 'done'].includes(meta.status)) {
+        const removal = await removeSource(env, meta, request);
+        report.oldCopy = removal.state;
+        if (removal.error) report.oldCopyError = removal.error;
+      }
       const answer = await asMachine('/report', { method: 'POST', body: JSON.stringify(report) });
       const reply = await answer.json();
       if (report.step === 'packed' && answer.ok) {
@@ -349,19 +367,64 @@ export async function handleMoves(request, env, ctx, path, helpers) {
  * account's list of computers (worker/devices.js), and the Companion's `companion/move` (0.15.0 and later). A
  * computer that is off, or an older Companion, is left for the page, which starts the unpack when it is next open.
  */
+/** A computer of the account's, by its Companion's id: its tunnel and token from the account's list (worker/devices.js), or null when it is off or unknown. */
+async function companionOf(env, email, deviceId) {
+  if (!deviceId || !env.DEVICES) return null;
+  const list = await (await env.DEVICES.get(env.DEVICES.idFromName(`devices:${email.toLowerCase()}`)).fetch('https://devices/list', { method: 'POST', body: '{}' })).json();
+  const device = (list.devices || []).find((d) => d.id === deviceId);
+  return device?.url && device.token && !device.off ? device : null;
+}
+
+/** A call on a computer's Companion through its tunnel, as the site: its token and the site's origin. */
+const callCompanion = (device, meta, request, body, fetchImpl) =>
+  fetchImpl(`${device.url.replace(/\/?$/, '/')}companion/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `token ${device.token}`, Origin: meta.origin || request.headers.get('Origin') || '' },
+    body: JSON.stringify(body),
+  });
+
+/**
+ * The destination told to unpack, when it is a computer with the Reader Companion: its address and token from the
+ * account's list of computers (worker/devices.js), and the Companion's `companion/move` (0.15.0 and later). A
+ * computer that is off, or an older Companion, is left for the page, which starts the unpack when it is next open.
+ */
 export async function tellDestination(env, meta, request, fetchImpl = (...args) => fetch(...args)) {
-  if (!meta.to?.deviceId || !env.DEVICES) return false;
   try {
-    const list = await (await env.DEVICES.get(env.DEVICES.idFromName(`devices:${meta.email.toLowerCase()}`)).fetch('https://devices/list', { method: 'POST', body: '{}' })).json();
-    const device = (list.devices || []).find((d) => d.id === meta.to.deviceId);
-    if (!device?.url || !device.token || device.off) return false;
-    const answer = await fetchImpl(`${device.url.replace(/\/?$/, '/')}companion/move`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `token ${device.token}`, Origin: meta.origin || request.headers.get('Origin') || '' },
-      body: JSON.stringify({ mode: 'unpack', api: meta.api, id: meta.id, key: meta.key, root: meta.to.root || '' }),
-    });
+    const device = await companionOf(env, meta.email, meta.to?.deviceId);
+    if (!device) return false;
+    const answer = await callCompanion(device, meta, request, { mode: 'unpack', api: meta.api, id: meta.id, key: meta.key, root: meta.to.root || '' }, fetchImpl);
     return answer.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The old copy removed, once every file is in and checked at the new place, when the move was started with "delete
+ * the old copy": Drive's folder sent to the bin with the account's token (Drive keeps it 30 days); a computer's
+ * folder deleted by its Companion (a linked folder only unlinked). Colab's disk, or a computer that is off, is left
+ * for the page: 'pending'. Never when the two ends are one folder.
+ */
+export async function removeSource(env, meta, request, fetchImpl = (...args) => fetch(...args)) {
+  const from = meta.from || {};
+  const to = meta.to || {};
+  if (from.kind === to.kind && (from.kind === 'drive' ? from.folder === to.folder : from.deviceId === to.deviceId && (from.root || '') === (to.root || ''))) return { state: 'failed', error: 'the old place and the new one are the same folder' };
+  try {
+    if (from.kind === 'drive') {
+      if (!from.folder || !meta.token) return { state: 'pending' };
+      const answer = await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(from.folder)}?fields=id`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${meta.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: true }),
+      });
+      return answer.ok ? { state: 'removed' } : { state: 'pending', error: `Drive answered ${answer.status}` };
+    }
+    if (!from.root) return { state: 'pending' };
+    const device = await companionOf(env, meta.email, from.deviceId);
+    if (!device) return { state: 'pending' };
+    const answer = await callCompanion(device, meta, request, { mode: 'remove', root: from.root }, fetchImpl);
+    return answer.ok ? { state: 'removed' } : { state: 'pending', error: `the Companion answered ${answer.status}` };
+  } catch (error) {
+    return { state: 'pending', error: String(error?.message || error).slice(0, 200) };
   }
 }
