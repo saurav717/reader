@@ -56,6 +56,7 @@ import { symbolPath, symbolsOf } from '../lib/editing';
 import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
+import { currentDbName, subscribeDb } from '../lib/db';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
 import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
@@ -1792,9 +1793,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId)).find(Boolean);
   // The paper's Implementation page, when it has one: the plan goes with the agent's requests.
+  // Read again when the browser's database moves to the signed-in account's.
+  const dbName = useSyncExternalStore(subscribeDb, currentDbName);
   useEffect(() => {
     if (cited) void loadImplementation(cited.id);
-  }, [cited?.id]);
+  }, [cited?.id, dbName]);
   const paperPlan = useSyncExternalStore(subscribeImplement, () => (cited ? implementationFor(cited.id)?.content : undefined));
   // The paper itself in the folder — paper/paper.md (its full text), paper/EXPLANATION.md, paper/paper.pdf — so every agent reads
   // it there and none goes looking for it online. Once per project open, and again before an agent is asked anything.
@@ -1820,6 +1823,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   useEffect(() => {
     if (cited) void ensurePaper();
   }, [cited?.id, ensurePaper]);
+  /**
+   * The Implementation page's plan in the folder as IMPLEMENTATION_PLAN.md, whenever there is one: every agent's briefing
+   * sends it there, whether the project was started from the plan or the agent was simply asked to build it. Written
+   * again when the plan changes (a revision on the Implementation page), never while it is still being written.
+   */
+  const ensurePlan = async () => {
+    if (!cited) return;
+    const entry = (await loadImplementation(cited.id).catch(() => undefined)) ?? implementationFor(cited.id);
+    if (!entry?.content.trim() || entry.streaming) return;
+    const text = planMarkdown({ title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: entry.content });
+    const before = await home.read(PLAN_FILE).catch(() => null);
+    if (before === text) return;
+    await home.write(PLAN_FILE, text);
+    tookAgentFiles([{ path: PLAN_FILE, before, after: text, ...lineDelta(before, text) }]);
+  };
+  useEffect(() => {
+    if (paperPlan) void ensurePlan().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperPlan, playground.id, home]);
   // A project from a paper starts with the model choosing and writing its files, until that is done or put aside.
   const startKey = `reader.pgStart:${playground.id}`;
   const [startState, setStartState] = useState(() => readLocal<'done' | 'dismissed' | null>(startKey, null));
@@ -1896,6 +1918,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     await saveAll();
     // The paper's files in the folder before the agent reads it, so it never has to go and find the paper.
     await ensurePaper();
+    await ensurePlan().catch(() => undefined);
     // The helpers on the machine before the agent starts, as before a console command: `python koios_telemetry.py use …` works from its shell.
     if (connected && machines[0]) await ensureHelper(machines[0]).catch(() => undefined);
     return split ? push() : true;
