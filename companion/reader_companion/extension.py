@@ -691,7 +691,8 @@ class FoldersHandler(VsCodeHandler):
 
 
 class MoveHandler(VsCodeHandler):
-    """GET /companion/move?root=…: how much disk is free where a project's folder is (from 0.15.0). POST {mode, api,
+    """GET /companion/move?root=…: how much disk is free where a project's folder is (from 0.15.0; from 0.16.0 an arrival over an older copy is
+    weighed three ways, mover.Arrival). POST {mode, api,
     id, key, root, drive?}: one step of a project's move (reader_companion/mover.py) started here, on its own, so it
     goes on with no page open — the page asks, or the Worker itself, through the tunnel, once an archive is ready to
     unpack. The token, as for every call that reaches the files."""

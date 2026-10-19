@@ -40,8 +40,15 @@ class FakeDrive:
     def add(self, name, parent, data=None):
         self.next += 1
         key = f"f{self.next}"
-        self.files[key] = {"name": name, "mimeType": mover.FOLDER_MIME if data is None else "text/plain", "parents": [parent], "data": data or b""}
+        self.files[key] = {"name": name, "mimeType": mover.FOLDER_MIME if data is None else "text/plain", "parents": [parent], "data": data or b"", "trashed": False}
         return key
+
+    def at(self, path):
+        """The live file at a path, or None."""
+        for key, f in self.files.items():
+            if key != "root" and not f.get("trashed") and f["mimeType"] != mover.FOLDER_MIME and self.path_of(key) == path:
+                return f
+        return None
 
     def path_of(self, key):
         parts = []
@@ -106,11 +113,14 @@ def serve(worker: FakeWorker, drive: FakeDrive):
             parts = url.path.split("/")
             if url.path == "/drive/v3/files" and method == "GET":
                 parent = query["q"].split("'")[1]
-                found = [{"id": k, "name": f["name"], "mimeType": f["mimeType"], "size": str(len(f["data"])), "md5Checksum": hashlib.md5(f["data"]).hexdigest()} for k, f in drive.files.items() if parent in f["parents"]]
+                found = [{"id": k, "name": f["name"], "mimeType": f["mimeType"], "size": str(len(f["data"])), "md5Checksum": hashlib.md5(f["data"]).hexdigest()} for k, f in drive.files.items() if parent in f["parents"] and not f.get("trashed")]
                 return self.answer(200, json.dumps({"files": found}).encode())
             if url.path == "/drive/v3/files" and method == "POST":
                 meta = json.loads(self.body())
                 return self.answer(200, json.dumps({"id": drive.add(meta["name"], meta["parents"][0])}).encode())
+            if parts[1] == "drive" and method == "PATCH" and len(parts) > 4:
+                drive.files[parts[4]].update(json.loads(self.body()))
+                return self.answer(200, json.dumps({"id": parts[4]}).encode())
             if parts[1] == "drive" and method == "GET" and query.get("alt") == "media":
                 return self.answer(200, drive.files[parts[4]]["data"], "application/octet-stream")
             if parts[1] == "upload":
@@ -282,6 +292,104 @@ class MoverTest(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(self.worker.reports[-1]["step"], "packed")
         self.assertFalse((self.tmp / "agent" / "move-m1-pack.json").exists())
+
+    # ------------------------------------------------------ an old copy, met again --
+
+    def test_decides_each_file_three_ways(self):
+        d = mover.decide
+        self.assertEqual(d(None, None, "n"), "take")  # new
+        self.assertEqual(d("n", "o", "n"), "same")
+        self.assertEqual(d("o", "o", "n"), "take")  # untouched here since it left: the newer one
+        self.assertEqual(d("h", "o", "n"), "conflict")  # changed in both places
+        self.assertEqual(d("h", None, "n"), "conflict")  # no record of how it left: kept beside it
+        self.assertEqual(d("o", "o", None), "remove")  # deleted in the newer copy, untouched here
+        self.assertEqual(d("h", "o", None), "keep")  # deleted there, but changed here
+        self.assertEqual(d("h", None, None), "keep")  # made here since
+        self.assertEqual(d("h", "o", "n", meta=True), "take")  # the app's own files follow the newer copy
+
+    def move(self, source, dest):
+        self.worker.parts.clear()
+        self.worker.manifest = None
+        mover.run(self.config("pack", source))
+        return mover.run(self.config("unpack", dest))
+
+    def test_coming_back_over_an_old_copy_loses_nothing(self):
+        a = self.tmp / "laptop" / "project"
+        a.mkdir(parents=True)
+        (a / "untouched.py").write_text("v1\n")
+        (a / "both.py").write_text("v1\n")
+        (a / "deleted_there.py").write_text("v1\n")
+        (a / "data.bin").write_bytes(b"\0" * 1000)
+        (a / ".reader").mkdir()
+        (a / ".reader" / "agent.json").write_text('{"chats": 1}')
+        b = self.tmp / "gpubox" / "project"
+        self.move(a, b)
+        self.assertTrue((a / mover.BASE).exists(), "the place left keeps its record")
+        self.assertFalse((b / mover.BASE).exists(), "the record never travels")
+        # Away: work goes on at the new place, and someone edits the old copy too.
+        (b / "untouched.py").write_text("v2\n")
+        (b / "both.py").write_text("v2 from the gpu box\n")
+        (b / "deleted_there.py").unlink()
+        (b / "new_there.py").write_text("hello\n")
+        (b / ".reader" / "agent.json").write_text('{"chats": 2}')
+        (a / "both.py").write_text("v1 edited on the laptop\n")
+        (a / "notes_here.md").write_text("made on the laptop after it left\n")
+        (a / ".reader" / "agent.json").write_text('{"chats": "laptop"}')
+        # Back to the laptop.
+        met = self.move(b, a)
+        self.assertEqual((a / "untouched.py").read_text(), "v2\n")
+        self.assertEqual((a / "both.py").read_text(), "v2 from the gpu box\n")
+        aside = [p for p in a.iterdir() if p.name.startswith("both (conflict ")]
+        self.assertEqual(len(aside), 1)
+        self.assertEqual(aside[0].read_text(), "v1 edited on the laptop\n")
+        self.assertFalse((a / "deleted_there.py").exists(), "deleted there, untouched here: gone")
+        self.assertEqual((a / "new_there.py").read_text(), "hello\n")
+        self.assertEqual((a / "notes_here.md").read_text(), "made on the laptop after it left\n")
+        self.assertEqual((a / ".reader" / "agent.json").read_text(), '{"chats": 2}')
+        self.assertEqual((met["conflicts"], met["conflictPaths"], met["kept"], met["stale"]), (1, ["both.py"], 1, 1))
+        self.assertFalse((a / mover.BASE).exists(), "the old record goes once it has been used")
+        self.assertEqual(self.worker.reports[-1]["conflicts"], 1)
+
+    def test_an_old_copy_with_no_record_keeps_whatever_differs(self):
+        a = self.project()
+        b = self.tmp / "elsewhere"
+        b.mkdir()
+        (b / "main.py").write_text("someone else's main\n")
+        (b / "theirs.txt").write_text("keep me\n")
+        met = self.move(a, b)
+        self.assertEqual((b / "main.py").read_text(), "print('hello')\n")
+        self.assertTrue(any(p.name.startswith("main (conflict ") for p in b.iterdir()))
+        self.assertEqual((b / "theirs.txt").read_text(), "keep me\n")
+        self.assertEqual(met["conflicts"], 1)
+
+    def test_drive_as_the_old_copy(self):
+        # The project left Drive earlier: its folder kept a record; since then one file was edited in Drive.
+        reader = self.drive.add(".reader", "root")
+        self.drive.add("untouched.py", "root", b"v1\n")
+        self.drive.add("both.py", "root", b"v1 edited in Drive\n")
+        self.drive.add("gone.py", "root", b"v1\n")
+        md5 = lambda b: hashlib.md5(b).hexdigest()
+        self.drive.add("moved-away.json", reader, json.dumps({"files": {"untouched.py": md5(b"v1\n"), "both.py": md5(b"v1\n"), "gone.py": md5(b"v1\n")}}).encode())
+        root = self.tmp / "laptop"
+        root.mkdir()
+        (root / "untouched.py").write_text("v2\n")
+        (root / "both.py").write_text("v2\n")
+        met = mover.run(self.config("drive-push", root, drive="root"))
+        self.assertEqual(self.drive.at("untouched.py")["data"], b"v2\n")
+        self.assertEqual(self.drive.at("both.py")["data"], b"v2\n")
+        aside = [f for f in self.drive.files.values() if f["name"].startswith("both (conflict ") and not f.get("trashed")]
+        self.assertEqual([f["data"] for f in aside], [b"v1 edited in Drive\n"])
+        self.assertIsNone(self.drive.at("gone.py"))
+        self.assertIsNone(self.drive.at(".reader/moved-away.json"))
+        self.assertEqual((met["conflicts"], met["stale"]), (1, 1))
+        self.assertTrue((root / mover.BASE).exists(), "the laptop, left, keeps its record")
+
+    def test_leaving_drive_leaves_a_record_there(self):
+        self.drive.add("main.py", "root", b"print(1)\n")
+        mover.run(self.config("drive-pull", self.tmp / "pulled", drive="root"))
+        record = self.drive.at(".reader/moved-away.json")
+        self.assertIsNotNone(record)
+        self.assertEqual(json.loads(record["data"])["files"], {"main.py": hashlib.md5(b"print(1)\n").hexdigest()})
 
     def test_says_how_much_disk_is_free(self):
         answer = mover.run({"mode": "disk", "root": str(self.tmp / "not-yet")})

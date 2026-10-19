@@ -243,7 +243,8 @@ free where a project's folder is; `POST` starts one step of a move (pack,
 unpack, fetch from or send to Drive, remove the old copy) as a process of its
 own, which outlives the request and the page. The page calls it when you click
 **Move files here**, and the Worker calls it through the tunnel to unpack an
-archive when no page is open. The design is in
+archive when no page is open. From 0.16.0 its mover weighs files arriving over an
+older copy three ways, so nothing there is lost. The design is in
 [storage-moves.md](storage-moves.md).
 
 ---

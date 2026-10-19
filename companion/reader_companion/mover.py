@@ -12,6 +12,12 @@ request a file, and nothing depends on the page staying open.
     drive-push  this machine's folder → a Google Drive folder
     remove      the old copy, once the move is checked: a linked folder is unlinked, never emptied
 
+A place the project leaves keeps a record of every file as it left (.reader/moved-away.json, its MD5s). When the
+project comes back there over that old copy, each file is weighed three ways — as it left, as it is there now, as it
+arrives — so nothing is lost (`decide`): a file nobody touched there takes the newer version; one changed in both
+places is kept beside it as "name (conflict <date>).ext"; one deleted in the newer copy and untouched there goes; one
+made there since is kept.
+
 It reports how far it has got to the Worker as it goes, and stops when the Worker says the move was cancelled. Only
 the standard library, so it runs on Colab, a Jupyter server or the Companion's own Python alike. The page sends this
 same file to a machine without the Companion (src/lib/moverScript.ts), and the Companion runs it from its package
@@ -43,6 +49,8 @@ PART = 64 * 1024 * 1024
 """How much one upload to the Worker carries: under the 100 MB a Worker takes in one request, and over R2's 5 MB."""
 SKIP = {"__pycache__", ".ipynb_checkpoints", ".venv", "venv", "node_modules", ".cache"}
 """Folders that are rebuilt rather than moved."""
+BASE = ".reader/moved-away.json"
+"""What a place keeps of the project as it left: every file's MD5, so a later move back can tell what changed there."""
 REPORT_S = 2.0
 DRIVE = "https://www.googleapis.com"
 FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -151,7 +159,9 @@ def walk(root: Path, skip: set[str]):
         here = Path(folder)
         for name in sorted(names):
             full = here / name
-            yield full.relative_to(root).as_posix(), full
+            relative = full.relative_to(root).as_posix()
+            if relative != BASE:
+                yield relative, full
         for d in dirs:
             if (here / d).is_symlink():
                 yield (here / d).relative_to(root).as_posix(), here / d
@@ -171,6 +181,108 @@ def sha256_of(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def md5_of(path: Path) -> str:
+    digest = hashlib.md5()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+# ------------------------------------------------------- an old copy, met again --
+
+
+def decide(here: str | None, base: str | None, incoming: str | None, meta: bool = False) -> str:
+    """What becomes of one path when files arrive where an older copy may be, from three MD5s: as it is here now
+    (None: not here), as it was when the project left here (None: no record of it), and as it arrives (None: not
+    in the newer copy). The answer: "same", "take" (write the newer version), "conflict" (keep what is here beside
+    it, then write the newer one), "remove" (deleted in the newer copy, untouched here), or "keep" (only here)."""
+    if incoming is None:
+        if here is not None and base is not None and here == base and not meta:
+            return "remove"
+        return "keep"
+    if here is None:
+        return "take"
+    if here == incoming:
+        return "same"
+    # The app's own files (.reader/: the agent's conversations) follow the newer copy.
+    if meta or (base is not None and here == base):
+        return "take"
+    return "conflict"
+
+
+def conflict_name(relative: str, when: str, taken) -> str:
+    """Where the version here is kept when both changed: beside it, the date in its name, never over another."""
+    path = PurePosixPath(relative)
+    for n in range(1, 1000):
+        name = f"{path.stem} (conflict {when}{'' if n == 1 else f' {n}'}){path.suffix}"
+        candidate = str(path.with_name(name))
+        if not taken(candidate):
+            return candidate
+    raise MoveError(f"too many conflict copies of {relative}")
+
+
+def is_meta(relative: str) -> bool:
+    return relative.startswith(".reader/")
+
+
+class Arrival:
+    """Files arriving in a folder on this machine that may hold an older copy: each decided before it is written,
+    and what is only here decided at the end. What it did is reported with the move."""
+
+    def __init__(self, root: Path, incoming: dict[str, str | None]):
+        self.root = root
+        self.incoming = incoming
+        self.here = {rel: full for rel, full in walk(root, set(SKIP)) if full.is_file() and not full.is_symlink()} if root.exists() else {}
+        record = root / BASE
+        try:
+            self.base = json.loads(record.read_text()).get("files") if record.is_file() else None
+        except (OSError, ValueError):
+            self.base = None
+        self.when = time.strftime("%Y-%m-%d")
+        self.conflicts: list[str] = []
+        self.kept: list[str] = []
+        self.removed: list[str] = []
+        self.lock = threading.Lock()
+
+    def before(self, relative: str) -> None:
+        """Just before `relative` is written: what is there kept beside it when both changed."""
+        full = self.here.get(relative)
+        if full is None or not full.is_file():
+            return
+        verdict = decide(md5_of(full), (self.base or {}).get(relative), self.incoming.get(relative) or "", is_meta(relative))
+        if verdict == "conflict":
+            with self.lock:
+                aside = conflict_name(relative, self.when, lambda c: (self.root / c).exists() or c in self.incoming)
+                os.replace(full, self.root / aside)
+                self.conflicts.append(relative)
+
+    def finish(self) -> dict:
+        """What is only here, decided; the old record gone. The summary the Worker keeps."""
+        for relative, full in self.here.items():
+            if relative in self.incoming or not full.is_file():
+                continue
+            verdict = decide(md5_of(full), (self.base or {}).get(relative), None, is_meta(relative))
+            if verdict == "remove":
+                full.unlink()
+                self.removed.append(relative)
+            elif not is_meta(relative):
+                self.kept.append(relative)
+        (self.root / BASE).unlink(missing_ok=True)
+        return summary(self.conflicts, self.kept, self.removed)
+
+
+def summary(conflicts: list, kept: list, removed: list) -> dict:
+    return {"conflicts": len(conflicts), "conflictPaths": sorted(conflicts)[:50], "kept": len(kept), "keptPaths": sorted(kept)[:50], "stale": len(removed)}
+
+
+def leave_record(root: Path, move: str, files: dict[str, str]) -> None:
+    """The project leaves this folder: what every file was, for the day it comes back."""
+    record = root / BASE
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"move": move, "at": int(time.time()), "files": files}))
 
 
 def check(root: Path, manifest: list) -> list[str]:
@@ -226,6 +338,7 @@ class Hashing(io.RawIOBase):
     def __init__(self, handle, progress: Progress):
         self.handle, self.progress = handle, progress
         self.digest = hashlib.sha256()
+        self.md5 = hashlib.md5()
 
     def readable(self) -> bool:
         return True
@@ -234,6 +347,7 @@ class Hashing(io.RawIOBase):
         data = self.handle.read(len(buffer))
         buffer[: len(data)] = data
         self.digest.update(data)
+        self.md5.update(data)
         self.progress.add(size=len(data))
         return len(data)
 
@@ -258,9 +372,10 @@ def pack(worker: Worker, root: Path, skip: set[str]) -> dict:
                 with open(full, "rb") as handle:
                     reader = Hashing(handle, progress)
                     archive.addfile(info, io.BufferedReader(reader, 1024 * 1024))
-                manifest.append({"path": relative, "size": info.size, "sha256": reader.digest.hexdigest()})
+                manifest.append({"path": relative, "size": info.size, "sha256": reader.digest.hexdigest(), "md5": reader.md5.hexdigest()})
             progress.add(files=1)
     sink.finish()
+    leave_record(root, worker.move, {entry["path"]: entry["md5"] for entry in manifest if "md5" in entry})
     progress.step = "packed"
     progress.send(parts=sink.count, archiveBytes=sink.sent, manifest=manifest)
     return {"files": len(manifest), "bytes": total, "parts": sink.count}
@@ -297,6 +412,7 @@ def unpack(worker: Worker, root: Path) -> dict:
     progress.send()
     root.mkdir(parents=True, exist_ok=True)
     real = root.resolve()
+    arrival = Arrival(real, {entry["path"]: entry.get("md5") for entry in manifest if not entry.get("link")})
     with tarfile.open(fileobj=io.BufferedReader(Resuming(worker), 1024 * 1024), mode="r|gz") as archive:
         for member in archive:
             relative = safe_member(member.name)
@@ -316,6 +432,7 @@ def unpack(worker: Worker, root: Path) -> dict:
                 os.symlink(member.linkname, target)
             elif member.isreg():
                 target.parent.mkdir(parents=True, exist_ok=True)
+                arrival.before(relative)
                 source = archive.extractfile(member)
                 with open(target, "wb") as out:
                     for block in iter(lambda: source.read(1024 * 1024), b""):
@@ -326,9 +443,10 @@ def unpack(worker: Worker, root: Path) -> dict:
     wrong = check(real, manifest)
     if wrong:
         raise MoveError(f"{len(wrong)} file(s) didn't arrive whole: {', '.join(wrong[:5])}")
+    met = arrival.finish()
     progress.step = "unpacked"
-    progress.send(verified=len(manifest))
-    return {"files": len(manifest), "bytes": total}
+    progress.send(verified=len(manifest), **met)
+    return {"files": len(manifest), "bytes": total, **met}
 
 
 # ------------------------------------------------------------------- Drive --
@@ -407,6 +525,25 @@ class Drive:
         body = json.dumps({"name": name, "mimeType": FOLDER_MIME, "parents": [parent]}).encode()
         return json.loads(self.request("POST", f"{DRIVE}/drive/v3/files?fields=id", body, {"Content-Type": "application/json"}))["id"]
 
+    def trash(self, file_id: str) -> None:
+        self.request("PATCH", f"{DRIVE}/drive/v3/files/{file_id}?fields=id", json.dumps({"trashed": True}).encode(), {"Content-Type": "application/json"})
+
+    def rename(self, file_id: str, name: str) -> None:
+        self.request("PATCH", f"{DRIVE}/drive/v3/files/{file_id}?fields=id", json.dumps({"name": name}).encode(), {"Content-Type": "application/json"})
+
+    def text(self, file_id: str) -> str:
+        return self.request("GET", f"{DRIVE}/drive/v3/files/{file_id}?alt=media").decode()
+
+    def put_text(self, name: str, parent: str, text: str, existing: str | None) -> None:
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            handle.write(text)
+        try:
+            self.upload(Path(handle.name), name, parent, existing)
+        finally:
+            os.unlink(handle.name)
+
     def upload(self, path: Path, name: str, parent: str, existing: str | None) -> None:
         size = path.stat().st_size
         meta = {"name": name} if existing else {"name": name, "parents": [parent]}
@@ -435,16 +572,19 @@ class Drive:
 
 def drive_pull(worker: Worker, root: Path, folder: str) -> dict:
     drive = Drive(worker)
-    files = [f for f in drive.tree(folder) if safe_member(f["path"])]
+    every = [f for f in drive.tree(folder) if safe_member(f["path"])]
+    files = [f for f in every if f["path"] != BASE]
     total = sum(int(f.get("size") or 0) for f in files)
     progress = Progress(worker, "pulling", len(files), total)
     progress.send()
     root.mkdir(parents=True, exist_ok=True)
+    arrival = Arrival(root, {f["path"]: f.get("md5Checksum") for f in files})
     manifest = []
 
     def fetch(entry: dict) -> dict:
         target = root / entry["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
+        arrival.before(entry["path"])
         for _ in range(3):
             digest = hashlib.md5()
             response = drive.request("GET", f"{DRIVE}/drive/v3/files/{entry['id']}?alt=media", stream=True)
@@ -455,14 +595,18 @@ def drive_pull(worker: Worker, root: Path, folder: str) -> dict:
                     progress.add(size=len(block))
             if not entry.get("md5Checksum") or digest.hexdigest() == entry["md5Checksum"]:
                 progress.add(files=1)
-                return {"path": entry["path"], "size": target.stat().st_size, "sha256": sha256_of(target)}
+                return {"path": entry["path"], "size": target.stat().st_size, "sha256": sha256_of(target), "md5": digest.hexdigest()}
         raise MoveError(f"{entry['path']} came from Drive damaged three times")
 
     with ThreadPoolExecutor(DRIVE_THREADS) as pool:
         manifest = list(pool.map(fetch, files))
+    met = arrival.finish()
+    # Drive is left: its folder keeps what every file was, for the day the project comes back to it.
+    record = next((f for f in every if f["path"] == BASE), None)
+    drive.put_text("moved-away.json", drive.folder(".reader", folder), json.dumps({"move": worker.move, "at": int(time.time()), "files": {f["path"]: f.get("md5Checksum") for f in files}}), record["id"] if record else None)
     progress.step = "pulled"
-    progress.send(verified=len(manifest), manifest=manifest)
-    return {"files": len(manifest), "bytes": total}
+    progress.send(verified=len(manifest), manifest=manifest, **met)
+    return {"files": len(manifest), "bytes": total, **met}
 
 
 def drive_push(worker: Worker, root: Path, folder: str, skip: set[str]) -> dict:
@@ -487,25 +631,57 @@ def drive_push(worker: Worker, root: Path, folder: str, skip: set[str]) -> dict:
             present[parent] = {c["name"]: c["id"] for c in drive.children(parent) if c["mimeType"] != FOLDER_MIME}
         return present[parent]
 
+    # An older copy already in that Drive folder: weighed against the record it kept when the project left it.
+    there = {f["path"]: f for f in drive.tree(folder) if safe_member(f["path"])}
+    record = there.pop(BASE, None)
+    try:
+        base = json.loads(drive.text(record["id"])).get("files") if record else None
+    except (MoveError, ValueError):
+        base = None
+    incoming = {rel: md5_of(full) for rel, full in entries}
+    when = time.strftime("%Y-%m-%d")
+    conflicts, kept, removed = [], [], []
+    for rel, f in there.items():
+        verdict = decide(f.get("md5Checksum"), (base or {}).get(rel), incoming.get(rel), is_meta(rel))
+        if verdict == "conflict":
+            aside = conflict_name(rel, when, lambda c: c in there or c in incoming)
+            drive.rename(f["id"], aside.rpartition("/")[2])
+            conflicts.append(rel)
+        elif verdict == "remove":
+            drive.trash(f["id"])
+            removed.append(rel)
+        elif verdict == "keep" and not is_meta(rel):
+            kept.append(rel)
+    if record:
+        drive.trash(record["id"])
+
     # Folders first, in order, so the uploads in parallel each find theirs.
     for rel, _ in entries:
         parent = folder_of(rel.rpartition("/")[0])
         known(parent)
+    # What was set aside or sent to the bin is no longer there to be written over.
+    for rel in conflicts + removed:
+        parent = folders.get(rel.rpartition("/")[0])
+        if parent:
+            present[parent].pop(rel.rpartition("/")[2], None)
     manifest = []
 
     def send(item):
         rel, full = item
         parent = folders[rel.rpartition("/")[0]]
         name = rel.rpartition("/")[2]
-        drive.upload(full, name, parent, present[parent].get(name))
+        if incoming[rel] != (there.get(rel) or {}).get("md5Checksum"):
+            drive.upload(full, name, parent, present[parent].get(name))
         progress.add(files=1, size=full.stat().st_size)
-        return {"path": rel, "size": full.stat().st_size}
+        return {"path": rel, "size": full.stat().st_size, "md5": incoming[rel]}
 
     with ThreadPoolExecutor(DRIVE_THREADS) as pool:
         manifest = list(pool.map(send, entries))
+    leave_record(root, worker.move, incoming)
+    met = summary(conflicts, kept, removed)
     progress.step = "pushed"
-    progress.send(verified=len(manifest), manifest=manifest)
-    return {"files": len(manifest), "bytes": total}
+    progress.send(verified=len(manifest), manifest=manifest, **met)
+    return {"files": len(manifest), "bytes": total, **met}
 
 
 # ------------------------------------------------------------------- the rest --
