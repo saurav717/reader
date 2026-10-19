@@ -24,6 +24,15 @@ const raw = {
   },
 };
 
+/** Vite's `?worker&url` imports (a worker's address as the default export): the tests never start one, so it is ''. */
+const workerUrl = {
+  name: 'worker-url',
+  setup(build) {
+    build.onResolve({ filter: /\?worker&url$/ }, (args) => ({ path: args.path, namespace: 'worker-url' }));
+    build.onLoad({ filter: /.*/, namespace: 'worker-url' }, () => ({ contents: "export default '';", loader: 'js' }));
+  },
+};
+
 /**
  * `external` names packages to leave as imports rather than bundle — for a
  * module that loads one lazily and whose tests never reach that path. With
@@ -46,7 +55,7 @@ export async function load(entry, { external = [], imports = false } = {}) {
     banner: { js: 'const __viteEnv = {};' },
     define: { 'import.meta.env': '__viteEnv' },
     external,
-    plugins: [raw],
+    plugins: [raw, workerUrl],
     logLevel: 'silent',
   });
   return import(pathToFileURL(outfile).href);
@@ -78,7 +87,7 @@ export async function loadTogether(entries, { external = [] } = {}) {
     banner: { js: 'const __viteEnv = {};' },
     define: { 'import.meta.env': '__viteEnv' },
     external,
-    plugins: [raw],
+    plugins: [raw, workerUrl],
     logLevel: 'silent',
   });
   return import(pathToFileURL(outfile).href);

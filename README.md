@@ -4385,6 +4385,13 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   the README, with the paper's plan from its Implementation page when there is
   one. The files are listed as the answer reaches them, open in the editor once
   they are in, and one Undo in the agent's pane puts them all back.
+  The paper itself goes into the folder as the project opens — `paper/paper.md`,
+  its full text as the reader reflowed it; `paper/EXPLANATION.md`, the Explain
+  page; `paper/paper.pdf` where the folder can hold a binary file; and
+  `IMPLEMENTATION_PLAN.md` — and every agent is told to read it there and not
+  to go looking for it online: Claude Code and Codex in their briefing, the
+  agent by the files in its, the page's own agent with the text in each
+  request, `AGENTS.md` for the rest.
   The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
   (cells that load it and run it once), **a simulation** (below), or **a file

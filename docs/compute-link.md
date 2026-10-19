@@ -23,7 +23,9 @@ they are — no copy, nothing to bring back — and reaches the compute the way 
 for anything that needs the GPU or a simulator, `koios pull` for the results. Claude Code is told all this in its
 briefing (its `--append-system-prompt`); another agent you tell in your first message. The runs it starts there
 show in the Sim pane and are filed as experiments like any other. The **Claude Code** and **Codex** choices beside
-it still run on the compute's copy of the folder, with their edits brought back when they finish.
+it still run on the compute's copy of the folder, with their edits brought back when they finish. In a project from a
+paper, the briefing also names the paper's files in the folder — `paper/paper.md`, `paper/EXPLANATION.md`,
+`paper/paper.pdf`, `IMPLEMENTATION_PLAN.md` — and says to read them there rather than fetch the paper online.
 
 The computer with the files can be a Mac, a Windows PC or a Linux box: the Companion runs on all three, `koios`
 keeps its terminal raw mode to POSIX systems and works through PowerShell otherwise, and the agent's command is
