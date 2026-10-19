@@ -57,6 +57,7 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import { currentDbName, subscribeDb } from '../lib/db';
+import { useEnsureProject } from '../lib/implementationProject';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
 import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
@@ -1801,6 +1802,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [playground.console.length]);
 
   const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId)).find(Boolean);
+  // A project from a paper has a Project on the Projects page, whose logbook its runs are filed in: made now when it has none.
+  useEnsureProject(cited?.id, playground);
   // The paper's Implementation page, when it has one: the plan goes with the agent's requests.
   // Read again when the browser's database moves to the signed-in account's.
   const dbName = useSyncExternalStore(subscribeDb, currentDbName);
