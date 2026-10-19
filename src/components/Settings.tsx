@@ -351,7 +351,7 @@ function RecorderSettings() {
           {PERMISSIONS.map(([permission, label]) => {
             const status = notes.permissions[permission];
             return (
-              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} title={`${status ? `The recorder says: ${status.replace(/_/g, ' ')}. ` : 'The recorder has not said yet. '}Ask for it, and open its page in System Settings: switch Reader on there`}>
+              <button key={permission} type="button" className={`btn sm${status === 'granted' ? ' is-granted' : ''}`} onClick={() => void bridge.requestPermission(permission)} title={`${status ? `The recorder says: ${status.replace(/_/g, ' ')}. ` : 'The recorder has not said yet. '}Ask for it, and open its page in System Settings: switch Koios on there (Reader, before 0.16)`}>
                 {status === 'granted' ? '✓ ' : ''}
                 {label}
               </button>
@@ -371,9 +371,9 @@ function RecorderSettings() {
                   type="button"
                   className="link-btn"
                   onClick={() => {
-                    if (window.confirm('macOS forgets every decision about Reader — microphone, screen, accessibility — and Reader restarts, then asks for each again. Switched on in System Settings but still denied here is what this fixes. Go ahead?')) void bridge.resetPermissions!();
+                    if (window.confirm('macOS forgets every decision about Koios — microphone, screen, accessibility — and Koios restarts, then asks for each again. Switched on in System Settings but still denied here is what this fixes. Go ahead?')) void bridge.resetPermissions!();
                   }}
-                  title="A decision macOS made for an earlier build of Reader can linger, switched on in System Settings yet denied to this one: this forgets them all and starts Reader again"
+                  title="A decision macOS made for an earlier build of Koios (or Reader, its name before 0.16) can linger, switched on in System Settings yet denied to this one: this forgets them all and starts Koios again"
                 >
                   Reset permissions and restart Koios
                 </button>
@@ -381,8 +381,8 @@ function RecorderSettings() {
             ) : null}
           </small>
           <small className="set-permissions-note">
-            Each asks macOS, then opens its page in System Settings → Privacy &amp; Security: answer the prompt if one comes, or switch <b>Reader</b> on there (add it with + if it is not listed), then quit and reopen Reader. A ✓ shows once it is granted. After an
-            update, an unsigned Reader is a new app to macOS: it asks again, and a Reader already listed there is the version before — remove it with − and switch the new one on.
+            Each asks macOS, then opens its page in System Settings → Privacy &amp; Security: answer the prompt if one comes, or switch <b>Koios</b> on there (add it with + if it is not listed), then quit and reopen Koios. A ✓ shows once it is granted. After an
+            update, an unsigned Koios is a new app to macOS: it asks again, and a Koios or Reader already listed there is the version before — remove it with − and switch the new one on.
           </small>
         </div>
       ) : null}

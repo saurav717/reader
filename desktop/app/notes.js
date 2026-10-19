@@ -176,7 +176,7 @@ function setUpNotes({ siteOrigin }) {
         // Loaded only here, on a system the SDK runs on: its native recorder is in the app beside it (asarUnpack).
         sdk = require('@recallai/desktop-sdk');
         listen();
-        log(`init: Reader ${app.getVersion()} at ${app.getPath('exe')}, bundle ${process.platform === 'darwin' ? app.getBundleID?.() ?? '?' : '-'}; ${systemSays()}`);
+        log(`init: Koios ${app.getVersion()} at ${app.getPath('exe')}, bundle ${process.platform === 'darwin' ? app.getBundleID?.() ?? '?' : '-'}; ${systemSays()}`);
         await sdk.init({ apiUrl, acquirePermissionsOnStartup: ['accessibility', 'screen-capture', 'microphone'] });
         log('init: done');
       })().catch((error) => {

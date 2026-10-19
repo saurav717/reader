@@ -105,18 +105,18 @@ def chooser_command(system: str | None = None, start: str | None = None) -> list
     system = system or platform.system()
     start = start or str(home())
     if system == "Darwin":
-        return ["osascript", "-e", 'POSIX path of (choose folder with prompt "Choose a folder for Reader")']
+        return ["osascript", "-e", 'POSIX path of (choose folder with prompt "Choose a folder for Koios")']
     if system == "Windows":
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
-            "$d.Description = 'Choose a folder for Reader'; $d.SelectedPath = '" + start.replace("'", "''") + "'; "
+            "$d.Description = 'Choose a folder for Koios'; $d.SelectedPath = '" + start.replace("'", "''") + "'; "
             "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"
         )
         return ["powershell", "-NoProfile", "-STA", "-Command", script]
     if shutil.which("zenity"):
-        return ["zenity", "--file-selection", "--directory", "--title=Choose a folder for Reader", f"--filename={start.rstrip('/')}/"]
+        return ["zenity", "--file-selection", "--directory", "--title=Choose a folder for Koios", f"--filename={start.rstrip('/')}/"]
     if shutil.which("kdialog"):
-        return ["kdialog", "--getexistingdirectory", start, "--title", "Choose a folder for Reader"]
+        return ["kdialog", "--getexistingdirectory", start, "--title", "Choose a folder for Koios"]
     return None
 
 

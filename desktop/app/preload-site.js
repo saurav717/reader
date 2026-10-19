@@ -1,4 +1,4 @@
-// The site's pages in the app: they may know they are in the Reader app (to offer no download of it,
+// The site's pages in the app: they may know they are in the Koios app (to offer no download of it,
 // say), see the app's version and update it (updates.js), and — on macOS and Windows — use the meeting recorder (notes.js): find a meeting, record it,
 // stop — and sign in to Google in the browser, since Google won't inside the app (main.js). Nothing else: no
 // Node, no other messages to the app.
@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('readerDesktop', {
           stop: (windowId) => ipcRenderer.invoke('notes:stop', String(windowId)),
           prepareAudio: () => ipcRenderer.invoke('notes:prepare-audio'),
           requestPermission: (permission) => ipcRenderer.invoke('notes:permission', String(permission)),
-          /** macOS made to forget its decisions about Reader, and Reader started again: each permission asked afresh. */
+          /** macOS made to forget its decisions about Koios, and Koios started again: each permission asked afresh. */
           resetPermissions: () => ipcRenderer.invoke('notes:reset-permissions'),
           onEvent: (listener) => {
             const hear = (_event, message) => listener(message);

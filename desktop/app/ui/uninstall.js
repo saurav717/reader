@@ -1,4 +1,4 @@
-// Uninstall Reader: what to take away with it, then how that goes.
+// Uninstall Koios: what to take away with it, then how that goes.
 const api = window.readerApp.uninstall;
 const log = document.getElementById('log');
 const go = document.getElementById('go');
@@ -9,7 +9,7 @@ void api.details().then((details) => {
   document.getElementById('files').textContent = details.files;
   document.getElementById('settings').textContent = details.settings;
   if (details.platform === 'darwin') {
-    document.getElementById('what').textContent = 'This removes the Companion that starts when you log in and moves Reader to the Bin. Your files stay unless you tick the second box.';
+    document.getElementById('what').textContent = 'This removes the Companion that starts when you log in and moves Koios to the Bin. Your files stay unless you tick the second box.';
   }
 });
 

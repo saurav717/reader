@@ -33,12 +33,12 @@ def pair_link(site: str, code: str, port: int, via: str = "", tls_port: int = 0)
 def parse(argv=None, command=""):
     if command == "setup":
         parser = argparse.ArgumentParser(prog="reader-companion setup", description="Set this computer up for the reader's Playground: the VS Code extension, the Companion at every login, and a browser paired with it.")
-        parser.add_argument("--no-vscode", action="store_true", help="don't install the Reader extension into VS Code")
+        parser.add_argument("--no-vscode", action="store_true", help="don't install the Koios extension into VS Code")
         parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
-        parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (the Reader desktop app runs setup with this: it is the app)")
-        parser.add_argument("--print-url", action="store_true", help="print the pairing link as READER_URL=<link> and open nothing: the Reader desktop app shows it in its own window")
+        parser.add_argument("--no-app", action="store_true", help="don't make the Koios app (the Koios desktop app runs setup with this: it is the app)")
+        parser.add_argument("--print-url", action="store_true", help="print the pairing link as READER_URL=<link> and open nothing: the Koios desktop app shows it in its own window")
     else:
-        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion start (start it in the background, also after a shutdown from the page), reader-companion pair (a new pairing link for the one running), reader-companion release (disconnect it from its Google account), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
+        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the Playground of Koios.", epilog="Also: reader-companion setup (install it for good: the Koios app, VS Code, start at login, pair), reader-companion open (what the Koios app runs), reader-companion start (start it in the background, also after a shutdown from the page), reader-companion pair (a new pairing link for the one running), reader-companion release (disconnect it from its Google account), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Koios app and stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
     parser.add_argument("--port", type=int, help=f"the port on 127.0.0.1 (default {DEFAULT_PORT})")
     parser.add_argument("--site", help=f"the reader's address (default {DEFAULT_SITE})")
@@ -80,7 +80,7 @@ def serve(config: dict, args):
         if sys.stdin.isatty():
             state.set_off(False)
         else:
-            print("reader-companion: it was shut down from the page, so it stays off until it is started on purpose: the page's Start, the Reader app, or reader-companion start.", flush=True)
+            print("reader-companion: it was shut down from the page, so it stays off until it is started on purpose: the page's Start, the Koios app, or reader-companion start.", flush=True)
             return
     site = config.get("site") or DEFAULT_SITE
     try:
@@ -173,7 +173,7 @@ def serve(config: dict, args):
 
     link = pair_link(site, companion.code, companion.port, companion.tunnel_url, companion.tls_port)
     print(f"""
-  {BOLD}Reader Companion {__version__}{RESET}
+  {BOLD}Koios Companion {__version__}{RESET}
   {DIM}Computer  {RESET} {companion.name}
   {DIM}Hardware  {RESET} {companion.hardware}
   {DIM}Folder    {RESET} {root}
@@ -234,11 +234,11 @@ def keep_listed(app) -> None:
 
 
 def watch_app(app, config: dict) -> None:
-    """Stops for good once the Reader app is deleted (desktop.forget_install): looked for every minute.
+    """Stops for good once the Koios app is deleted (desktop.forget_install): looked for every minute.
 
     On a Mac, Reader.app is looked for where it was, where apps are usually put and with Spotlight: one set up
     before the app's place was recorded, with no Reader.app anywhere, is one whose app was deleted (setup always
-    makes one, or is run by one), and goes too. On Windows and Linux only the Reader desktop app records itself
+    makes one, or is run by one), and goes too. On Windows and Linux only the Koios desktop app records itself
     (READER_APP), so only then is it watched: uninstalled with the system's own tools (apt remove, say), it
     leaves no Companion behind starting at every login.
     """
@@ -263,7 +263,7 @@ def watch_app(app, config: dict) -> None:
         stored.pop("app", None)
         state.save_config(stored)
         what = f" (removed {', '.join(removed)})" if removed else ""
-        print(f"  The Reader app was deleted, so the Companion stops and no longer starts at login{what}. Your files stay in {config.get('root') or '~/Reader'}; opening Reader again sets it up again.", flush=True)
+        print(f"  The Koios app was deleted, so the Companion stops and no longer starts at login{what}. Your files stay in {config.get('root') or '~/Reader'}; opening Koios again sets it up again.", flush=True)
         app.stop()
 
     look()
@@ -273,13 +273,13 @@ def watch_app(app, config: dict) -> None:
 # ------------------------------------------------------- installed for good ----
 
 def setup(argv):
-    """The double-click installers' last step: VS Code, the Companion at every login and now, the Reader app, and the page to pair."""
+    """The double-click installers' last step: VS Code, the Companion at every login and now, the Koios app, and the page to pair."""
     args = parse(argv, "setup")
     config = configure(args)
     state.set_off(False)
     site = config.get("site") or DEFAULT_SITE
     port = int(config.get("port") or DEFAULT_PORT)
-    print(f"\n  {BOLD}Reader Companion {__version__}: setting up this computer{RESET}\n", flush=True)
+    print(f"\n  {BOLD}Koios Companion {__version__}: setting up this computer{RESET}\n", flush=True)
     # Safari's certificate (its password prompt), and the tunnel without it: not for the desktop app (--print-url),
     # whose window reaches the Companion on its own. `reader-companion trust` gives Safari its way in later.
     if tls.needed() and not args.print_url and not make_trusted():
@@ -292,7 +292,7 @@ def setup(argv):
     if not args.no_vscode:
         print(f"  {DIM}VS Code   {RESET} looking for it…", flush=True)
         editors = desktop.install_extension(site)
-        print(f"  {DIM}VS Code   {RESET} " + (f"the Reader extension is in {', '.join(editors)}" if editors else "not found here; the Playground's card has the extension for later"), flush=True)
+        print(f"  {DIM}VS Code   {RESET} " + (f"the Koios extension is in {', '.join(editors)}" if editors else "not found here; the Playground's card has the extension for later"), flush=True)
 
     command = desktop.executable()
     if args.no_login or not desktop.is_lasting(command):
@@ -314,7 +314,7 @@ def setup(argv):
     if not args.no_app:
         print(f"  {DIM}The app   {RESET} {desktop.install_app(command, site)}", flush=True)
     desktop.install_url_handler(command, force=True)
-    # Where the Reader app is: the desktop app's (it runs this with READER_APP set), or on a Mac the one just made.
+    # Where the Koios app is: the desktop app's (it runs this with READER_APP set), or on a Mac the one just made.
     # The Companion stops for good once it is deleted (watch_app).
     made = os.environ.get("READER_APP") or (str(desktop.mac_app_path()) if platform.system() == "Darwin" and not args.no_app else None)
     if made:
@@ -332,10 +332,10 @@ def setup(argv):
         return
     print(f"""  {DIM}Listening {RESET} http://127.0.0.1:{running}/  {DIM}(folder {Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()}){RESET}
 
-  {GREEN}Done.{RESET} Opening Reader to pair it with this computer:
+  {GREEN}Done.{RESET} Opening Koios to pair it with this computer:
     {BLUE}{link}{RESET}
 
-  {DIM}You can close this window. From now on open {BOLD}Reader{RESET}{DIM} like any app ({APP_WHERE.get(platform.system(), "your applications menu")}):
+  {DIM}You can close this window. From now on open {BOLD}Koios{RESET}{DIM} like any app ({APP_WHERE.get(platform.system(), "your applications menu")}):
   it starts the Companion if it isn't running and opens the site in its own window.
   The Companion also starts by itself at every login. reader-companion uninstall takes it all away again.{RESET}
 """, flush=True)
@@ -346,9 +346,9 @@ APP_WHERE = {"Darwin": "Applications in Finder, Launchpad or Spotlight; drag it 
 
 
 def open_app(argv):
-    """What the Reader app runs: the Companion started if it isn't running, and the site in its own window."""
+    """What the Koios app runs: the Companion started if it isn't running, and the site in its own window."""
     parser = argparse.ArgumentParser(prog="reader-companion open", description="Start the Companion if it isn't running, and open the reader in a window of its own.")
-    parser.add_argument("--print-url", action="store_true", help="print the address to open as READER_URL=<address> and open nothing: the Reader desktop app opens it in its own window")
+    parser.add_argument("--print-url", action="store_true", help="print the address to open as READER_URL=<address> and open nothing: the Koios desktop app opens it in its own window")
     args = parser.parse_args(argv)
     config = state.load_config()
     site = config.get("site") or DEFAULT_SITE
@@ -367,7 +367,7 @@ def open_app(argv):
     port = int(config.get("port") or DEFAULT_PORT)
     state.set_off(False)  # opening the app is starting it on purpose
     if (platform.system() == "Darwin" or os.environ.get("READER_APP")) and not desktop.login_installed() and desktop.is_lasting(desktop.executable()):
-        # The Reader app was deleted (watch_app took the login item away) and is back: so is starting at login.
+        # The Koios app was deleted (watch_app took the login item away) and is back: so is starting at login.
         desktop.install_login(desktop.executable(), start_now=False)
         if os.environ.get("READER_APP"):
             config["app"] = os.environ["READER_APP"]
@@ -382,7 +382,7 @@ def open_app(argv):
 
 
 def app_window_url(url: str) -> str:
-    """The address marked as the Reader app's window (#app=1 beside any pairing), so the page there keeps the Companion company."""
+    """The address marked as the Koios app's window (#app=1 beside any pairing), so the page there keeps the Companion company."""
     return f"{url}&app=1" if "#" in url else f"{url}#app=1"
 
 
@@ -401,7 +401,7 @@ def make_trusted() -> bool:
     if trusted:
         print(f"  {DIM}Safari    {RESET} done: https://127.0.0.1:{tls.DEFAULT_PORT}", flush=True)
         return True
-    print(f"  {YELLOW}Safari    It wasn't trusted{f' (macOS said: {said})' if said else ''}, so Safari can't reach the Companion yet: Chrome, Edge and Firefox can. Opening Reader asks again, or reader-companion trust.{RESET}", flush=True)
+    print(f"  {YELLOW}Safari    It wasn't trusted{f' (macOS said: {said})' if said else ''}, so Safari can't reach the Companion yet: Chrome, Edge and Firefox can. Opening Koios asks again, or reader-companion trust.{RESET}", flush=True)
     return False
 
 
@@ -476,9 +476,9 @@ def release(argv):
 
 
 def uninstall(argv):
-    """Removes the Reader app and the login item (and stops the Companion that runs). Keeps the folder and the settings."""
-    parser = argparse.ArgumentParser(prog="reader-companion uninstall", description="Remove the Reader app and stop starting the Companion at login. Your folder and settings stay unless --delete-files.")
-    parser.add_argument("--vscode", action="store_true", help="also remove the Reader extension from VS Code (and Cursor, VSCodium)")
+    """Removes the Koios app and the login item (and stops the Companion that runs). Keeps the folder and the settings."""
+    parser = argparse.ArgumentParser(prog="reader-companion uninstall", description="Remove the Koios app and stop starting the Companion at login. Your folder and settings stay unless --delete-files.")
+    parser.add_argument("--vscode", action="store_true", help="also remove the Koios extension from VS Code (and Cursor, VSCodium)")
     parser.add_argument("--delete-files", action="store_true", help="also delete the Companion's folder (~/Reader: your projects and notebooks) and its settings")
     args = parser.parse_args(argv)
     config = state.load_config()
@@ -488,7 +488,7 @@ def uninstall(argv):
     print("\n".join(f"Removed {path}" for path in removed) if removed else "It wasn't set to start at login.")
     if args.vscode:
         editors = desktop.uninstall_extension()
-        print(f"Removed the Reader extension from {', '.join(editors)}." if editors else "The Reader extension wasn't in VS Code.")
+        print(f"Removed the Koios extension from {', '.join(editors)}." if editors else "The Koios extension wasn't in VS Code.")
     root = Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()
     if args.delete_files:
         if running:

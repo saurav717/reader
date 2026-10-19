@@ -116,7 +116,7 @@ async function askWorker(proxy, route, body) {
   const answer = await net.fetch(`${proxy}/google/desktop/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' });
   const said = await answer.json().catch(() => ({}));
   if (!answer.ok) {
-    const error = new Error(said.error || `Reader’s server answered ${answer.status}`);
+    const error = new Error(said.error || `Koios’s server answered ${answer.status}`);
     error.google = said.google || null;
     throw error;
   }
@@ -279,7 +279,7 @@ function setUpGoogle({ siteUrl }) {
   site = siteUrl;
   siteOrigin = new URL(siteUrl).origin;
   const fromSite = (event) => (event.senderFrame?.url || '').startsWith(siteOrigin + '/');
-  ipcMain.handle('google:token', (event, request) => (fromSite(event) ? token(request) : { error: 'access_denied', error_description: 'Not the Reader site.' }));
+  ipcMain.handle('google:token', (event, request) => (fromSite(event) ? token(request) : { error: 'access_denied', error_description: 'Not the Koios site.' }));
   ipcMain.handle('google:kept', (event, request) => (fromSite(event) ? kept(request) : null));
   ipcMain.handle('google:signout', (event, request) => (fromSite(event) ? signOut(request) : { ok: false }));
 }

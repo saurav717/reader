@@ -4393,7 +4393,7 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
 
 It asks **where it is** first, and guides by what that place can do:
 
-- **Your computers.** At the top, which computers have the Reader app signed
+- **Your computers.** At the top, which computers have the Koios app signed
   in as you, online or not — or that none do, with **Connect this computer** —
   or, signed out, that only the computers paired with this browser are listed.
   Pick a computer and browse it where it is: with Companion 0.8.0 on, the
@@ -4411,7 +4411,7 @@ It asks **where it is** first, and guides by what that place can do:
   the browser is on — code and small text files; data, checkpoints, caches
   and files over 200 KB are left out, and the next sheet says which — then
   the usual where-it's-kept and where-it-runs sheet. When this computer has
-  the Reader app, it points you to open the folder in place instead.
+  the Koios app, it points you to open the folder in place instead.
 - **Google Drive** and **Colab** say what they can't do from here — Reader
   sees only the Drive files it made, and a Colab runtime's disk goes when it
   stops — and what to do instead: mount Drive in a Colab notebook, sync it
@@ -4462,15 +4462,15 @@ mock-ups they started from are `docs/mockups/away-*.png`.
 The quickest way to run on your own computer is the **Reader Companion**.
 Under **Your compute**, **Connect this computer** offers it two ways.
 
-**The Reader app: Download for macOS / Windows.** The card's button
+**The Koios app: Download for macOS / Windows.** The card's button
 downloads a small installer for the system the browser is on: on macOS a zip
-holding `Reader Companion.command`, on Windows `Reader-Companion-Setup.cmd`.
+holding `Koios Companion.command`, on Windows `Koios-Companion-Setup.cmd`.
 Double-click it. On Linux the card gives the same thing as a line to paste,
 `curl -LsSf https://koios.dev/companion-setup.sh | sh`. It
 installs uv if needed, installs the Companion for good (`uv tool install`), and
 runs `reader-companion setup`, which:
 
-- makes a **Reader** app on this computer: `~/Applications/Reader.app` on
+- makes a **Koios** app on this computer: `~/Applications/Koios.app` on
   macOS (Launchpad, Spotlight, and drag it to the Dock), shortcuts in the Start
   menu and on the desktop on Windows, an entry in the applications menu on
   Linux. Opening it runs `reader-companion open`. That starts the Companion if
@@ -4488,16 +4488,16 @@ runs `reader-companion setup`, which:
 
 **The desktop app.** Once the *Desktop app* workflow has published a release
 (see [docs/desktop-app.md](docs/desktop-app.md)), the card's download is the
-Reader desktop app instead: Reader in a window of its own, with no browser
+Koios desktop app instead: Koios in a window of its own, with no browser
 needed. It's a `.dmg` on macOS, a setup wizard on Windows, and a `.deb`, `.rpm`
 or AppImage on Linux. It sets the Companion up the first time it opens.
 Uninstalling is the system's own way (Settings → Apps on Windows), or
-**Uninstall Reader…** in the app, which can delete your files too if you ask.
+**Uninstall Koios…** in the app, which can delete your files too if you ask.
 Unsigned (`…-unsigned`), macOS and Windows each ask once before opening it.
 
 **Without one.** A downloaded app has to be signed and notarized
 (Apple's $99 a year) or macOS won't open it without a fight; Windows'
-SmartScreen is the same. The Reader app isn't downloaded: the installer
+SmartScreen is the same. The Koios app isn't downloaded: the installer
 *makes* it on the computer, so it carries no "from the internet" mark and opens
 like any other app. Only the installer itself is downloaded, and it asks once.
 On macOS it says *"Apple could not verify…"*: click **Done**, then **Open
@@ -4507,7 +4507,7 @@ Terminal instead isn't stopped at all. On Windows, choose
 the site, so an old download still installs the newest Companion, and running
 it again updates the Companion and the app.
 
-On a Mac without Chrome, Edge or Brave, the Reader app opens in Safari, which
+On a Mac without Chrome, Edge or Brave, the Koios app opens in Safari, which
 can't call `127.0.0.1` from an https page. There `setup` turns the Companion's
 HTTPS tunnel on (`--no-tunnel` turns it off), and the link the app opens
 carries the tunnel's address. Afterwards, `reader-companion pair` opens a new
@@ -4521,7 +4521,7 @@ browser that hasn't paired yet asks for the code. There is no terminal to read
 it from, so **Show the code on this computer** has the Companion put it in a
 dialog on that computer's screen (`osascript` on macOS, a message box on
 Windows, `zenity`, `kdialog` or `notify-send` on Linux). Whoever reads it is at
-the computer, as with the terminal. The Reader app and the terminal's link
+the computer, as with the terminal. The Koios app and the terminal's link
 connect without a code.
 
 **Updating.** Reader has two parts. The website, here and in the Reader
@@ -4553,7 +4553,7 @@ This computer) has **Start the Companion**. A page can't start a program, so
 Start opens a `reader-companion://start` link, which `setup` hands to
 `reader-companion start` (a small app in `~/.reader-companion` on macOS, an
 applications entry on Linux, a URL protocol on Windows; the browser asks once
-whether to open it). Opening the Reader app, or `reader-companion start` in a
+whether to open it). Opening the Koios app, or `reader-companion start` in a
 terminal, starts it too. A Companion from before 0.6.0 gets the link once it is
 updated.
 
@@ -4581,7 +4581,7 @@ and a deletion carries over. Signed out, the list is kept in this browser, as
 before.
 
 **Your computers follow your Google account; your files stay on them.** A
-browser signed in with Google that pairs with the Companion (the Reader app's
+browser signed in with Google that pairs with the Companion (the Koios app's
 link, or the code) also *claims* it for that account (`/companion/claim`, from
 0.7.0). The Companion then:
 
@@ -5125,7 +5125,7 @@ everyone in the project reads them, and the meeting's card says where:
 *Reader will take notes …*, then *Notes filed in … · Open notes*.
 
 - **Reader** takes the notes itself, on your computer, with **no bot in the
-  call**: in the [Reader app](docs/desktop-app.md) on macOS or Windows,
+  call**: in the [Koios app](docs/desktop-app.md) on macOS or Windows,
   [Recall.ai's Desktop Recording SDK](https://recall.ai/product/desktop-recording-sdk)
   finds the Zoom, Meet, Teams or Slack meeting open on the computer and records
   its sound — the call and your microphone — sending back what is said, and by
@@ -5246,7 +5246,7 @@ src/lib/granola.ts      Granola's notes read back and matched to meetings
 src/lib/recorder.ts     Reader's own notes: a meeting found on the computer
                         matched to its event, the transcript, the write-up
 src/lib/notetaker.ts    the recording as the page runs it, and its filing
-desktop/app/notes.js    the Reader app's recorder: Recall's Desktop SDK
+desktop/app/notes.js    the Koios app's recorder: Recall's Desktop SDK
 src/lib/zoom.ts         a Zoom meeting made by the Worker for an event
 worker/logbook.js       the room's side of the logbook
 worker/meetings.js      Zoom's Server-to-Server app, and Granola passed through

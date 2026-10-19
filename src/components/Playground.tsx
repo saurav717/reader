@@ -1091,7 +1091,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
           {way === 'app' ? (
           <div className="pg-companion-install">
             <p className="pg-companion-lede">
-              <b>Get the Reader app.</b> Reader in a window of its own, no browser needed: open it from the Dock, the Start menu or your applications. The first time it opens it sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>) and adds the Reader extension to VS Code if you have it, then connects to this computer by itself. Nothing else to install first.
+              <b>Get the Koios app.</b> Koios in a window of its own, no browser needed: open it from the Dock, the Start menu or your applications. The first time it opens it sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>) and adds the Koios extension to VS Code if you have it, then connects to this computer by itself. Nothing else to install first.
             </p>
             {app && system === 'linux' && apps.linux ? (
               <div className="pg-companion-downloads">
@@ -1121,7 +1121,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
             <small className="pg-companion-note">
               {app && system === 'mac' ? (
                 <>
-                  Open the .dmg, drag <b>Reader</b> to Applications, and open it.{' '}
+                  Open the .dmg, drag <b>Koios</b> to Applications, and open it.{' '}
                   {app.signed ? (
                     'It’s signed and notarized by Apple, so macOS opens it without asking.'
                   ) : (
@@ -1129,15 +1129,15 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
                       macOS stops it the first time (“Apple could not verify…”, as it isn’t notarized): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and <b>Open</b>. After that it opens like any app.
                     </>
                   )}{' '}
-                  To uninstall it: <b>Reader</b> menu → <b>Uninstall Reader…</b>
+                  To uninstall it: <b>Koios</b> menu → <b>Uninstall Koios…</b> Have the <b>Reader</b> app, its name before 0.16? Install Koios the same way, then delete Reader: your sign-ins and settings carry over.
                 </>
               ) : app && system === 'windows' ? (
                 <>
-                  Run <b>{app.file}</b>: a setup like any program’s, for you or for everyone on this PC.{app.signed ? '' : <> If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.</>} To uninstall it: Settings → Apps → <b>Reader</b> → Uninstall, or <b>Uninstall Reader</b> in the Start menu.
+                  Run <b>{app.file}</b>: a setup like any program’s, for you or for everyone on this PC.{app.signed ? '' : <> If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.</>} To uninstall it: Settings → Apps → <b>Koios</b> → Uninstall, or <b>Uninstall Koios</b> in the Start menu. It installs over the <b>Reader</b> app, its name before 0.16.
                 </>
               ) : app ? (
                 <>
-                  Open the .deb or .rpm with your software installer (or <span className="mono">sudo apt install ./{apps.linux?.deb?.file ?? 'reader.deb'}</span>), or make the AppImage executable and run it: Reader is then in your applications. To uninstall it: <b>Uninstall Reader</b> in your applications (or right-click Reader), or <span className="mono">sudo apt remove reader</span>.
+                  Open the .deb or .rpm with your software installer (or <span className="mono">sudo apt install ./{apps.linux?.deb?.file ?? 'koios.deb'}</span>), or make the AppImage executable and run it: Koios is then in your applications. To uninstall it: <b>Uninstall Koios</b> in your applications (or right-click Koios), or <span className="mono">sudo apt remove koios</span>.
                 </>
               ) : system === 'mac' ? (
                 <>
@@ -1192,7 +1192,7 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
             <>
               <CopyBlock code={vscode.command} />
               <small className="pg-companion-note">
-                That installs the <b>Reader</b> extension (or <a href={vscode.vsix}>download the .vsix</a> and use Extensions → … → Install from VSIX). Then run <b>Reader: Start the Companion</b> from VS Code’s command palette: it starts the same Companion in VS Code’s terminal, and the projects, the papers they cite and the Python the site uses are in its Reader side bar.
+                That installs the <b>Koios</b> extension (or <a href={vscode.vsix}>download the .vsix</a> and use Extensions → … → Install from VSIX). Then run <b>Koios: Start the Companion</b> from VS Code’s command palette: it starts the same Companion in VS Code’s terminal, and the projects, the papers they cite and the Python the site uses are in its Koios side bar.
               </small>
             </>
           ) : (

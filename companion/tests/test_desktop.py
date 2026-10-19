@@ -112,10 +112,10 @@ class AppTest(Sandbox):
     def test_mac_app(self):
         files = desktop.mac_app(["/Users/me/.local/bin/reader-companion"], {256: b"png", 512: b"png"})
         info = plistlib.loads(files["Contents/Info.plist"])
-        self.assertEqual(info["CFBundleExecutable"], "Reader")
-        self.assertEqual(info["CFBundleIconFile"], "Reader")
-        self.assertEqual(files["Contents/MacOS/Reader"].decode().splitlines()[-1], "exec '/Users/me/.local/bin/reader-companion' 'open'")
-        self.assertIn("Contents/Resources/Reader.icns", files)
+        self.assertEqual(info["CFBundleExecutable"], "Koios")
+        self.assertEqual(info["CFBundleIconFile"], "Koios")
+        self.assertEqual(files["Contents/MacOS/Koios"].decode().splitlines()[-1], "exec '/Users/me/.local/bin/reader-companion' 'open'")
+        self.assertIn("Contents/Resources/Koios.icns", files)
 
     def test_install_and_uninstall_the_app(self):
         with mock.patch.object(desktop, "fetch_icons", return_value={256: b"png", 512: b"png"}):
@@ -124,8 +124,46 @@ class AppTest(Sandbox):
                 self.assertTrue(Path(where).exists(), system)
                 self.assertEqual(desktop.uninstall_app(system=system), [where])
                 self.assertFalse(Path(where).exists())
-        app = desktop.mac_app_path() / "Contents" / "MacOS" / "Reader"
+        app = desktop.mac_app_path() / "Contents" / "MacOS" / "Koios"
         self.assertFalse(app.exists())
+
+    def test_the_launcher_under_the_old_name_goes_when_koios_is_made(self):
+        with mock.patch.object(desktop, "fetch_icons", return_value={}):
+            for system in ("Darwin", "Linux"):
+                old = desktop.legacy_app_paths(system)[0]
+                old.parent.mkdir(parents=True, exist_ok=True)
+                if system == "Darwin":
+                    (old / "Contents").mkdir(parents=True)
+                else:
+                    old.write_text("[Desktop Entry]\nName=Reader\n")
+                where = desktop.install_app(["/x/reader-companion"], "https://koios.dev/", system=system)
+                self.assertFalse(old.exists(), system)
+                self.assertIn("Koios", Path(where).name if system == "Darwin" else Path(where).read_text())
+                old.parent.mkdir(parents=True, exist_ok=True)
+                old.write_text("left by an older Companion") if system != "Darwin" else (old / "Contents").mkdir(parents=True)
+                removed = desktop.uninstall_app(system=system)
+                self.assertIn(str(old), removed)
+                self.assertFalse(Path(where).exists())
+
+    def test_the_launcher_has_the_koios_icon(self):
+        asked = []
+
+        class Answer:
+            def __init__(self, url):
+                asked.append(url)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                return b"png"
+
+        with mock.patch.object(desktop.urllib.request, "urlopen", side_effect=lambda url, timeout: Answer(url)):
+            desktop.fetch_icons("https://koios.dev/")
+        self.assertEqual(asked, ["https://koios.dev/icons/koios-256.png", "https://koios.dev/icons/koios-512.png"])
 
     def test_open_window_prefers_an_app_window(self):
         with mock.patch.object(desktop, "app_browser", return_value=["/usr/bin/google-chrome"]):
