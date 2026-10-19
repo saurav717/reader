@@ -30,7 +30,8 @@ export const MAX_PARTS = 10_000;
 export const MAX_PART_BYTES = 95 * 1024 * 1024;
 /** How long a machine at work may say nothing before another may take its step over. */
 export const RUNNER_QUIET_MS = 2 * 60_000;
-const PLANS = ['archive', 'drive-pull', 'drive-push'];
+/** `data`: no move at all — a long-lived link that holds the account's token for a machine's koios_data (companion/reader_companion/koios_data.py). */
+const PLANS = ['archive', 'drive-pull', 'drive-push', 'data'];
 const KINDS = ['drive', 'server', 'machine'];
 const STEPS = ['listing', 'packing', 'packed', 'unpacking', 'unpacked', 'pulling', 'pulled', 'pushing', 'pushed', 'waiting', 'failed', 'removed'];
 
@@ -339,7 +340,7 @@ export async function handleMoves(request, env, ctx, path, helpers) {
   if (!isMoveId(body.id)) return json({ error: 'which move?' }, 400, headers);
 
   if (path === '/moves/start') {
-    if (!PLANS.includes(body.plan)) return json({ error: 'archive, drive-pull or drive-push' }, 400, headers);
+    if (!PLANS.includes(body.plan)) return json({ error: 'archive, drive-pull, drive-push or data' }, 400, headers);
     // The archive's upload is opened now, so each part has somewhere to go as it comes.
     const uploadId = body.plan === 'archive' ? (await env.MOVES.createMultipartUpload(archiveKey(body.id), { httpMetadata: { contentType: 'application/gzip' } })).uploadId : '';
     const api = `${url.origin}${url.pathname.startsWith('/api/') ? '/api' : ''}`;

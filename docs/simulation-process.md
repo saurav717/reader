@@ -317,11 +317,25 @@ paper; the comparison's signs and percentages; the record's table and the Worker
 policy evaluated on a real simulator (no simulator installed in the container); the template code paths are the
 same calls, typechecked by Python's parser only.
 
+## 6.8 Data on Drive, compute on Colab
+
+Asked: Colab's disk is small; the data should be where the person chooses — Drive by default — whatever holds the
+code. Read first: the reader's own rule against mounting Drive in a kernel, and the moves' way of letting a machine
+reach Drive with a Worker-held token. Built on that: `koios_data.py` (a Drive client cut down from the mover's,
+plus `path`, `fetch`, `save`, `sync`, `ls` and a local plan for the machine's disk), the Worker's `data` plan (one
+line: a move that moves nothing), the page's `dataStore.ts` (the place, the link, the environment and the file
+beside the module, the renewal), the workspace writing both before every command and agent, the panel's section,
+the telemetry's self-sync and the checkpoint helper's copy, and the briefings. Tested without Drive: the local plan
+end to end (path, save, sync, fetch, ls), a `Run` whose folder is synced to a local place and a checkpoint copied
+there, the Worker's `data` plan starting and serving its token to the key, and the environment strings. Not run
+here: Drive itself (no sign-in in the container) — the client is the mover's, which has run against Drive, with the
+listing cached per folder and the MD5 check before an upload the only additions.
+
 ## 7. Checklist: before merging, or after changing any of it
 
 ```
 npx tsc -b && npm run typecheck:vscode
-node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs scripts/google-stay.test.mjs   # python3 for some, Chromium for one
+node --test scripts/simulation.test.mjs scripts/experiments.test.mjs scripts/paper-context.test.mjs scripts/google-stay.test.mjs scripts/data-store.test.mjs scripts/moves.test.mjs   # python3 for some, Chromium for one
 npm test                                         # expect only glass.test.mjs's 4 pre-existing failures
 npx vite build --outDir /tmp/build && grep -l "koios_telemetry: what a simulation run" /tmp/build/assets/*.js
 (cd companion && python -m unittest $(ls tests/test_*.py | sed 's#/#.#; s#\.py$##'))   # the Companion: 157 tests, its port proxy's included

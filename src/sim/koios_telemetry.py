@@ -293,6 +293,16 @@ class Run:
         self.meta = {"schema": SCHEMA, "id": self.id, "name": name, "sim": sim, "config": _jsonable(config or {}), "started": self._t0, "status": "running", "host": _host(), "argv": sys.argv[:20], "pid": os.getpid()}
         self._write_meta()
         self._event("start", name=name, sim=sim, config=self.meta["config"], host=self.meta["host"], resumed=bool(resume))
+        # The run's folder kept in the project's data place (Google Drive by default) as it goes: every few minutes
+        # and at the end, so a runtime that ends loses minutes, not the run. Nothing when no data place is set.
+        self._data_sync = None
+        try:
+            import koios_data  # noqa: F401 — on the helper path when Koios set a data place
+            if koios_data.enabled():
+                self._data_sync = koios_data.sync(self.dir, name=f"runs/{os.path.basename(self.dir)}", every_minutes=float(os.environ.get("KOIOS_RUN_SYNC_MINUTES", "3")))
+                self._event("note", step=0, text=f"run folder kept in {koios_data.where()} (runs/{os.path.basename(self.dir)}), pushed every few minutes", by="koios", tag="data")
+        except Exception:
+            self._data_sync = None
         self._tb = None
         if tensorboard:
             try:
@@ -787,6 +797,12 @@ class Run:
             self._write_meta()
         except Exception:
             pass
+        # The run's folder pushed to the data place one last time, run.json with its end in it.
+        if getattr(self, "_data_sync", None) is not None:
+            try:
+                self._data_sync.close()
+            except Exception:
+                pass
         self._end_live3d()
         if self._tb is not None:
             self._tb.close()

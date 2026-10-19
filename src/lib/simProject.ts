@@ -249,6 +249,15 @@ read it). The Koios Sim pane reads \`runs/*/events.jsonl\` on the machine and dr
 - \`run.finish()\` at the end; a crash is recorded by itself.
 - Another codebase's logs: \`python koios_telemetry.py bridge <metrics.jsonl|.csv> --videos <dir> --follow\`.
 
+## Data, checkpoints and run outputs
+
+They live in the project's **data place** — Google Drive by default — not on this machine, whose disk is only a cache
+(Colab's is small and gone with the runtime). \`import koios_data\`: \`koios_data.path("datasets/<name>")\` gives a
+local path, fetched from the place when it is already there (download datasets *into* it, never into the project
+folder); \`koios_data.save(path, evict=True)\` puts a file or folder there and frees the disk; \`runs/\` is pushed there
+by \`koios_telemetry.Run\` every few minutes and at the end, and \`koios.checkpoint\` puts every checkpoint there, so a
+runtime that ends loses minutes, not the run. \`python koios_data.py where\` says where the place is; \`ls\` what is in it.
+
 ## Before you change anything
 
 Run \`python koios_telemetry.py summary\` and read it: each run's status, returns, last values, and the diagnostics

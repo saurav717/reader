@@ -57,6 +57,7 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
+import { DATA_NOTE, dataConfigPath, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, KOIOS_DATA_PY, renewDataLink, type DataLink } from '../lib/dataStore';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
@@ -1061,6 +1062,28 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const { papers, settings: readerSettings } = useStore();
   const driveOn = useDriveConnected();
   const servers = useServers();
+  // The project's data place (src/lib/dataStore.ts): Google Drive by default, where its datasets, checkpoints and run
+  // outputs go while the code runs here or on Colab. For Drive, a link on the Worker holds the account's token for the
+  // machine's koios_data, started when the project opens and renewed every twenty minutes while it is open.
+  const dataPlace = dataPlaceOf(playground, driveOn);
+  const [dataLink, setDataLink] = useState<DataLink | null>(null);
+  useEffect(() => {
+    if (dataPlace.kind !== 'drive') {
+      setDataLink(null);
+      return;
+    }
+    let live = true;
+    const start = () => ensureDataLink(playground).then((link) => live && setDataLink(link)).catch(() => undefined);
+    void start();
+    const timer = window.setInterval(() => void renewDataLink(playground).then(start), 20 * 60_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id, playground.title, dataPlace.kind, driveOn]);
+  /** What the compute is told about the data place, for a command in `folder` there. */
+  const dataFor = (folder: string) => dataSetup(dataPlace, folder, machineName, dataLink ?? undefined);
   const split = !filesAreOnMachine(playground);
   // The hosts follow the servers' list, so an edited address is used at once.
   const home = useMemo(() => homeHost(playground), [playground, servers]);
@@ -1596,9 +1619,12 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   /** The koios helper written to a machine's folder, once per machine in this tab, so `import koios` works there. */
   const ensureHelper = async (m: ProjectMachine) => {
-    if (helperOn.current.has(m.scope)) return;
     const host = m.member === null ? machine : machineHostFor(playground, m);
+    // The data place, written each time: the link to Drive is renewed as the project stays open (src/lib/dataStore.ts).
+    await host.write(dataConfigPath, JSON.stringify(dataFor(await folderOnMachine(m.member === null ? undefined : m)).config)).catch(() => undefined);
+    if (helperOn.current.has(m.scope)) return;
     await host.write(KOIOS_HELPER_PATH, KOIOS_PY);
+    await host.write(dataModulePath, KOIOS_DATA_PY);
     // The simulation telemetry beside it, so `import koios_telemetry` works in any project's commands (src/sim/).
     await host.write(`${KOIOS_PYLIB}/${TELEMETRY_FILE}`, KOIOS_TELEMETRY_PY);
     await host.write(`${KOIOS_PYLIB}/${CATALOGUE_FILE}`, catalogueJson());
@@ -1619,7 +1645,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       if (split && !(await push())) return;
       const folder = await folderOnMachine();
       await ensureHelper(m).catch(() => undefined);
-      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...extra };
+      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...dataFor(folder).env, ...extra };
       // Logged on the machine as it runs, so the project picked up from another computer shows it from the start.
       const log = runLogPath(folder, entry.id);
       await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env, log), { log });
@@ -1636,7 +1662,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       if (split) await pushFolder(playground, machineHostFor(playground, m));
       const folder = await folderOnMachine(m);
       await ensureHelper(m).catch(() => undefined);
-      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...extra };
+      const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...dataFor(folder).env, ...extra };
       const log = runLogPath(folder, entry.id);
       await runCellFor(m.backend, m.scope, memberKey(consoleKey(playground.id, entry.id), m.member), shellCell(folder, trimmed, env, log), { log });
       if (split) await pullBack(playground, machineHostFor(playground, m));
@@ -1999,7 +2025,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const homeFolder = agentsHere ? absoluteFolder(filesHere, homeRoot) : null;
   const inHomeFolder = (command: string) => (homeFolder ? (homeTools.os === 'windows' ? `cd "${homeFolder}"; ${command}` : `cd '${homeFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command);
   const hereBriefing = agentsHere
-    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.${cited ? ` ${PAPER_FILES_NOTE}` : ''}`
+    ? `You are in the project's folder on ${filesHere!.name}, where its files are kept; its code runs on ${machineName}. Edit the files here, where they are. Run anything that needs that machine — training, evaluation, the GPU, a simulator — with \`koios run <command>\`: it copies the files changed since the last push over, runs the command there in the project's folder, and prints its output here. \`koios shell\` opens a shell there; \`koios pull <path>\` brings files from there here (runs/, results/); \`koios status\` says whether it can be reached. Quick checks can run here. Koios's simulation toolkit: \`python koios_telemetry.py simulators\` lists 31 simulators, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh (run setup.sh there: koios run bash setup.sh); runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments. Read AGENTS.md when there is one.${cited ? ` ${PAPER_FILES_NOTE}` : ''} ${DATA_NOTE(dataFor(machineRoot(playground)).label)}`
     : undefined;
   const sideKey = mode === 'cli' ? 'agent' : 'side';
   const views: { id: Primary; label: string; icon: React.ReactNode; keys?: string; hidden?: boolean }[] = [
@@ -2653,6 +2679,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     machineName={machineName}
                     folder={machineRoot(playground)}
                     paper={Boolean(cited)}
+                    extraEnv={dataFor(machineRoot(playground)).env}
+                    dataNote={DATA_NOTE(dataFor(machineRoot(playground)).label)}
                     connected={connected}
                     onConnect={() => void connect().catch(() => undefined)}
                     beforeRun={beforeAgentRun}

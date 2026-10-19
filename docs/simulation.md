@@ -42,6 +42,7 @@ what is worked around and what is still open.
 | The Sim pane | `src/components/SimPane.tsx`, `src/lib/simTelemetry.ts` | The right-hand pane's **Sim** tab: run picker, status, findings, return and success charts, videos, dreams, grouped numbers with notes as dashed marks, timeline, traceback, config, checkpoints, and the machine's doctor. |
 | Sync fix | `src/lib/playground.ts` (`isBinaryPath`) | The sync carries text; binary files (videos, images, weights) are now left where they are instead of being copied as broken text. |
 | The paper in the folder | `src/lib/paperContext.ts`, `paperMarkdown.ts`, `paperFiles.ts` | A project from a paper carries the paper: `paper/paper.md` (its full text, from the reader's own reflow of the PDF, else arXiv's HTML), `paper/EXPLANATION.md`, `paper/paper.pdf`, `IMPLEMENTATION_PLAN.md`. Every agent is told to read it there, never to fetch it. |
+| Data on Drive, compute on Colab | `companion/reader_companion/koios_data.py`, `src/lib/dataStore.ts`, `worker/moves.js` (plan `data`) | The project's data place — Drive by default — reached from the compute with the account's token through the Worker: `koios_data.path/save/sync`; runs and checkpoints pushed as they go; chosen in Storage & compute. |
 | Evaluation, the paper's way | `koios_telemetry.py` (`Run.evaluation`, `Run.evaluate`), `simTelemetry.ts`, `experiments.ts`, `SimPane.tsx` | An `evaluation` event: the paper's own measure, with the paper's numbers beside ours; the Sim pane's table and the logbook's report show the gap. A default protocol when the paper gives none. |
 | The page's agent runs its commands | `src/lib/projectAgent.ts`, `src/components/ProjectAgent.tsx` | A ```` ```sh run ```` block is run in the project's console on the connected machine as the agent answers; what it printed goes back; up to 6 rounds of 3. Stop interrupts the command. Off with a tick, and the commands are buttons. |
 | Tests | `scripts/simulation.test.mjs`, `scripts/paper-context.test.mjs` | Catalogue integrity, every generated `.py` parses, parsing and diagnostics, and the Python module run for real: its events read by the pane's parser, its findings equal to the pane's. |
@@ -369,6 +370,33 @@ string says it is the default, so a reader knows the comparison is loose. The te
 PPO and SAC with the policy's mode, SB3 deterministically, the random agent as the baseline, the world model with
 its open-loop error. `python koios_telemetry.py summary` prints each run's evaluations against the paper's numbers,
 so an agent reads them before changing anything.
+
+### 23. Colab's disk is small and goes with the runtime; the data should not
+*Built.* The code can be kept anywhere (Drive, a computer, the browser) and copied to the compute before each
+run, but a run's data is another matter: a dataset of gigabytes, checkpoints, videos and the run folders have no
+business on Colab's disk, which is small and gone when the runtime is, and the sync that carries the code (text,
+under 2 MB) is no way to move them. The reader already refuses to mount Drive in a kernel (docs/colab-run.md: a
+mounted Drive is every file in it) and its moves had the answer: a machine reaches Drive itself with the account's
+token, which the Worker holds and the page renews (docs/storage-moves.md, Figure 7), under the `drive.file` scope
+that sees only what Koios made. So every project has a **data place**, Google Drive by default while Drive is
+connected (`Koios/Data/<project>/`), else the machine's own disk; chosen in Storage & compute → *Data & results*.
+
+On the compute, `koios_data.py` (on the helper path beside the other Koios modules, told where the place is by
+`KOIOS_DATA` in each command's environment and by `koios_data.json` beside it for anything started another way):
+`koios_data.path("datasets/x")` gives a local path in a cache under the project's `.reader/`, fetched from the place
+when it is there; `save(path, evict=True)` puts a file or folder there and frees the disk; `sync(folder)` keeps a
+folder pushed every few minutes and at exit, only what changed, with Drive's MD5 as the check; `fetch`, `ls`, a
+CLI. The way in for Drive is a *data link*: a move on the Worker with the plan `data`, which moves nothing and
+only holds the token, started when the project opens on a Drive data place and renewed every twenty minutes
+while it is open (and now by itself past the hour, with the sign-in that stays), remembered in the browser and made
+again after six days. `koios_telemetry.Run` syncs its run folder by itself (`KOIOS_RUN_SYNC_MINUTES`, 3 by
+default) and says so in the run's timeline; `koios.checkpoint` puts every checkpoint and `latest.json` there as it
+saves. The briefings tell the agents to download datasets into `koios_data.path(...)`, never into the project
+folder. Uploads of more than 5 MB go in 16 MB resumable pieces; a token that ran out is waited for, a quarter-minute
+at a time, up to an hour, with a line on stderr saying so.
+
+Not done yet: a computer of yours as the data place when the compute is elsewhere (the mover's archive-through-R2
+path would carry it; for now Drive or the compute's own disk), and a size meter for the Drive place in the panel.
 
 ---
 

@@ -315,6 +315,48 @@ raise RuntimeError("boom")
     assert.match(summary.stdout, /evaluation 'eval' @ 40: return=812\.5, success=0\.9, loss=0\.2 · return: paper 850, success: paper 0\.95 · 10 episodes, seeds 0-9/);
   });
 
+  it('keeps a run’s folder and its checkpoints in the project’s data place as it goes (the local plan)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-data-'));
+    const place = join(dir, 'place');
+    const pylib = join(dir, '.reader', 'pylib');
+    mkdirSync(join(pylib, 'koios'), { recursive: true });
+    writeFileSync(join(pylib, 'koios_data.py'), readFileSync(resolve('companion/reader_companion/koios_data.py')));
+    const { KOIOS_PY } = await load('src/lib/koiosHelper.ts');
+    writeFileSync(join(pylib, 'koios', '__init__.py'), KOIOS_PY);
+    const code = `
+import os, koios_data
+from koios_telemetry import Run
+import koios
+assert koios_data.enabled() and "a box" in koios_data.where(), koios_data.where()
+p = koios_data.path("datasets/tiny.txt")
+open(p, "w").write("data")
+run = Run("d", config={"lr": 1})
+run.log({"loss": 0.5}, step=1)
+ck = koios.checkpoint("checkpoints", every_steps=1)
+ck.on_save(lambda path: open(path, "w").write("weights"))
+ck.step(1)
+run.finish()
+print(run.dir)
+print(sorted(x["path"] for x in koios_data.ls()))
+`;
+    const ran = py(code, dir, { KOIOS_DATA: `local|${place}|a box`, PYTHONPATH: `${resolve('src/sim')}:${pylib}` });
+    assert.equal(ran.status, 0, ran.stderr);
+    const [runDir, listed] = ran.stdout.trim().split('\n').slice(-2);
+    const runName = runDir.split('/').pop();
+    const paths = JSON.parse(listed.replace(/'/g, '"'));
+    // The dataset where path() put it, the run's events and run.json pushed at the end, the checkpoint and its sidecars copied as they were saved.
+    assert.ok(paths.includes('datasets/tiny.txt'), listed);
+    assert.ok(paths.includes(`runs/${runName}/events.jsonl`) && paths.includes(`runs/${runName}/run.json`), listed);
+    assert.ok(paths.includes('checkpoints/step-00000001.pt') && paths.includes('checkpoints/latest.json') && paths.includes('checkpoints/step-00000001.pt.koios.json'), listed);
+    assert.match(JSON.parse(readFileSync(join(place, 'runs', runName, 'run.json'), 'utf8')).status, /finished/);
+    const run = tele.parseRun(runName, {}, readFileSync(join(place, 'runs', runName, 'events.jsonl'), 'utf8'));
+    assert.match(run.notes[0].text, /^run folder kept in a box/);
+    assert.equal(run.notes[0].tag, 'data');
+    // Without a data place set, nothing of this happens and nothing is said.
+    const bare = py('from koios_telemetry import Run\nr = Run("b")\nr.finish()\nimport koios_data\nprint(koios_data.enabled())', mkdtempSync(join(tmpdir(), 'sim-bare-')), { PYTHONPATH: `${resolve('src/sim')}:${pylib}` });
+    assert.equal(bare.stdout.trim().split('\n').pop(), 'False', bare.stderr);
+  });
+
   it('writes videos and dreams the pane can play', { skip: !hasNumpy && 'no numpy' }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'sim-media-'));
     const code = `

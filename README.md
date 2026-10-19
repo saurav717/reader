@@ -4437,6 +4437,12 @@ evaluation is logged as its own event — the paper's measure, the protocol in
 words, the paper's numbers beside ours — and the pane and the logbook show the
 gap; the agents are told to read how the paper evaluates in `paper/paper.md`
 and measure that, with a stated default protocol when the paper gives none.
+A run's data — datasets, checkpoints, videos, the run folders — lives in the
+project's **data place**, Google Drive by default (Storage & compute → *Data &
+results*), whatever holds the code and wherever it runs: the compute's disk is
+only a cache, reached from code as `koios_data.path(...)` and
+`koios_data.save(...)`, and runs and checkpoints are pushed there as they go,
+so Colab's small disk and its ending runtimes cost nothing.
 
 The **Sim** tab on the right (the screen icon in the activity bar) draws the
 runs as they go, read on the machine a few seconds apart:
