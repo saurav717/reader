@@ -67,18 +67,21 @@ class TerminalJobsTest(unittest.TestCase):
 
     def end_shell(self):
         # Everything in the shell's session goes, the commands it started included (a sleep left holding the
-        # terminal can make closing it block on macOS); what is left to read is read; then the terminal is closed.
+        # terminal can make closing it block on macOS); what it wrote is read as it goes; then the terminal is closed.
         subprocess.run(["pkill", "-9", "-s", str(self.pid)], capture_output=True, timeout=5)
         try:
             os.kill(self.pid, 9)
         except OSError:
             pass
-        try:
-            self.process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
+        # Read while waiting: on macOS a killed shell can't finish exiting while what it wrote to the terminal is unread.
+        end = time.time() + 10
+        while self.process.poll() is None and time.time() < end:
+            self.drain()
+            time.sleep(0.02)
         self.drain()
         os.close(self.fd)
+        if self.process.poll() is None:
+            self.process.wait(timeout=5)
 
     def test_at_the_prompt_nothing_runs(self):
         self.assertEqual(jobs.foreground(self.fd, self.pid), {"alive": True, "busy": False})
