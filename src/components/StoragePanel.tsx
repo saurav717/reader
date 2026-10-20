@@ -561,6 +561,22 @@ export default function StoragePanel({ playground, machineName, connected, move,
               );
             })}
           </ul>
+          {playground.compute.kind === 'colab' || machines.some((machine) => machine.key === 'colab' && runsHere(machine.compute)) ? (
+            <label className="pg-idle mv-idle">
+              <input type="checkbox" checked={playground.idleStopMin > 0} onChange={(event) => updatePlayground(playground.id, { idleStopMin: event.target.checked ? 30 : 0 })} />
+              <span>
+                Stop the Colab runtime after
+                <select value={playground.idleStopMin || 30} disabled={!playground.idleStopMin} onChange={(event) => updatePlayground(playground.id, { idleStopMin: Number(event.target.value) })} onClick={(event) => event.stopPropagation()} aria-label="Minutes idle before the runtime is stopped">
+                  {[10, 20, 30, 60, 120].map((n) => (
+                    <option key={n} value={n}>
+                      {n} min
+                    </option>
+                  ))}
+                </select>
+                with nothing running on it — no cell, no command in a terminal, no agent, the GPU unused. Off: it runs until Colab’s own limits stop it, spending units while idle.
+              </span>
+            </label>
+          ) : null}
         </section>
         </div>
         <footer className="pg-sheet-foot">
