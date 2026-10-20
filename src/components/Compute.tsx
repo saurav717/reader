@@ -12,6 +12,7 @@ import { COLAB, computeId, isOn, switched } from '../lib/compute';
 import { accountRuntimes, checkJupyter, colabAvailable, machineLabel, serverBase, sessionsNow, stopAccountRuntime, stopColabRuntimes, subscribeColab, type AccountRuntime, type JupyterServer } from '../lib/colab';
 import { findCompanion, shutdownCompanion, startCompanion, STARTABLE } from '../lib/companion';
 import { playgroundById, useServers } from '../lib/playground';
+import { useAccountActivity } from '../lib/accountActivity';
 import { isCompanion } from './VsCodeExtension';
 
 /** Whether a place to run is on, and the way to turn it on or off. */
@@ -274,6 +275,8 @@ export function ComputeList({ compact = false }: { compact?: boolean }) {
 /** The rail's chip: lit while a Colab runtime runs; it opens the list. */
 export function RailCompute({ labelled = false }: { labelled?: boolean }) {
   const runtimes = useColabRuntimes();
+  // Lit for a runtime anywhere on the account too: the app's, another browser's.
+  const account = useAccountActivity();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -296,7 +299,7 @@ export function RailCompute({ labelled = false }: { labelled?: boolean }) {
       window.removeEventListener('keydown', key);
     };
   }, [open]);
-  const live = runtimes.length > 0;
+  const live = runtimes.length > 0 || Boolean(account.runtimes?.length) || account.byScope.size > 0;
   return (
     <>
       <button
