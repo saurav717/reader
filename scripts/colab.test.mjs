@@ -172,6 +172,24 @@ describe('the proxy’s half', () => {
     answers.push({ status: 401, body: '' });
     await assert.rejects(relay.listRuntimes('t'), (error) => error.reauth === true);
   });
+  it('asks again when Colab is busy, and says so in words when it stays busy', async () => {
+    relay.BUSY_WAITS_MS.splice(0, relay.BUSY_WAITS_MS.length, 1, 1);
+    const page = '<!DOCTYPE html><html lang=en><meta charset=utf-8><title>Error 503 (Service Unavailable)!!1</title><style>body{}</style>';
+    fake();
+    answers.push({ status: 503, body: page }, { status: 200, body: `${XSSI}${JSON.stringify({ endpoint: 'm-late', runtimeProxyInfo: proxyInfo })}` });
+    const runtime = await relay.assignRuntime('t', { accelerator: 'T4', notebook: '0f6b2a1c-3d4e-4f5a-8b9c-0d1e2f3a4b5c' });
+    assert.equal(runtime.endpoint, 'm-late');
+    fake();
+    const before = calls.length;
+    answers.push({ status: 503, body: page }, { status: 503, body: page }, { status: 503, body: page });
+    await assert.rejects(relay.assignRuntime('t', { accelerator: 'T4', notebook: '0f6b2a1c-3d4e-4f5a-8b9c-0d1e2f3a4b5c' }), (error) => {
+      assert.equal(error.busy, true);
+      assert.match(error.message, /can’t give out a runtime right now \(Error 503 \(Service Unavailable\)\)/);
+      assert.doesNotMatch(error.message, /<html|DOCTYPE|<style/i);
+      return true;
+    });
+    assert.equal(calls.length - before, 3, 'asked three times in all');
+  });
   it('starts, interrupts and lists kernels on the runtime, with the proxy token where Colab wants it', async () => {
     fake();
     answers.push({ status: 200, body: JSON.stringify({ id: 'k1', name: 'python3' }) });
