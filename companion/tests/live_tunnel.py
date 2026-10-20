@@ -1,9 +1,9 @@
 """The mount over a real Cloudflare tunnel, measured. Not part of the unit tests: it needs cloudflared to reach
 Cloudflare's edge (TCP or UDP 7844 out, and DNS for argotunnel.com), which CI sandboxes usually block.
 
-    cd companion && python -m tests.live_tunnel            # a quick tunnel (trycloudflare.com)
-    KOIOS_LIVE_HOSTNAME=koios.example.com KOIOS_LIVE_TUNNEL_TOKEN=… python -m tests.live_tunnel   # your named one (Argo)
-    KOIOS_LIVE_TUNNEL=1 python -m unittest tests.live_tunnel                                         # as a test
+    cd companion && python3 -m tests.live_tunnel            # a quick tunnel (trycloudflare.com)
+    KOIOS_LIVE_HOSTNAME=koios.example.com KOIOS_LIVE_TUNNEL_TOKEN=… python3 -m tests.live_tunnel   # your named one (Argo)
+    KOIOS_LIVE_TUNNEL=1 python3 -m unittest tests.live_tunnel                                         # as a test
 
 Both ends run on this computer: the Companion's socket serving a folder, and the daemon mounting it (FUSE where
 /dev/fuse is, else the mirror) — but the daemon dials the tunnel's public address, so every byte goes out to

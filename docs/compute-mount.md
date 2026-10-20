@@ -173,8 +173,8 @@ without it. You can turn Argo on later under your domain → Traffic → Argo Sm
 - the round trip of a read.
 
 ```bash
-cd companion && python -m tests.live_tunnel                    # a quick tunnel
-KOIOS_LIVE_HOSTNAME=koios.example.com KOIOS_LIVE_TUNNEL_TOKEN=<tunnel token> python -m tests.live_tunnel   # yours, with Argo
+cd companion && python3 -m tests.live_tunnel                    # a quick tunnel
+KOIOS_LIVE_HOSTNAME=koios.example.com KOIOS_LIVE_TUNNEL_TOKEN=<tunnel token> python3 -m tests.live_tunnel   # yours, with Argo
 ```
 
 Both ends run on one computer, but the daemon dials the tunnel's public address, so every byte goes out to
