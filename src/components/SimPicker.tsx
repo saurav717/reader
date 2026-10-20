@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { previewFor } from '../lib/simPreviews';
+import ErrorBoundary from './ErrorBoundary';
 import type { SimEnv, SimFamily, Simulator, TemplateId } from '../lib/simulators';
 import { FAMILIES, SIMULATORS, TEMPLATES, needsLine, templatesFor } from '../lib/simulators';
 import { CloseIcon } from './icons';
@@ -98,7 +99,9 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
   const chosen = template && choices.includes(template) ? template : choices[0];
 
   const side = useRef<HTMLElement>(null);
-  useEffect(() => side.current?.scrollTo({ top: 0 }), [sim?.id]);
+  useEffect(() => {
+    if (side.current) side.current.scrollTop = 0;
+  }, [sim?.id]);
 
   const choose = (next: Simulator) => {
     setSim(next);
@@ -146,7 +149,9 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
           <aside className="sim-picker-side" ref={side}>
             {sim ? (
               <>
-                <Preview sim={sim} env={env} />
+                <ErrorBoundary key={sim.id} name="sim preview" fallback={() => <figure className="sim-preview is-missing">No preview for {sim.name}</figure>}>
+                  <Preview sim={sim} env={env} />
+                </ErrorBoundary>
                 <h3>{sim.name}</h3>
                 <p>{sim.good}</p>
                 <p className="sim-picker-meta">

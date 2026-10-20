@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import ErrorBoundary, { FailureNote } from './components/ErrorBoundary';
 import { StoreProvider } from './lib/store';
 import { keepCompanionCompany } from './lib/appWindow';
 import { installInviteClaim } from './lib/invites';
@@ -24,8 +25,25 @@ installInviteClaim(() => (heldUser() ?? restoredUser())?.name);
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    <StoreProvider>
-      <App />
-    </StoreProvider>
+    <ErrorBoundary
+      fallback={(error, retry) => (
+        <div className="failure-page">
+          <FailureNote error={error} title="Something on this page failed">
+            <div className="failure-actions">
+              <button type="button" className="btn primary" onClick={retry}>
+                Try again
+              </button>
+              <button type="button" className="btn" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            </div>
+          </FailureNote>
+        </div>
+      )}
+    >
+      <StoreProvider>
+        <App />
+      </StoreProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
