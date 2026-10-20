@@ -51,7 +51,7 @@ CHUNK = 256 * 1024
 BIG = 100 * 1024 * 1024
 # Always left out of a push, whatever the project's own rules: what is this computer's, or rebuilt there.
 ALWAYS_SKIP = ".git/\n.reader/\n__pycache__/\n.ipynb_checkpoints/\n.venv/\nvenv/\nnode_modules/\n.DS_Store\n"
-KERNEL_V = 1
+KERNEL_V = 2
 
 
 class ComputeError(Exception):
@@ -225,6 +225,9 @@ if globals().get('_koios_v') != %(v)d:
             env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor', 'PATH': os.pathsep.join([os.path.expanduser('~/.local/bin'), '/usr/local/bin', env.get('PATH', '')])})
             env.update(d.get('env') or {})
             env.pop('JPY_PARENT_PID', None)
+            # The kernel's prompt settings are its own shell's (a zsh theme's, say): bash makes its own.
+            for k in ('PS1', 'PS2', 'PROMPT_COMMAND'):
+                env.pop(k, None)
             argv = d.get('argv') or ['bash', '-i']
             try:
                 os.execvpe(argv[0], argv, env)
@@ -547,6 +550,7 @@ class Comm:
 
 def remote_folder(link: dict, root: Path, cwd: Path) -> str:
     """The folder there for a folder here: the project's folder there, and the same place under it."""
+    root = root.resolve()  # on a Mac /var is /private/var: both sides resolved, or one isn't "inside" the other
     inner = cwd.resolve().relative_to(root).as_posix() if cwd.resolve() != root else ""
     return "/".join(p for p in (link["folder"], inner if inner != "." else "") if p)
 
@@ -583,6 +587,7 @@ async def push(remote: Remote, root: Path, big: bool = False, say=lambda text: N
 
 
 async def pull(remote: Remote, root: Path, paths: list[str], cwd: Path) -> dict:
+    root = root.resolve()
     inner = "" if cwd.resolve() == root else cwd.resolve().relative_to(root).as_posix()
     wanted = ["/".join(p for p in (inner, path.strip("/")) if p) for path in paths]
     comm = remote.comm("koios.pull", {"folder": remote.link["folder"], "paths": wanted})

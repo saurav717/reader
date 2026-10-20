@@ -121,7 +121,8 @@ class AgainstAServer(Home):
         self.link = compute.save_link(self.root, {"kind": "jupyter", "url": f"http://127.0.0.1:{self.port}/", "token": "abc", "label": "Test box", "folder": self.folder, "ignore": "*.bin"})
 
     def remote_path(self, *parts) -> Path:
-        return self.there.joinpath(self.folder, *parts)
+        # Resolved, as the kernel there sees it: on a Mac the temporary folder is under /var, which is /private/var.
+        return Path(os.path.realpath(self.there)).joinpath(self.folder, *parts)
 
     def with_remote(self, work):
         async def go():
