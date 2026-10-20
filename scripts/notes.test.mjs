@@ -73,3 +73,36 @@ describe("each paper's notes, summed up", () => {
     assert.doesNotMatch(out, /## Empty/);
   });
 });
+
+// The notes' file in Drive (src/lib/notesDrive.ts): the pieces as they are,
+// read back whole; a file that names another paper is not this paper's.
+describe('the notes file in Drive', async () => {
+  const file = await load('src/lib/notesDrive.ts', { external: ['@anthropic-ai/sdk'] });
+  const paper = { id: 'p1', title: 'Attention Is All You Need', arxivId: '1706.03762' };
+  const blocks = [
+    { id: 'n1', kind: 'text', md: 'First thought', at: '2026-01-01T00:00:00Z', tag: 'key' },
+    { ...clip('Figure', '[Figure 1: Results]', 'nice'), id: 'n2', html: '<figure><img src="data:image/png;base64,AA"></figure>', at: '2026-01-02T00:00:00Z' },
+  ];
+
+  it('names the file after the paper', () => {
+    assert.match(file.notesFileName(paper), / — notes\.json$/);
+  });
+
+  it('reads back exactly what it wrote, with when it changed', () => {
+    const back = file.fromNotesFile(file.toNotesFile(paper, { blocks, updated: '2026-01-03T00:00:00Z', drive: { fileId: 'x' } }), paper.id);
+    assert.deepEqual(back, { blocks, updated: '2026-01-03T00:00:00Z' });
+    assert.doesNotMatch(file.toNotesFile(paper, { blocks, drive: { fileId: 'x' } }), /"drive"/, 'where the file is stays in the browser');
+  });
+
+  it("refuses a file that names another paper, and anything that is not a notes file", () => {
+    assert.equal(file.fromNotesFile(file.toNotesFile({ id: 'p2', title: 'Other' }, { blocks }), paper.id), null);
+    assert.equal(file.fromNotesFile('not json', paper.id), null);
+    assert.equal(file.fromNotesFile('{"paperId":"p1"}', paper.id), null);
+  });
+
+  it('keeps an emptied file as news, and drops pieces that are not pieces', () => {
+    assert.deepEqual(file.fromNotesFile(file.toNotesFile(paper, { blocks: [], updated: '2026-01-04T00:00:00Z' }), paper.id), { blocks: [], updated: '2026-01-04T00:00:00Z' });
+    const mixed = JSON.stringify({ paperId: 'p1', blocks: [blocks[0], { id: 'bad', kind: 'clip' }, 'nonsense'] });
+    assert.deepEqual(file.fromNotesFile(mixed, paper.id), { blocks: [blocks[0]], updated: undefined });
+  });
+});
