@@ -37,6 +37,8 @@ import type { PaneLayout } from './Gutter';
 import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
+import { attachFolder, attachedWords, detach, listAttached } from '../lib/shares';
+import type { Attachment, Backends } from '../lib/shares';
 import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
@@ -2578,7 +2580,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : primary === 'outline' ? (
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
-              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), computer: filesHere.name, set: (on) => void setMount(on) } : undefined} />
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), computer: filesHere.name, set: (on) => void setMount(on) } : undefined} filesComputer={homeServer && isCompanion(homeServer) ? homeServer : undefined} folder={homeServer?.root ? `${homeServer.root.replace(/\/+$/, '')}/${homeRoot}` : homeRoot} />
             ) : null}
           </aside>
         ) : null}
@@ -3216,7 +3218,103 @@ interface MountControl {
   set: (on: boolean) => void;
 }
 
-function SyncPane({ playground, homeLabel, machineName, report, syncing, connected, onPush, onPull, mount }: { playground: Playground; homeLabel: string; machineName: string; report: (SyncReport & { at: number; what: 'push' | 'pull' }) | null; syncing: 'push' | 'pull' | null; connected: boolean; onPush: () => void; onPull: () => void; mount?: MountControl }) {
+/** Which attachment of this project's folder is on which computer, by project and computer: kept in this browser to find it again in the list. */
+const attachedKey = (playgroundId: string, serverId: string) => `reader.attachedOn.${playgroundId}.${serverId}`;
+const attachedIdOn = (playgroundId: string, serverId: string) => {
+  try {
+    return localStorage.getItem(attachedKey(playgroundId, serverId));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The project's folder on the account's other computers, as a disk of their own (src/lib/shares.ts, Companion 0.20.0):
+ * Attach shares it from the computer it is on and mounts it on the other — Finder, File Explorer, any program there.
+ */
+function OnOtherComputers({ playground, filesComputer, folder }: { playground: Playground; filesComputer: JupyterServer; /** The folder on its computer: absolute, or relative to its Companion's folder. */ folder: string }) {
+  const others = useServers().filter((server) => isCompanion(server) && server.id !== filesComputer.id && (!server.companionId || server.companionId !== filesComputer.companionId));
+  const [state, setState] = useState<Record<string, { item?: Attachment; problem?: string; busy?: boolean; fuse?: Backends['fuse'] }>>({});
+  const [, setTick] = useState(0);
+  const look = useCallback(async () => {
+    const found = await Promise.all(
+      others.map(async (server) => {
+        try {
+          const list = await listAttached(server);
+          const id = attachedIdOn(playground.id, server.id);
+          return [server.id, { item: list.attached.find((a) => a.id === id), fuse: list.backends.fuse }] as const;
+        } catch (error) {
+          return [server.id, { problem: error instanceof Error ? error.message : String(error) }] as const;
+        }
+      }),
+    );
+    setState(Object.fromEntries(found));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [others.map((s) => s.id).join('|'), playground.id]);
+  useEffect(() => {
+    void look();
+  }, [look]);
+  if (!others.length) {
+    return (
+      <div className="pg-other-computers">
+        <b>On your other computers</b>
+        <p className="pg-note">Sign in to the Koios app on another computer (Mac, Windows or Linux) with this account, and this folder can be attached there as a disk of its own — in Finder or File Explorer, for any program.</p>
+      </div>
+    );
+  }
+  const attach = async (server: JupyterServer) => {
+    setState((now) => ({ ...now, [server.id]: { ...now[server.id], busy: true, problem: undefined } }));
+    try {
+      const done = await attachFolder(filesComputer, server, folder, 'used', playground.title);
+      try {
+        localStorage.setItem(attachedKey(playground.id, server.id), done.id);
+      } catch {
+        // private mode: found again by Settings → Compute's list
+      }
+      setTick((n) => n + 1);
+    } catch (error) {
+      setState((now) => ({ ...now, [server.id]: { ...now[server.id], busy: false, problem: error instanceof Error ? error.message : String(error) } }));
+      return;
+    }
+    await look();
+  };
+  const letGo = async (server: JupyterServer, id: string) => {
+    setState((now) => ({ ...now, [server.id]: { ...now[server.id], busy: true } }));
+    await detach(server, id).catch(() => undefined);
+    await look();
+  };
+  return (
+    <div className="pg-other-computers">
+      <b>On your other computers</b>
+      <p className="pg-note">
+        The folder as a disk of its own on another computer of yours: it stays on {filesComputer.name}, and files come over as they are opened there. (To run the code on another computer instead of {playground.compute.kind === 'colab' ? 'Colab' : 'this machine'}, pick it in <b>Storage &amp; compute</b>: the switch above then mounts the folder there.)
+      </p>
+      {others.map((server) => {
+        const here = state[server.id] ?? {};
+        const item = here.item;
+        return (
+          <div key={server.id} className="pg-other-row">
+            <span className="pg-other-name">{server.name}</span>
+            <span className="pg-other-state">{here.busy ? 'Working…' : item ? attachedWords(item) : here.problem ? '' : 'not attached'}</span>
+            {item ? (
+              <button type="button" className="btn sm" disabled={here.busy} onClick={() => void letGo(server, item.id)}>
+                Detach
+              </button>
+            ) : (
+              <button type="button" className="btn sm" disabled={here.busy} onClick={() => void attach(server)} title={`Attach this project's folder on ${server.name}, as a disk`}>
+                Attach
+              </button>
+            )}
+            {here.problem ? <small className="pg-error">{here.problem}</small> : null}
+            {item && here.fuse && !here.fuse.ok ? <small className="pg-note">A network drive there; {here.fuse.driver} makes it faster (Settings → Compute & playgrounds).</small> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SyncPane({ playground, homeLabel, machineName, report, syncing, connected, onPush, onPull, mount, filesComputer, folder }: { playground: Playground; homeLabel: string; machineName: string; report: (SyncReport & { at: number; what: 'push' | 'pull' }) | null; syncing: 'push' | 'pull' | null; connected: boolean; onPush: () => void; onPull: () => void; mount?: MountControl; /** The Companion computer the files are on, when they are on one: the folder can be attached on the account's other computers. */ filesComputer?: JupyterServer; folder?: string }) {
   const [ignore, setIgnore] = useState(playground.sync.ignore);
   const [bringBack, setBringBack] = useState(playground.sync.bringBack);
   const changed = ignore !== playground.sync.ignore || bringBack !== playground.sync.bringBack;
@@ -3251,6 +3349,7 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
           {mount.problem ? <p className="pg-error">{mount.problem}</p> : null}
         </div>
       ) : null}
+      {filesComputer && folder !== undefined ? <OnOtherComputers playground={playground} filesComputer={filesComputer} folder={folder} /> : null}
       <p className="pg-note">{mount?.mounted ? 'While it is mounted the rules below say what stays on the machine (and goes to the data place) and what is yours; nothing needs copying or bringing back.' : 'The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.'}</p>
       {mount?.mounted ? null : (
         <div className="pg-machine-actions">
