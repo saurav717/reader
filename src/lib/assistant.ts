@@ -764,6 +764,8 @@ export interface AssistantState {
   quote: string;
   /** A screenshot of the tab (base64 JPEG) attached to the next question. */
   shot: string;
+  /** Questions asked while an answer was still coming: each is asked in turn once it is done. */
+  queued: string[];
 }
 
 let state: AssistantState = {
@@ -778,6 +780,7 @@ let state: AssistantState = {
   hasKey: false,
   gemini: 'checking',
   web: 'checking',
+  queued: [],
   quote: '',
   shot: '',
 };
@@ -1500,6 +1503,17 @@ export function explainError(err: unknown, SDK: SDK | null): string {
 
 export function stop() {
   stream?.abort();
+}
+
+/** A question asked while the answer before it is still coming: asked next. */
+export function queueQuestion(text: string) {
+  if (text.trim()) set({ queued: [...state.queued, text.trim()] });
+}
+/** One waiting question taken back, or (no index) the first taken to be asked. */
+export function dropQueued(index = 0): string | undefined {
+  const taken = state.queued[index];
+  set({ queued: state.queued.filter((_, i) => i !== index) });
+  return taken;
 }
 
 export async function send(text: string, screenOrPending: Screen | Promise<Screen>) {

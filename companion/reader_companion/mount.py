@@ -29,6 +29,7 @@ import io
 import json
 import os
 import secrets
+import shutil
 import stat
 import tarfile
 import time
@@ -99,6 +100,100 @@ def root_for(key: str) -> Path | None:
     return None
 
 
+# ---------------------------------------------------------------- the shares --
+#
+# A folder you pick, anywhere on this computer, attached on another computer of yours (attach.py) as a disk of its
+# own: not a project, so none of a project's rules — .git and all come too — and listed a folder at a time, as it is
+# opened there, so a big one costs nothing to attach. Each share has its own key, like a project's mount.
+
+# Never sent, and never taken: what the Companion writes beside a file as it puts it in place.
+SHARE_SKIP = "*.koios-part*\n"
+
+
+def shares_dir() -> Path:
+    return state.config_dir() / "shares"
+
+
+def share_file(root: Path) -> Path:
+    return shares_dir() / f"{hashlib.sha1(str(root.resolve()).encode()).hexdigest()[:16]}.json"
+
+
+def check_shareable(root: Path) -> Path:
+    """A folder that may be shared: one that is there, and not the whole computer or the whole home folder."""
+    root = Path(os.path.expanduser(str(root))).resolve()
+    if not root.is_dir():
+        raise ValueError(f"there is no folder at {root}")
+    if root == Path(root.anchor) or root == Path.home().resolve():
+        raise ValueError("pick a folder inside your home folder, not all of it (or the whole disk)")
+    return root
+
+
+def share_folder(root: Path, name: str = "") -> dict:
+    """The folder's share: the one it has, or a new one. {root, key, name, at}."""
+    root = check_shareable(root)
+    path = share_file(root)
+    try:
+        saved = json.loads(path.read_text())
+        if saved.get("root") == str(root) and saved.get("key"):
+            if name and saved.get("name") != name:
+                saved["name"] = name
+                path.write_text(json.dumps(saved))
+            return saved
+    except (OSError, ValueError):
+        pass
+    shares_dir().mkdir(parents=True, exist_ok=True)
+    saved = {"root": str(root), "key": secrets.token_urlsafe(32), "name": name or root.name, "at": int(time.time() * 1000)}
+    path.write_text(json.dumps(saved))
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return saved
+
+
+def stop_share(root: Path) -> bool:
+    """The share forgotten, and every machine using it cut off."""
+    root = Path(os.path.expanduser(str(root))).resolve()
+    path = share_file(root)
+    had = path.exists()
+    path.unlink(missing_ok=True)
+    share = Share.all.get(str(root))
+    if share:
+        for conn in list(share.conns):
+            # On the socket's own loop: this may be called from any thread.
+            conn.loop.add_callback(conn.close, 4403, "the share was stopped")
+    return had
+
+
+def list_shares() -> list:
+    """Every share here, with how many machines have it attached now — never its key."""
+    out = []
+    for path in sorted(shares_dir().glob("*.json")) if shares_dir().is_dir() else []:
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        out.append({"root": saved["root"], "name": saved.get("name") or Path(saved["root"]).name, "at": saved.get("at"), "attached": connected(Path(saved["root"])), "there": Path(saved["root"]).is_dir()})
+    return out
+
+
+def record_for(key: str) -> dict | None:
+    """Whose key it is: a project's mount ({root, lazy: False}) or a share ({root, lazy: True, name})."""
+    if not key:
+        return None
+    root = root_for(key)
+    if root is not None:
+        return {"root": root, "lazy": False}
+    for path in shares_dir().glob("*.json") if shares_dir().is_dir() else []:
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if saved.get("key") and hmac.compare_digest(str(saved["key"]), key):
+            return {"root": Path(saved["root"]), "lazy": True, "name": saved.get("name") or Path(saved["root"]).name}
+    return None
+
+
 def socket_url(tunnel_url: str, base_url: str = "/") -> str:
     """Where the machine dials: the tunnel's address, as a WebSocket."""
     url = tunnel_url.rstrip("/") + "/" + (base_url.strip("/") + "/" if base_url.strip("/") else "") + SOCKET_PATH
@@ -157,14 +252,17 @@ class Share:
     all: dict[str, "Share"] = {}
 
     @classmethod
-    def of(cls, root: Path) -> "Share":
+    def of(cls, root: Path, lazy: bool = False) -> "Share":
         name = str(root.resolve())
-        if name not in cls.all:
-            cls.all[name] = cls(root.resolve())
+        if name not in cls.all or cls.all[name].lazy != lazy:
+            cls.all[name] = cls(root.resolve(), lazy)
         return cls.all[name]
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, lazy: bool = False):
         self.root = Path(os.path.realpath(root))
+        # A share (lazy): no tree up front; the folders a machine has listed are watched, each as it was last seen.
+        self.lazy = lazy
+        self.listed: dict[str, dict] = {}
         self.rules = ""
         self.compiled: list = []
         self.files: dict[str, list] = {}
@@ -175,8 +273,55 @@ class Share:
         self.refresh_rules()
 
     def refresh_rules(self) -> None:
+        if self.lazy:
+            self.rules = ""
+            self.compiled = compile_rules(SHARE_SKIP)
+            return
         self.rules = rules_of(self.root)
         self.compiled = compile_rules(compute.ALWAYS_SKIP + "\n*.koios-part*\n" + self.rules)
+
+    def entries(self, rel_dir: str) -> dict:
+        """One folder's entries, as a machine lists it: name → [kind ("d" or "f"), size, mtime_ns, mode]."""
+        full = self.root / rel_dir if rel_dir else self.root
+        if rel_dir:
+            self.path(rel_dir)
+        out: dict[str, list] = {}
+        with os.scandir(full) as found:
+            for entry in found:
+                rel = f"{rel_dir}/{entry.name}" if rel_dir else entry.name
+                if matches(self.compiled, rel):
+                    continue
+                if entry.is_symlink() and not inside(self.root, entry.path):
+                    continue
+                try:
+                    st = entry.stat()
+                except OSError:
+                    continue
+                if stat.S_ISDIR(st.st_mode):
+                    out[entry.name] = ["d", 0, st.st_mtime_ns, stat.S_IMODE(st.st_mode)]
+                elif stat.S_ISREG(st.st_mode):
+                    out[entry.name] = ["f", st.st_size, st.st_mtime_ns, stat.S_IMODE(st.st_mode)]
+        return out
+
+    def watch(self, rel_dir: str, entries: dict) -> None:
+        self.listed[rel_dir] = entries
+
+    def look_listed(self) -> list:
+        """The listed folders looked at again: (folder, changed entries, gone names) for each that changed."""
+        out = []
+        for rel_dir, before in list(self.listed.items()):
+            try:
+                now = self.entries(rel_dir)
+            except OSError:
+                now = {}
+                if rel_dir:
+                    self.listed.pop(rel_dir, None)
+            changed = {name: e for name, e in now.items() if before.get(name) != e}
+            gone = [name for name in before if name not in now]
+            if changed or gone:
+                self.listed[rel_dir] = now
+                out.append((rel_dir, changed, gone))
+        return out
 
     def path(self, rel: str) -> Path:
         """A path inside the folder that the rules let through, or a refusal."""
@@ -208,12 +353,21 @@ class Share:
 
     async def fresh(self) -> None:
         self.refresh_rules()
+        if self.lazy:
+            return
         self.files, self.dirs = await IOLoop.current().run_in_executor(None, scan, self.root, self.compiled)
 
     async def tick(self) -> None:
         if self.scanning or not self.conns:
             return
         self.scanning = True
+        if self.lazy:
+            try:
+                for rel_dir, changed, gone in await IOLoop.current().run_in_executor(None, self.look_listed):
+                    self.broadcast({"op": "entries", "dir": rel_dir, "changed": changed, "gone": gone})
+            finally:
+                self.scanning = False
+            return
         try:
             files, dirs = await IOLoop.current().run_in_executor(None, scan, self.root, self.compiled)
             changed = [rel for rel, st in files.items() if self.files.get(rel) != st]
@@ -250,6 +404,20 @@ class Share:
 
     def noted(self, rel: str, st: list | None, by: "MountSocket") -> None:
         """A change made by one machine: the tree knows it now (so it isn't seen as new), and the others are told."""
+        if self.lazy:
+            parent, _, name = rel.rpartition("/")
+            if parent in self.listed:
+                try:
+                    entries = self.entries(parent)
+                except OSError:
+                    return
+                before = self.listed[parent]
+                self.listed[parent] = entries
+                changed = {n: e for n, e in entries.items() if before.get(n) != e}
+                gone = [n for n in before if n not in entries]
+                if (changed or gone) and len(self.conns) > 1:
+                    self.broadcast({"op": "entries", "dir": parent, "changed": changed, "gone": gone}, skip=by)
+            return
         if st is None:
             self.files.pop(rel, None)
             self.broadcast({"op": "gone", "path": rel}, skip=by)
@@ -271,7 +439,7 @@ def stat_of(full: Path) -> list:
 
 
 class MountSocket(websocket.WebSocketHandler):
-    """/companion/mount/socket?key=…: one machine's mount of one project folder."""
+    """/companion/mount/socket?key=…: one machine's mount of one project folder, or of a share (attach.py)."""
 
     share: Share | None = None
 
@@ -286,19 +454,25 @@ class MountSocket(websocket.WebSocketHandler):
         return {"compression_level": 4, "mem_level": 8}
 
     async def get(self, *args, **kwargs):
-        root = root_for(self.get_query_argument("key", ""))
-        if root is None or not root.is_dir():
+        record = record_for(self.get_query_argument("key", ""))
+        if record is None or not record["root"].is_dir():
             self.set_status(403)
             return self.finish("This mount's key isn't known here (it was stopped): start the mount again from Koios.")
-        self.share = Share.of(root)
+        self.record = record
+        self.share = Share.of(record["root"], record["lazy"])
         self.writes: dict[str, object] = {}
         return await super().get(*args, **kwargs)
 
     async def open(self):
+        self.loop = IOLoop.current()
         share = self.share
         await share.fresh()
         share.add(self)
         name = state.current.name if state.current else "your computer"
+        if share.lazy:
+            # A share: no tree up front. The machine lists each folder as it is opened (op "list").
+            self.send(frame({"op": "hello", "lazy": True, "label": name, "name": self.record.get("name") or share.root.name, "rules": SHARE_SKIP}))
+            return
         self.send(frame({"op": "tree", "files": share.files, "dirs": sorted(share.dirs), "rules": share.rules, "label": name}))
 
     def send(self, message: bytes) -> None:
@@ -352,6 +526,35 @@ class MountSocket(websocket.WebSocketHandler):
             return {"stat": stat_of(full)}, data
         if op == "stat":
             return {"stat": stat_of(share.path(str(h.get("path"))))}, b""
+        if op == "list":
+            rel_dir = str(h.get("path") or "").strip("/")
+            entries = await run(None, share.entries, rel_dir)
+            share.watch(rel_dir, entries)
+            return {"entries": entries}, b""
+        if op == "rmtree":
+            # A folder and all in it, as a network drive deletes one (WebDAV DELETE): here, not file by file over the wire.
+            rel = str(h.get("path"))
+            full = share.path(rel)
+            await run(None, lambda: shutil.rmtree(full) if full.is_dir() and not full.is_symlink() else os.unlink(full))
+            share.noted(rel, None, self)
+            return {}, b""
+        if op == "copy":
+            a, b = str(h.get("path")), str(h.get("to"))
+            fa, fb = share.path(a), share.path(b)
+
+            def copy():
+                fb.parent.mkdir(parents=True, exist_ok=True)
+                if fa.is_dir():
+                    shutil.copytree(fa, fb, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(fa, fb)
+
+            await run(None, copy)
+            share.noted(b, stat_of(fb) if fb.is_file() else None, self)
+            return {}, b""
+        if op == "statfs":
+            usage = await run(None, shutil.disk_usage, share.root)
+            return {"total": usage.total, "free": usage.free, "used": usage.used}, b""
         if op == "write":
             rel = str(h.get("path"))
             full = share.path(rel)

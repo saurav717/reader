@@ -4532,6 +4532,11 @@ It asks **where it is** first, and guides by what that place can do:
   writes there is written back to your folder. Checkpoints and data (what the sync rules leave out) stay on the
   machine's disk and go to the project's data place. See [docs/compute-mount.md](docs/compute-mount.md).
 
+  From 0.20.0, any folder of one of your computers can be attached on another as a disk of its own — Mac, Windows
+  or Linux, either way round: **Settings → Compute & playgrounds → Folders across your computers**, or
+  `reader-companion share <folder>` there and `reader-companion attach <code>` here. Files come over as they are
+  opened. See [docs/shared-folders.md](docs/shared-folders.md).
+
 ![where should it run: the three modes, with the folder on this PC and the code on the GPU box](docs/playground-where.png)
 
 ### Code on another computer

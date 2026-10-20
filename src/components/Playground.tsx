@@ -1789,7 +1789,7 @@ export function WhereDialog({
                     </option>
                   ))}
                 </select>
-                with nothing running, while this tab is open
+                with nothing running on it (no cell, no terminal command, no agent, the GPU unused)
               </span>
             </label>
           ) : missing ? (

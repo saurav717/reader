@@ -75,11 +75,12 @@ import asyncio
 import atexit
 import hmac
 import html
+import re
 from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, awake, browsers, compute, desktop, folders, jobs, mount, mover, paper, state, texlive, tools, tunnel
+from . import account, attach, awake, browsers, compute, desktop, folders, jobs, mount, mover, paper, state, texlive, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -996,6 +997,93 @@ class ComputeHandler(VsCodeHandler):
         self.reply(200, {**compute.public(link), "mount": self.mount_state(folder, link)})
 
 
+class ShareHandler(ComputeHandler):
+    """A folder here, shared so another computer of yours can attach it as a disk (mount.share_folder, from 0.20.0).
+    GET: the shares here (never their keys). POST {path, name?}: the folder shared (the one share it has, or a new
+    one) and the tunnel opened if it isn't — it answers {url, key, name, root, computer, code}, what the other
+    computer's Companion needs (companion/attach). POST {path, action: "stop"}: the share forgotten, and every
+    computer that had it attached cut off. Paired pages, and this computer's own programs (`reader-companion share`)."""
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        self.reply(200, {"shares": mount.list_shares(), "computer": state.current.name, "id": state.current.id})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+            root = Path(os.path.expanduser(str(body.get("path") or "")))
+            if not str(body.get("path") or "").strip():
+                raise ValueError("which folder?")
+        except ValueError as error:
+            return self.reply(400, {"error": str(error)})
+        if body.get("action") == "stop":
+            return self.reply(200, {"stopped": mount.stop_share(root), "shares": mount.list_shares()})
+        try:
+            share = mount.share_folder(root, str(body.get("name") or "")[:120])
+        except ValueError as error:
+            return self.reply(400, {"error": str(error)})
+        if self.serverapp is not None:
+            await open_tunnel(self.serverapp)
+        if not state.current.tunnel_url:
+            return self.reply(503, {"error": "The Companion's HTTPS tunnel isn't open, and the other computer reaches this one through it. Check that cloudflared can run here."})
+        url = mount.socket_url(state.current.tunnel_url, self.serverapp.base_url if self.serverapp else "/")
+        computer = state.current.name
+        self.reply(200, {"url": url, "key": share["key"], "name": share["name"], "root": share["root"], "computer": computer, "code": attach.attach_code(url, share["key"], share["name"], computer)})
+
+
+class AttachHandler(ComputeHandler):
+    """Folders of your other computers, attached here as disks (attach.py, from 0.20.0). GET: what is attached, and
+    what this computer can attach with (fuse, or the system's own WebDAV client). POST {url, key, name?, from?,
+    cache?, backend?} (or {code}): attached, answering once it is mounted; {id, action: "detach", forget?};
+    {action: "install-driver"}: the faster driver's installer (FUSE-T on a Mac, WinFsp on Windows) downloaded and
+    opened. Paired pages, and this computer's own programs (`reader-companion attach`)."""
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        loop = IOLoop.current()
+        attached = await loop.run_in_executor(None, attach.list_all)
+        found = await loop.run_in_executor(None, attach.backends)
+        self.reply(200, {"attached": attached, "backends": found, "computer": state.current.name})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+            if body.get("code"):
+                body = {**attach.read_code(str(body["code"])), **{k: v for k, v in body.items() if k != "code"}}
+        except ValueError as error:
+            return self.reply(400, {"error": f"That isn't an attach code: {error}"})
+        loop = IOLoop.current()
+        action = body.get("action") or "attach"
+        try:
+            if action == "detach":
+                ident = str(body.get("id") or "")
+                if not re.fullmatch(r"[0-9a-f]{12}", ident):
+                    return self.reply(400, {"error": "which attached folder?"})
+                stopped = await loop.run_in_executor(None, attach.stop, ident, bool(body.get("forget", True)))
+                return self.reply(200, {"stopped": stopped, "attached": attach.list_all()})
+            if action == "install-driver":
+                return self.reply(200, await loop.run_in_executor(None, attach.install_driver, lambda *_: None))
+            url, key = str(body.get("url") or ""), str(body.get("key") or "")
+            if not url.startswith(("wss://", "ws://")) or not key:
+                return self.reply(400, {"error": "url (wss://…) and key"})
+            status = await loop.run_in_executor(
+                None,
+                lambda: attach.start(url, key, str(body.get("cache") or "used"), str(body.get("backend") or "auto"), str(body.get("name") or ""), str(body.get("from") or ""), str(body.get("where") or "")),
+            )
+        except (attach.Refused, OSError) as error:
+            return self.reply(502, {"error": str(error)})
+        if not status.get("mounted"):
+            words = status.get("error") or (status.get("log") or "")[-400:] or "no word from it"
+            return self.reply(502, {**status, "error": f"The folder wasn't attached: {words}"})
+        self.reply(200, status)
+
+
 class BrowsersHandler(VsCodeHandler):
     """GET /companion/browsers: the browsers on this computer and their profiles (from 0.9.0). POST {url, browser,
     profile}: that https link opened there — the browser and profile must be ones the listing has. The token, as
@@ -1172,6 +1260,8 @@ def load(serverapp):
             (url_path_join(base, "companion/folders"), FoldersHandler),
             (url_path_join(base, "companion/move"), MoveHandler),
             (url_path_join(base, "companion/compute"), ComputeHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/share"), ShareHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/attach"), AttachHandler, {"serverapp": serverapp}),
             (url_path_join(base, mount.SOCKET_PATH), mount.MountSocket),
             (url_path_join(base, "companion/browsers"), BrowsersHandler),
             (url_path_join(base, "companion/paper"), PaperHandler, {"serverapp": serverapp}),

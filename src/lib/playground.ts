@@ -24,7 +24,7 @@ import { useSyncExternalStore } from 'react';
 import { db } from './db';
 import type { Backend, JupyterServer, Machine, RuntimeEntry } from './colab';
 import { CHART_LABELS_NOTE, LIVE_VIEW_NOTE, PAPER_FILES_NOTE } from './paperFiles';
-import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64, runQuietly } from './colab';
+import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, jupyterReadBase64, jupyterWriteBase64, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell, notebookFor, subscribeNotebook } from './notebook';
 import type { CellType } from './notebook';
@@ -819,7 +819,8 @@ export interface FileHost {
   /** An empty folder made, where the host can. */
   mkdir?(path: string): Promise<void>;
   /** A file of any kind from base64 (a video, a checkpoint), where the host can: Drive, a Jupyter server, a kernel. */
-  writeBase64?(path: string, base64: string): Promise<void>;
+  writeBase64?(path: string, base64: string): Promise<void>;  /** A file of any kind as base64 (a video, an image), null when it isn't there, where the host can: Drive, a Jupyter server, a kernel. */
+  readBase64?(path: string): Promise<string | null>;
 }
 
 const joinPath = (...parts: string[]) => parts.filter(Boolean).join('/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
@@ -952,6 +953,14 @@ export function serverHost(server: JupyterServer, root: string): FileHost {
     async writeBase64(path, base64) {
       await jupyterWriteBase64(server, under(path), base64);
     },
+    async readBase64(path) {
+      try {
+        return await jupyterReadBase64(server, under(path));
+      } catch (error) {
+        if (error instanceof JupyterRequestError && error.status === 404) return null;
+        throw error;
+      }
+    },
     async remove(path) {
       await jupyterDelete(server, under(path));
     },
@@ -1007,6 +1016,11 @@ export function kernelHost(label: string, root: string, scope?: string): FileHos
       const line = text.trim().split('\n').pop() ?? '-';
       if (line === '-') return null;
       return new TextDecoder().decode(Uint8Array.from(atob(line), (c) => c.charCodeAt(0)));
+    },
+    async readBase64(path) {
+      const text = await run(`import os, base64\np = os.path.join(${py(root)}, ${py(path)})\nprint(base64.b64encode(open(p, 'rb').read()).decode() if os.path.isfile(p) else '-')`);
+      const line = text.trim().split('\n').pop() ?? '-';
+      return line === '-' ? null : line;
     },
     async write(path, text) {
       const data = base64Of(new TextEncoder().encode(text));
@@ -1195,12 +1209,31 @@ export async function pushFolder(playground: Playground, machine: FileHost): Pro
 }
 
 /** What a run wrote under the folders named to bring back, home from the machine — text files under SYNC_LIMIT. */
+/** Videos and images a run made, brought back up to this size each: bigger ones stay where they are (or go to the data place). */
+const MEDIA_BACK_LIMIT = 25 * 1024 * 1024;
+
 export async function pullBack(playground: Playground, machine: FileHost): Promise<SyncReport> {
   const home = homeHost(playground);
   const report: SyncReport = { sent: [], skipped: [], back: [] };
   const files = await walk(machine, (path, dir) => matchesAny(playground.sync.ignore, path) && !matchesAny(playground.sync.bringBack, path) && dir);
+  // What is home already, a folder at a time: a video or image of the same size isn't fetched again.
+  const homeDirs = new Map<string, Promise<RuntimeEntry[]>>();
+  const homeSize = async (path: string) => {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    if (!homeDirs.has(dir)) homeDirs.set(dir, home.list(dir).catch(() => []));
+    return (await homeDirs.get(dir)!).find((entry) => entry.path === path)?.size ?? null;
+  };
   for (const file of files) {
     if (!matchesAny(playground.sync.bringBack, file.path)) continue;
+    if (isBinaryPath(file.path) && machine.readBase64 && home.writeBase64 && file.size !== null && file.size <= MEDIA_BACK_LIMIT) {
+      // A run's videos and images too: with the machine gone (a Colab runtime stopped), they are what is left of it.
+      if ((await homeSize(file.path)) === file.size) continue;
+      const data = await machine.readBase64(file.path).catch(() => null);
+      if (data === null) continue;
+      await home.writeBase64(file.path, data);
+      report.back.push(file.path);
+      continue;
+    }
     if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);
       continue;
