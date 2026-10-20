@@ -185,9 +185,11 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
                     </label>
                   ))}
                 </div>
-                <button type="button" className="btn primary" disabled={!chosen} onClick={() => chosen && onPick({ sim, env, template: chosen })}>
-                  Next: where it runs
-                </button>
+                <div className="sim-picker-go">
+                  <button type="button" className="btn primary" disabled={!chosen} onClick={() => chosen && onPick({ sim, env, template: chosen })}>
+                    Next: where it runs
+                  </button>
+                </div>
               </>
             ) : (
               <p className="pg-note">Pick a simulator. Each says what it needs: any CPU, a GPU, or an RTX GPU (Isaac Lab), and whether Colab will do.</p>
