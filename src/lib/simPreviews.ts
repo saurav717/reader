@@ -110,6 +110,47 @@ const ENVS: Record<string, Record<string, SimPreview>> = {
     'Door': { url: 'https://robosuite.ai/docs/_images/env_door.png', kind: 'image', page: 'https://robosuite.ai/docs/modules/environments.html' },
     'NutAssembly': { url: 'https://robosuite.ai/docs/_images/env_nut_assembly.png', kind: 'image', page: 'https://robosuite.ai/docs/modules/environments.html' },
   },
+  nle: {
+    'NetHackScore-v0': { url: 'https://raw.githubusercontent.com/heiner/nle/main/dat/nle/example_run.gif', kind: 'gif', page: 'https://github.com/heiner/nle#readme' },
+    'NetHackChallenge-v0': { url: 'https://raw.githubusercontent.com/heiner/nle/main/dat/nle/example_run.gif', kind: 'gif', page: 'https://github.com/heiner/nle#readme' },
+  },
+  minerl: {
+    'MineRLBasaltFindCave-v0': { url: 'https://minerl.readthedocs.io/en/v0.4.4/_images/caves1_0-05.gif', kind: 'gif', page: 'https://minerl.readthedocs.io/en/v0.4.4/environments/index.html#minerlbasaltfindcave-v0' },
+    'MineRLBasaltMakeWaterfall-v0': { url: 'https://minerl.readthedocs.io/en/v0.4.4/_images/waterfall0_0-05.gif', kind: 'gif', page: 'https://minerl.readthedocs.io/en/v0.4.4/environments/index.html#minerlbasaltmakewaterfall-v0' },
+  },
+  mlagents: {
+    '3DBall': { url: 'https://raw.githubusercontent.com/Unity-Technologies/ml-agents/develop/com.unity.ml-agents/Documentation~/images/balance.png', kind: 'image', page: 'https://github.com/Unity-Technologies/ml-agents/blob/develop/com.unity.ml-agents/Documentation~/Learning-Environment-Examples.md' },
+    'GridWorld': { url: 'https://raw.githubusercontent.com/Unity-Technologies/ml-agents/develop/com.unity.ml-agents/Documentation~/images/gridworld.png', kind: 'image', page: 'https://github.com/Unity-Technologies/ml-agents/blob/develop/com.unity.ml-agents/Documentation~/Learning-Environment-Examples.md' },
+    'Basic': { url: 'https://raw.githubusercontent.com/Unity-Technologies/ml-agents/develop/com.unity.ml-agents/Documentation~/images/basic.png', kind: 'image', page: 'https://github.com/Unity-Technologies/ml-agents/blob/develop/com.unity.ml-agents/Documentation~/Learning-Environment-Examples.md' },
+    'PushBlock': { url: 'https://raw.githubusercontent.com/Unity-Technologies/ml-agents/develop/com.unity.ml-agents/Documentation~/images/push.png', kind: 'image', page: 'https://github.com/Unity-Technologies/ml-agents/blob/develop/com.unity.ml-agents/Documentation~/Learning-Environment-Examples.md' },
+  },
+  godot_rl: {
+    'JumperHard': { url: 'https://raw.githubusercontent.com/edbeeching/godot_rl_agents/main/docs/example_envs_jumper_hard.png', kind: 'image', page: 'https://github.com/edbeeching/godot_rl_agents/blob/main/docs/EXAMPLE_ENVIRONMENTS.md' },
+    'BallChase': { url: 'https://raw.githubusercontent.com/edbeeching/godot_rl_agents/main/docs/example_envs_ball_chase.png', kind: 'image', page: 'https://github.com/edbeeching/godot_rl_agents/blob/main/docs/EXAMPLE_ENVIRONMENTS.md' },
+  },
+  habitat: {
+    'apartment_1': { url: 'https://aihabitat.org/docs/habitat-sim/sim_basics.gif', kind: 'gif', page: 'https://aihabitat.org/docs/habitat-sim/managed-rigid-object-tutorial.html' },
+  },
+  pettingzoo: {
+    'butterfly.pistonball_v6': { url: 'https://pettingzoo.farama.org/_images/butterfly_pistonball.gif', kind: 'gif', page: 'https://pettingzoo.farama.org/environments/butterfly/pistonball/' },
+    'butterfly.cooperative_pong_v5': { url: 'https://pettingzoo.farama.org/_images/butterfly_cooperative_pong.gif', kind: 'gif', page: 'https://pettingzoo.farama.org/environments/butterfly/cooperative_pong/' },
+    'butterfly.knights_archers_zombies_v10': { url: 'https://pettingzoo.farama.org/_images/butterfly_knights_archers_zombies.gif', kind: 'gif', page: 'https://pettingzoo.farama.org/environments/butterfly/knights_archers_zombies/' },
+  },
+  highway_env: {
+    'highway-v0': { url: 'https://highway-env.farama.org/_images/highway.gif', kind: 'gif', page: 'https://highway-env.farama.org/environments/highway/' },
+    'merge-v0': { url: 'https://highway-env.farama.org/_images/merge-env.gif', kind: 'gif', page: 'https://highway-env.farama.org/environments/merge/' },
+    'roundabout-v0': { url: 'https://highway-env.farama.org/_images/roundabout-env.gif', kind: 'gif', page: 'https://highway-env.farama.org/environments/roundabout/' },
+    'intersection-v0': { url: 'https://highway-env.farama.org/_images/intersection-env.gif', kind: 'gif', page: 'https://highway-env.farama.org/environments/intersection/' },
+  },
+  carla: {
+    'Town01': { url: 'https://carla.readthedocs.io/en/latest/img/catalogue/maps/town01/town01_panorama.webp', kind: 'image', page: 'https://carla.readthedocs.io/en/latest/map_town01/' },
+    'Town03': { url: 'https://carla.readthedocs.io/en/latest/img/catalogue/maps/town03/town03_panorama.webp', kind: 'image', page: 'https://carla.readthedocs.io/en/latest/map_town03/' },
+  },
+  minari: {
+    'mujoco/halfcheetah/expert-v0': { url: 'https://minari.farama.org/datasets/mujoco/halfcheetah/expert-v0.gif', kind: 'gif', page: 'https://minari.farama.org/datasets/mujoco/halfcheetah/expert-v0/' },
+    'D4RL/door/human-v2': { url: 'https://minari.farama.org/datasets/D4RL/door/human-v2.gif', kind: 'gif', page: 'https://minari.farama.org/datasets/D4RL/door/human-v2/' },
+    'D4RL/pointmaze/umaze-v2': { url: 'https://minari.farama.org/datasets/D4RL/pointmaze/umaze-v2.gif', kind: 'gif', page: 'https://minari.farama.org/datasets/D4RL/pointmaze/umaze-v2/' },
+  },
 };
 
 /** The preview for a simulator, or for one of its environments when that has its own. */
