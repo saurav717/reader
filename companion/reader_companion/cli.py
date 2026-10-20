@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import platform
@@ -545,7 +546,88 @@ def tunnel_command(argv):
         print("No tunnel: only this computer reaches the Companion (reader-companion --tunnel, or tunnel setup, gives it one).")
 
 
-COMMANDS = {"tunnel": tunnel_command, "setup": setup, "open": open_app, "start": start, "pair": pair, "release": release, "trust": trust_command, "uninstall": uninstall}
+def local_call(route: str, body: dict | None = None, timeout: float = 120) -> dict:
+    """The running Companion's companion/<route>, as this computer's own program: no Origin, its token."""
+    import urllib.error
+    import urllib.request
+
+    config = state.load_config()
+    token, port = config.get("token"), int(config.get("port") or DEFAULT_PORT)
+    if not token:
+        sys.exit("reader-companion: the Companion isn't set up on this computer (reader-companion setup).")
+    headers = {"Authorization": f"token {token}", "Content-Type": "application/json"}
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/companion/{route}", data=data, method="POST" if data else "GET", headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        try:
+            words = json.loads(error.read()).get("error")
+        except ValueError:
+            words = None
+        sys.exit(f"reader-companion: {words or f'the Companion answered {error.code}'}")
+    except OSError:
+        sys.exit("reader-companion: the Companion isn't running here (reader-companion start, or open the Koios app).")
+
+
+def share_command(argv):
+    """A folder here, shared so another computer of yours can attach it (mount.share_folder, attach.py)."""
+    parser = argparse.ArgumentParser(prog="reader-companion share", description="Share a folder of this computer with your other computers: it prints a code that `reader-companion attach` (or Koios) takes there. With no folder, the shares here.")
+    parser.add_argument("path", nargs="?", help="the folder")
+    parser.add_argument("--name", default="", help="what the other computer calls it (the folder's name, if not)")
+    parser.add_argument("--stop", action="store_true", help="stop sharing it: every computer that has it attached is cut off")
+    args = parser.parse_args(argv)
+    if not args.path:
+        shares = local_call("share").get("shares") or []
+        for share in shares:
+            print(f"{share['name']:<24} {share['root']}   attached on {share['attached']} now")
+        if not shares:
+            print("No folders shared here. reader-companion share <folder>")
+        return
+    path = str(Path(os.path.expanduser(args.path)).resolve())
+    if args.stop:
+        print("Stopped sharing it." if local_call("share", {"path": path, "action": "stop"}).get("stopped") else "It wasn't shared.")
+        return
+    made = local_call("share", {"path": path, "name": args.name})
+    print(f"Sharing {made['root']} as \"{made['name']}\". On your other computer:\n\n  reader-companion attach {made['code']}\n")
+    print("The code opens this folder and nothing else. Keep it to yourself; reader-companion share --stop <folder> closes it.")
+
+
+def attach_command(argv):
+    """A folder of another computer of yours, attached here as a disk (attach.py)."""
+    parser = argparse.ArgumentParser(prog="reader-companion attach", description="Attach a folder another computer of yours shares (reader-companion share there prints the code). With no code, what is attached here.")
+    parser.add_argument("code", nargs="?", help="the koios-attach:… code")
+    parser.add_argument("--cache", choices=("used", "all", "none"), default="used", help="used (default): keep what is read; all: fetch everything in the background, so it works while the other computer sleeps; none: keep nothing")
+    parser.add_argument("--backend", choices=("auto", "fuse", "webdav"), default="auto", help="fuse (FUSE-T, WinFsp, libfuse) where it is installed; webdav (the system's own network-drive client) otherwise")
+    parser.add_argument("--at", default="", help="where: a folder (a drive letter on Windows); ~/Koios Drives/<name> if not")
+    parser.add_argument("--detach", metavar="ID", help="detach one (its id, from reader-companion attach)")
+    parser.add_argument("--install-driver", action="store_true", help="download and open the faster driver's installer: FUSE-T on a Mac, WinFsp on Windows")
+    args = parser.parse_args(argv)
+    if args.install_driver:
+        done = local_call("attach", {"action": "install-driver"}, timeout=600)
+        print(f"Opened {done['path']}: the installer asks the rest." if done.get("opened") else f"Run: {done.get('how')}")
+        return
+    if args.detach:
+        local_call("attach", {"action": "detach", "id": args.detach})
+        print("Detached.")
+        return
+    if not args.code:
+        found = local_call("attach")
+        for item in found.get("attached") or []:
+            state_words = "attached" if item.get("mounted") else ("starting" if item.get("running") else "stopped")
+            print(f"{item['id']}  {item.get('name') or item.get('label') or '?'} from {item.get('from') or item.get('label') or '?'}  {state_words} at {item.get('where') or '-'}  ({item.get('backend')}, cache {item.get('cache')})")
+        if not found.get("attached"):
+            print("Nothing attached here. reader-companion attach <code>")
+        fuse = (found.get("backends") or {}).get("fuse") or {}
+        if not fuse.get("ok"):
+            print(f"(The faster driver isn't here: {fuse.get('why')}. reader-companion attach --install-driver)")
+        return
+    done = local_call("attach", {"code": args.code, "cache": args.cache, "backend": args.backend, "where": args.at}, timeout=180)
+    print(f"Attached at {done.get('where')} ({done.get('backend')}). reader-companion attach --detach {done.get('id')} to let go.")
+
+
+COMMANDS = {"tunnel": tunnel_command, "share": share_command, "attach": attach_command, "setup": setup, "open": open_app, "start": start, "pair": pair, "release": release, "trust": trust_command, "uninstall": uninstall}
 
 
 if __name__ == "__main__":

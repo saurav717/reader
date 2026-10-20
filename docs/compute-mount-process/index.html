@@ -6,7 +6,7 @@
 <!--
   The source of docs/compute-mount-process.pdf, written by scripts/compute-mount-pdf.mjs from docs/compute-mount.md
   and docs/compute-mount-process.md; print it again after a change to either:
-      node scripts/compute-mount-pdf.mjs
+      node scripts/compute-mount-pdf.mjs 
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,6 +20,9 @@
   h1 { font: 600 26pt/1.15 'Newsreader', Georgia, serif; margin: 0 0 6pt; letter-spacing: -0.01em; }
   h2 { font: 600 16pt/1.2 'Newsreader', Georgia, serif; margin: 22pt 0 8pt; padding-top: 10pt; border-top: 1px solid var(--line); break-after: avoid; }
   h3 { font: 600 11.5pt/1.3 'IBM Plex Sans', sans-serif; margin: 14pt 0 5pt; break-after: avoid; }
+  /* The app's renderer puts a document's ## and ### two levels down. */
+  h5 { font: 600 16pt/1.2 'Newsreader', Georgia, serif; margin: 22pt 0 8pt; padding-top: 10pt; border-top: 1px solid var(--line); break-after: avoid; }
+  h6 { font: 600 11.5pt/1.3 'IBM Plex Sans', sans-serif; margin: 14pt 0 5pt; break-after: avoid; }
   p { margin: 0 0 7pt; }
   ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
   li { margin-bottom: 3pt; }
@@ -51,7 +54,7 @@
 <p class="cap">Koios · the Playground · Companion 0.19.0</p>
 <h1>Mounting the folder on the compute</h1>
 <p class="lede">The code stays on your computer; the GPU reads it there, through the Companion's Cloudflare tunnel, as if it were its own disk. Saves are there in under a second, results come back as they are written, and checkpoints go where the data is kept. What was built, why, how it was checked and measured, and how to try it.</p>
-<p class="meta">Branch claude/epic-darwin-18jc7s at 11b5188 · 2026-10-20 · printed from docs/compute-mount.md and docs/compute-mount-process.md</p>
+<p class="meta">Branch claude/epic-darwin-18jc7s at 2b471f6 · 2026-10-20 · printed from docs/compute-mount.md and docs/compute-mount-process.md</p>
 <h3>Part 1 · What it is, and how to use it</h3>
 <ul class="toc"><li>1. Turning it on</li><li>2. What goes where</li><li>3. How it reaches your computer</li><li>4. Two modes</li><li>5. When your computer sleeps, or is far away</li><li>6. A tunnel of your own, with Argo Smart Routing</li><li>7. Measuring it over a real tunnel</li><li>8. Reference</li></ul>
 <h3>Part 2 · How it was built, checked and measured</h3>

@@ -8,6 +8,7 @@
 // with Mermaid in the page: the page loads it from jsDelivr, and while printing a local copy stands in when there is one (MERMAID_JS, a path to mermaid.min.js, else node_modules/mermaid).
 //
 //   node scripts/compute-mount-pdf.mjs
+//   node scripts/compute-mount-pdf.mjs shared-folders   # docs/shared-folders.md and -process.md → docs/shared-folders-process.pdf (no charts)
 
 import { chromium } from 'playwright';
 import { execSync } from 'node:child_process';
@@ -18,10 +19,26 @@ import { cleanup, load } from './bundle.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const docs = join(root, 'docs');
-const outDir = join(docs, 'compute-mount-process');
+const SETS = {
+  'compute-mount': {
+    cap: 'Koios · the Playground · Companion 0.19.0',
+    title: 'Mounting the folder on the compute',
+    lede: "The code stays on your computer; the GPU reads it there, through the Companion's Cloudflare tunnel, as if it were its own disk. Saves are there in under a second, results come back as they are written, and checkpoints go where the data is kept. What was built, why, how it was checked and measured, and how to try it.",
+    charts: true,
+  },
+  'shared-folders': {
+    cap: 'Koios · your computers · Companion 0.20.0',
+    title: 'A folder of one computer, a disk on another',
+    lede: 'Any computer signed in to your account can attach a folder of another as a disk of its own — on a Mac, on Windows, on Linux — through the Companions and their Cloudflare tunnels. Files come over as they are opened. What was built, why, how it was checked, and how to try it.',
+    charts: false,
+  },
+};
+const set = process.argv[2] && SETS[process.argv[2]] ? process.argv[2] : 'compute-mount';
+const doc = SETS[set];
+const outDir = join(docs, `${set}-process`);
 const chartDir = join(docs, 'compute-mount');
 const html = join(outDir, 'index.html');
-const out = join(docs, 'compute-mount-process.pdf');
+const out = join(docs, `${set}-process.pdf`);
 const MERMAID_CDN = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -148,10 +165,15 @@ function charts(bench, live) {
   };
 }
 
-const bench = JSON.parse(readFileSync(join(docs, 'compute-mount-bench.json'), 'utf8'));
-const live = JSON.parse(readFileSync(join(docs, 'compute-mount-live.json'), 'utf8'));
-mkdirSync(chartDir, { recursive: true });
-for (const [name, svg] of Object.entries(charts(bench, live))) writeFileSync(join(chartDir, name), svg);
+let chartCount = 0;
+if (doc.charts) {
+  const bench = JSON.parse(readFileSync(join(docs, 'compute-mount-bench.json'), 'utf8'));
+  const live = JSON.parse(readFileSync(join(docs, 'compute-mount-live.json'), 'utf8'));
+  mkdirSync(chartDir, { recursive: true });
+  const drawnCharts = charts(bench, live);
+  for (const [name, svg] of Object.entries(drawnCharts)) writeFileSync(join(chartDir, name), svg);
+  chartCount = Object.keys(drawnCharts).length;
+}
 
 // ---------------------------------------------------------------- the page ----
 
@@ -178,11 +200,11 @@ function render(text) {
     .join('');
   let html = markdown(unwrapped);
   html = html.replace(/(?:<p>)?@@FIGURE(\d+)@@(?:<\/p>)?/g, (_, i) => figures[Number(i)]);
-  return html.replace(/href="compute-mount-process\.md"/g, 'href="#part-2"').replace(/href="compute-mount\.md"/g, 'href="#part-1"');
+  return html.replaceAll(`href="${set}-process.md"`, 'href="#part-2"').replaceAll(`href="${set}.md"`, 'href="#part-1"');
 }
 
-const design = readFileSync(join(docs, 'compute-mount.md'), 'utf8').replace(/^# .*\n/, '');
-const process_ = readFileSync(join(docs, 'compute-mount-process.md'), 'utf8').replace(/^# .*\n/, '');
+const design = readFileSync(join(docs, `${set}.md`), 'utf8').replace(/^# .*\n/, '');
+const process_ = readFileSync(join(docs, `${set}-process.md`), 'utf8').replace(/^# .*\n/, '');
 const commit = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim();
 const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: root }).toString().trim();
 const date = new Date().toISOString().slice(0, 10);
@@ -196,11 +218,11 @@ const page = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Koios — Mounting the folder on the compute</title>
+<title>Koios — ${esc(doc.title)}</title>
 <!--
-  The source of docs/compute-mount-process.pdf, written by scripts/compute-mount-pdf.mjs from docs/compute-mount.md
-  and docs/compute-mount-process.md; print it again after a change to either:
-      node scripts/compute-mount-pdf.mjs
+  The source of docs/${set}-process.pdf, written by scripts/compute-mount-pdf.mjs from docs/${set}.md
+  and docs/${set}-process.md; print it again after a change to either:
+      node scripts/compute-mount-pdf.mjs ${set === 'compute-mount' ? '' : set}
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -214,6 +236,9 @@ const page = `<!doctype html>
   h1 { font: 600 26pt/1.15 'Newsreader', Georgia, serif; margin: 0 0 6pt; letter-spacing: -0.01em; }
   h2 { font: 600 16pt/1.2 'Newsreader', Georgia, serif; margin: 22pt 0 8pt; padding-top: 10pt; border-top: 1px solid var(--line); break-after: avoid; }
   h3 { font: 600 11.5pt/1.3 'IBM Plex Sans', sans-serif; margin: 14pt 0 5pt; break-after: avoid; }
+  /* The app's renderer puts a document's ## and ### two levels down. */
+  h5 { font: 600 16pt/1.2 'Newsreader', Georgia, serif; margin: 22pt 0 8pt; padding-top: 10pt; border-top: 1px solid var(--line); break-after: avoid; }
+  h6 { font: 600 11.5pt/1.3 'IBM Plex Sans', sans-serif; margin: 14pt 0 5pt; break-after: avoid; }
   p { margin: 0 0 7pt; }
   ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
   li { margin-bottom: 3pt; }
@@ -242,10 +267,10 @@ const page = `<!doctype html>
 ${mermaidTag}
 </head>
 <body>
-<p class="cap">Koios · the Playground · Companion 0.19.0</p>
-<h1>Mounting the folder on the compute</h1>
-<p class="lede">The code stays on your computer; the GPU reads it there, through the Companion's Cloudflare tunnel, as if it were its own disk. Saves are there in under a second, results come back as they are written, and checkpoints go where the data is kept. What was built, why, how it was checked and measured, and how to try it.</p>
-<p class="meta">Branch ${esc(branch)} at ${commit} · ${date} · printed from docs/compute-mount.md and docs/compute-mount-process.md</p>
+<p class="cap">${esc(doc.cap)}</p>
+<h1>${esc(doc.title)}</h1>
+<p class="lede">${esc(doc.lede)}</p>
+<p class="meta">Branch ${esc(branch)} at ${commit} · ${date} · printed from docs/${set}.md and docs/${set}-process.md</p>
 <h3>Part 1 · What it is, and how to use it</h3>
 <ul class="toc">${headings(design).map((h) => `<li>${esc(h)}</li>`).join('')}</ul>
 <h3>Part 2 · How it was built, checked and measured</h3>
@@ -291,9 +316,9 @@ await tab.pdf({
   headerTemplate: '<span></span>',
   footerTemplate:
     '<div style="width:100%;font:8px IBM Plex Sans,Helvetica,Arial,sans-serif;color:#7a776d;padding:0 16mm;display:flex;justify-content:space-between">' +
-    '<span>Koios · Mounting the folder on the compute</span><span>page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>',
+    `<span>Koios · ${esc(doc.title)}</span><span>page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
   margin: { top: '18mm', right: '16mm', bottom: '20mm', left: '16mm' },
 });
 await browser.close();
 await cleanup();
-console.log(`wrote ${Object.keys(charts(bench, live)).length} charts in ${chartDir}, ${html} and ${out} (${drawn} diagrams)`);
+console.log(`wrote ${chartCount} charts${chartCount ? ` in ${chartDir}` : ''}, ${html} and ${out} (${drawn} diagrams)`);
