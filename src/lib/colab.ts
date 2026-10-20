@@ -497,8 +497,8 @@ export function makeMessage(msgType: string, content: Record<string, unknown>, s
 }
 
 /** The request that runs a cell: the code as shown, nothing kept back, and no stdin — a cell that asks for input gets an error, not a prompt nobody can answer. */
-export const executeRequest = (code: string, sessionId: string) =>
-  makeMessage('execute_request', { code, silent: false, store_history: true, user_expressions: {}, allow_stdin: false, stop_on_error: true }, sessionId);
+export const executeRequest = (code: string, sessionId: string, quiet = false) =>
+  makeMessage('execute_request', { code, silent: quiet, store_history: !quiet, user_expressions: {}, allow_stdin: false, stop_on_error: true }, sessionId);
 
 export function parseMessage(text: string): JupyterMessage | null {
   try {
@@ -873,7 +873,7 @@ class Kernel {
     return () => this.closers.delete(listener);
   }
 
-  async execute(code: string, onOutput: (message: JupyterMessage) => void, onSent?: (msgId: string) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
+  async execute(code: string, onOutput: (message: JupyterMessage) => void, onSent?: (msgId: string) => void, quiet = false): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
     // A cell run while the socket is being opened again waits for it, rather than failing for a pipe that is a moment away.
     if (!this.connected && this.reconnecting) await this.reconnecting.catch(() => undefined);
     return new Promise((resolve, reject) => {
@@ -882,7 +882,7 @@ class Kernel {
         reject(new Error('The kernel is not connected.'));
         return;
       }
-      const request = executeRequest(code, this.sessionId);
+      const request = executeRequest(code, this.sessionId, quiet);
       let reply: { status: 'ok' | 'error' | 'aborted'; executionCount?: number } | null = null;
       let idle = false;
       const finish = () => {
@@ -1245,6 +1245,22 @@ export async function runQuietly(code: string, scope?: string): Promise<{ ok: bo
     }
   });
   return { ok: !failed && reply.status === 'ok', text };
+}
+
+/**
+ * Runs code in the kernel the person sees, quietly: no output, no history, no execution count. For setting the
+ * notebook up as the page knows it should be (the project's folder as its working directory, when it is mounted
+ * there), never for a cell. False when that kernel isn't connected.
+ */
+export async function prepareNotebook(code: string, scope?: string): Promise<boolean> {
+  const s = sessionOfScope(scope);
+  if (!s?.kernel) return false;
+  try {
+    const reply = await s.kernel.execute(code, () => undefined, undefined, true);
+    return reply.status === 'ok';
+  } catch {
+    return false;
+  }
 }
 
 // ------------------------------------------------------------ idle pulse ---

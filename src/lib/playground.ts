@@ -107,8 +107,8 @@ export interface Playground {
   editor?: 'reader' | 'vscode';
   /** The papers it came from or is about. */
   cites: Cite[];
-  /** What is copied to the machine and what is left (gitignore-like, one a line), and what comes back after a run. */
-  sync: { ignore: string; bringBack: string };
+  /** What is copied to the machine and what is left (gitignore-like, one a line), what comes back after a run, and whether the folder is mounted there instead (src/lib/computeLink.ts). */
+  sync: { ignore: string; bringBack: string; mount?: boolean };
   /** The commands run in its console, newest last. */
   console: ConsoleEntry[];
   /** On Colab: stop the runtime after this many minutes with nothing running, while the tab is open; 0 is never. */
@@ -312,7 +312,7 @@ function normalise(value: Partial<Playground> | undefined): Playground | null {
     pool: Array.isArray(value.pool) && value.pool.length ? value.pool.filter((m): m is PoolMember => Boolean(m) && typeof m.id === 'string' && Boolean(m.compute) && (m.compute.kind === 'colab' || m.compute.kind === 'server')) : undefined,
     home: value.home ?? { kind: 'browser' },
     cites: Array.isArray(value.cites) ? value.cites : [],
-    sync: { ignore: value.sync?.ignore ?? DEFAULT_IGNORE, bringBack: value.sync?.bringBack ?? DEFAULT_BRING_BACK },
+    sync: { ignore: value.sync?.ignore ?? DEFAULT_IGNORE, bringBack: value.sync?.bringBack ?? DEFAULT_BRING_BACK, ...(value.sync?.mount ? { mount: true } : {}) },
     console: Array.isArray(value.console) ? value.console : [],
     idleStopMin: typeof value.idleStopMin === 'number' ? value.idleStopMin : 30,
     pending: value.pending,

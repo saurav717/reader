@@ -70,3 +70,48 @@ describe('the compute link', () => {
     }
   });
 });
+
+describe('the mount (Companion 0.19.0)', () => {
+  it('asks the Companion to mount the folder, to stop, and whether a machine has it now', async () => {
+    const calls = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url, init });
+      if (String(url).includes('?root=')) return new Response(JSON.stringify({ linked: true, mount: { on: true, mode: 'fuse', connected: 1 } }), { status: 200 });
+      const body = JSON.parse(init.body);
+      if (body.action === 'mount') return new Response(JSON.stringify({ mode: 'fuse', at: '/content/playgrounds/p1', mounted: true, connected: 1, warm: { files: 42, bytes: 9000, seconds: 0.4 } }), { status: 200 });
+      return new Response(JSON.stringify({ stopped: true }), { status: 200 });
+    };
+    try {
+      const status = await link.mountThroughCompanion(laptop, 'playgrounds/p1');
+      assert.equal(status.mode, 'fuse');
+      assert.deepEqual(JSON.parse(calls[0].init.body), { root: 'playgrounds/p1', action: 'mount', mode: 'auto' });
+      assert.equal(calls[0].init.headers.Authorization, 'token tok');
+      assert.equal(link.mountWords(status, 'Colab · T4'), 'The folder is mounted on Colab · T4 · 42 small files sent ahead in 0.4 s: nothing is copied before a run.');
+      assert.deepEqual(await link.unmountThroughCompanion(laptop, 'playgrounds/p1'), { stopped: true });
+      assert.deepEqual(JSON.parse(calls[1].init.body), { root: 'playgrounds/p1', action: 'unmount' });
+      const state = await link.linkState(laptop, 'playgrounds/p1');
+      assert.deepEqual(state.mount, { on: true, mode: 'fuse', connected: 1 });
+      assert.equal(calls[2].url, 'https://laptop.example/companion/compute?root=playgrounds%2Fp1');
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
+  it('says a mirror is a mirror and why, and that an older Companion needs updating', async () => {
+    assert.match(link.mountWords({ mode: 'mirror', why: 'this machine has no /dev/fuse' }, 'Lab GPU box'), /mirrored live \(this machine has no \/dev\/fuse\) on Lab GPU box/);
+    const real = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'compute, or action' }), { status: 400 });
+    try {
+      await assert.rejects(link.mountThroughCompanion(laptop, 'playgrounds/p1'), /needs Koios Companion 0\.19\.0/);
+    } finally {
+      globalThis.fetch = real;
+    }
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'The mount didn’t start on Colab · T4: fusepy isn’t installed' }), { status: 502 });
+    try {
+      await assert.rejects(link.mountThroughCompanion(laptop, 'playgrounds/p1'), /fusepy isn’t installed/);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+});
