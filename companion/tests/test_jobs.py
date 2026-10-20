@@ -1,3 +1,4 @@
+import faulthandler
 import os
 import pty
 import subprocess
@@ -41,6 +42,10 @@ class Drain:
 @unittest.skipUnless(os.path.exists("/bin/bash"), "needs bash")
 class TerminalJobsTest(unittest.TestCase):
     def setUp(self):
+        # A watchdog: whatever blocks here for a minute prints every thread's stack and ends the run, rather than
+        # hanging it with no word of where.
+        faulthandler.dump_traceback_later(60, exit=True)
+        self.addCleanup(faulthandler.cancel_dump_traceback_later)
         # Not pty.fork(): by now the test process has threads, and a fork of one can deadlock in the child on macOS.
         # A fresh Python, single-threaded, makes the terminal its own (setsid, then TIOCSCTTY) and becomes bash.
         fd, tty = pty.openpty()
@@ -56,14 +61,23 @@ class TerminalJobsTest(unittest.TestCase):
         os.close(tty)
         self.pid, self.fd = self.process.pid, fd
         self.drain = Drain(fd)
+        # Cleaned up even when setUp itself fails (tearDown wouldn't run then).
+        self.addCleanup(self.end_shell)
         self.assertTrue(wait_for(lambda: b"$ " in self.drain()), "the shell's prompt")
 
-    def tearDown(self):
+    def end_shell(self):
+        # Everything in the shell's session goes, the commands it started included (a sleep left holding the
+        # terminal can make closing it block on macOS); what is left to read is read; then the terminal is closed.
+        subprocess.run(["pkill", "-9", "-s", str(self.pid)], capture_output=True, timeout=5)
         try:
             os.kill(self.pid, 9)
         except OSError:
             pass
-        self.process.wait()
+        try:
+            self.process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        self.drain()
         os.close(self.fd)
 
     def test_at_the_prompt_nothing_runs(self):
