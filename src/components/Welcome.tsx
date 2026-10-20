@@ -202,7 +202,7 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
           </p>
         ) : null}
 
-        <p style={{ margin: '20px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+        <p style={{ margin: '20px 0 0', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
           One consent covers everything: your name and address; the <code>drive.file</code> scope, which reaches
           only the files this app creates, never the rest of your Drive; and your calendar, for the Calendar page.{' '}
           {mustSignIn
