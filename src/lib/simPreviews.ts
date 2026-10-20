@@ -78,6 +78,38 @@ const ENVS: Record<string, Record<string, SimPreview>> = {
     'Humanoid-v5': { url: 'https://gymnasium.farama.org/_images/humanoid.gif', kind: 'gif' },
     'InvertedPendulum-v5': { url: 'https://gymnasium.farama.org/_images/inverted_pendulum.gif', kind: 'gif' },
   },
+  mujoco_playground: {
+    'Go1JoystickFlatTerrain': { url: 'https://playground.mujoco.org/assets/go1_sim2sim.mp4', kind: 'video', page: 'https://playground.mujoco.org/', note: 'the simulated Go1 on rough terrain, filmed off a screen' },
+    'LeapCubeReorient': { url: 'https://playground.mujoco.org/assets/inhand_sim2sim.mp4', kind: 'video', page: 'https://playground.mujoco.org/' },
+    'PandaPickCube': { url: 'https://playground.mujoco.org/assets/vision_pick.mp4', kind: 'video', page: 'https://playground.mujoco.org/', note: 'the real robot doing this task, not the simulation' },
+  },
+  brax: {
+    'ant': { url: 'https://raw.githubusercontent.com/google/brax/main/docs/img/ant_v2.gif', kind: 'gif', page: 'https://github.com/google/brax#readme' },
+    'halfcheetah': { url: 'https://raw.githubusercontent.com/google/brax/main/docs/img/halfcheetah.gif', kind: 'gif', page: 'https://github.com/google/brax/tree/main/docs/img' },
+    'humanoid': { url: 'https://raw.githubusercontent.com/google/brax/main/docs/img/humanoid_v2.gif', kind: 'gif', page: 'https://github.com/google/brax#readme' },
+  },
+  gymnasium_robotics: {
+    'HandManipulateBlock-v1': { url: 'https://robotics.farama.org/_images/manipulate_block.gif', kind: 'gif', page: 'https://robotics.farama.org/envs/shadow_dexterous_hand/manipulate_block/' },
+    'HandManipulateEgg-v1': { url: 'https://robotics.farama.org/_images/manipulate_egg.gif', kind: 'gif', page: 'https://robotics.farama.org/envs/shadow_dexterous_hand/manipulate_egg/' },
+    'HandReach-v2': { url: 'https://robotics.farama.org/_images/reach1.gif', kind: 'gif', page: 'https://robotics.farama.org/envs/shadow_dexterous_hand/reach/' },
+    'AdroitHandDoor-v1': { url: 'https://robotics.farama.org/_images/adroit_door.gif', kind: 'gif', page: 'https://robotics.farama.org/envs/adroit_hand/adroit_door/', bytes: 43362330 },
+    'FetchReach-v4': { url: 'https://robotics.farama.org/_images/reach.gif', kind: 'gif', page: 'https://robotics.farama.org/envs/fetch/reach/' },
+    'FetchPickAndPlace-v4': { url: 'https://robotics.farama.org/_images/pick_and_place.gif', kind: 'gif', page: 'https://robotics.farama.org/envs/fetch/pick_and_place/' },
+  },
+  myosuite: {
+    'myoHandPoseRandom-v0': { url: 'https://myosuite.readthedocs.io/en/latest/_images/hand_joint_pose.png', kind: 'image', page: 'https://myosuite.readthedocs.io/en/latest/suite.html' },
+    'myoHandReachRandom-v0': { url: 'https://myosuite.readthedocs.io/en/latest/_images/hand_tip_reach.png', kind: 'image', page: 'https://myosuite.readthedocs.io/en/latest/suite.html' },
+    'myoElbowPose1D6MRandom-v0': { url: 'https://myosuite.readthedocs.io/en/latest/_images/elbow_joint_pose.png', kind: 'image', page: 'https://myosuite.readthedocs.io/en/latest/suite.html' },
+  },
+  metaworld: {
+    'pick-place-v3': { url: 'https://metaworld.farama.org/_images/mt1.gif', kind: 'gif', page: 'https://metaworld.farama.org/benchmark/benchmark_descriptions/' },
+  },
+  robosuite: {
+    'Lift': { url: 'https://robosuite.ai/docs/_images/env_lift.png', kind: 'image', page: 'https://robosuite.ai/docs/modules/environments.html' },
+    'Stack': { url: 'https://robosuite.ai/docs/_images/env_stack.png', kind: 'image', page: 'https://robosuite.ai/docs/modules/environments.html' },
+    'Door': { url: 'https://robosuite.ai/docs/_images/env_door.png', kind: 'image', page: 'https://robosuite.ai/docs/modules/environments.html' },
+    'NutAssembly': { url: 'https://robosuite.ai/docs/_images/env_nut_assembly.png', kind: 'image', page: 'https://robosuite.ai/docs/modules/environments.html' },
+  },
 };
 
 /** The preview for a simulator, or for one of its environments when that has its own. */
