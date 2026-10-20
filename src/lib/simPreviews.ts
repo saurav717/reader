@@ -151,6 +151,51 @@ const ENVS: Record<string, Record<string, SimPreview>> = {
     'D4RL/door/human-v2': { url: 'https://minari.farama.org/datasets/D4RL/door/human-v2.gif', kind: 'gif', page: 'https://minari.farama.org/datasets/D4RL/door/human-v2/' },
     'D4RL/pointmaze/umaze-v2': { url: 'https://minari.farama.org/datasets/D4RL/pointmaze/umaze-v2.gif', kind: 'gif', page: 'https://minari.farama.org/datasets/D4RL/pointmaze/umaze-v2/' },
   },
+  maniskill: {
+    'PickCube-v1': { url: 'https://maniskill.readthedocs.io/en/latest/_static/env_thumbnails/PickCube-v1_rt_thumb_first.png', kind: 'image', page: 'https://maniskill.readthedocs.io/en/latest/tasks/table_top_gripper/index.html' },
+    'PushCube-v1': { url: 'https://maniskill.readthedocs.io/en/latest/_static/env_thumbnails/PushCube-v1_rt_thumb_first.png', kind: 'image', page: 'https://maniskill.readthedocs.io/en/latest/tasks/table_top_gripper/index.html' },
+    'PegInsertionSide-v1': { url: 'https://maniskill.readthedocs.io/en/latest/_static/videos/PegInsertionSide-v1_reset_distribution.mp4', kind: 'video', page: 'https://maniskill.readthedocs.io/en/latest/tasks/table_top_gripper/index.html', note: 'its starting positions, not a run' },
+    'RotateValveLevel0-v1': { url: 'https://maniskill.readthedocs.io/en/latest/_images/rotatevalvelevel2.png', kind: 'image', page: 'https://maniskill.readthedocs.io/en/latest/user_guide/demos/scripts.html', note: 'level 2 of the same task' },
+  },
+  genesis: {
+    'xml/franka_emika_panda/panda.xml': { url: 'https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/readme-assets/videos/rigid_control_franka.webp', kind: 'gif', page: 'https://github.com/Genesis-Embodied-AI/Genesis#readme' },
+  },
+  pybullet: {
+    'quadruped/minitaur.urdf': { url: 'https://pybullet.org/wordpress/wp-content/uploads/2018/09/sim2real.png', kind: 'image', page: 'https://pybullet.org/wordpress/index.php/page/2/index.html', note: 'a paper figure: simulated above, real below' },
+  },
+  isaaclab: {
+    'Isaac-Cartpole-v0': { url: 'https://isaac-sim.github.io/IsaacLab/main/_static/environment-previews/cartpole.jpg', kind: 'image', page: 'https://isaac-sim.github.io/IsaacLab/main/source/isaaclab/environments.html' },
+    'Isaac-Velocity-Flat-Anymal-D-v0': { url: 'https://isaac-sim.github.io/IsaacLab/main/_static/environment-previews/anymal_d_flat.jpg', kind: 'image', page: 'https://isaac-sim.github.io/IsaacLab/main/source/isaaclab/environments.html' },
+    'Isaac-Repose-Cube-Allegro-Direct-v0': { url: 'https://isaac-sim.github.io/IsaacLab/main/_static/environment-previews/allegro_cube.jpg', kind: 'image', page: 'https://isaac-sim.github.io/IsaacLab/main/source/isaaclab/environments.html' },
+    'Isaac-Repose-Cube-Shadow-Direct-v0': { url: 'https://isaac-sim.github.io/IsaacLab/main/_static/environment-previews/shadow_cube.jpg', kind: 'image', page: 'https://isaac-sim.github.io/IsaacLab/main/source/isaaclab/environments.html' },
+    'Isaac-Lift-Cube-Franka-v0': { url: 'https://isaac-sim.github.io/IsaacLab/main/_static/environment-previews/franka_lift.jpg', kind: 'image', page: 'https://isaac-sim.github.io/IsaacLab/main/source/isaaclab/environments.html' },
+  },
+  ale: {
+    'ALE/Pong-v5': { url: 'https://ale.farama.org/_images/pong.gif', kind: 'gif', page: 'https://ale.farama.org/environments/pong/' },
+    'ALE/Breakout-v5': { url: 'https://ale.farama.org/_images/breakout.gif', kind: 'gif', page: 'https://ale.farama.org/environments/breakout/' },
+    'ALE/SpaceInvaders-v5': { url: 'https://ale.farama.org/_images/space_invaders.gif', kind: 'gif', page: 'https://ale.farama.org/environments/space_invaders/' },
+    'ALE/MontezumaRevenge-v5': { url: 'https://ale.farama.org/_images/montezuma_revenge.gif', kind: 'gif', page: 'https://ale.farama.org/environments/montezuma_revenge/' },
+  },
+  minigrid: {
+    'MiniGrid-Empty-8x8-v0': { url: 'https://minigrid.farama.org/_images/EmptyEnv.gif', kind: 'gif', page: 'https://minigrid.farama.org/environments/minigrid/EmptyEnv/' },
+    'MiniGrid-DoorKey-5x5-v0': { url: 'https://minigrid.farama.org/_images/DoorKeyEnv.gif', kind: 'gif', page: 'https://minigrid.farama.org/environments/minigrid/DoorKeyEnv/' },
+    'MiniGrid-FourRooms-v0': { url: 'https://minigrid.farama.org/_images/FourRoomsEnv.gif', kind: 'gif', page: 'https://minigrid.farama.org/environments/minigrid/FourRoomsEnv/' },
+  },
+  craftax: {
+    'Craftax-Symbolic-v1': { url: 'https://raw.githubusercontent.com/MichaelTMatthews/Craftax/main/images/dungeon_crawling.gif', kind: 'gif', page: 'https://github.com/MichaelTMatthews/Craftax#readme' },
+    'Craftax-Pixels-v1': { url: 'https://raw.githubusercontent.com/MichaelTMatthews/Craftax/main/images/magic.gif', kind: 'gif', page: 'https://github.com/MichaelTMatthews/Craftax#readme' },
+    'Craftax-Classic-Symbolic-v1': { url: 'https://raw.githubusercontent.com/MichaelTMatthews/Craftax/main/images/farming.gif', kind: 'gif', page: 'https://github.com/MichaelTMatthews/Craftax#readme', note: 'full Craftax; Classic looks like this without the extra HUD' },
+  },
+  gymnax: {
+    'CartPole-v1': { url: 'https://raw.githubusercontent.com/RobertTLange/gymnax-blines/main/docs/CartPole-v1.gif', kind: 'gif', page: 'https://github.com/RobertTLange/gymnax-blines#readme' },
+    'Breakout-MinAtar': { url: 'https://raw.githubusercontent.com/RobertTLange/gymnax-blines/main/docs/Breakout-MinAtar.gif', kind: 'gif', page: 'https://github.com/RobertTLange/gymnax-blines#readme' },
+    'SpaceInvaders-MinAtar': { url: 'https://raw.githubusercontent.com/RobertTLange/gymnax-blines/main/docs/SpaceInvaders-MinAtar.gif', kind: 'gif', page: 'https://github.com/RobertTLange/gymnax-blines#readme' },
+  },
+  vizdoom: {
+    'VizdoomBasic-v0': { url: 'https://vizdoom.farama.org/_images/VizdoomBasic-Freedoom2.gif', kind: 'gif', page: 'https://vizdoom.farama.org/environments/default/' },
+    'VizdoomCorridor-v0': { url: 'https://vizdoom.farama.org/_images/VizdoomDeadlyCorridor-Freedoom2.gif', kind: 'gif', page: 'https://vizdoom.farama.org/environments/default/' },
+    'VizdoomHealthGathering-v0': { url: 'https://vizdoom.farama.org/_images/VizdoomHealthGathering-Freedoom2.gif', kind: 'gif', page: 'https://vizdoom.farama.org/environments/default/' },
+  },
 };
 
 /** The preview for a simulator, or for one of its environments when that has its own. */
