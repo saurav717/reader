@@ -74,7 +74,11 @@ function Facts({ sim, env }: { sim: Simulator; env?: SimEnv }) {
       <dt>Interface</dt>
       <dd>{sim.api === 'gymnasium' ? 'Gymnasium (reset / step)' : 'its own API'}</dd>
       <dt>Installs with</dt>
-      <dd className="mono">{sim.install.join(' && ') || '—'}</dd>
+      <dd className="sim-install">
+        {sim.install.length
+          ? sim.install.map((line) => (line.startsWith('#') ? <span key={line}>{line.replace(/^#\s*/, '')}</span> : <code key={line}>{line}</code>))
+          : '—'}
+      </dd>
     </dl>
   );
 }
@@ -98,7 +102,7 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
   const choices = sim ? templatesFor(sim, env) : [];
   const chosen = template && choices.includes(template) ? template : choices[0];
 
-  const side = useRef<HTMLElement>(null);
+  const side = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (side.current) side.current.scrollTop = 0;
   }, [sim?.id]);
@@ -146,49 +150,51 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
             ))}
             {!shown.length ? <p className="pg-note">No simulator matches.</p> : null}
           </div>
-          <aside className="sim-picker-side" ref={side}>
+          <aside className="sim-picker-side">
             {sim ? (
               <>
                 <ErrorBoundary key={sim.id} name="sim preview" fallback={() => <figure className="sim-preview is-missing">No preview for {sim.name}</figure>}>
                   <Preview sim={sim} env={env} />
                 </ErrorBoundary>
-                <h3>{sim.name}</h3>
-                <p>{sim.good}</p>
-                <p className="sim-picker-meta">
-                  {needsLine(sim)} ·{' '}
-                  <a href={sim.docs} target="_blank" rel="noreferrer noopener">
-                    docs ↗
-                  </a>
-                </p>
-                <Facts sim={sim} env={env} />
-                {(sim.caveats ?? []).map((caveat) => (
-                  <p key={caveat} className="pg-note">
-                    {caveat}
+                <div className="sim-picker-detail" ref={side}>
+                  <h3>{sim.name}</h3>
+                  <p>{sim.good}</p>
+                  <p className="sim-picker-meta">
+                    {needsLine(sim)} ·{' '}
+                    <a href={sim.docs} target="_blank" rel="noreferrer noopener">
+                      docs ↗
+                    </a>
                   </p>
-                ))}
-                <div className="rt-part-label">Environment</div>
-                <div className="sim-picker-list" role="radiogroup" aria-label="Environment">
-                  {sim.envs.map((e) => (
-                    <label key={e.id} className={env?.id === e.id ? 'is-on' : ''}>
-                      <input type="radio" checked={env?.id === e.id} onChange={() => setEnvId(e.id)} />
-                      <span>
-                        {e.label}
-                        <small className="mono"> {e.id}</small>
-                      </span>
-                    </label>
+                  <Facts sim={sim} env={env} />
+                  {(sim.caveats ?? []).map((caveat) => (
+                    <p key={caveat} className="pg-note">
+                      {caveat}
+                    </p>
                   ))}
-                </div>
-                <div className="rt-part-label">Start from</div>
-                <div className="sim-picker-list" role="radiogroup" aria-label="Template">
-                  {choices.map((id) => (
-                    <label key={id} className={chosen === id ? 'is-on' : ''}>
-                      <input type="radio" checked={chosen === id} onChange={() => setTemplate(id)} />
-                      <span>
-                        <b>{TEMPLATES[id].name}</b>
-                        <small> {TEMPLATES[id].text}</small>
-                      </span>
-                    </label>
-                  ))}
+                  <div className="rt-part-label">Environment</div>
+                  <div className="sim-picker-list" role="radiogroup" aria-label="Environment">
+                    {sim.envs.map((e) => (
+                      <label key={e.id} className={env?.id === e.id ? 'is-on' : ''}>
+                        <input type="radio" checked={env?.id === e.id} onChange={() => setEnvId(e.id)} />
+                        <span>
+                          {e.label}
+                          <small className="mono"> {e.id}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="rt-part-label">Start from</div>
+                  <div className="sim-picker-list" role="radiogroup" aria-label="Template">
+                    {choices.map((id) => (
+                      <label key={id} className={chosen === id ? 'is-on' : ''}>
+                        <input type="radio" checked={chosen === id} onChange={() => setTemplate(id)} />
+                        <span>
+                          <b>{TEMPLATES[id].name}</b>
+                          <small> {TEMPLATES[id].text}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <div className="sim-picker-go">
                   <button type="button" className="btn primary" disabled={!chosen} onClick={() => chosen && onPick({ sim, env, template: chosen })}>

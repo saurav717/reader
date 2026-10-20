@@ -9898,7 +9898,11 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .sheet.sim-picker { display: flex; flex-direction: column; height: min(940px, calc(100vh - 48px)); max-height: none; overflow: hidden; }
 .sim-picker > .pg-sheet-head, .sim-picker > .sim-picker-filters { flex: none; }
 .sim-picker .sim-picker-body { flex: 1; min-height: 0; max-height: none; grid-template-rows: minmax(0, 1fr); }
-.sim-picker .sim-picker-grid, .sim-picker .sim-picker-side { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sim-picker .sim-picker-grid { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The details: the preview stays at the top and Next at the bottom; only what is between them scrolls. */
+.sim-picker .sim-picker-side { min-height: 0; overflow: hidden; padding-bottom: 0; }
+.sim-picker-detail { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; margin: 0 -14px; padding: 2px 14px 10px; }
+.sim-picker-detail h3 { margin: 0; font-size: 15px; color: var(--ink); }
 .sim-preview { flex: none; position: relative; margin: -2px -4px 4px; border-radius: 10px; overflow: hidden; background: #0b0d10; aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; }
 .sim-preview img, .sim-preview video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .sim-preview figcaption { position: absolute; left: 8px; bottom: 6px; font-size: 10.5px; color: rgb(255 255 255 / 0.75); background: rgb(0 0 0 / 0.45); padding: 1px 6px; border-radius: 5px; }
@@ -9907,9 +9911,12 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .sim-facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 2px 0 4px; font-size: 12px; }
 .sim-facts dt { color: var(--muted); }
 .sim-facts dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
-.sim-picker-go { position: sticky; bottom: -12px; margin: 4px -14px -12px; padding: 10px 14px 12px; background: var(--panel); border-top: 1px solid var(--border); }
+.sim-install { display: flex; flex-direction: column; gap: 3px; }
+.sim-install code { font-family: var(--mono); font-size: 11.5px; padding: 2px 6px; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sim-install span { color: var(--muted); }
+.sim-picker-go { flex: none; margin: 0 -14px; padding: 10px 14px 12px; border-top: 1px solid var(--border); }
 .sim-picker-go .btn { margin: 0; }
-@media (max-width: 900px) { .sheet.sim-picker { height: auto; max-height: calc(100vh - 32px); overflow-y: auto; } .sim-picker .sim-picker-body { grid-template-rows: auto; } }
+@media (max-width: 900px) { .sheet.sim-picker { height: auto; max-height: calc(100vh - 32px); overflow-y: auto; } .sim-picker .sim-picker-body { grid-template-rows: auto; } .sim-picker .sim-picker-side, .sim-picker-detail { overflow: visible; } }
 
 /* What shows when part of the page fails as it draws (components/ErrorBoundary.tsx). */
 .failure-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--paper); color: var(--ink); }
