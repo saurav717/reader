@@ -4,6 +4,7 @@
 // playground's Python environment on top. The session lives on the server, so
 // leaving the tab and coming back finds the same shell, history and all.
 
+import { isStaleBuild, reloadForNewBuild } from '../lib/staleBuild';
 import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import type { JupyterServer } from '../lib/colab';
@@ -38,9 +39,28 @@ export async function hasTerminals(server: JupyterServer): Promise<boolean> {
   }
 }
 
+/**
+ * Which server terminal each of a project's tabs is, kept where every browser of the account's reads it (the
+ * project's folder: PlaygroundWorkspace backs it with .reader/terminals.json): a tab opened in another browser, or
+ * after a reload, finds the shell that is running there, rather than a new one beside it.
+ */
+export interface TerminalRegistry {
+  get(key: string): Promise<string | null>;
+  put(key: string, name: string): Promise<void>;
+}
+const registries = new Map<string, TerminalRegistry>();
+export function shareTerminals(playgroundId: string, registry: TerminalRegistry | null) {
+  if (registry) registries.set(playgroundId, registry);
+  else registries.delete(playgroundId);
+}
+/** A server the same in every browser: its Companion's id, else its address (a browser's own id for it differs). */
+const serverKey = (server: JupyterServer) => server.companionId ?? server.url.replace(/\/+$/, '');
+
 /** This page's terminal on the server: the one it had, if the server still has it (`again`), else a new one in `cwd`. */
-async function terminalName(server: JupyterServer, key: string, cwd: string, fresh: boolean): Promise<{ name: string; again: boolean }> {
-  const saved = read(sessionKey(server, key));
+async function terminalName(server: JupyterServer, key: string, cwd: string, fresh: boolean, playgroundId?: string): Promise<{ name: string; again: boolean }> {
+  const registry = playgroundId ? registries.get(playgroundId) : undefined;
+  const shared = `${serverKey(server)}|${key}`;
+  const saved = read(sessionKey(server, key)) ?? (fresh ? null : await registry?.get(shared).catch(() => null)) ?? null;
   if (saved && fresh) {
     await jupyterFetch(server, `api/terminals/${encodeURIComponent(saved)}`, { method: 'DELETE' }).catch(() => undefined);
   } else if (saved) {
@@ -58,6 +78,7 @@ async function terminalName(server: JupyterServer, key: string, cwd: string, fre
     made = await jupyterFetch<{ name: string }>(server, 'api/terminals', { method: 'POST', body: {} });
   }
   write(sessionKey(server, key), made.name);
+  await registry?.put(shared, made.name).catch(() => undefined);
   return { name: made.name, again: false };
 }
 
@@ -148,7 +169,7 @@ export default function Terminal({ server, cwd, sessionId, label, playgroundId, 
     void (async () => {
       try {
         const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
-        const { name, again } = await terminalName(server, sessionId, cwd, fresh.current);
+        const { name, again } = await terminalName(server, sessionId, cwd, fresh.current, playgroundId);
         fresh.current = false;
         if (disposed || !host.current) return;
         // Followed from now on, this pane open or not: what it runs shows as the playground's, and a toast says when it ends.
@@ -233,6 +254,8 @@ export default function Terminal({ server, cwd, sessionId, label, playgroundId, 
           term.dispose();
         };
       } catch (error) {
+        // The site was published again since this page loaded: the new build, loaded (the shells carry on and are found again).
+        if (isStaleBuild(error) && reloadForNewBuild()) return;
         if (disposed) return;
         // Mid-reconnect, the machine may not be back yet (a tunnel coming up): keep trying before giving up.
         if (retries.current > 0 && tryAgain()) return;
