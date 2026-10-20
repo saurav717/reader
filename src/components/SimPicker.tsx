@@ -4,7 +4,8 @@
 // back becomes a project (src/lib/simProject.ts), placed by the usual
 // "Where should it run?" step.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { previewFor } from '../lib/simPreviews';
 import type { SimEnv, SimFamily, Simulator, TemplateId } from '../lib/simulators';
 import { FAMILIES, SIMULATORS, TEMPLATES, needsLine, templatesFor } from '../lib/simulators';
 import { CloseIcon } from './icons';
@@ -13,6 +14,68 @@ export interface SimPick {
   sim: Simulator;
   env?: SimEnv;
   template: TemplateId;
+}
+
+const SPACES = { discrete: 'discrete actions', continuous: 'continuous actions', multi: 'mixed actions' };
+const GPU = { no: 'none: any CPU does', helps: 'optional: faster on one', needs: 'yes: a GPU (T4 or better)', rtx: 'an NVIDIA RTX GPU' };
+
+/** What the simulator (or the chosen environment) looks like: its clip, or a quiet box when there is none or it won't load. */
+function Preview({ sim, env }: { sim: Simulator; env?: SimEnv }) {
+  const preview = previewFor(sim.id, env?.id);
+  const [failed, setFailed] = useState<string | null>(null);
+  if (!preview || failed === preview.url) return <figure className="sim-preview is-missing">No preview for {sim.name}</figure>;
+  const fail = () => setFailed(preview.url);
+  return (
+    <figure className="sim-preview">
+      {preview.kind === 'video' ? (
+        <video key={preview.url} src={preview.url} autoPlay muted loop playsInline onError={fail} />
+      ) : (
+        <img key={preview.url} src={preview.url} alt={`${env?.label ?? sim.name}, running`} loading="lazy" referrerPolicy="no-referrer" onError={fail} />
+      )}
+      {preview.credit ? (
+        <figcaption>{preview.page ? <a href={preview.page} target="_blank" rel="noreferrer noopener">{preview.credit} ↗</a> : preview.credit}</figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
+/** The rest of what there is to know before picking it. */
+function Facts({ sim, env }: { sim: Simulator; env?: SimEnv }) {
+  const spaces = [...new Set(sim.envs.map((e) => e.space))].map((space) => SPACES[space]).join(', ');
+  return (
+    <dl className="sim-facts">
+      <dt>Family</dt>
+      <dd>{FAMILIES.find((f) => f.id === sim.family)?.label ?? sim.family}</dd>
+      <dt>Environments</dt>
+      <dd>
+        {sim.envs.length} here · {spaces}
+        {sim.envs.some((e) => e.pixels) ? ' · some from pixels' : ''}
+        {sim.envs.some((e) => e.hand) ? ' · dexterous hands' : ''}
+      </dd>
+      {env ? (
+        <>
+          <dt>This one</dt>
+          <dd>
+            {SPACES[env.space]}
+            {env.pixels ? ', image observations' : ''}
+            {env.hand ? ', a dexterous hand' : ''}
+          </dd>
+        </>
+      ) : null}
+      <dt>GPU</dt>
+      <dd>{GPU[sim.gpu]}</dd>
+      <dt>Colab</dt>
+      <dd>{sim.colab ? 'runs there as it comes' : 'no: a machine of your own'}</dd>
+      <dt>Systems</dt>
+      <dd>{sim.linux ? 'Linux only (no macOS)' : 'Linux, macOS, Windows'}</dd>
+      <dt>Videos</dt>
+      <dd>{sim.video ? 'recorded off-screen, shown in the Sim pane' : 'none: it doesn’t render off-screen'}</dd>
+      <dt>Interface</dt>
+      <dd>{sim.api === 'gymnasium' ? 'Gymnasium (reset / step)' : 'its own API'}</dd>
+      <dt>Installs with</dt>
+      <dd className="mono">{sim.install.join(' && ') || '—'}</dd>
+    </dl>
+  );
 }
 
 export default function SimPicker({ onClose, onPick }: { onClose: () => void; onPick: (pick: SimPick) => void }) {
@@ -33,6 +96,9 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
   const env = sim ? sim.envs.find((e) => e.id === envId) ?? sim.envs[0] : undefined;
   const choices = sim ? templatesFor(sim, env) : [];
   const chosen = template && choices.includes(template) ? template : choices[0];
+
+  const side = useRef<HTMLElement>(null);
+  useEffect(() => side.current?.scrollTo({ top: 0 }), [sim?.id]);
 
   const choose = (next: Simulator) => {
     setSim(next);
@@ -77,9 +143,10 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
             ))}
             {!shown.length ? <p className="pg-note">No simulator matches.</p> : null}
           </div>
-          <aside className="sim-picker-side">
+          <aside className="sim-picker-side" ref={side}>
             {sim ? (
               <>
+                <Preview sim={sim} env={env} />
                 <h3>{sim.name}</h3>
                 <p>{sim.good}</p>
                 <p className="sim-picker-meta">
@@ -88,6 +155,7 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
                     docs ↗
                   </a>
                 </p>
+                <Facts sim={sim} env={env} />
                 {(sim.caveats ?? []).map((caveat) => (
                   <p key={caveat} className="pg-note">
                     {caveat}
