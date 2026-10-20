@@ -370,7 +370,10 @@ export default function SimPane({
   const focusRef = useRef<string | null>(null);
   /** The project folder's runs, listed a minute at a time (Drive is slow), and the size each was last read at. */
   const keptList = useRef<{ at: number; runs: RunListing[] } | null>(null);
+  /** The folder's list being read again behind the machine's (it walks Drive: seconds, not a moment). */
+  const keptReading = useRef<Promise<void> | null>(null);
   const sourceRef = useRef('');
+  const roundRef = useRef(round);
   /** When the runs were last looked for, and where: what the pane says under Look again. */
   const [looked, setLooked] = useState<{ at: number; where: string[] } | null>(null);
 
@@ -383,8 +386,13 @@ export default function SimPane({
     if (sourceRef.current !== source) {
       sourceRef.current = source;
       runRef.current = null;
+      keptList.current = null;
     }
-    keptList.current = null;
+    // Look again lists the folder again; picking another run doesn't (the list is the same).
+    if (roundRef.current !== round) {
+      roundRef.current = round;
+      keptList.current = null;
+    }
     const look = async () => {
       let again = false;
       try {
@@ -392,9 +400,15 @@ export default function SimPane({
         const current = runRef.current && runRef.current.dir === focus ? runRef.current : null;
         const keptOnly = new Set((keptList.current?.runs ?? []).map((r) => r.dir));
         const fromMachine = connected ? await readSimRuns(folder, focus ? { dir: focus, offset: current?.offset ?? 0 } : null).catch((error: unknown) => (kept ? null : Promise.reject(error))) : null;
-        // The project's own folder: listed when the machine isn't there, else once a minute, and at Look again.
-        if (kept && (!keptList.current || !fromMachine || Date.now() - keptList.current.at > 60_000)) {
-          keptList.current = { at: Date.now(), runs: await listKeptRuns(kept).catch(() => keptList.current?.runs ?? []) };
+        // The project's own folder: listed once, then again a minute later or at Look again — waited for only when
+        // there is nothing else to show (no machine, or not listed yet); otherwise read behind, and shown the next round.
+        if (kept && (!keptList.current || Date.now() - keptList.current.at > 60_000) && !keptReading.current) {
+          const reading = listKeptRuns(kept)
+            .then((runs) => void (keptList.current = { at: Date.now(), runs }))
+            .catch(() => undefined)
+            .finally(() => (keptReading.current = null));
+          keptReading.current = reading;
+          if (!fromMachine || !keptList.current) await reading;
         }
         const onMachine = new Set((fromMachine?.runs ?? []).map((r) => r.dir));
         const extra = (keptList.current?.runs ?? []).filter((r) => !onMachine.has(r.dir));
@@ -506,7 +520,19 @@ run.finish()`}</pre>
   return (
     <div className="sim-pane" aria-live="polite">
       <div className="sim-bar">
-        <select value={run?.dir ?? focusRef.current ?? ''} onChange={(event) => setChosen(event.target.value || null)} aria-label="Run">
+        <select
+          value={chosen ?? run?.dir ?? focusRef.current ?? ''}
+          onChange={(event) => {
+            // The pick shows at once; its run is read next (the pane says so meanwhile).
+            const next = event.target.value || null;
+            focusRef.current = next;
+            runRef.current = null;
+            setMediaAt(null);
+            setDreamAt(null);
+            setChosen(next);
+          }}
+          aria-label="Run"
+        >
           {runs.map((r) => (
             <option key={r.dir} value={r.dir}>
               {r.meta.name ?? r.dir} · {shownStatus(r.meta.status, r.mtime, now)} · {ago(now - r.mtime)}
@@ -518,6 +544,12 @@ run.finish()`}</pre>
           ↻
         </button>
       </div>
+      {!run && focusRef.current ? (
+        <p className="pg-note">
+          <span className="spinner" /> Reading {listing?.meta.name ?? focusRef.current}
+          {listing?.kept && kept ? ` from ${kept.label}` : ''}…
+        </p>
+      ) : null}
       <div className="sim-status">
         <span className={`sim-pill is-${status}`}>{status === 'running' ? 'live' : status}</span>
         {sim ? <span className="mono">{sim}</span> : null}

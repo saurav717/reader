@@ -1332,6 +1332,37 @@ async function watchMachine(s: Session, key: string, host: Host, started: number
 }
 
 /** One reading of a session's machine now, between its cells. */
+/**
+ * When the machine itself started, read off it: the start of its first process (the container's, on Colab — the
+ * runtime's start), or the system's boot where there is no /proc. The same in every window joined to it, where the
+ * time this window connected is not: the app and a browser opened later would say different things.
+ */
+const STARTED_CODE = `import os, time
+def _rt_started():
+    try:
+        with open('/proc/stat') as f:
+            boot = next(int(line.split()[1]) for line in f if line.startswith('btime '))
+        with open('/proc/1/stat') as f:
+            ticks = int(f.read().rsplit(')', 1)[1].split()[19])
+        return boot + ticks / os.sysconf('SC_CLK_TCK')
+    except Exception:
+        try:
+            import subprocess
+            out = subprocess.run(['sysctl', '-n', 'kern.boottime'], capture_output=True, text=True, timeout=5).stdout
+            return float(out.split('sec =')[1].split(',')[0])
+        except Exception:
+            return None
+print(_rt_started())`;
+
+/** The machine's own start, set as the session's: what "up for" counts from in every window. */
+async function machineStarted(s: Session): Promise<void> {
+  const answer = await runQuietly(STARTED_CODE, s.scope === PAGES ? undefined : s.scope).catch(() => null);
+  const seconds = Number(answer?.ok ? answer.text.trim().split('\n').pop() : NaN);
+  // A start in the future, or before 2020, is a clock that can't be trusted: the connect time stays.
+  if (!Number.isFinite(seconds) || seconds * 1000 > Date.now() + 60_000 || seconds < 1_577_836_800) return;
+  if (s.state.runtime) set(s, { startedAt: Math.round(seconds * 1000) });
+}
+
 async function probeSession(s: Session): Promise<MachineSample | null> {
   if (!s.state.runtime || !s.state.gpuWatch || s.state.running || s.state.status !== 'idle') return null;
   try {
@@ -1562,6 +1593,7 @@ async function connectSession(s: Session, machine: Machine = s.state.machine): P
       const same = s.state.runtime?.endpoint === host.runtime.endpoint;
       set(s, { status: 'idle', runtime: host.runtime, kernel: s.kernel.id, via: 'direct', reconnecting: false, startedAt: same && s.state.startedAt ? s.state.startedAt : Date.now(), error: undefined, history: same ? s.state.history : [] });
       void adoptRuns(s, host);
+      void machineStarted(s);
       void probeSession(s).finally(() => schedulePulse(s));
     } catch (error) {
       set(s, { status: s.state.runtime ? 'lost' : 'error', error: message(error) });
@@ -1603,6 +1635,7 @@ async function connectSession(s: Session, machine: Machine = s.state.machine): P
     const same = s.state.runtime?.endpoint === runtime.endpoint;
     set(s, { status: 'idle', runtime, kernel: s.kernel.id, via: s.kernel.via, reconnecting: false, startedAt: same && s.state.startedAt ? s.state.startedAt : Date.now(), error: undefined, history: same ? s.state.history : [], sharing });
     void adoptRuns(s, colabHost(runtime, quietToken));
+    void machineStarted(s);
     void refreshUnits(googleToken);
     // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
     void probeSession(s).finally(() => schedulePulse(s));
