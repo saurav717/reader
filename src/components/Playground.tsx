@@ -16,6 +16,7 @@ import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import { simProject, simulationToolkit } from '../lib/simProject';
 import { placeWarning } from '../lib/simulators';
+import ErrorBoundary, { FailureNote } from './ErrorBoundary';
 import SimPicker from './SimPicker';
 import type { SimPick } from './SimPicker';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -658,7 +659,29 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
           onConnect={() => (setOpening(false), setAddingServer(true))}
         />
       ) : null}
-      {simPicking ? <SimPicker onClose={() => setSimPicking(false)} onPick={fromSim} /> : null}
+      {simPicking ? (
+        <ErrorBoundary
+          name="sim picker"
+          fallback={(error, retry) => (
+            <div className="scrim pg-scrim" role="presentation">
+              <div className="sheet pg-sheet" role="alertdialog" aria-label="The simulation picker failed">
+                <FailureNote error={error} title="The simulation picker failed">
+                  <div className="failure-actions">
+                    <button type="button" className="btn primary" onClick={retry}>
+                      Try again
+                    </button>
+                    <button type="button" className="btn" onClick={() => setSimPicking(false)}>
+                      Close
+                    </button>
+                  </div>
+                </FailureNote>
+              </div>
+            </div>
+          )}
+        >
+          <SimPicker onClose={() => setSimPicking(false)} onPick={fromSim} />
+        </ErrorBoundary>
+      ) : null}
       {draft ? (
         <WhereDialog
           draft={draft}
