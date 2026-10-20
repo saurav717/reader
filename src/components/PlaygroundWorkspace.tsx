@@ -16,7 +16,7 @@ import type { Checkpoint } from '../lib/telemetry';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, SyncReport } from '../lib/playground';
-import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, syncRules, unionHost, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { shellWord, AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -62,7 +62,7 @@ import { implementationFor, loadImplementation, subscribeImplement } from '../li
 import { currentDbName, subscribeDb } from '../lib/db';
 import { useEnsureProject } from '../lib/implementationProject';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
-import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
+import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataHost, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
 import { mayStopIdle } from '../lib/idleWork';
 import ProjectStart from './ProjectStart';
@@ -201,6 +201,14 @@ const backendOf = (playground: Playground): Backend | null => backendOfPlaygroun
 /** `backLabel` names where Back goes when the workspace is opened somewhere other than the Playground — a paper's Explain page. */
 /** By playground: what the idle stop does before it stops a Colab runtime — the files view's Bring back, while the results are copied rather than mounted. */
 const beforeIdleStop = new Map<string, () => Promise<void>>();
+/** Where a project's runs are kept, beside the machine: the data place (runs go there as they go) and the project's own folder (where runs from before were brought back), read as one. */
+function keptRunsHost(playground: Playground, home: FileHost): FileHost | undefined {
+  const own = playground.home.kind === 'machine' ? null : home;
+  const data = dataHost(playground);
+  if (data && own) return unionHost(data, own);
+  return data ?? own ?? undefined;
+}
+
 /** By playground: a file the Explain page asked to open, opened by the files view when it shows. */
 const openFromExplain = new Map<string, string>();
 
@@ -300,6 +308,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   const connected = colab.status === 'idle' || colab.status === 'busy';
   // The project's own folder, for the Explain page.
   const explainHost = useMemo(() => homeHost(playground), [playground, servers]);
+  const explainKept = useMemo(() => keptRunsHost(playground, explainHost), [playground, explainHost]);
   const usable = Boolean(backend) && colabAvailable(settings.googleClientId);
   // A move of the files under way, from any browser: followed from here, and finished here when it is done.
   const { move, problem: moveProblem } = useMove(playground, connected);
@@ -407,7 +416,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
             projectId={playground.id}
             host={explainHost}
             where={`Files in ${explainHost.label} · runs on ${machineName}${connected ? '' : ' (not connected)'}`}
-            place={{ machineFolder: connected ? machineRoot(playground) : null, kept: playground.home.kind === 'machine' ? undefined : explainHost }}
+            place={{ machineFolder: connected ? machineRoot(playground) : null, kept: explainKept }}
             consoleLines={playground.console.map((entry) => entry.command)}
             metricTexts={playground.console.flatMap((entry) => {
               const run = colab.runs[consoleKey(playground.id, entry.id)];
@@ -1345,9 +1354,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const linkTarget = !filesHere
     ? null
     : proxy && proxy.kind !== 'jupyter'
-      ? colabTarget(proxy, machineName, machineRoot(playground), playground.sync.ignore)
+      ? colabTarget(proxy, machineName, machineRoot(playground), syncRules(playground).ignore)
       : computeServer && computeServer.id !== filesHere.id
-        ? serverTarget(computeServer, machineRoot(playground), playground.sync.ignore)
+        ? serverTarget(computeServer, machineRoot(playground), syncRules(playground).ignore)
         : null;
   const [link, setLink] = useState<LinkState | null>(null);
   const linkKey = linkTarget ? `${linkTarget.url}|${linkTarget.token}|${linkTarget.folder}|${linkTarget.ignore}|${linkTarget.label}` : '';
@@ -1876,6 +1885,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   const consoleCells = playground.console.flatMap((entry, index) => entryRuns(playground.id, machines, entry).map(({ key, machine }) => ({ key, id: entry.id, label: `command ${index + 1}${pooled ? ` · machine ${machine.rank}` : ''}` })));
   const nbCells = useSyncExternalStore(subscribeNotebook, () => notebookFor(notebookKey(playground.id)));
+  // Where the Sim pane reads runs from beside the machine (kept stable: it restarts its reading when this changes).
+  const keptRuns = useMemo(() => keptRunsHost(playground, home), [playground, home]);
   // A file named on the Explain page: opened here once the Files tab is back.
   useEffect(() => {
     const path = openFromExplain.get(playground.id);
@@ -2943,7 +2954,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
             ) : rightTab === 'sim' ? (
-              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} kept={playground.home.kind === 'machine' ? undefined : home} />
+              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} kept={keptRuns} />
             ) : (
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
             )}
@@ -3351,6 +3362,11 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
       ) : null}
       {filesComputer && folder !== undefined ? <OnOtherComputers playground={playground} filesComputer={filesComputer} folder={folder} /> : null}
       <p className="pg-note">{mount?.mounted ? 'While it is mounted the rules below say what stays on the machine (and goes to the data place) and what is yours; nothing needs copying or bringing back.' : 'The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.'}</p>
+      {syncRules(playground).runsInData ? (
+        <p className="pg-note">
+          <b>Runs</b> (<code>runs/</code>) stay on {machineName} and go to the data place as they run — not to {homeLabel}. The Sim pane and Explain read them there. To keep them with the code instead: Storage &amp; compute → Data &amp; results.
+        </p>
+      ) : null}
       {mount?.mounted ? null : (
         <div className="pg-machine-actions">
           <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPush}>

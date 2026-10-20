@@ -108,7 +108,7 @@ export interface Playground {
   /** The papers it came from or is about. */
   cites: Cite[];
   /** What is copied to the machine and what is left (gitignore-like, one a line), what comes back after a run, and whether the folder is mounted there instead (src/lib/computeLink.ts). */
-  sync: { ignore: string; bringBack: string; mount?: boolean };
+  sync: { ignore: string; bringBack: string; mount?: boolean; /** Runs (runs/) kept with the code, rather than in the data place (syncRules). */ runsWithCode?: boolean };
   /** The commands run in its console, newest last. */
   console: ConsoleEntry[];
   /** On Colab: stop the runtime after this many minutes with nothing running, while the tab is open; 0 is never. */
@@ -163,6 +163,44 @@ export interface Snapshot {
 
 export const DEFAULT_IGNORE = ['.git/', '.reader/', 'reader-meta/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
 export const DEFAULT_BRING_BACK = ['runs/', 'results/', 'outputs/', '*.csv', '*.json', '*.png'].join('\n');
+
+/** Whether the project's data place is away from the machine (Drive, or a computer of yours): somewhere that stays. */
+export const dataAway = (playground: Pick<Playground, 'data'>) => (playground.data ? playground.data.kind !== 'machine' : driveConnected());
+
+/**
+ * The rules as they apply: what isn't copied (and, mounted, stays on the machine), and what comes back after a run.
+ * Runs — koios_telemetry's runs/ — go with the data, unless the project keeps them with the code: with a data place
+ * away from the machine they stay on it, mounted or copied, and koios_telemetry pushes each run's folder there as it
+ * goes; they don't cross to the computer with the code. With no such place (the data is on the machine's own disk,
+ * gone with a Colab runtime) they come back with the code, as before.
+ */
+export function syncRules(playground: Pick<Playground, 'sync' | 'data'>): { ignore: string; bringBack: string; runsInData: boolean } {
+  const runsInData = !playground.sync.runsWithCode && dataAway(playground);
+  if (!runsInData) return { ignore: playground.sync.ignore, bringBack: playground.sync.bringBack, runsInData };
+  const ignore = /^\s*\/?runs\/?\s*$/m.test(playground.sync.ignore) ? playground.sync.ignore : `${playground.sync.ignore.replace(/\s*$/, '')}\nruns/`;
+  return { ignore, bringBack: playground.sync.bringBack.split('\n').filter((line) => !/^\s*\/?runs\/?\s*$/.test(line)).join('\n'), runsInData };
+}
+
+/** Two folders read as one: what the first has, then what only the second has. For runs kept in the data place and in the project's folder. */
+export function unionHost(first: FileHost, second: FileHost | null | undefined): FileHost {
+  if (!second) return first;
+  return {
+    label: `${first.label} and ${second.label}`,
+    async list(path = '') {
+      const [a, b] = await Promise.all([first.list(path).catch(() => []), second.list(path).catch(() => [])]);
+      const names = new Set(a.map((entry) => entry.name));
+      return sortEntries([...a, ...b.filter((entry) => !names.has(entry.name))]);
+    },
+    async read(path) {
+      return (await first.read(path).catch(() => null)) ?? (await second.read(path).catch(() => null));
+    },
+    async readBase64(path) {
+      const a = first.readBase64 ? await first.readBase64(path).catch(() => null) : null;
+      return a ?? (second.readBase64 ? await second.readBase64(path).catch(() => null) : null);
+    },
+    write: (path, text) => first.write(path, text),
+  };
+}
 
 // --------------------------------------------------------- the servers ----
 
@@ -1193,7 +1231,8 @@ export interface SyncReport {
  */
 export async function pushFolder(playground: Playground, machine: FileHost): Promise<SyncReport> {
   const home = homeHost(playground);
-  const files = await walk(home, (path) => matchesAny(playground.sync.ignore, path));
+  const rules = syncRules(playground);
+  const files = await walk(home, (path) => matchesAny(rules.ignore, path));
   const report: SyncReport = { sent: [], skipped: [], back: [] };
   for (const file of files) {
     if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
@@ -1215,7 +1254,8 @@ const MEDIA_BACK_LIMIT = 25 * 1024 * 1024;
 export async function pullBack(playground: Playground, machine: FileHost): Promise<SyncReport> {
   const home = homeHost(playground);
   const report: SyncReport = { sent: [], skipped: [], back: [] };
-  const files = await walk(machine, (path, dir) => matchesAny(playground.sync.ignore, path) && !matchesAny(playground.sync.bringBack, path) && dir);
+  const rules = syncRules(playground);
+  const files = await walk(machine, (path, dir) => matchesAny(rules.ignore, path) && !matchesAny(rules.bringBack, path) && dir);
   // What is home already, a folder at a time: a video or image of the same size isn't fetched again.
   const homeDirs = new Map<string, Promise<RuntimeEntry[]>>();
   const homeSize = async (path: string) => {
@@ -1224,7 +1264,7 @@ export async function pullBack(playground: Playground, machine: FileHost): Promi
     return (await homeDirs.get(dir)!).find((entry) => entry.path === path)?.size ?? null;
   };
   for (const file of files) {
-    if (!matchesAny(playground.sync.bringBack, file.path)) continue;
+    if (!matchesAny(rules.bringBack, file.path)) continue;
     if (isBinaryPath(file.path) && machine.readBase64 && home.writeBase64 && file.size !== null && file.size <= MEDIA_BACK_LIMIT) {
       // A run's videos and images too: with the machine gone (a Colab runtime stopped), they are what is left of it.
       if ((await homeSize(file.path)) === file.size) continue;
@@ -1258,7 +1298,8 @@ export async function pullBack(playground: Playground, machine: FileHost): Promi
 export async function pullEdits(playground: Playground, machine: FileHost): Promise<SyncReport> {
   const home = homeHost(playground);
   const report: SyncReport = { sent: [], skipped: [], back: [] };
-  const files = await walk(machine, (path) => matchesAny(playground.sync.ignore, path));
+  const rules = syncRules(playground);
+  const files = await walk(machine, (path) => matchesAny(rules.ignore, path));
   for (const file of files) {
     if ((file.size !== null && file.size > SYNC_LIMIT) || isBinaryPath(file.path)) {
       report.skipped.push(file.path);

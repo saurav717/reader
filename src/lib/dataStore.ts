@@ -26,11 +26,11 @@ async function call<T>(path: string, body: unknown): Promise<T> {
   if (!response.ok) throw new Error(answer.error || `The proxy answered ${response.status}.`);
   return answer;
 }
-import { driveFolderName } from './driveFiles';
+import { driveFolderName, driveHost } from './driveFiles';
 import { ensureDriveToken, ensureFolder } from './google';
 import { KOIOS_PYLIB } from './koiosHelper';
 import { workerAddress } from './moves';
-import { driveConfigNow, type Playground } from './playground';
+import { driveConfigNow, driveConnected, serverById, serverHost, type FileHost, type Playground } from './playground';
 import { ROOT_FOLDER } from './sidecar';
 import KOIOS_DATA_PY_TEXT from '../../companion/reader_companion/koios_data.py?raw';
 
@@ -94,6 +94,26 @@ export async function dataFolderId(playground: Pick<Playground, 'id' | 'title'>)
 }
 
 export const dataFolderLink = (folderId: string) => `https://drive.google.com/drive/folders/${folderId}`;
+
+const dataHosts = new Map<string, FileHost>();
+/**
+ * The project's data place as the page reads it: Koios/Data/<project> in Drive, or koios-data/<project> on a computer
+ * of yours; null when the data is on the machine's own disk. Where koios_telemetry pushes each run's folder (runs/…).
+ */
+export function dataHost(playground: Pick<Playground, 'id' | 'title' | 'data'>): FileHost | null {
+  const place = dataPlaceOf(playground, driveConnected());
+  const name = dataFolderNameOf(playground);
+  if (place.kind === 'drive') {
+    const key = `drive|${name}`;
+    if (!dataHosts.has(key)) dataHosts.set(key, { ...driveHost(driveConfigNow, name, DATA_FOLDER), label: 'Google Drive' });
+    return dataHosts.get(key)!;
+  }
+  if (place.kind === 'server') {
+    const server = serverById(place.serverId);
+    return server ? serverHost(server, `koios-data/${name}`) : null;
+  }
+  return null;
+}
 
 const starting = new Map<string, Promise<DataLink>>();
 
