@@ -69,6 +69,41 @@ def _has_lib(name: str) -> bool:
         return False
 
 
+# Where glvnd looks for EGL vendors; NVIDIA's EGL library, where a GPU machine has it (Colab keeps it in /usr/lib64-nvidia).
+_EGL_VENDOR_DIRS = ("/usr/share/glvnd/egl_vendor.d", "/etc/glvnd/egl_vendor.d")
+_NVIDIA_EGL = ("/usr/lib64-nvidia/libEGL_nvidia.so*", "/usr/lib/x86_64-linux-gnu/libEGL_nvidia.so*", "/usr/lib/aarch64-linux-gnu/libEGL_nvidia.so*", "/usr/lib64/libEGL_nvidia.so*")
+
+
+def nvidia_egl(vendor_dirs=_EGL_VENDOR_DIRS, libraries=_NVIDIA_EGL) -> str | None:
+    """NVIDIA's EGL made known to the EGL loader, where the machine has the library but no vendor file names it.
+
+    A Colab GPU runtime ships libEGL_nvidia but not glvnd's 10_nvidia.json, so EGL finds no device and MuJoCo can't
+    render (MuJoCo's own Colab tutorial writes that file first). Here it is written to a temporary folder and named in
+    __EGL_VENDOR_LIBRARY_FILENAMES, which needs no root; nothing is done where a vendor file for NVIDIA is there, or
+    the variable is set already. Answers the file it points at, or None.
+    """
+    if os.environ.get("__EGL_VENDOR_LIBRARY_FILENAMES"):
+        return None
+    for folder in vendor_dirs:
+        try:
+            if any("nvidia" in name.lower() for name in os.listdir(folder)):
+                return None
+        except OSError:
+            continue
+    if not (any(glob.glob(pattern) for pattern in libraries) or _has_lib("EGL_nvidia")):
+        return None
+    import tempfile
+
+    path = os.path.join(tempfile.gettempdir(), "koios_10_nvidia.json")
+    try:
+        with open(path, "w") as f:
+            json.dump({"file_format_version": "1.0.0", "ICD": {"library_path": "libEGL_nvidia.so.0"}}, f)
+    except OSError:
+        return None
+    os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = path
+    return path
+
+
 def headless(force: bool = False) -> dict:
     """Off-screen rendering, chosen before a simulator is imported.
 
@@ -83,12 +118,17 @@ def headless(force: bool = False) -> dict:
             # so it is chosen only when there is one, and OSMesa, slower but anywhere, otherwise.
             gpu = shutil.which("nvidia-smi") is not None or bool(glob.glob("/dev/dri/renderD*"))
             if _has_lib("EGL") and (gpu or not _has_lib("OSMesa")):
+                if gpu:
+                    nvidia_egl()
                 os.environ["MUJOCO_GL"] = "egl"
                 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
             elif _has_lib("OSMesa"):
                 os.environ["MUJOCO_GL"] = "osmesa"
                 os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
-    return {key: os.environ.get(key) for key in ("MUJOCO_GL", "PYOPENGL_PLATFORM", "SDL_VIDEODRIVER")}
+        elif os.environ.get("MUJOCO_GL") == "egl" and shutil.which("nvidia-smi"):
+            # EGL asked for by hand on a GPU: it needs NVIDIA's vendor file all the same.
+            nvidia_egl()
+    return {key: os.environ.get(key) for key in ("MUJOCO_GL", "PYOPENGL_PLATFORM", "SDL_VIDEODRIVER", "__EGL_VENDOR_LIBRARY_FILENAMES")}
 
 
 if os.environ.get("KOIOS_HEADLESS", "1") != "0":
