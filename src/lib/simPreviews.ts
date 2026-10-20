@@ -1,8 +1,9 @@
 /**
  * What each simulator in the picker (src/components/SimPicker.tsx) looks like: a short clip or picture from its own
  * documentation or repository, shown beside its details. Every address was fetched and checked to be the media it
- * says; one that stops working shows a "no preview" box, never a broken image. An environment with a clip of its own
- * (CartPole, LunarLander, Humanoid…) shows that one instead of the simulator's.
+ * says; one that stops working shows a "no preview" box, never a broken image. Picking an environment shows that
+ * environment's own clip when it has one (most do), so the scene can be seen before it is chosen; one without shows the
+ * simulator's, marked as such.
  */
 
 export interface SimPreview {
@@ -12,6 +13,8 @@ export interface SimPreview {
   credit?: string;
   /** The page it comes from. */
   page?: string;
+  /** It shows the environment asked about, not the simulator in general. */
+  own?: boolean;
 }
 
 const SIMS: Record<string, SimPreview> = {
@@ -73,6 +76,16 @@ const ENVS: Record<string, Record<string, SimPreview>> = {
 /** The preview for a simulator, or for one of its environments when that has its own. */
 export function previewFor(simId: string, envId?: string): SimPreview | null {
   const own = envId ? ENVS[simId]?.[envId] : undefined;
-  if (own) return { credit: SIMS[simId]?.credit, page: SIMS[simId]?.page, ...own };
+  if (own) return { credit: SIMS[simId]?.credit, page: SIMS[simId]?.page, ...own, own: true };
   return SIMS[simId] ?? null;
+}
+
+const warmed = new Set<string>();
+/** Start fetching a clip before it is asked for (the pointer is over its environment), so it shows at once when picked. */
+export function warmPreview(preview: SimPreview | null) {
+  if (!preview || preview.kind === 'video' || warmed.has(preview.url)) return;
+  warmed.add(preview.url);
+  const img = new Image();
+  img.referrerPolicy = 'no-referrer';
+  img.src = preview.url;
 }
