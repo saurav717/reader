@@ -19,6 +19,7 @@ import { OPEN_PROJECT } from './lib/implementationProject';
 import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
+import { notesDrive } from './lib/notesDrive';
 import CollectionView from './components/CollectionView';
 import ProjectsPage, { OPEN_SETTINGS, RailProjects, askForNewProject, lastProject, projectView } from './components/Projects';
 import Nav, { EdgeTabs, PanelBar, type NavModel, type NavPanel } from './components/Nav';
@@ -33,7 +34,7 @@ import { RailCompute } from './components/Compute';
 import { chipInRail } from './lib/compute';
 import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
-import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
+import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES, setNotesDrive } from './lib/notes';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import type { SettingsPlace } from './lib/openSettings';
@@ -435,9 +436,11 @@ export default function App() {
   // Set while rendering, not in an effect: Explain's own effect, which runs
   // first, looks in Drive as soon as it opens.
   useMemo(() => {
-    setExplainDrive(
-      driveConnected && settings.googleClientId.trim() ? explainDrive((id) => papersNow.current.find((paper) => paper.id === id), settings) : null,
-    );
+    const paperFor = (id: string) => papersNow.current.find((paper) => paper.id === id);
+    const connected = driveConnected && settings.googleClientId.trim();
+    setExplainDrive(connected ? explainDrive(paperFor, settings) : null);
+    // The paper's notes, the same way: kept in its folder, and read back from there.
+    setNotesDrive(connected ? notesDrive(paperFor, settings) : null);
   }, [driveConnected, settings]);
   // The side the haze is drawn from outlives the peek, so it fades out in place.
   const [hazeSide, setHazeSide] = useState<Exclude<Peek, null>>('left');

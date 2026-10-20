@@ -4,7 +4,9 @@
 //  a PDF page) and from its Explain page (a passage, a whole section, a
 //  diagram, a code cell and its output, a table, an equation, a caveat). One
 //  list of pieces per paper, in the order you put them, kept in IndexedDB the
-//  way the explanation is.
+//  way the explanation is — and, with Drive connected, in the paper's folder
+//  there too (notesDrive.ts), so another browser has them and a cleared one
+//  gets them back.
 //
 //  A kept piece is a copy of it as it was drawn: the maths typeset, the code
 //  coloured, a diagram still a drawing, a figure's picture held in the note
@@ -14,7 +16,8 @@
 // ===========================================================================
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { db } from './db';
+import { currentDbName, db } from './db';
+import type { DriveMark } from './explain';
 import { cleanClip } from './sanitize';
 
 /** Where a kept piece came from, so it can be shown there again. */
@@ -73,10 +76,12 @@ export type NoteBlock =
 
 export type NoteClip = Extract<NoteBlock, { kind: 'clip' }>;
 
-interface Kept {
+export interface Kept {
   blocks: NoteBlock[];
   /** When they were last changed: a piece added, written in, moved or deleted. */
   updated?: string;
+  /** Their file in Drive, as last written or read. */
+  drive?: DriveMark;
 }
 
 const KEY = (paperId: string) => `notes:${paperId}`;
@@ -85,6 +90,8 @@ const EMPTY: NoteBlock[] = [];
 const cache = new Map<string, NoteBlock[]>();
 const updated = new Map<string, string>();
 const loading = new Set<string>();
+/** The database each paper's notes were last read from: ones read from another (nobody's, before the sign-in came back) are read again. */
+const readFrom = new Map<string, string>();
 const listeners = new Set<() => void>();
 /** Counts every change, so a view of all the papers' notes knows when to look again. */
 let version = 0;
@@ -99,20 +106,35 @@ export function subscribeNotes(listener: () => void) {
 }
 
 async function load(paperId: string) {
-  if (cache.has(paperId) || loading.has(paperId)) return;
+  const from = currentDbName();
+  if ((cache.has(paperId) && readFrom.get(paperId) === from) || loading.has(paperId)) return;
   loading.add(paperId);
   try {
     const kept = await db.getKv<Kept>(KEY(paperId));
-    // Something added while this was being read is kept, after what was read.
-    const added = cache.get(paperId) ?? [];
-    if (kept?.updated && !updated.has(paperId)) updated.set(paperId, kept.updated);
-    cache.set(paperId, [...(kept?.blocks ?? []), ...added.filter((block) => !kept?.blocks.some((old) => old.id === block.id))]);
+    // The database moved on while this was read: the load that follows the move reads the new one.
+    if (currentDbName() !== from) return;
+    readFrom.set(paperId, from);
+    // Something added while this was being read — or here while another database was open — is kept, after what was read.
+    const added = (cache.get(paperId) ?? []).filter((block) => !kept?.blocks.some((old) => old.id === block.id));
+    if (kept?.updated && (!updated.has(paperId) || kept.updated > updated.get(paperId)!)) updated.set(paperId, kept.updated);
+    if (kept?.drive) marks.set(paperId, kept.drive);
+    cache.set(paperId, [...(kept?.blocks ?? []), ...added]);
+    if (added.length) persistLocal(paperId);
   } catch {
     if (!cache.has(paperId)) cache.set(paperId, []);
   } finally {
     loading.delete(paperId);
     changed();
   }
+  void checkDrive(paperId);
+}
+
+/** This browser's copy: the pieces, when they changed, and where their file in Drive is. */
+function persistLocal(paperId: string) {
+  const kept: Kept = { blocks: cache.get(paperId) ?? [], updated: updated.get(paperId) };
+  const mark = marks.get(paperId);
+  if (mark) kept.drive = mark;
+  void db.setKv(KEY(paperId), kept).catch(() => undefined);
 }
 
 function put(paperId: string, blocks: NoteBlock[]) {
@@ -120,7 +142,116 @@ function put(paperId: string, blocks: NoteBlock[]) {
   cache.set(paperId, blocks);
   updated.set(paperId, now);
   changed();
-  void db.setKv(KEY(paperId), { blocks, updated: now } satisfies Kept).catch(() => undefined);
+  persistLocal(paperId);
+  scheduleDriveSave(paperId);
+}
+
+// ---------------------------------------------------------------------------
+// Drive: the notes kept in the paper's folder (notesDrive.ts)
+// ---------------------------------------------------------------------------
+
+export interface NotesDriveAdapter {
+  /** The copy in Drive: null when there is none, no `kept` when it is the one `known` already describes. */
+  load(paperId: string, known?: DriveMark): Promise<{ file: DriveMark; kept?: Kept } | null>;
+  save(paperId: string, kept: Kept, known?: DriveMark): Promise<DriveMark>;
+}
+
+export type NotesDriveState = { state: 'checking' } | { state: 'saving' } | { state: 'saved'; link?: string } | { state: 'error'; message: string } | { state: 'none' };
+
+let drive: NotesDriveAdapter | null = null;
+/** Each paper's file in Drive, as last written or read. */
+const marks = new Map<string, DriveMark>();
+const driveStates = new Map<string, NotesDriveState>();
+const driveTimers = new Map<string, number>();
+const checks = new Map<string, Promise<void>>();
+/** How long a save waits for more changes: the words typed into a note are one write, not one per letter. */
+const DRIVE_DEBOUNCE_MS = 1500;
+
+/** Set by the app when Drive is connected, and cleared when it is not. */
+export function setNotesDrive(adapter: NotesDriveAdapter | null) {
+  drive = adapter;
+  if (adapter) for (const paperId of cache.keys()) void checkDrive(paperId);
+}
+
+export const notesDriveStateFor = (paperId: string): NotesDriveState | undefined => driveStates.get(paperId);
+
+function setDriveState(paperId: string, next: NotesDriveState) {
+  driveStates.set(paperId, next);
+  changed();
+}
+
+function scheduleDriveSave(paperId: string) {
+  if (!drive) return;
+  window.clearTimeout(driveTimers.get(paperId));
+  setDriveState(paperId, { state: 'saving' });
+  driveTimers.set(
+    paperId,
+    window.setTimeout(() => {
+      driveTimers.delete(paperId);
+      void saveToDrive(paperId);
+    }, DRIVE_DEBOUNCE_MS),
+  );
+}
+
+async function saveToDrive(paperId: string) {
+  const adapter = drive;
+  const blocks = cache.get(paperId);
+  // Nothing to say, and no file yet: no empty file is made; one that exists is emptied, since that is a change too.
+  if (!adapter || !blocks || (!blocks.length && !marks.get(paperId))) return;
+  try {
+    const written = await adapter.save(paperId, { blocks, updated: updated.get(paperId) ?? new Date().toISOString() }, marks.get(paperId));
+    marks.set(paperId, written);
+    // A change made while it was being written goes in the next save; this one only records where the file is.
+    persistLocal(paperId);
+    setDriveState(paperId, { state: 'saved', link: written.link });
+  } catch (error) {
+    setDriveState(paperId, { state: 'error', message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/** Looks in Drive for this paper's notes, and takes them when they are newer than the ones here. */
+function checkDrive(paperId: string): Promise<void> {
+  const adapter = drive;
+  if (!adapter) return Promise.resolve();
+  const inFlight = checks.get(paperId);
+  if (inFlight) return inFlight;
+  setDriveState(paperId, { state: 'checking' });
+  const check = (async () => {
+    try {
+      const found = await adapter.load(paperId, marks.get(paperId));
+      const local = cache.get(paperId) ?? [];
+      const localAt = updated.get(paperId) ?? '';
+      if (!found) {
+        // Nothing in Drive yet: notes made before Drive was connected go up now.
+        if (local.length) scheduleDriveSave(paperId);
+        else setDriveState(paperId, { state: 'none' });
+        return;
+      }
+      const remote = found.kept;
+      if (remote && (remote.updated ?? '') > localAt) {
+        cache.set(paperId, remote.blocks);
+        if (remote.updated) updated.set(paperId, remote.updated);
+        marks.set(paperId, found.file);
+        persistLocal(paperId);
+        setDriveState(paperId, { state: 'saved', link: found.file.link });
+        changed();
+        return;
+      }
+      if (!marks.has(paperId)) {
+        marks.set(paperId, found.file);
+        persistLocal(paperId);
+      }
+      // This browser has changes Drive has not seen.
+      if (remote && localAt > (remote.updated ?? '')) scheduleDriveSave(paperId);
+      else setDriveState(paperId, { state: 'saved', link: found.file.link });
+    } catch (error) {
+      setDriveState(paperId, { state: 'error', message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      checks.delete(paperId);
+    }
+  })();
+  checks.set(paperId, check);
+  return check;
 }
 
 /** A paper's notes, read from IndexedDB the first time they are asked for. */
@@ -242,6 +373,11 @@ export function useHoveredPaper(): string | null {
 export function forgetNotes(paperId: string) {
   cache.delete(paperId);
   updated.delete(paperId);
+  marks.delete(paperId);
+  readFrom.delete(paperId);
+  driveStates.delete(paperId);
+  window.clearTimeout(driveTimers.get(paperId));
+  driveTimers.delete(paperId);
   changed();
   void db.deleteKv(KEY(paperId)).catch(() => undefined);
 }
