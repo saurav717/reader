@@ -47,12 +47,12 @@ class TerminalJobsTest(unittest.TestCase):
         start = (
             "import os, sys, fcntl, termios\n"
             "os.setsid()\n"
-            "t = os.open(sys.argv[1], os.O_RDWR)\n"
+            "t = int(sys.argv[1])\n"
             "fcntl.ioctl(t, termios.TIOCSCTTY, 0)\n"
             "[os.dup2(t, n) for n in (0, 1, 2)]\n"
             "os.execvpe('bash', ['bash', '--norc', '--noprofile', '-i'], {**os.environ, 'PS1': '$ '})\n"
         )
-        self.process = subprocess.Popen([sys.executable, "-c", start, os.ttyname(tty)], close_fds=True)
+        self.process = subprocess.Popen([sys.executable, "-c", start, str(tty)], pass_fds=(tty,))
         os.close(tty)
         self.pid, self.fd = self.process.pid, fd
         self.drain = Drain(fd)
