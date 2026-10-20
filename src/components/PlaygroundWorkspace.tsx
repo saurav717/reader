@@ -65,6 +65,8 @@ import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSumm
 import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataHost, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
 import { mayStopIdle } from '../lib/idleWork';
+import { offerProject, readProjectFiles } from '../lib/projectScreen';
+import { projectsOf } from '../lib/projects';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
@@ -1339,6 +1341,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [currentKey, home, machine]);
   const filesRef = useRef(files);
   filesRef.current = files;
+  const activeRef = useRef<string | undefined>(undefined);
+  activeRef.current = current?.where === 'home' ? current.path : undefined;
+  // Ask AI reads this project's files while it is on screen: the one in front, the open tabs (unsaved edits too), the
+  // rest of its code and notes within a question's budget (projectScreen.ts). Nothing once the workspace goes.
+  const { collections } = useStore();
+  const researchProject = projectsOf(collections).find((item) => item.project.playgroundId === playground.id)?.name;
+  useEffect(() => {
+    offerProject(async () => {
+      const open = filesRef.current.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, unsaved: file.text !== file.saved }));
+      const read = await readProjectFiles(home, open, activeRef.current);
+      return {
+        title: playground.title,
+        kind: researchProject ? `the code of the research project “${researchProject}”` : playground.kind === 'project' ? 'a playground project' : 'a playground notebook',
+        where: `Its files are in ${home.label}; its code runs on ${machineName}.`,
+        ...read,
+      };
+    });
+    return () => offerProject(null);
+  }, [home, playground.id, playground.title, playground.kind, machineName, researchProject]);
   // A real terminal when the machine is a Jupyter server that offers one (a Reader Companion does); the command box otherwise, and on Colab.
   const computeServer = playground.compute.kind === 'server' ? servers.find((server) => server.id === (playground.compute.kind === 'server' ? playground.compute.serverId : '')) : undefined;
   const [terminals, setTerminals] = useState<boolean | null>(null);

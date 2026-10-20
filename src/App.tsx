@@ -9,6 +9,7 @@ import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, figureImages, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, pageOnScreen, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
+import { projectOnScreen } from './lib/projectScreen';
 import MoveToDrive from './components/MoveToDrive';
 import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
@@ -961,6 +962,8 @@ export default function App() {
 
   /** What the Claude window may know about the page, read at the moment of sending. */
   const readScreen = useCallback(async (): Promise<Screen> => {
+    // The project open on screen — a playground, or a research project's code — with its files.
+    const project = (await projectOnScreen()) ?? undefined;
     const readingId = view.kind === 'paper' ? view.id : paperInWorkspace;
     if (readingId) {
       const paper = papers.find((p) => p.id === readingId);
@@ -1009,6 +1012,7 @@ export default function App() {
           ...(notebook ? ['.nb-cells'] : []),
         ];
         return {
+          project,
           page: pageNow(covered),
           where: notebook?.open ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : explainPage ? 'Reading a paper, with its Explain page open — nothing written on it yet; the page offers to start' : 'Reading a paper',
           paper: {
@@ -1048,7 +1052,7 @@ export default function App() {
             ? 'Looking over every research project side by side'
             : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper', calendar: 'On the Calendar page — their meetings, by day, week or month' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
-    return { where: usageOpen ? 'On the Usage page — who has signed in, and what they used of the site’s accounts' : where, library, page: pageNow() };
+    return { where: usageOpen ? 'On the Usage page — who has signed in, and what they used of the site’s accounts' : where, library, page: pageNow(), project };
   }, [view, papers, collections, highlights, explainOpen, paperInWorkspace, usageOpen]);
 
   const closeAssistant = useCallback(() => setAssistantOpen(false), []);

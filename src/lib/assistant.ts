@@ -37,6 +37,7 @@
 //  the proxy owner's search key, and most questions are about the paper.
 // ===========================================================================
 
+import type { ScreenProject } from './projectScreen';
 import { replaying, SHOWCASE_KEY } from './replayFlag';
 import type AnthropicClient from '@anthropic-ai/sdk';
 import { DeepSeekStream, proxyReason } from './deepseek';
@@ -533,6 +534,8 @@ export interface Screen {
   notebook?: { text: string; runtime?: string; open: boolean; running?: string };
   /** The rest of the window as the reader sees it — any page, panel or dialog — read off the page (screen.ts, `pageOnScreen`). */
   page?: { address: string; title?: string; text: string };
+  /** The project open on screen — a playground, or a research project's code — with its files (projectScreen.ts). */
+  project?: ScreenProject;
 }
 
 export interface ScreenExplanation {
@@ -545,7 +548,7 @@ export interface ScreenExplanation {
   covers?: boolean;
 }
 
-export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation' | 'notebook' | 'page';
+export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation' | 'notebook' | 'page' | 'project';
 
 export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['paper', 'Paper details', 'title, authors, venue, identifiers and abstract'],
@@ -556,6 +559,7 @@ export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['explanation', 'The explanation', 'the paper’s Explain page, when it is open — all of it, and the part in view'],
   ['notebook', 'The Colab notebook', 'your notebook on the Colab tab — every cell, what it printed, which is running — whenever the paper has one'],
   ['library', 'The list on screen', 'the titles in the collection you are looking at'],
+  ['project', 'The project’s files', 'when a playground or a project’s code is open: the file in front of you (unsaved edits too), your open tabs, and the rest of its code and notes, the most telling first, up to a question’s worth — and the list of every file'],
   ['page', 'The rest of the page', 'everything else in view — Home, the Library, a project or its workspace, the Playground, the Calendar, Settings, Discover, Notes, any open dialog — with its buttons, tabs and fields; never passwords or keys'],
 ];
 
@@ -579,7 +583,7 @@ function loadPrefs(): Prefs {
   const base: Prefs = {
     model: DEFAULT_MODEL,
     // All on: the point of the window is not having to paste the screen into it.
-    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true },
+    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true, project: true },
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}') as Partial<Prefs>;
@@ -773,7 +777,7 @@ let state: AssistantState = {
   threadId: null,
   history: [],
   live: false,
-  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true } },
+  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true, page: true, project: true } },
   keys: { anthropic: false, deepseek: false, gemini: false },
   own: { anthropic: false, deepseek: false, gemini: false },
   site: { anthropic: 'checking', deepseek: 'checking', gemini: 'checking' },
@@ -1334,6 +1338,20 @@ export function screenBlock(screen: Screen, on: Record<ContextKey, boolean>): st
   if (on.library && !p && screen.library?.length) {
     parts.push(tag('list_on_screen', screen.library.slice(0, 80).map((t) => `- ${t}`).join('\n')));
   }
+  const project = on.project !== false ? screen.project : undefined;
+  if (project) {
+    parts.push(
+      tag(
+        'project_on_screen',
+        [
+          `“${project.title}”, ${project.kind}. ${project.where}`,
+          'Its files are in <file_in_front>, <open_tab> and <project_file> blocks: answer questions about the code from them, citing paths and lines. A file listed but not given was left out for room: say which, and ask the reader to open it (or select the part that matters) to bring it in.',
+        ].join('\n'),
+      ),
+    );
+    if (project.active) parts.push(tag('file_in_front', project.active.text || '(empty)', { path: project.active.path, unsaved: project.active.unsaved ? 'yes: edits not saved yet' : '' }));
+    for (const file of project.open) parts.push(tag('open_tab', file.text || '(empty)', { path: file.path, unsaved: file.unsaved ? 'yes' : '' }));
+  }
   if (on.page && screen.page?.text) {
     parts.push(tag('page_on_screen', clip(screen.page.text, PAGE_MAX_CHARS), { address: screen.page.address, title: screen.page.title }));
   }
@@ -1353,6 +1371,19 @@ export function systemBlocks(screen: Screen, on: Record<ContextKey, boolean>) {
         title: screen.paper.title,
         truncated: cut ? `yes, first ${FULL_TEXT_MAX_CHARS.toLocaleString('en')} characters only` : '',
       }),
+      cache_control: { type: 'ephemeral' },
+    });
+  }
+  // The project's files, cached: they change less than the question, so a follow-up reads them from the cache.
+  const project = on.project !== false ? screen.project : undefined;
+  if (project && (project.files.length || project.listing.length)) {
+    const listing = project.listing.slice(0, 600).map((file) => `${file.path}${file.size !== null ? ` (${file.size} B)` : ''}`).join('\n');
+    blocks.push({
+      type: 'text',
+      text: [
+        tag('project_listing', listing, { project: project.title, files: project.listing.length, not_read_for_room: project.left || '' }),
+        ...project.files.map((file) => tag('project_file', file.text || '(empty)', { path: file.path })),
+      ].join('\n\n'),
       cache_control: { type: 'ephemeral' },
     });
   }
