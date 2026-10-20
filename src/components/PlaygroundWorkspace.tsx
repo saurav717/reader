@@ -37,12 +37,13 @@ import type { PaneLayout } from './Gutter';
 import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
-import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
+import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, ExplainIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
 import CliAgent, { queueCliRequest } from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
 import SimPane from './SimPane';
+import ExplainerPane from './ExplainerPane';
 import ExperimentFiler from './ExperimentFiler';
 import { CATALOGUE_FILE, KOIOS_TELEMETRY_PY, TELEMETRY_FILE } from '../lib/simProject';
 import { catalogueJson } from '../lib/simulators';
@@ -72,13 +73,14 @@ type Tab = 'notebook' | 'files';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
 type Primary = 'explorer' | 'search' | 'outline' | 'sync' | null;
 /** The right-hand pane's tabs: the agent, and the machine's numbers as a run goes. */
-type RightTab = 'agent' | 'runtime' | 'metrics' | 'tensorboard' | 'sim';
+type RightTab = 'agent' | 'runtime' | 'metrics' | 'tensorboard' | 'sim' | 'explain';
 const RIGHT_TABS: { id: RightTab; label: string; title: string }[] = [
   { id: 'agent', label: 'Agent', title: 'Claude Code, Codex, or the page’s own agent' },
   { id: 'runtime', label: 'Runtime', title: 'The machine: GPU, memory, disk, live' },
   { id: 'metrics', label: 'Metrics', title: 'The numbers the runs print: loss, accuracy' },
   { id: 'tensorboard', label: 'TensorBoard', title: 'The scalars your runs log for TensorBoard' },
   { id: 'sim', label: 'Sim', title: 'Simulation runs: episodes, videos, world-model dreams, notes, what looks wrong' },
+  { id: 'explain', label: 'Explain', title: 'An illustrated account of the project: how the code works, what was done, what the runs show' },
 ];
 /** Which agent the pane shows: Claude Code or Codex on the machine, the page's own, or the terminal agents of a Companion. */
 type AgentMode = 'claude' | 'codex' | 'reader' | 'cli';
@@ -1849,6 +1851,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   const consoleCells = playground.console.flatMap((entry, index) => entryRuns(playground.id, machines, entry).map(({ key, machine }) => ({ key, id: entry.id, label: `command ${index + 1}${pooled ? ` · machine ${machine.rank}` : ''}` })));
   const nbCells = useSyncExternalStore(subscribeNotebook, () => notebookFor(notebookKey(playground.id)));
+  // Where the Explain pane finds the runs: the machine while it is connected, and the project's own folder.
+  const explainPlace = useMemo(() => ({ machineFolder: connected ? machineRoot(playground) : null, kept: playground.home.kind === 'machine' ? undefined : home }), [connected, playground, home]);
   const metricCells = useMemo(
     () => [
       ...playground.console.flatMap((entry, index) =>
@@ -2090,6 +2094,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     { id: 'runtimePane', label: 'View: Show Runtime', run: () => (setRightTab('runtime'), setAgentOpen(true)) },
     { id: 'metricsPane', label: 'View: Show Metrics', run: () => (setRightTab('metrics'), setAgentOpen(true)) },
     { id: 'simPane', label: 'View: Show Simulation Runs', run: () => (setRightTab('sim'), setAgentOpen(true)) },
+    { id: 'explainPane', label: 'View: Explain This Project', run: () => (setRightTab('explain'), setAgentOpen(true)) },
     { id: 'tensorboard', label: 'View: Show TensorBoard', run: () => (setRightTab('tensorboard'), setAgentOpen(true)) },
     { id: 'claudeCode', label: 'Agent: Claude Code', run: () => (setAgentMode('claude'), setRightTab('agent'), setAgentOpen(true)) },
     { id: 'codex', label: 'Agent: Codex', run: () => (setAgentMode('codex'), setRightTab('agent'), setAgentOpen(true)) },
@@ -2497,6 +2502,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             </button>
             <button type="button" className={`vs-act${agentOpen && rightTab === 'sim' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'sim'} onClick={() => toggleRight('sim')} title="Simulation runs — episodes, videos, dreams (in the right-hand pane)" aria-label="Simulation">
               <SimGlyph />
+            </button>
+            <button type="button" className={`vs-act${agentOpen && rightTab === 'explain' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'explain'} onClick={() => toggleRight('explain')} title="Explain — an illustrated account of the project: the code, what was done, what the runs show (in the right-hand pane)" aria-label="Explain this project">
+              <ExplainIcon size={19} />
             </button>
             <button type="button" className={`vs-act is-agent${agentOpen && rightTab === 'agent' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'agent'} onClick={() => toggleRight('agent')} title={`The agent — Claude Code, Codex (${keyLabel('ctrl+alt+i')})`} aria-label="The agent">
               <SparkleIcon size={19} />
@@ -2907,6 +2915,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               )
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
+            ) : rightTab === 'explain' ? (
+              <ExplainerPane
+                projectId={playground.id}
+                host={home}
+                where={`The files are kept in ${home.label}; the code runs on ${machineName}${connected ? '' : ' (not connected now)'}.`}
+                place={explainPlace}
+                consoleLines={playground.console.map((entry) => entry.command)}
+                metricTexts={metricCells.map((cell) => ({ label: cell.label, text: cell.text }))}
+                onOpen={(path) => void open('home', path)}
+              />
             ) : rightTab === 'sim' ? (
               <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} kept={playground.home.kind === 'machine' ? undefined : home} />
             ) : (
