@@ -1,5 +1,7 @@
 import os
 import pty
+import subprocess
+import sys
 import time
 import unittest
 
@@ -39,19 +41,29 @@ class Drain:
 @unittest.skipUnless(os.path.exists("/bin/bash"), "needs bash")
 class TerminalJobsTest(unittest.TestCase):
     def setUp(self):
-        pid, fd = pty.fork()
-        if pid == 0:
-            os.execvpe("bash", ["bash", "--norc", "--noprofile", "-i"], {**os.environ, "PS1": "$ "})
-        self.pid, self.fd = pid, fd
+        # Not pty.fork(): by now the test process has threads, and a fork of one can deadlock in the child on macOS.
+        # A fresh Python, single-threaded, makes the terminal its own (setsid, then TIOCSCTTY) and becomes bash.
+        fd, tty = pty.openpty()
+        start = (
+            "import os, sys, fcntl, termios\n"
+            "os.setsid()\n"
+            "t = os.open(sys.argv[1], os.O_RDWR)\n"
+            "fcntl.ioctl(t, termios.TIOCSCTTY, 0)\n"
+            "[os.dup2(t, n) for n in (0, 1, 2)]\n"
+            "os.execvpe('bash', ['bash', '--norc', '--noprofile', '-i'], {**os.environ, 'PS1': '$ '})\n"
+        )
+        self.process = subprocess.Popen([sys.executable, "-c", start, os.ttyname(tty)], close_fds=True)
+        os.close(tty)
+        self.pid, self.fd = self.process.pid, fd
         self.drain = Drain(fd)
         self.assertTrue(wait_for(lambda: b"$ " in self.drain()), "the shell's prompt")
 
     def tearDown(self):
         try:
             os.kill(self.pid, 9)
-            os.waitpid(self.pid, 0)
         except OSError:
             pass
+        self.process.wait()
         os.close(self.fd)
 
     def test_at_the_prompt_nothing_runs(self):
