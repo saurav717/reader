@@ -9863,3 +9863,5 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .pg-other-name { font-weight: 600; color: var(--ink); }
 .pg-other-state { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
 .pg-other-row small { flex-basis: 100%; }
+.mv-idle { align-items: flex-start; margin: 10px 2px 0; line-height: 1.5; color: var(--ink-2); }
+.mv-idle input { margin-top: 3px; }
