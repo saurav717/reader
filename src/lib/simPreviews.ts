@@ -15,7 +15,14 @@ export interface SimPreview {
   page?: string;
   /** It shows the environment asked about, not the simulator in general. */
   own?: boolean;
+  /** What to know about it, said on it: "the real robot, not the simulation". */
+  note?: string;
+  /** Its size, when it is big enough to wait for a click (HEAVY). */
+  bytes?: number;
 }
+
+/** Clips at least this big load when asked for, not as the environment is picked. */
+export const HEAVY = 15_000_000;
 
 const SIMS: Record<string, SimPreview> = {
   gymnasium: { url: 'https://gymnasium.farama.org/_images/cart_pole.gif', kind: 'gif', credit: 'Gymnasium docs', page: 'https://gymnasium.farama.org/environments/classic_control/cart_pole/' },
@@ -83,7 +90,7 @@ export function previewFor(simId: string, envId?: string): SimPreview | null {
 const warmed = new Set<string>();
 /** Start fetching a clip before it is asked for (the pointer is over its environment), so it shows at once when picked. */
 export function warmPreview(preview: SimPreview | null) {
-  if (!preview || preview.kind === 'video' || warmed.has(preview.url)) return;
+  if (!preview || preview.kind === 'video' || (preview.bytes ?? 0) >= HEAVY || warmed.has(preview.url)) return;
   warmed.add(preview.url);
   const img = new Image();
   img.referrerPolicy = 'no-referrer';

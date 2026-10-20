@@ -5,7 +5,7 @@
 // "Where should it run?" step.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { previewFor, warmPreview } from '../lib/simPreviews';
+import { HEAVY, previewFor, warmPreview } from '../lib/simPreviews';
 import ErrorBoundary from './ErrorBoundary';
 import type { SimEnv, SimFamily, Simulator, TemplateId } from '../lib/simulators';
 import { FAMILIES, SIMULATORS, TEMPLATES, needsLine, templatesFor } from '../lib/simulators';
@@ -25,20 +25,31 @@ function Preview({ sim, env }: { sim: Simulator; env?: SimEnv }) {
   const preview = previewFor(sim.id, env?.id);
   const [failed, setFailed] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
+  const [asked, setAsked] = useState<string | null>(null);
   if (!preview || failed === preview.url) return <figure className="sim-preview is-missing">No preview of {env && sim.envs.length > 1 ? env.label : sim.name}</figure>;
   const fail = () => setFailed(preview.url);
   const done = () => setLoaded(preview.url);
   // Which scene this is: the environment's own clip, or the simulator in general when the environment has none.
   const what = env && sim.envs.length > 1 ? (preview.own ? env.label : `${sim.name} in general: no clip of ${env.label}`) : null;
+  const wait = (preview.bytes ?? 0) >= HEAVY && asked !== preview.url;
   return (
     <figure className="sim-preview">
-      {preview.kind === 'video' ? (
+      {wait ? (
+        <button type="button" className="btn sim-preview-load" onClick={() => setAsked(preview.url)}>
+          Load the clip ({Math.round((preview.bytes ?? 0) / 1e6)} MB)
+        </button>
+      ) : preview.kind === 'video' ? (
         <video key={preview.url} src={preview.url} autoPlay muted loop playsInline onError={fail} onLoadedData={done} />
       ) : (
         <img key={preview.url} src={preview.url} alt={`${env?.label ?? sim.name}, running`} referrerPolicy="no-referrer" onError={fail} onLoad={done} />
       )}
-      {loaded !== preview.url ? <span className="sim-preview-wait">Loading {preview.own && env ? env.label : sim.name}…</span> : null}
-      {what ? <span className={`sim-preview-what${preview.own ? '' : ' is-general'}`}>{what}</span> : null}
+      {!wait && loaded !== preview.url ? <span className="sim-preview-wait">Loading {preview.own && env ? env.label : sim.name}…</span> : null}
+      {what || preview.note ? (
+        <span className={`sim-preview-what${preview.own ? '' : ' is-general'}`}>
+          {what}
+          {preview.note ? <small>{what ? ' · ' : ''}{preview.note}</small> : null}
+        </span>
+      ) : null}
       {preview.credit ? (
         <figcaption>{preview.page ? <a href={preview.page} target="_blank" rel="noreferrer noopener">{preview.credit} ↗</a> : preview.credit}</figcaption>
       ) : null}
