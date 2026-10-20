@@ -93,6 +93,13 @@ export async function recall(scope: string): Promise<ScopeRecord | null> {
   return rows.get(scope) ?? null;
 }
 
+/** Every row of the account: which machine each project was on last, and from which browser. */
+export async function recallAll(force = false): Promise<ScopeRecord[]> {
+  if (!available()) return [];
+  await readAll(force);
+  return [...rows.values()];
+}
+
 /** The row for a scope as this browser holds it now, without asking. */
 export const held = (scope: string): ScopeRecord | undefined => rows.get(scope);
 

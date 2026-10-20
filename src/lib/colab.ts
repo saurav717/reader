@@ -20,7 +20,7 @@
 
 import { replaying } from './replayFlag';
 import { api, apiFetch, hasProxy } from './api';
-import { forget as forgetElsewhere, noteRun, recall, remember } from './continuity';
+import { forget as forgetElsewhere, noteRun, recall, recallAll, remember } from './continuity';
 import type { RunNote, ScopeRecord } from './continuity';
 import { colabToken, connectColab, dropColab, hasColabAccess } from './google';
 import type { MachineSample, MachineSpecs } from './telemetry';
@@ -1510,6 +1510,43 @@ const colabRuntimeHeld = (notebook: string): Runtime | undefined => [...sessions
  */
 export const connect = (machine: Machine = current.state.machine): Promise<void> => connectSession(current, machine);
 
+/**
+ * A project's machine joined when it is still running, as the project opens — after a reload (the page updated),
+ * or in another browser of the account's — so what runs there is seen and followed rather than looking stopped.
+ * Never a new machine: on Colab only a runtime the account has now (Colab's list), that this tab had or that the
+ * account's row for the project names (continuity.ts), is joined; a Jupyter server only when the row says the
+ * project ran there. 'needs-click' when it is running but joining needs Google's window (no grant held in this
+ * browser yet): the page says so. `by` names the browser that ran it last.
+ */
+export async function joinIfRunning(scope: string): Promise<{ state: 'joined' | 'needs-click' | 'none'; by?: string }> {
+  const s = sessionOfScope(scope);
+  if (!s || s.state.status === 'idle' || s.state.status === 'busy' || s.state.status === 'connecting') return { state: 'none' };
+  const row = scope !== PAGES ? await recall(scope).catch(() => null) : null;
+  if (s.state.backend.kind === 'jupyter') {
+    if (!row || !Object.keys(row.kernels ?? {}).length) return { state: 'none' };
+    await connectSession(s).catch(() => undefined);
+    return { state: 'joined', by: row.by };
+  }
+  const own = notebookOf(s.state.backend);
+  const known = [row?.endpoint, (own ? readRuntime(own) : undefined)?.endpoint, s.state.runtime?.endpoint].filter((e): e is string => Boolean(e));
+  if (!known.length) return { state: 'none' };
+  const googleToken = clientIdNow ? await colabToken(clientIdNow).catch(() => null) : null;
+  if (!googleToken) return { state: 'needs-click', by: row?.by };
+  let live: Runtime | undefined;
+  try {
+    const { runtimes } = await relay<{ runtimes: Runtime[] }>('/colab/runtimes', googleToken);
+    live = runtimes.find((r) => known.includes(r.endpoint));
+  } catch {
+    return { state: 'none' };
+  }
+  if (!live) return { state: 'none' };
+  // Held for the connect, which takes a runtime held before it asks Colab for one: this one, whichever notebook it was given for.
+  if (own) s.notebook = own;
+  s.state = { ...s.state, runtime: live };
+  await connectSession(s).catch(() => undefined);
+  return { state: s.state.status === 'idle' || s.state.status === 'busy' ? 'joined' : 'none', by: row?.by };
+}
+
 async function connectSession(s: Session, machine: Machine = s.state.machine): Promise<void> {
   if (s.state.status === 'connecting') return;
   if (s.state.backend.kind === 'jupyter') {
@@ -1959,6 +1996,49 @@ async function stopSessionRuntime(s: Session): Promise<void> {
 }
 
 /** Stops every Colab machine this tab has a runtime on — what spends units — whichever sessions are on them. */
+/** A Colab runtime of the account's, wherever it was started: this tab, the app, another browser. */
+export interface AccountRuntime {
+  endpoint: string;
+  /** "Colab · T4". */
+  label: string;
+  /** The projects (scopes) that were last on it, by the account's rows. */
+  scopes: string[];
+  /** The browser that used it last ("Chrome on a Mac"). */
+  by?: string;
+  /** This tab is connected to it. */
+  here: boolean;
+}
+
+/**
+ * Every Colab runtime the account has now, from Colab's own list — the ones this tab has and the ones started in the
+ * app or another browser — with the projects on each. Null when Colab can't be asked from here without Google's
+ * window (no grant held in this browser yet).
+ */
+export async function accountRuntimes(): Promise<AccountRuntime[] | null> {
+  const googleToken = clientIdNow ? await colabToken(clientIdNow).catch(() => null) : null;
+  if (!googleToken) return null;
+  const { runtimes } = await relay<{ runtimes: Runtime[] }>('/colab/runtimes', googleToken);
+  const rows = await recallAll(true).catch(() => []);
+  const here = new Set([...sessions.values()].filter((s) => s.state.status === 'idle' || s.state.status === 'busy').map((s) => s.state.runtime?.endpoint));
+  return runtimes.map((runtime) => {
+    const on = rows.filter((row) => row.endpoint === runtime.endpoint).sort((a, b) => b.updatedAt - a.updatedAt);
+    return { endpoint: runtime.endpoint, label: machineLabel(runtime), scopes: on.map((row) => row.scope), by: on[0]?.by, here: here.has(runtime.endpoint) };
+  });
+}
+
+/** One of the account's Colab runtimes stopped, wherever it was started: no more units spent on it. */
+export async function stopAccountRuntime(endpoint: string): Promise<void> {
+  const mine = [...sessions.values()].filter((s) => s.state.backend.kind === 'colab' && s.state.runtime?.endpoint === endpoint);
+  if (mine.length) {
+    for (const s of mine) await stopSessionRuntime(s);
+    return;
+  }
+  const googleToken = clientIdNow ? await colabToken(clientIdNow).catch(() => null) : null;
+  if (!googleToken) throw new Error('Connect Colab in this browser first (from a project’s chip), then stop it here.');
+  await relay('/colab/runtimes/stop', googleToken, { method: 'POST', body: { endpoint } });
+  forgetRuntime(endpoint);
+}
+
 export async function stopColabRuntimes(): Promise<void> {
   const stopped = new Set<string>();
   for (const s of [...sessions.values()]) {

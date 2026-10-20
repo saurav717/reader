@@ -9,14 +9,14 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import type { Backend, JupyterServer } from '../lib/colab';
 import { renewRuntimeProxy } from '../lib/colab';
 import { COMPUTE_SHELL, MOUNT_VERSION, colabTarget, linkCompute, linkState, mountThroughCompanion, mountWords, pushThroughCompanion, remoteLine, renewAt, serverTarget, unmountThroughCompanion, type LinkState } from '../lib/computeLink';
-import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, prepareNotebook, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
+import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, joinIfRunning, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, prepareNotebook, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
 import { latestCheckpoint } from '../lib/telemetry';
 import type { Checkpoint } from '../lib/telemetry';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, SyncReport } from '../lib/playground';
-import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, syncRules, unionHost, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, readMeta, writeMeta, secureCompanions, serverById, shellCell, syncRules, unionHost, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { shellWord, AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -34,7 +34,7 @@ import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
 import Gutter, { DEFAULT_LAYOUT, TREE_FOLD, loadLayout, readLayout, saveLayout } from './Gutter';
 import type { PaneLayout } from './Gutter';
-import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
+import Terminal, { forgetTerminal, hasTerminals, shareTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { attachFolder, attachedWords, detach, listAttached } from '../lib/shares';
@@ -209,6 +209,9 @@ function keptRunsHost(playground: Playground, home: FileHost): FileHost | undefi
   return data ?? own ?? undefined;
 }
 
+/** A project's terminal tabs and the server terminal each is, for every browser (in the project's .reader/). */
+const TERMINALS_FILE = 'terminals.json';
+
 /** By playground: a file the Explain page asked to open, opened by the files view when it shows. */
 const openFromExplain = new Map<string, string>();
 
@@ -247,6 +250,16 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
     if (!backend) return;
     chooseBackend(backend, playground.id);
     if (playground.compute.kind === 'colab') setMachine(playground.compute.machine);
+    // Still running — after a reload (the site updated), or from another browser of the account's: joined, so what
+    // runs there (cells, commands, terminals, agents) is seen and followed, never left looking stopped. Never a new machine.
+    let open = true;
+    void joinIfRunning(playground.id).then(({ state, by }) => {
+      if (!open) return;
+      if (state === 'needs-click') setNote(`This project's Colab runtime is still running${by ? ` (last used in ${by})` : ''}. Connect from the chip to join it — what runs there carries on; nothing is restarted.`);
+    });
+    return () => {
+      open = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playground.id, playground.compute.kind === 'server' ? playground.compute.serverId : playground.compute.shared ? 'colab-shared' : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
 
@@ -1460,6 +1473,55 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setShells(next);
     writeSession(shellsKey, next);
   };
+  // The terminals, for every browser of the account's: which tabs the project has, and which server terminal each is,
+  // kept in its folder (.reader/terminals.json). A reload, or another browser, finds the shells running there — a
+  // training started in one, an agent's — rather than opening new ones beside them.
+  const termsRead = useRef(false);
+  useEffect(() => {
+    termsRead.current = false;
+    let live = true;
+    const readTerms = async (): Promise<{ tabs: string[]; names: Record<string, string> }> => {
+      try {
+        const kept = JSON.parse((await readMeta(home, TERMINALS_FILE)) ?? '{}') as { tabs?: string[]; names?: Record<string, string> };
+        return { tabs: Array.isArray(kept.tabs) ? kept.tabs : [], names: kept.names && typeof kept.names === 'object' ? kept.names : {} };
+      } catch {
+        return { tabs: [], names: {} };
+      }
+    };
+    shareTerminals(playground.id, {
+      get: async (key) => (await readTerms()).names[key] ?? null,
+      put: async (key, name) => {
+        const kept = await readTerms();
+        kept.names[key] = name;
+        await writeMeta(home, TERMINALS_FILE, `${JSON.stringify(kept)}\n`);
+      },
+    });
+    void readTerms().then((kept) => {
+      if (!live) return;
+      const mine = readSession<string[]>(shellsKey, []);
+      const extra = kept.tabs.filter((tab) => tab.startsWith(playground.id) && !mine.includes(tab));
+      if (extra.length) keepShells([...(mine.length ? mine : [playground.id]), ...extra]);
+      termsRead.current = true;
+    });
+    return () => {
+      live = false;
+      shareTerminals(playground.id, null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [home, playground.id]);
+  useEffect(() => {
+    // The tabs as they are now, once the folder's list has been read (so a new browser's lone tab doesn't replace it).
+    if (!termsRead.current) return;
+    void (async () => {
+      try {
+        const kept = JSON.parse((await readMeta(home, TERMINALS_FILE)) ?? '{}') as { tabs?: string[]; names?: Record<string, string> };
+        if (JSON.stringify(kept.tabs ?? []) === JSON.stringify(shells)) return;
+        await writeMeta(home, TERMINALS_FILE, `${JSON.stringify({ tabs: shells, names: kept.names ?? {} })}\n`);
+      } catch {
+        // the folder can't be reached now: the next change writes it
+      }
+    })();
+  }, [shells, home]);
   /** A new terminal: on the project's first machine, or on a pool member (its id after an `@`, so the tab comes back to it). */
   const addShell = (member: string | null = null) => {
     const id = `${playground.id}~${shortId()}${member ? `@${member}` : ''}`;

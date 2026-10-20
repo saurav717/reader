@@ -6,6 +6,7 @@
 // colours, full-screen programs (htop, vim, a progress bar) all work, as in
 // any terminal — with the delay of a round trip to the runtime.
 
+import { isStaleBuild, reloadForNewBuild } from '../lib/staleBuild';
 import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { b64, shellCall, unb64 } from '../lib/kernelShell';
@@ -119,6 +120,8 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
           term.dispose();
         };
       } catch (error) {
+        // The site was published again since this page loaded: the new build, loaded (the shells carry on and are found again).
+        if (isStaleBuild(error) && reloadForNewBuild()) return;
         if (disposed) return;
         setState('failed');
         setProblem(error instanceof Error ? error.message : String(error));
