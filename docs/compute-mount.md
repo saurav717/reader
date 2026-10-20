@@ -14,7 +14,7 @@ This needs Koios Companion **0.19.0 or later** on the computer that has the file
 
 ## 1. Turning it on
 
-Storage & compute → **Sync** → **Mount the folder on <machine>**. The setting is kept with the project. Whenever the
+The **Sync** panel (the circling-arrows icon in the narrow bar left of the explorer) → **Mount the folder on <machine>**. The setting is kept with the project. Whenever the
 machine doesn't have the folder mounted (a new Colab runtime, say), the page starts the mount again. The chip above
 the terminal reads **Mounted on Colab ⇄ live** while it is up. From a terminal on the computer with the files:
 

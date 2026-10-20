@@ -193,13 +193,20 @@ Each step was chosen so the next could be checked against something real.
 | 8 | Review of `close()` while away | `flush` raised EIO when the laptop was unreachable, which would crash a training script writing a log. It now leaves the file queued and returns success. |
 | 9 | "Away" test: the socket closed under a live mount, a write made, the server started again | FUSE passed. The **mirror failed**: a file written while away was taken for "something that was there before the mirror started" and never sent. That baseline now applies to the first tree only. |
 | 10 | Background fill, reads that wait, a durable write queue, keep-awake, notebook cells in the folder, named tunnel and Argo | Tests for each (section 7). In the away test, a 3 MB file never opened was readable with the laptop gone. |
-| 11 | A real tunnel from the sandbox (`tests/live_tunnel.py`) | **Could not be done here**. Cloudflare handed out the address (`agenda-virginia-pic-packed.trycloudflare.com`), because that is an HTTPS call. But `cloudflared` couldn't resolve `_v2-origintunneld._tcp.argotunnel.com` or open TCP 7844 to the edge. That is the sandbox's network, not the code. |
+| 11 | A real tunnel from the sandbox (`tests/live_tunnel.py`) | **Could not be done there**. Cloudflare handed out the address (`agenda-virginia-pic-packed.trycloudflare.com`), because that is an HTTPS call. But `cloudflared` couldn't resolve `_v2-origintunneld._tcp.argotunnel.com` or open TCP 7844 to the edge. That is the sandbox's network, not the code. It was done later on a Mac (step 20). |
 | 12 | Measured copy against mount, with simulated distance (`tests/bench_mount.py`) | Section 6. |
 | 13 | The suite on Python 3.9 (the oldest the Companion supports, and the Mac's Homebrew Python) | The mount's tests passed. Seven tests in two older modules failed. `mover.py` packed with `tarfile.open` in streaming gzip mode with a `compresslevel`, which needs 3.12; it now gzips the stream itself. `test_paper.py` used a union type (`bytes` or `str`) in an annotation evaluated at run time; it now has `from __future__ import annotations`. |
 | 14 | The suite run again and again | `ThroughTheLink` failed about once in six runs: the daemon mounted, but the Companion was told it hadn't. A start/stop loop (60 runs) showed why. Several of the daemon's threads wrote `status.json` through **one shared part file**, so it could end up half one write and half the other, and unreadable. Each thread now writes a part file of its own. |
 | 15 | The same loop, timing `stop` | **Every stop took 10 s** and ended in SIGKILL. libfuse takes SIGTERM for itself and acts on it only at the next request. And the daemon, once it did exit, stayed a zombie of the process that started it, so `stop` thought it was still running. Now the daemon ends by itself when its mount goes, a thread reaps it, and `stop` treats a zombie as gone. Stop takes 0.05 s, and the suite runs in about 60 s instead of 140 s. |
+| 16 | The suite on a Mac (Homebrew Python 3.14) | Every mount test passed (22, the 3 FUSE ones skipped: macOS has no FUSE), including the page's one call through a real Jupyter server, in the mirror mode. **Four older tests failed and one hung**; the commit before the mount work failed the same way, so they were Mac-only bugs from before. |
+| 17 | The four failures (#324) | **`/var` is `/private/var` on a Mac:** `koios pull` compared a resolved path with an unresolved one. Code fix, and the `koios run` test compares resolved paths. **A zsh theme's `PS1`** (powerlevel10k, exported by an activated venv) reached `koios shell`'s bash, which printed "bad substitution" instead of a prompt; the remote shell now drops inherited prompt settings. **The developer's own `/Applications/Koios.app`** was found before the test's moved app; the usual places became a setting the test empties. |
+| 18 | The hangs (#324, #325, #326, #327) | Three tests opened a terminal with `pty.fork()` from a process that had threads by then, and **on macOS such a child can deadlock before it execs**. `koios shell` itself did the same inside the Jupyter kernel. Each now starts the terminal from a fresh single-threaded Python that takes it as its own (`setsid`, `TIOCSCTTY`). The first try at that gave no output at all: the terminal was closed on one side before the other had opened it, so the reader saw it as ended. It is now handed over open (`pass_fds`). The remaining hang was **closing a terminal that a leftover `sleep` still held**, which blocks on macOS; the cleanup now ends the shell's whole session and reads while it waits. Every waiting test has a time limit, and `test_jobs` has a watchdog that prints every stack after 60 s. |
+| 19 | The suite on the Mac again | **`OK (skipped=3)`**, in about a minute: all 177 tests, the three FUSE tests skipped. |
+| 20 | `tests/live_tunnel.py` on the Mac, over a real quick tunnel | **The mount works through Cloudflare.** Section 6.2 has the numbers. The run showed three gaps in the script, now fixed: it said nothing while a new address took a minute to resolve; it reported the round trip as 0.0 ms, because the mirror reads nothing on demand; and it kept nothing. It now says what it is waiting for, and gives the fix for a cached "no such name". A connection of its own times 20 small requests and a 6 MB read in either mode, and `--save` writes the numbers to a file. |
 
 ## 6. What was measured
+
+### 6.1 Copy against mount, at three simulated distances
 
 `companion/tests/bench_mount.py` runs both ways on one computer:
 
@@ -244,7 +251,47 @@ at disk speed. A file written on the machine is sent while it is being closed, s
 your computer. That is why the "write back" time measured as 0.*
 
 What the numbers don't cover: a real Cloudflare path (its own latency, and its throughput for large reads), Colab's
-disk, and a laptop on Wi-Fi. `tests/live_tunnel.py` measures the first one, and section 9 gives the steps.
+disk, and a laptop on Wi-Fi. Section 6.2 covers the first and the last.
+
+### 6.2 Over a real Cloudflare tunnel
+
+`tests/live_tunnel.py` was run on a MacBook Air over Wi-Fi, through a real quick tunnel
+(`contractors-securities-trucks-intro.trycloudflare.com`). Both ends ran on the Mac: the Companion's socket served the
+folder, and the daemon mounted it by dialling the tunnel's public address. So every byte went out to Cloudflare and
+came back in, crossing the Wi-Fi twice where a Colab run crosses it once. The Mac has no FUSE, so this was the mirror
+mode, which copies every file first.
+
+The baseline is the same script and mode with no tunnel (`KOIOS_LIVE_LOCAL=1 KOIOS_LIVE_MODE=mirror`), median of three
+runs. It ran in the Linux container the feature was built in, not on the Mac. The raw numbers are in
+`docs/compute-mount-live.json`.
+
+![The mirror, with and without a real Cloudflare tunnel](compute-mount/tunnel-vs-local.svg)
+
+*Figure 10. What the tunnel adds. A save reaches the other side in 0.24 s against 0.22 s without the tunnel, and a
+write comes back in 0.59 s against 0.46 s. Both times are mostly the mount's own timers (it looks for changes
+every 0.5 s on your computer and every 0.7 s in the mirror), so the tunnel adds a few hundredths of a second to the first and
+about a tenth to the second. The first copy is where the tunnel costs: 6.4 MB took 4.8 s, about 1.3 MB/s, against a
+quarter of a second without it.*
+
+| | No tunnel | Real tunnel | What the tunnel adds |
+| --- | --- | --- | --- |
+| Opening the tunnel | — | 7.2 s | once per Companion start |
+| The mount ready (mirror: the tree and every file) | 0.46 s | 6.19 s | 5.7 s |
+| First copy: 201 files, 6.4 MB | 0.26 s | 4.78 s (≈ 1.3 MB/s) | 4.5 s |
+| A save here → there, median (max) | 0.22 s (0.42) | 0.24 s (0.43) | ≈ 0.02 s |
+| A write there → here, median (max) | 0.46 s (0.68) | 0.59 s (0.75) | ≈ 0.13 s |
+| Round trip of a small request | 0.9 ms | not measured (fixed since) | — |
+
+What it shows:
+
+- **Edits cross as fast as the mount's own timers allow.** The real tunnel barely changes how quickly a save on one
+  side shows on the other.
+- **Throughput is the tunnel's cost.** 1.3 MB/s is the figure to plan around for the first copy, and this run
+  understates it: the bytes crossed the Mac's Wi-Fi twice. The FUSE mode (Colab) needs it less, because only files of
+  2 MB or less are sent before the mount is ready, Python files first; everything else follows in the background.
+  For a project with many large files, a named tunnel with Argo (section 6 of compute-mount.md) is where to look.
+- **What still needs measuring:** a Colab run (FUSE, one crossing), and the round trip and MB/s over the tunnel,
+  which the fixed script now reports.
 
 ## 7. The tests
 
@@ -258,10 +305,10 @@ disk, and a laptop on Wi-Fi. `tests/live_tunnel.py` measures the first one, and 
 | `test_awake` | caffeinate / systemd-inhibit are started with the first mount and stopped after the last; turned off by the setting | Stand-in processes |
 | `test_cloudflare` | Setup makes the tunnel, ingress, DNS record and Argo, and reuses them when run again. Without Argo billing the tunnel still works. The API token is never saved. The tunnel's token goes in the environment, not on the command line. | A stand-in for Cloudflare's API |
 | `scripts/compute-link.test.mjs` | The page's mount calls, their errors, and the words shown | Stand-in fetch |
-| `tests/live_tunnel.py` | The mount over a real tunnel, measured | **Real Cloudflare; not run here** (section 5, step 11) |
+| `tests/live_tunnel.py` | The mount over a real tunnel, measured | **Real Cloudflare**; run on a Mac (section 6.2) |
 
-Totals at the last run: 177 Companion tests pass on Python 3.9 and 3.13 (1 skipped, as before), the page's 75 related tests pass, and
-`tsc -b` is clean.
+Totals at the last run: 177 Companion tests pass on Linux with Python 3.9 and 3.14 (1 skipped, as before) and on a Mac
+with Python 3.14 (3 skipped: no FUSE). The page's 75 related tests pass, and `tsc -b` is clean.
 
 ## 8. Which limits are the mount's, and which the tunnel's
 
@@ -287,13 +334,13 @@ flowchart LR
     t2["quick tunnel: new address each start<br/>→ named tunnel"]
     t3["quick tunnel: no Argo, made for testing<br/>→ named tunnel"]
     t4["Argo needs a domain and billing<br/>→ optional"]
-    t5["sandbox blocks port 7844<br/>→ run the live test elsewhere"]
+    t5["first copy ≈ 1.3 MB/s on a quick tunnel<br/>→ FUSE sends small files first · named tunnel"]
     t1 ~~~ t2 ~~~ t3 ~~~ t4 ~~~ t5
   end
   T -. "a dropped tunnel looks like a sleeping laptop:<br/>the mount's handling covers both" .-> M
 ```
 
-*Figure 10. The limits, sorted. Only one can't be engineered away: the code lives on your laptop. For a run of
+*Figure 11. The limits, sorted. Only one can't be engineered away: the code lives on your laptop. For a run of
 several days with the laptop closed, unmounting (copying) is still the safer choice.*
 
 ## 9. Trying it yourself, step by step
@@ -324,23 +371,26 @@ without macFUSE, the FUSE tests skip and the mirror tests still run. On Linux,
 
 ```bash
 cd companion
-python3 -m tests.live_tunnel
+python3 -m tests.live_tunnel --save ~/koios-live.json
 ```
 
-Expect a `trycloudflare.com` address, "mounted", and then these lines:
+Expect a `trycloudflare.com` address within about 10 s. The script then waits for the new name to resolve and says so
+every few seconds; this can take a minute. Then come "mounted" and these lines:
 
-- **6 MB cold / cached:** the cold read is your trip to Cloudflare and back, twice.
-- **save here → there:** about 0.5 s plus one trip.
-- **write there → here:** about one trip.
-- **round trip of a read:** in milliseconds.
+- **6 MB cold / cached** (FUSE only): the cold read is your trip to Cloudflare and back, twice.
+- **save here → there:** about 0.25 s (section 6.2).
+- **write there → here:** about 0.6 s in the mirror; with FUSE, by the time the file is closed.
+- **round trip of a small request** in milliseconds, and **MB/s** for a 6 MB file through the tunnel.
 
-Paste the JSON back to me and I'll tune the fill and wait settings from it.
+If it gives up waiting for the name, your computer has cached "no such name" from its first look. On a Mac, run
+`sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`, then run it again; each run gets a new address. For a
+baseline without the tunnel on the same computer: `KOIOS_LIVE_LOCAL=1 python3 -m tests.live_tunnel`.
 
 ### 9.4 The mount on Colab (15 minutes)
 
 1. Open a project whose files are on your laptop (Storage & compute → **Move files here** if they aren't), with its
    code on Colab, and connect a GPU runtime.
-2. Storage & compute → **Sync** → tick **Mount the folder on Colab**. The first time, wait about a minute while fusepy
+2. Open the **Sync** panel (the circling-arrows icon in the narrow bar left of the explorer) and tick **Mount the folder on Colab**. The first time, wait about a minute while fusepy
    installs. The bar should then read **Mounted on Colab ⇄ live**.
 3. In the compute's terminal: `ls /content/playgrounds/*/` shows your files, and `mount | grep koios` shows the FUSE
    mount.
@@ -373,7 +423,7 @@ Paste the JSON back to me and I'll tune the fill and wait settings from it.
 
 | | Why | How it gets verified |
 | --- | --- | --- |
-| The mount over a real Cloudflare tunnel | The sandbox blocks port 7844 | 9.3 |
+| The FUSE mount over a real tunnel, and the tunnel's round trip and MB/s | The Mac run was the mirror (no FUSE), with the earlier script | 9.4 (Colab), 9.3 again |
 | fusepy and libfuse2 installed by the mount on a real Colab runtime | No Colab here | 9.4, steps 2 and 3 |
 | Argo on a real account | Needs your account and billing | 9.5 |
 | Keep-awake on a real Mac or Windows PC | Tested with stand-in processes only | 9.4, step 7 |
