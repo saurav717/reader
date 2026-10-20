@@ -51,7 +51,7 @@ CHUNK = 256 * 1024
 BIG = 100 * 1024 * 1024
 # Always left out of a push, whatever the project's own rules: what is this computer's, or rebuilt there.
 ALWAYS_SKIP = ".git/\n.reader/\n__pycache__/\n.ipynb_checkpoints/\n.venv/\nvenv/\nnode_modules/\n.DS_Store\n"
-KERNEL_V = 2
+KERNEL_V = 3
 
 
 class ComputeError(Exception):
@@ -195,7 +195,7 @@ def local_files(root: Path, rules: str) -> dict[str, tuple[int, int]]:
 # library only; a thread per shell pushes what it prints as it prints it.
 KERNEL_CODE = r"""
 if globals().get('_koios_v') != %(v)d:
-    import os, pty, json, threading, fcntl, struct, termios, signal, base64, tarfile, tempfile, shutil, time
+    import os, pty, json, threading, fcntl, struct, termios, signal, base64, tarfile, tempfile, shutil, time, subprocess, sys
     def _koios_manager():
         k = get_ipython().kernel
         m = getattr(k, 'comm_manager', None)
@@ -212,28 +212,44 @@ if globals().get('_koios_v') != %(v)d:
     def _koios_safe(name):
         parts = name.replace('\\', '/').split('/')
         return name and not name.startswith('/') and '..' not in parts
+    _KOIOS_SPAWN = (
+        'import os, sys, json, fcntl, termios\n'
+        'os.setsid()\n'
+        't = int(sys.argv[1])\n'
+        'fcntl.ioctl(t, termios.TIOCSCTTY, 0)\n'
+        'for n in (0, 1, 2):\n'
+        '    os.dup2(t, n)\n'
+        'if t > 2:\n'
+        '    os.close(t)\n'
+        'try:\n'
+        '    os.chdir(sys.argv[2])\n'
+        'except OSError:\n'
+        '    pass\n'
+        'argv = json.loads(sys.argv[3])\n'
+        'try:\n'
+        '    os.execvp(argv[0], argv)\n'
+        'except OSError as e:\n'
+        '    os.write(2, ("koios: %%s\\r\\n" %% e).encode())\n'
+        '    os._exit(127)\n'
+    )
     def _koios_shell(comm, msg):
         d = msg['content']['data']
         cwd = _koios_dir(d.get('folder') or '')
-        pid, fd = pty.fork()
-        if pid == 0:
-            try:
-                os.chdir(cwd)
-            except Exception:
-                pass
-            env = dict(os.environ)
-            env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor', 'PATH': os.pathsep.join([os.path.expanduser('~/.local/bin'), '/usr/local/bin', env.get('PATH', '')])})
-            env.update(d.get('env') or {})
-            env.pop('JPY_PARENT_PID', None)
-            # The kernel's prompt settings are its own shell's (a zsh theme's, say): bash makes its own.
-            for k in ('PS1', 'PS2', 'PROMPT_COMMAND'):
-                env.pop(k, None)
-            argv = d.get('argv') or ['bash', '-i']
-            try:
-                os.execvpe(argv[0], argv, env)
-            except Exception as e:
-                os.write(2, ('koios: %%s\r\n' %% e).encode())
-                os._exit(127)
+        env = dict(os.environ)
+        env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor', 'PATH': os.pathsep.join([os.path.expanduser('~/.local/bin'), '/usr/local/bin', env.get('PATH', '')])})
+        env.update(d.get('env') or {})
+        env.pop('JPY_PARENT_PID', None)
+        # The kernel's prompt settings are its own shell's (a zsh theme's, say): bash makes its own.
+        for k in ('PS1', 'PS2', 'PROMPT_COMMAND'):
+            env.pop(k, None)
+        argv = d.get('argv') or ['bash', '-i']
+        # Not pty.fork(): the kernel has threads, and on macOS a forked child of a threaded process can deadlock before
+        # it execs. A fresh Python takes the terminal as its own (setsid, TIOCSCTTY) and becomes the shell.
+        fd, tty = pty.openpty()
+        # The terminal is handed over open, not by name: closed here before it is opened there, it would read as ended.
+        proc = subprocess.Popen([sys.executable, '-c', _KOIOS_SPAWN, str(tty), cwd, json.dumps(argv)], env=env, pass_fds=(tty,))
+        os.close(tty)
+        pid = proc.pid
         def size(rows, cols):
             try:
                 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', int(rows), int(cols), 0, 0))
