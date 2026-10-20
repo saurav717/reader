@@ -1,0 +1,55 @@
+{
+  "about": "The mount over a real Cloudflare quick tunnel (companion/tests/live_tunnel.py), and the same script with no tunnel as a baseline. Both in the mirror mode: the Mac has no FUSE. Seconds unless named.",
+  "tunnel": {
+    "where": "MacBook Air, macOS, Python 3.14, Wi-Fi; both ends on the one Mac, so every byte went out to Cloudflare and back in",
+    "date": "2026-10-20",
+    "tunnel": {
+      "url": "https://contractors-securities-trucks-intro.trycloudflare.com",
+      "kind": "quick",
+      "seconds": 7.15
+    },
+    "mount": {
+      "mode": "mirror",
+      "ready_s": 6.19,
+      "warm": {
+        "files": 201,
+        "bytes": 6393746,
+        "seconds": 4.78
+      }
+    },
+    "save_here_to_there_s": {
+      "median": 0.241,
+      "max": 0.425
+    },
+    "write_there_to_here_s": {
+      "median": 0.587,
+      "max": 0.746
+    },
+    "rtt_ms": null,
+    "note": "rtt_ms was not measured by that version of the script (the mirror reads nothing on demand); the probe that measures it came after."
+  },
+  "local": {
+    "where": "the Linux container the feature was built in, Python 3.14; 127.0.0.1, no tunnel; median of 3 runs",
+    "mount": {
+      "mode": "mirror",
+      "ready_s": 0.46,
+      "warm": {
+        "files": 201,
+        "bytes": 6393746,
+        "seconds": 0.26
+      }
+    },
+    "save_here_to_there_s": {
+      "median": 0.219,
+      "max": 0.424
+    },
+    "write_there_to_here_s": {
+      "median": 0.464,
+      "max": 0.679
+    },
+    "rtt_ms": {
+      "median": 0.9
+    },
+    "mb_per_s": 154.4
+  }
+}

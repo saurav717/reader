@@ -3,9 +3,9 @@
 // docs/simulation-process.pdf — Chromium through Playwright, A4, "page N of M" in the footer.
 //
 // On the way it draws the charts the process document shows, from the measurements in docs/compute-mount-bench.json
-// (companion/tests/bench_mount.py), as SVG files in docs/compute-mount/ — so the Markdown shows them too — and
-// renders the documents' Mermaid diagrams with Mermaid in the page: the page loads it from jsDelivr, and while printing
-// a local copy stands in when there is one (MERMAID_JS, a path to mermaid.min.js, else node_modules/mermaid).
+// (companion/tests/bench_mount.py) and, over a real tunnel, docs/compute-mount-live.json (tests/live_tunnel.py), as
+// SVG files in docs/compute-mount/ — so the Markdown shows them too — and renders the documents' Mermaid diagrams
+// with Mermaid in the page: the page loads it from jsDelivr, and while printing a local copy stands in when there is one (MERMAID_JS, a path to mermaid.min.js, else node_modules/mermaid).
 //
 //   node scripts/compute-mount-pdf.mjs
 
@@ -37,7 +37,13 @@ const INK_2 = '#52514e';
 const MUTED = '#8a887f';
 const GRID = '#e7e5df';
 const SURFACE = '#fcfcfb';
-const SERIES = { copy: { label: 'Copy before the run (koios push)', color: '#d95926' }, mount: { label: 'Mount', color: '#2a78d6' } };
+const SERIES = {
+  copy: { label: 'Copy before the run (koios push)', color: '#d95926' },
+  mount: { label: 'Mount', color: '#2a78d6' },
+  // The real-tunnel chart compares other things, so other colours (slots 3 and 7, checked the same way).
+  local: { label: 'No tunnel (127.0.0.1)', color: '#199e70' },
+  tunnel: { label: 'Through a real Cloudflare tunnel', color: '#6250d6' },
+};
 
 function niceMax(value) {
   const step = value > 2 ? 0.5 : value > 1 ? 0.25 : 0.1;
@@ -106,7 +112,7 @@ function groupedBars({ title, subtitle, groups, series, reference }) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="IBM Plex Sans, Helvetica Neue, Arial, sans-serif" role="img" aria-label="${esc(title)}">\n${parts.join('\n')}\n</svg>\n`;
 }
 
-function charts(bench) {
+function charts(bench, live) {
   const rows = bench.rtts;
   const label = (r) => `${r.rtt_ms} ms round trip`;
   return {
@@ -129,12 +135,23 @@ function charts(bench) {
       series: ['copy', 'mount'],
       reference: { value: bench.local_import_s, label: `This computer’s own disk (${bench.local_import_s.toFixed(2)} s)` },
     }),
+    'tunnel-vs-local.svg': groupedBars({
+      title: 'The mirror, with and without a real Cloudflare tunnel',
+      subtitle: `${live.tunnel.mount.warm.files} files (${(live.tunnel.mount.warm.bytes / 1e6).toFixed(1)} MB). Tunnel: both ends on one Mac, every byte out to Cloudflare and back`,
+      groups: [
+        { label: 'First copy of the folder', values: { local: live.local.mount.warm.seconds, tunnel: live.tunnel.mount.warm.seconds } },
+        { label: 'A save here → there (median)', values: { local: live.local.save_here_to_there_s.median, tunnel: live.tunnel.save_here_to_there_s.median } },
+        { label: 'A write there → here (median)', values: { local: live.local.write_there_to_here_s.median, tunnel: live.tunnel.write_there_to_here_s.median } },
+      ],
+      series: ['local', 'tunnel'],
+    }),
   };
 }
 
 const bench = JSON.parse(readFileSync(join(docs, 'compute-mount-bench.json'), 'utf8'));
+const live = JSON.parse(readFileSync(join(docs, 'compute-mount-live.json'), 'utf8'));
 mkdirSync(chartDir, { recursive: true });
-for (const [name, svg] of Object.entries(charts(bench))) writeFileSync(join(chartDir, name), svg);
+for (const [name, svg] of Object.entries(charts(bench, live))) writeFileSync(join(chartDir, name), svg);
 
 // ---------------------------------------------------------------- the page ----
 
@@ -279,4 +296,4 @@ await tab.pdf({
 });
 await browser.close();
 await cleanup();
-console.log(`wrote ${Object.keys(charts(bench)).length} charts in ${chartDir}, ${html} and ${out} (${drawn} diagrams)`);
+console.log(`wrote ${Object.keys(charts(bench, live)).length} charts in ${chartDir}, ${html} and ${out} (${drawn} diagrams)`);
