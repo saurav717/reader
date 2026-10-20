@@ -8,7 +8,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
 import { renewRuntimeProxy } from '../lib/colab';
-import { COMPUTE_SHELL, colabTarget, linkCompute, pushThroughCompanion, remoteLine, renewAt, serverTarget, type LinkState } from '../lib/computeLink';
+import { COMPUTE_SHELL, MOUNT_VERSION, colabTarget, linkCompute, linkState, mountThroughCompanion, mountWords, pushThroughCompanion, remoteLine, renewAt, serverTarget, unmountThroughCompanion, type LinkState } from '../lib/computeLink';
 import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
 import { latestCheckpoint } from '../lib/telemetry';
@@ -1334,6 +1334,52 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     };
   }, [filesHere?.id, filesHere?.url, filesHere?.token, homeRoot, linkKey, stale]); // eslint-disable-line react-hooks/exhaustive-deps
   const linked = Boolean(filesHere && link?.linked);
+  // Mounted there (Companion 0.19.0): the machine reads the folder where it is, through the Companion's tunnel, so a
+  // run copies nothing first and brings nothing back after. Started whenever the project asks for it and the machine
+  // doesn't have it (a new Colab runtime has none); a machine that drops it is copied to again until it is back.
+  const wantMount = Boolean(playground.sync.mount);
+  const mountKnown = Boolean(linked && link?.mount);
+  const [mounting, setMounting] = useState<{ busy: boolean; words?: string; problem?: string }>({ busy: false });
+  const mounted = Boolean(linked && wantMount && (link?.mount?.connected ?? 0) > 0);
+  const mountTried = useRef('');
+  const startMount = async (force = false) => {
+    if (!filesHere || mounting.busy) return;
+    if (!force && mountTried.current === linkKey) return;
+    mountTried.current = linkKey;
+    setMounting({ busy: true });
+    try {
+      const status = await mountThroughCompanion(filesHere, homeRoot);
+      setMounting({ busy: false, words: mountWords(status, machineName) });
+    } catch (error) {
+      setMounting({ busy: false, problem: error instanceof Error ? error.message : String(error) });
+    }
+    const fresh = await linkState(filesHere, homeRoot);
+    if (fresh) setLink(fresh);
+  };
+  useEffect(() => {
+    if (!linked || !wantMount || !link?.mount || link.mount.connected) return;
+    void startMount();
+  }, [linked, wantMount, link?.mount?.connected, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While it is meant to be mounted: whether the machine still has it, every half minute.
+  useEffect(() => {
+    if (!linked || !wantMount || !filesHere) return;
+    const timer = window.setInterval(() => void linkState(filesHere, homeRoot).then((fresh) => fresh && setLink(fresh)), 30_000);
+    return () => window.clearInterval(timer);
+  }, [linked, wantMount, filesHere?.id, homeRoot]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setMount = async (on: boolean) => {
+    updatePlayground(playground.id, { sync: { ...playground.sync, mount: on } });
+    if (on) return void startMount(true);
+    if (!filesHere) return;
+    setMounting({ busy: true });
+    try {
+      await unmountThroughCompanion(filesHere, homeRoot);
+      setMounting({ busy: false });
+    } catch (error) {
+      setMounting({ busy: false, problem: error instanceof Error ? error.message : String(error) });
+    }
+    const fresh = await linkState(filesHere, homeRoot);
+    if (fresh) setLink(fresh);
+  };
   // VS Code in the page opens a folder on a Companion's computer: the project's, when its files are kept there —
   // in a folder of its (home) or on its own disk as the machine the code runs on.
   const vscodeAt: { server: JupyterServer; folder: string } | null =
@@ -1685,14 +1731,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           return;
         }
       }
-      if (split && !(await push())) return;
+      // Mounted: the machine has the folder as it is here — only the edits on screen need saving.
+      if (split && mounted) for (const file of files) if (file.where === 'home' && file.text !== file.saved) await save(file);
+      if (split && !mounted && !(await push())) return;
       const folder = await folderOnMachine();
       await ensureHelper(m).catch(() => undefined);
       const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...dataFor(folder).env, ...extra };
       // Logged on the machine as it runs, so the project picked up from another computer shows it from the start.
       const log = runLogPath(folder, entry.id);
       await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env, log), { log });
-      if (split) await pull();
+      if (split && !mounted) await pull();
       return;
     }
     if (!m.backend) {
@@ -2458,7 +2506,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : primary === 'outline' ? (
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
-              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, set: (on) => void setMount(on) } : undefined} />
             ) : null}
           </aside>
         ) : null}
@@ -2613,7 +2661,13 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 </span>
               )}
               <span className="spacer" />
-              {split ? (
+              {split && mounted ? (
+                <span className="vs-copy-chip is-mounted" title={`Your code is kept in ${homeLabel} and mounted on ${machineName} through the Companion's tunnel: a save here is there at once, and what a run writes there is written here. Checkpoints and data (the project's rules) stay on the machine and go to the data place.`}>
+                  <SyncGlyph />
+                  <span>Mounted on {machineName.split(' · ')[0]}</span>
+                  <b>⇄ live</b>
+                </span>
+              ) : split ? (
                 <button
                   type="button"
                   className={`vs-copy-chip${syncing === 'push' ? ' is-busy' : ''}`}
@@ -3074,7 +3128,19 @@ function Folder({ host, path, depth, onOpen, activePath, version, onContext }: {
   );
 }
 
-function SyncPane({ playground, homeLabel, machineName, report, syncing, connected, onPush, onPull }: { playground: Playground; homeLabel: string; machineName: string; report: (SyncReport & { at: number; what: 'push' | 'pull' }) | null; syncing: 'push' | 'pull' | null; connected: boolean; onPush: () => void; onPull: () => void }) {
+interface MountControl {
+  /** The Companion knows mounts (0.19.0 on). */
+  known: boolean;
+  linked: boolean;
+  on: boolean;
+  mounted: boolean;
+  busy: boolean;
+  words?: string;
+  problem?: string;
+  set: (on: boolean) => void;
+}
+
+function SyncPane({ playground, homeLabel, machineName, report, syncing, connected, onPush, onPull, mount }: { playground: Playground; homeLabel: string; machineName: string; report: (SyncReport & { at: number; what: 'push' | 'pull' }) | null; syncing: 'push' | 'pull' | null; connected: boolean; onPush: () => void; onPull: () => void; mount?: MountControl }) {
   const [ignore, setIgnore] = useState(playground.sync.ignore);
   const [bringBack, setBringBack] = useState(playground.sync.bringBack);
   const changed = ignore !== playground.sync.ignore || bringBack !== playground.sync.bringBack;
@@ -3085,7 +3151,31 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
         <span>⇄</span>
         <b>{machineName}</b>
       </div>
-      <p className="pg-note">The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.</p>
+      {mount ? (
+        <div className="pg-mount">
+          <label className="pg-mount-switch">
+            <input type="checkbox" checked={mount.on} disabled={mount.busy || !mount.linked || !mount.known} onChange={(event) => mount.set(event.target.checked)} />
+            <span>
+              <b>Mount the folder on {machineName}</b> instead of copying it
+            </span>
+          </label>
+          <p className="pg-note">
+            {!mount.linked
+              ? `Connect ${machineName} first: the Companion on ${homeLabel} mounts the folder through the link it keeps to it.`
+              : !mount.known
+                ? `Mounting needs Koios Companion ${MOUNT_VERSION} on ${homeLabel}: update it in Settings → Updates.`
+                : mount.busy
+                  ? `Starting the mount on ${machineName}… (the first time on Colab it installs fusepy, a minute or so)`
+                  : mount.mounted
+                    ? mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`
+                    : mount.on
+                      ? `${machineName} doesn’t have the folder mounted now: runs copy the changed files until it does.`
+                      : `${machineName} reads the folder where it is — on ${homeLabel} — through the Companion’s Cloudflare tunnel: a save here is there at once, what a run writes there is written here, and nothing is copied before a run. What the rules below leave out (checkpoints, data) stays on the machine and goes to the data place.`}
+          </p>
+          {mount.problem ? <p className="pg-error">{mount.problem}</p> : null}
+        </div>
+      ) : null}
+      <p className="pg-note">{mount?.mounted ? 'While it is mounted the rules below say what stays on the machine (and goes to the data place) and what is yours; nothing needs copying or bringing back.' : 'The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.'}</p>
       <div className="pg-machine-actions">
         <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPush}>
           {syncing === 'push' ? 'Copying…' : 'Copy to the machine now'}
@@ -3108,7 +3198,7 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
         <span>Brought back after a run</span>
         <textarea value={bringBack} onChange={(event) => setBringBack(event.target.value)} rows={5} spellCheck={false} />
       </label>
-      <button type="button" className="btn sm primary" disabled={!changed} onClick={() => updatePlayground(playground.id, { sync: { ignore, bringBack } })}>
+      <button type="button" className="btn sm primary" disabled={!changed} onClick={() => updatePlayground(playground.id, { sync: { ...playground.sync, ignore, bringBack } })}>
         Keep these rules
       </button>
     </div>
