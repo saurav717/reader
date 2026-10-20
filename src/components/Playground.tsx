@@ -16,6 +16,7 @@ import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import { simProject, simulationToolkit } from '../lib/simProject';
 import { placeWarning } from '../lib/simulators';
+import ErrorBoundary, { FailureNote } from './ErrorBoundary';
 import SimPicker from './SimPicker';
 import type { SimPick } from './SimPicker';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -58,6 +59,8 @@ import { snapshotPlan } from '../lib/away';
 import OpenDialog from './PlaygroundOpen';
 import type { HomeGroup } from './PlaygroundAway';
 import { useRunBoard } from '../lib/playgroundRuns';
+import { startedIn, useAccountActivity } from '../lib/accountActivity';
+import { projectsOf } from '../lib/projects';
 import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
@@ -185,7 +188,15 @@ function useLiveCompanions(servers: JupyterServer[]): Record<string, Liveness> {
 
 function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; ready: boolean; onOpen: (id?: string) => void }) {
   const where = usePlaygroundsWhere();
-  const { papers, settings } = useStore();
+  const { papers, settings, collections } = useStore();
+  // What runs on the account now — started here, in the Koios app, or in another browser (accountActivity.ts).
+  const activity = useAccountActivity();
+  const projects = useMemo(() => projectsOf(collections), [collections]);
+  /** What a playground is, as a person says it: a notebook, a playground project, or a research project's code. */
+  const kindOf = (p: PlaygroundRecord) => {
+    const project = projects.find((item) => item.project.playgroundId === p.id);
+    return project ? `the code of the project “${project.name}”` : p.kind === 'project' ? 'a playground project' : 'a notebook';
+  };
   const projectFor = useProjectForImplementation();
   const servers = useServers();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -339,7 +350,14 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     <li key={p.id} className={`pg-row${at.blocked ? ' is-blocked' : ''}`}>
       <button type="button" className="pg-row-main" onClick={() => !closed && onOpen(p.id)} disabled={closed} title={at.blocked}>
         <b>{p.title}</b>
-        {run && run.phase !== 'never' ? <RunRowState run={run} /> : null}
+        {activity.byScope.get(p.id) && !(run && run.phase === 'running') ? (
+          <span className="pg-running-chip" title={`Its machine is up${activity.byScope.get(p.id)!.by ? `, last used ${startedIn(activity.byScope.get(p.id)!.by)}` : ''}`}>
+            <i aria-hidden="true" /> Running on {activity.byScope.get(p.id)!.machine.replace(/^Colab · /, 'Colab ')}
+            {activity.byScope.get(p.id)!.here ? ' · here' : activity.byScope.get(p.id)!.by ? ` · ${startedIn(activity.byScope.get(p.id)!.by)}` : ''}
+          </span>
+        ) : run && run.phase !== 'never' ? (
+          <RunRowState run={run} />
+        ) : null}
         <span>
           {p.kind === 'project' ? 'Project' : 'Notebook'}
           {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
@@ -511,6 +529,42 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               <p className="pg-note is-problem">{problem}</p>
             ) : null}
 
+            {(() => {
+              const now = sorted.filter((p) => activity.byScope.has(p.id));
+              const unknown = [...activity.byScope.keys()].filter((scope) => !sorted.some((p) => p.id === scope));
+              if (!now.length && !unknown.length) return null;
+              return (
+                <div className="pg-running-now" aria-label="Running now on your account">
+                  <div className="pg-section-head">
+                    <span className="eyebrow">Running now</span>
+                    <span className="pg-aside">on your account — started here, in the Koios app, or in another browser</span>
+                  </div>
+                  <ul className="pg-running-list">
+                    {now.map((p) => {
+                      const a = activity.byScope.get(p.id)!;
+                      return (
+                        <li key={p.id}>
+                          <span className="pg-running-dot" aria-hidden="true" />
+                          <span className="pg-running-what">
+                            <b>{p.title}</b>
+                            <small>
+                              {kindOf(p)} · on {a.machine}
+                              {a.running ? ` · ${a.running} ${a.running === 1 ? 'command' : 'commands'} running` : ''}
+                              {a.here ? ' · this tab' : a.by ? ` · started ${startedIn(a.by)}` : ''}
+                            </small>
+                          </span>
+                          <button type="button" className="btn sm" onClick={() => onOpen(p.id)} title="Open it here: it joins the machine, and what runs there carries on">
+                            Open
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {unknown.length ? <li className="pg-running-other"><small>{unknown.length === 1 ? 'One more' : `${unknown.length} more`} on your account that this browser’s list doesn’t have (a paper page’s notebook, or a playground made elsewhere and not yet in your Drive).</small></li> : null}
+                  </ul>
+                </div>
+              );
+            })()}
+
             <div className="pg-section-head">
               <span className="eyebrow">Your playgrounds</span>
               <span className="pg-aside" title={where === 'drive' ? 'Each playground’s name, machine, folder and notebook are in your Google Drive (playgrounds.json in your Koios folder); its files stay where they are.' : undefined}>
@@ -605,7 +659,29 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
           onConnect={() => (setOpening(false), setAddingServer(true))}
         />
       ) : null}
-      {simPicking ? <SimPicker onClose={() => setSimPicking(false)} onPick={fromSim} /> : null}
+      {simPicking ? (
+        <ErrorBoundary
+          name="sim picker"
+          fallback={(error, retry) => (
+            <div className="scrim pg-scrim" role="presentation">
+              <div className="sheet pg-sheet" role="alertdialog" aria-label="The simulation picker failed">
+                <FailureNote error={error} title="The simulation picker failed">
+                  <div className="failure-actions">
+                    <button type="button" className="btn primary" onClick={retry}>
+                      Try again
+                    </button>
+                    <button type="button" className="btn" onClick={() => setSimPicking(false)}>
+                      Close
+                    </button>
+                  </div>
+                </FailureNote>
+              </div>
+            </div>
+          )}
+        >
+          <SimPicker onClose={() => setSimPicking(false)} onPick={fromSim} />
+        </ErrorBoundary>
+      ) : null}
       {draft ? (
         <WhereDialog
           draft={draft}
@@ -1789,7 +1865,7 @@ export function WhereDialog({
                     </option>
                   ))}
                 </select>
-                with nothing running, while this tab is open
+                with nothing running on it (no cell, no terminal command, no agent, the GPU unused)
               </span>
             </label>
           ) : missing ? (

@@ -6,6 +6,7 @@
 // colours, full-screen programs (htop, vim, a progress bar) all work, as in
 // any terminal — with the delay of a round trip to the runtime.
 
+import { isStaleBuild, reloadForNewBuild } from '../lib/staleBuild';
 import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { b64, shellCall, unb64 } from '../lib/kernelShell';
@@ -92,12 +93,19 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
         };
         const unregister = registerTerminal(name, type);
         const typing = term.onData(type);
+        // Once the pane has settled (below), only a size that changed, and never a hidden pane's (it measures nothing).
+        let sent = '';
         const resize = () => {
+          const box = host.current?.getBoundingClientRect();
+          if (!box || box.width < 20 || box.height < 20) return;
           try {
             fit.fit();
           } catch {
             return;
           }
+          const size = `${term.rows}x${term.cols}`;
+          if (size === sent) return;
+          sent = size;
           void call(`_rt_resize(${JSON.stringify(name)}, ${term.rows}, ${term.cols})`).catch(() => undefined);
         };
         let resizeTimer = 0;
@@ -119,6 +127,8 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
           term.dispose();
         };
       } catch (error) {
+        // The site was published again since this page loaded: the new build, loaded (the shells carry on and are found again).
+        if (isStaleBuild(error) && reloadForNewBuild()) return;
         if (disposed) return;
         setState('failed');
         setProblem(error instanceof Error ? error.message : String(error));

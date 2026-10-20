@@ -121,7 +121,8 @@ class AgainstAServer(Home):
         self.link = compute.save_link(self.root, {"kind": "jupyter", "url": f"http://127.0.0.1:{self.port}/", "token": "abc", "label": "Test box", "folder": self.folder, "ignore": "*.bin"})
 
     def remote_path(self, *parts) -> Path:
-        return self.there.joinpath(self.folder, *parts)
+        # Resolved, as the kernel there sees it: on a Mac the temporary folder is under /var, which is /private/var.
+        return Path(os.path.realpath(self.there)).joinpath(self.folder, *parts)
 
     def with_remote(self, work):
         async def go():
@@ -195,11 +196,21 @@ class AgainstAServer(Home):
         self.assertIn("Open the project in Koios", ran.stderr)
 
     def test_a_shell_there_answers_as_keys_are_typed(self):
-        pid, fd = pty.fork()
-        if pid == 0:
-            os.chdir(self.root)
-            os.environ["PYTHONPATH"] = str(Path(compute.__file__).parents[1])
-            os.execvp(sys.executable, [sys.executable, "-m", "reader_companion.compute", "shell"])
+        # koios shell in a terminal of its own. Not pty.fork(): this process has threads by now, and on macOS a forked
+        # child of a threaded process can deadlock before it execs. A fresh Python takes the terminal and becomes koios.
+        fd, tty = pty.openpty()
+        start = (
+            "import os, sys, fcntl, termios\n"
+            "os.setsid()\n"
+            "t = int(sys.argv[1])\n"
+            "fcntl.ioctl(t, termios.TIOCSCTTY, 0)\n"
+            "[os.dup2(t, n) for n in (0, 1, 2)]\n"
+            "os.execvp(sys.executable, [sys.executable, '-m', 'reader_companion.compute', 'shell'])\n"
+        )
+        shell = subprocess.Popen([sys.executable, "-c", start, str(tty)], cwd=self.root, env={**os.environ, "PYTHONPATH": str(Path(compute.__file__).parents[1])}, pass_fds=(tty,))
+        os.close(tty)
+        self.addCleanup(lambda: shell.poll() is None and shell.kill())
+        self.addCleanup(os.close, fd)
         seen = b""
 
         def until(token, timeout=20):
@@ -218,8 +229,12 @@ class AgainstAServer(Home):
         os.write(fd, b"echo $((6*7))\r")
         self.assertTrue(until(b"42"), seen)
         os.write(fd, b"exit\r")
-        _, status = os.waitpid(pid, 0)
-        self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+        until(b"\x00", timeout=1)  # what it prints on the way out, read so it never blocks on a full terminal
+        try:
+            code = shell.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail(f"koios shell didn't end after exit: {seen[-500:]!r}")
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

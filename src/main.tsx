@@ -1,11 +1,15 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import ErrorBoundary, { FailureNote } from './components/ErrorBoundary';
 import { StoreProvider } from './lib/store';
 import { keepCompanionCompany } from './lib/appWindow';
 import { installInviteClaim } from './lib/invites';
 import { heldUser, restoredUser } from './lib/google';
 import './styles.css';
+import { reloadOnStaleBuild } from './lib/staleBuild';
+
+reloadOnStaleBuild();
 
 // A deep link on a static host: the site's 404 page (public/404.html) sent
 // /paper/<id> here as /?route=/paper/<id>; the address is put back before
@@ -21,8 +25,25 @@ installInviteClaim(() => (heldUser() ?? restoredUser())?.name);
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    <StoreProvider>
-      <App />
-    </StoreProvider>
+    <ErrorBoundary
+      fallback={(error, retry) => (
+        <div className="failure-page">
+          <FailureNote error={error} title="Something on this page failed">
+            <div className="failure-actions">
+              <button type="button" className="btn primary" onClick={retry}>
+                Try again
+              </button>
+              <button type="button" className="btn" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            </div>
+          </FailureNote>
+        </div>
+      )}
+    >
+      <StoreProvider>
+        <App />
+      </StoreProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

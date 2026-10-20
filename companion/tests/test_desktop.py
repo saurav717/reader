@@ -324,9 +324,10 @@ class DeletedAppTest(Sandbox):
         other = self.make_app(home / "Other.app", "com.example.other")
         moved = self.make_app(home / "Moved" / "Reader.app")
         spotlight = mock.Mock(stdout=f"{trashed}\n{other}\n{moved}\n")
-        with mock.patch.object(desktop.subprocess, "run", return_value=spotlight):
+        # Not this computer's own /Applications, where a developer's Mac may well have Koios installed.
+        with mock.patch.object(desktop, "MAC_APP_PLACES", ()), mock.patch.object(desktop.subprocess, "run", return_value=spotlight):
             self.assertEqual(desktop.find_mac_app(str(home / "Gone" / "Reader.app")), str(moved))
-        with mock.patch.object(desktop.subprocess, "run", return_value=mock.Mock(stdout=f"{trashed}\n")):
+        with mock.patch.object(desktop, "MAC_APP_PLACES", ()), mock.patch.object(desktop.subprocess, "run", return_value=mock.Mock(stdout=f"{trashed}\n")):
             self.assertIsNone(desktop.find_mac_app(str(home / "Gone" / "Reader.app")))
 
     def test_forget_install_removes_the_login_item_without_booting_out(self):

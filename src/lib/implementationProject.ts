@@ -4,7 +4,7 @@
 // project's logbook with notes, videos and results (src/lib/experimentFiling.ts files into the project whose
 // `playgroundId` is the playground's), rather than under a lone playground with no logbook to hold them.
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { COLLECTION_COLORS } from '../types';
 import { newProjectInfo, projectNameFor, projectQuestionFor, projectsOf } from './projects';
 import { useStore } from './store';
@@ -32,4 +32,40 @@ export function useProjectForImplementation() {
     },
     [collections, papers, createCollection, updateCollection, setPaperCollections],
   );
+}
+
+/** Opens a project from anywhere in the app — on its overview, or on a tab of its logbook ("experiments"). */
+export const OPEN_PROJECT = 'reader:open-project';
+export function openProject(id: string, section?: string) {
+  window.dispatchEvent(new CustomEvent<{ id: string; section?: string }>(OPEN_PROJECT, { detail: { id, section } }));
+}
+
+/**
+ * Whether the library has finished arriving: the browser's copy read, and Drive's too when Drive is connected. A
+ * project made before then could be one Drive already holds, made a second time.
+ */
+export function useLibrarySettled(): boolean {
+  const { ready, driveConnected, librarySync } = useStore();
+  return ready && (!driveConnected || librarySync.state === 'saved' || librarySync.state === 'saving');
+}
+
+/**
+ * A playground made from a paper gets its Project when it is opened, if it has none yet: one set up before projects
+ * were made with it, or whose project was not made then (the paper not yet in the library). Once the library has
+ * settled, and once a page; answers the project's id once there is one.
+ */
+export function useEnsureProject(paperId: string | undefined, playground: { id: string; title: string; start?: string } | undefined): string | undefined {
+  const { collections } = useStore();
+  const settled = useLibrarySettled();
+  const projectFor = useProjectForImplementation();
+  const tried = useRef<string | null>(null);
+  const has = playground ? projectsOf(collections).find((project) => project.project.playgroundId === playground.id) : undefined;
+  useEffect(() => {
+    if (!paperId || !playground || playground.start !== 'paper' || has || !settled) return;
+    const key = `${paperId}:${playground.id}`;
+    if (tried.current === key) return;
+    tried.current = key;
+    void projectFor(paperId, playground).catch(() => null);
+  }, [paperId, playground?.id, has, settled]); // eslint-disable-line react-hooks/exhaustive-deps
+  return has?.id;
 }

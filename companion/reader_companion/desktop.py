@@ -643,10 +643,14 @@ def mac_bundle_id(app: str | Path) -> str | None:
         return None
 
 
+# Where the app is usually put, looked at before Spotlight is asked.
+MAC_APP_PLACES = ("/Applications/Koios.app", "/Applications/Reader.app")
+
+
 def find_mac_app(recorded: str | None = None) -> str | None:
     """Where the app is now (Koios.app, or Reader.app before 0.16): where it was, where it is usually put, or wherever
     Spotlight finds it by its bundle id, which the rename kept (not in the Trash)."""
-    for candidate in (recorded, "/Applications/Koios.app", "/Applications/Reader.app", str(mac_app_path())):
+    for candidate in (recorded, *MAC_APP_PLACES, str(mac_app_path())):
         if candidate and "/.Trash/" not in candidate and mac_bundle_id(candidate) == MAC_BUNDLE_ID:
             return candidate
     try:

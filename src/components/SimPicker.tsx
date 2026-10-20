@@ -4,7 +4,9 @@
 // back becomes a project (src/lib/simProject.ts), placed by the usual
 // "Where should it run?" step.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { HEAVY, previewFor, warmPreview } from '../lib/simPreviews';
+import ErrorBoundary from './ErrorBoundary';
 import type { SimEnv, SimFamily, Simulator, TemplateId } from '../lib/simulators';
 import { FAMILIES, SIMULATORS, TEMPLATES, needsLine, templatesFor } from '../lib/simulators';
 import { CloseIcon } from './icons';
@@ -13,6 +15,89 @@ export interface SimPick {
   sim: Simulator;
   env?: SimEnv;
   template: TemplateId;
+}
+
+const SPACES = { discrete: 'discrete actions', continuous: 'continuous actions', multi: 'mixed actions' };
+const GPU = { no: 'none: any CPU does', helps: 'optional: faster on one', needs: 'yes: a GPU (T4 or better)', rtx: 'an NVIDIA RTX GPU' };
+
+/** What the simulator (or the chosen environment) looks like: its clip, or a quiet box when there is none or it won't load. */
+function Preview({ sim, env }: { sim: Simulator; env?: SimEnv }) {
+  const preview = previewFor(sim.id, env?.id);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const [asked, setAsked] = useState<string | null>(null);
+  if (!preview || failed === preview.url) return <figure className="sim-preview is-missing">No preview of {env && sim.envs.length > 1 ? env.label : sim.name}</figure>;
+  const fail = () => setFailed(preview.url);
+  const done = () => setLoaded(preview.url);
+  // Which scene this is: the environment's own clip, or the simulator in general when the environment has none.
+  const what = env && sim.envs.length > 1 ? (preview.own ? env.label : `${sim.name} in general: no clip of ${env.label}`) : null;
+  const wait = (preview.bytes ?? 0) >= HEAVY && asked !== preview.url;
+  return (
+    <figure className="sim-preview">
+      {wait ? (
+        <button type="button" className="btn sim-preview-load" onClick={() => setAsked(preview.url)}>
+          Load the clip ({Math.round((preview.bytes ?? 0) / 1e6)} MB)
+        </button>
+      ) : preview.kind === 'video' ? (
+        <video key={preview.url} src={preview.url} autoPlay muted loop playsInline onError={fail} onLoadedData={done} />
+      ) : (
+        <img key={preview.url} src={preview.url} alt={`${env?.label ?? sim.name}, running`} referrerPolicy="no-referrer" onError={fail} onLoad={done} />
+      )}
+      {!wait && loaded !== preview.url ? <span className="sim-preview-wait">Loading {preview.own && env ? env.label : sim.name}…</span> : null}
+      {what || preview.note ? (
+        <span className={`sim-preview-what${preview.own ? '' : ' is-general'}`}>
+          {what}
+          {preview.note ? <small>{what ? ' · ' : ''}{preview.note}</small> : null}
+        </span>
+      ) : null}
+      {preview.credit ? (
+        <figcaption>{preview.page ? <a href={preview.page} target="_blank" rel="noreferrer noopener">{preview.credit} ↗</a> : preview.credit}</figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
+/** The rest of what there is to know before picking it. */
+function Facts({ sim, env }: { sim: Simulator; env?: SimEnv }) {
+  const spaces = [...new Set(sim.envs.map((e) => e.space))].map((space) => SPACES[space]).join(', ');
+  return (
+    <dl className="sim-facts">
+      <dt>Family</dt>
+      <dd>{FAMILIES.find((f) => f.id === sim.family)?.label ?? sim.family}</dd>
+      <dt>Environments</dt>
+      <dd>
+        {sim.envs.length} here · {spaces}
+        {sim.envs.some((e) => e.pixels) ? ' · some from pixels' : ''}
+        {sim.envs.some((e) => e.hand) ? ' · dexterous hands' : ''}
+      </dd>
+      {env ? (
+        <>
+          <dt>This one</dt>
+          <dd>
+            {SPACES[env.space]}
+            {env.pixels ? ', image observations' : ''}
+            {env.hand ? ', a dexterous hand' : ''}
+          </dd>
+        </>
+      ) : null}
+      <dt>GPU</dt>
+      <dd>{GPU[sim.gpu]}</dd>
+      <dt>Colab</dt>
+      <dd>{sim.colab ? 'runs there as it comes' : 'no: a machine of your own'}</dd>
+      <dt>Systems</dt>
+      <dd>{sim.linux ? 'Linux only (no macOS)' : 'Linux, macOS, Windows'}</dd>
+      <dt>Videos</dt>
+      <dd>{sim.video ? 'recorded off-screen, shown in the Sim pane' : 'none: it doesn’t render off-screen'}</dd>
+      <dt>Interface</dt>
+      <dd>{sim.api === 'gymnasium' ? 'Gymnasium (reset / step)' : 'its own API'}</dd>
+      <dt>Installs with</dt>
+      <dd className="sim-install">
+        {sim.install.length
+          ? sim.install.map((line) => (line.startsWith('#') ? <span key={line}>{line.replace(/^#\s*/, '')}</span> : <code key={line}>{line}</code>))
+          : '—'}
+      </dd>
+    </dl>
+  );
 }
 
 export default function SimPicker({ onClose, onPick }: { onClose: () => void; onPick: (pick: SimPick) => void }) {
@@ -33,6 +118,11 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
   const env = sim ? sim.envs.find((e) => e.id === envId) ?? sim.envs[0] : undefined;
   const choices = sim ? templatesFor(sim, env) : [];
   const chosen = template && choices.includes(template) ? template : choices[0];
+
+  const side = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (side.current) side.current.scrollTop = 0;
+  }, [sim?.id]);
 
   const choose = (next: Simulator) => {
     setSim(next);
@@ -80,46 +170,54 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
           <aside className="sim-picker-side">
             {sim ? (
               <>
-                <h3>{sim.name}</h3>
-                <p>{sim.good}</p>
-                <p className="sim-picker-meta">
-                  {needsLine(sim)} ·{' '}
-                  <a href={sim.docs} target="_blank" rel="noreferrer noopener">
-                    docs ↗
-                  </a>
-                </p>
-                {(sim.caveats ?? []).map((caveat) => (
-                  <p key={caveat} className="pg-note">
-                    {caveat}
+                <ErrorBoundary key={sim.id} name="sim preview" fallback={() => <figure className="sim-preview is-missing">No preview for {sim.name}</figure>}>
+                  <Preview sim={sim} env={env} />
+                </ErrorBoundary>
+                <div className="sim-picker-detail" ref={side}>
+                  <h3>{sim.name}</h3>
+                  <p>{sim.good}</p>
+                  <p className="sim-picker-meta">
+                    {needsLine(sim)} ·{' '}
+                    <a href={sim.docs} target="_blank" rel="noreferrer noopener">
+                      docs ↗
+                    </a>
                   </p>
-                ))}
-                <div className="rt-part-label">Environment</div>
-                <div className="sim-picker-list" role="radiogroup" aria-label="Environment">
-                  {sim.envs.map((e) => (
-                    <label key={e.id} className={env?.id === e.id ? 'is-on' : ''}>
-                      <input type="radio" checked={env?.id === e.id} onChange={() => setEnvId(e.id)} />
-                      <span>
-                        {e.label}
-                        <small className="mono"> {e.id}</small>
-                      </span>
-                    </label>
+                  <Facts sim={sim} env={env} />
+                  {(sim.caveats ?? []).map((caveat) => (
+                    <p key={caveat} className="pg-note">
+                      {caveat}
+                    </p>
                   ))}
+                  <div className="rt-part-label">Environment</div>
+                  <div className="sim-picker-list" role="radiogroup" aria-label="Environment">
+                    {sim.envs.map((e) => (
+                      <label key={e.id} className={env?.id === e.id ? 'is-on' : ''} onPointerEnter={() => warmPreview(previewFor(sim.id, e.id))}>
+                        <input type="radio" checked={env?.id === e.id} onChange={() => setEnvId(e.id)} />
+                        <span>
+                          {e.label}
+                          <small className="mono"> {e.id}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="rt-part-label">Start from</div>
+                  <div className="sim-picker-list" role="radiogroup" aria-label="Template">
+                    {choices.map((id) => (
+                      <label key={id} className={chosen === id ? 'is-on' : ''}>
+                        <input type="radio" checked={chosen === id} onChange={() => setTemplate(id)} />
+                        <span>
+                          <b>{TEMPLATES[id].name}</b>
+                          <small> {TEMPLATES[id].text}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-                <div className="rt-part-label">Start from</div>
-                <div className="sim-picker-list" role="radiogroup" aria-label="Template">
-                  {choices.map((id) => (
-                    <label key={id} className={chosen === id ? 'is-on' : ''}>
-                      <input type="radio" checked={chosen === id} onChange={() => setTemplate(id)} />
-                      <span>
-                        <b>{TEMPLATES[id].name}</b>
-                        <small> {TEMPLATES[id].text}</small>
-                      </span>
-                    </label>
-                  ))}
+                <div className="sim-picker-go">
+                  <button type="button" className="btn primary" disabled={!chosen} onClick={() => chosen && onPick({ sim, env, template: chosen })}>
+                    Next: where it runs
+                  </button>
                 </div>
-                <button type="button" className="btn primary" disabled={!chosen} onClick={() => chosen && onPick({ sim, env, template: chosen })}>
-                  Next: where it runs
-                </button>
               </>
             ) : (
               <p className="pg-note">Pick a simulator. Each says what it needs: any CPU, a GPU, or an RTX GPU (Isaac Lab), and whether Colab will do.</p>

@@ -10,6 +10,8 @@ with the files here, at the speed of a local shell, and reaches the machine only
   koios push                    the changed files copied over, nothing run
   koios pull outputs/           files from there, here
   koios status                  where the project runs, and whether it can be reached
+  koios mount                   the folder mounted there instead of copied: live both ways, nothing to push
+  koios unmount                 back to copying before each run
 
 Nothing here polls. The client opens one WebSocket to a small kernel of its own on that machine (started once, kept
 apart from the notebook's, so a long cell doesn't hold the shell up) and talks to it in Jupyter comms: keys go out
@@ -49,7 +51,7 @@ CHUNK = 256 * 1024
 BIG = 100 * 1024 * 1024
 # Always left out of a push, whatever the project's own rules: what is this computer's, or rebuilt there.
 ALWAYS_SKIP = ".git/\n.reader/\n__pycache__/\n.ipynb_checkpoints/\n.venv/\nvenv/\nnode_modules/\n.DS_Store\n"
-KERNEL_V = 1
+KERNEL_V = 3
 
 
 class ComputeError(Exception):
@@ -92,6 +94,9 @@ def save_link(root: Path, compute: dict | None) -> dict | None:
     # The kernel of ours there is kept while the machine is the same one.
     if old.get("url") == link["url"] and old.get("kernel"):
         link["kernel"] = old["kernel"]
+    # ... and so is the mount there (mount.py): a new machine has none until it is started on it.
+    if old.get("url") == link["url"] and old.get("mount"):
+        link["mount"] = old["mount"]
     links_dir().mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(link, indent=2))
     try:
@@ -134,7 +139,7 @@ def public(link: dict | None) -> dict:
     """What the page is told of a link: never the token."""
     if not link:
         return {"linked": False}
-    return {"linked": True, "kind": link["kind"], "label": link["label"], "folder": link["folder"], "expiresAt": link["expiresAt"], "kernel": bool(link.get("kernel"))}
+    return {"linked": True, "kind": link["kind"], "label": link["label"], "folder": link["folder"], "expiresAt": link["expiresAt"], "kernel": bool(link.get("kernel")), "mounted": bool(link.get("mount"))}
 
 
 # ------------------------------------------------------------ the ignore rules --
@@ -190,7 +195,7 @@ def local_files(root: Path, rules: str) -> dict[str, tuple[int, int]]:
 # library only; a thread per shell pushes what it prints as it prints it.
 KERNEL_CODE = r"""
 if globals().get('_koios_v') != %(v)d:
-    import os, pty, json, threading, fcntl, struct, termios, signal, base64, tarfile, tempfile, shutil, time
+    import os, pty, json, threading, fcntl, struct, termios, signal, base64, tarfile, tempfile, shutil, time, subprocess, sys
     def _koios_manager():
         k = get_ipython().kernel
         m = getattr(k, 'comm_manager', None)
@@ -207,25 +212,44 @@ if globals().get('_koios_v') != %(v)d:
     def _koios_safe(name):
         parts = name.replace('\\', '/').split('/')
         return name and not name.startswith('/') and '..' not in parts
+    _KOIOS_SPAWN = (
+        'import os, sys, json, fcntl, termios\n'
+        'os.setsid()\n'
+        't = int(sys.argv[1])\n'
+        'fcntl.ioctl(t, termios.TIOCSCTTY, 0)\n'
+        'for n in (0, 1, 2):\n'
+        '    os.dup2(t, n)\n'
+        'if t > 2:\n'
+        '    os.close(t)\n'
+        'try:\n'
+        '    os.chdir(sys.argv[2])\n'
+        'except OSError:\n'
+        '    pass\n'
+        'argv = json.loads(sys.argv[3])\n'
+        'try:\n'
+        '    os.execvp(argv[0], argv)\n'
+        'except OSError as e:\n'
+        '    os.write(2, ("koios: %%s\\r\\n" %% e).encode())\n'
+        '    os._exit(127)\n'
+    )
     def _koios_shell(comm, msg):
         d = msg['content']['data']
         cwd = _koios_dir(d.get('folder') or '')
-        pid, fd = pty.fork()
-        if pid == 0:
-            try:
-                os.chdir(cwd)
-            except Exception:
-                pass
-            env = dict(os.environ)
-            env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor', 'PATH': os.pathsep.join([os.path.expanduser('~/.local/bin'), '/usr/local/bin', env.get('PATH', '')])})
-            env.update(d.get('env') or {})
-            env.pop('JPY_PARENT_PID', None)
-            argv = d.get('argv') or ['bash', '-i']
-            try:
-                os.execvpe(argv[0], argv, env)
-            except Exception as e:
-                os.write(2, ('koios: %%s\r\n' %% e).encode())
-                os._exit(127)
+        env = dict(os.environ)
+        env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor', 'PATH': os.pathsep.join([os.path.expanduser('~/.local/bin'), '/usr/local/bin', env.get('PATH', '')])})
+        env.update(d.get('env') or {})
+        env.pop('JPY_PARENT_PID', None)
+        # The kernel's prompt settings are its own shell's (a zsh theme's, say): bash makes its own.
+        for k in ('PS1', 'PS2', 'PROMPT_COMMAND'):
+            env.pop(k, None)
+        argv = d.get('argv') or ['bash', '-i']
+        # Not pty.fork(): the kernel has threads, and on macOS a forked child of a threaded process can deadlock before
+        # it execs. A fresh Python takes the terminal as its own (setsid, TIOCSCTTY) and becomes the shell.
+        fd, tty = pty.openpty()
+        # The terminal is handed over open, not by name: closed here before it is opened there, it would read as ended.
+        proc = subprocess.Popen([sys.executable, '-c', _KOIOS_SPAWN, str(tty), cwd, json.dumps(argv)], env=env, pass_fds=(tty,))
+        os.close(tty)
+        pid = proc.pid
         def size(rows, cols):
             try:
                 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', int(rows), int(cols), 0, 0))
@@ -390,6 +414,8 @@ class Remote:
         self.socket = None
         self.waiting: dict[str, asyncio.Future] = {}
         self.comms: dict[str, asyncio.Queue] = {}
+        # What an execute_request printed, for the callers that read it (mount.run_there): msg_id → pieces.
+        self.streams: dict[str, list] = {}
         self.reader: asyncio.Task | None = None
 
     def headers(self) -> dict:
@@ -492,6 +518,8 @@ class Remote:
             parent = (msg.get("parent_header") or {}).get("msg_id")
             if kind == "execute_reply" and parent in self.waiting:
                 self.waiting.pop(parent).set_result(content)
+            elif kind == "stream" and parent in self.streams:
+                self.streams[parent].append(content.get("text") or "")
             elif kind in ("comm_msg", "comm_close") and content.get("comm_id") in self.comms:
                 self.comms[content["comm_id"]].put_nowait(None if kind == "comm_close" else content.get("data") or {})
         for queue in self.comms.values():
@@ -538,6 +566,7 @@ class Comm:
 
 def remote_folder(link: dict, root: Path, cwd: Path) -> str:
     """The folder there for a folder here: the project's folder there, and the same place under it."""
+    root = root.resolve()  # on a Mac /var is /private/var: both sides resolved, or one isn't "inside" the other
     inner = cwd.resolve().relative_to(root).as_posix() if cwd.resolve() != root else ""
     return "/".join(p for p in (link["folder"], inner if inner != "." else "") if p)
 
@@ -574,6 +603,7 @@ async def push(remote: Remote, root: Path, big: bool = False, say=lambda text: N
 
 
 async def pull(remote: Remote, root: Path, paths: list[str], cwd: Path) -> dict:
+    root = root.resolve()
     inner = "" if cwd.resolve() == root else cwd.resolve().relative_to(root).as_posix()
     wanted = ["/".join(p for p in (inner, path.strip("/")) if p) for path in paths]
     comm = remote.comm("koios.pull", {"folder": remote.link["folder"], "paths": wanted})
@@ -689,6 +719,56 @@ def push_words(report: dict, label: str) -> str:
     return f"↑ {words}" + (f" · {', '.join(extra)}" if extra else "")
 
 
+# ------------------------------------------------------------- the Companion --
+
+
+def companion_call(link: dict, body: dict | None, timeout: float = 600) -> dict:
+    """The running Companion's companion/compute, as this computer's own program: no Origin, its token. For the
+    mount, which the Companion holds (the socket, the tunnel), not this process."""
+    config = state.load_config()
+    token, port = config.get("token"), int(config.get("port") or 47321)
+    if not token:
+        raise ComputeError("the Koios Companion isn't set up on this computer")
+    base = Path(config.get("root") or Path.home() / "Reader").expanduser().resolve()
+    try:
+        relative = Path(link["root"]).resolve().relative_to(base).as_posix()
+    except ValueError:
+        raise ComputeError(f"this project isn't in the Companion's folder ({base})") from None
+    url = f"http://127.0.0.1:{port}/companion/compute"
+    if body is None:
+        request = urllib.request.Request(url + "?" + urllib.parse.urlencode({"root": relative}), headers={"Authorization": f"token {token}"})
+    else:
+        request = urllib.request.Request(url, data=json.dumps({"root": relative, **body}).encode(), method="POST", headers={"Authorization": f"token {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        try:
+            words = json.loads(error.read()).get("error")
+        except ValueError:
+            words = None
+        raise ComputeError(words or f"the Companion answered {error.code}") from None
+    except (urllib.error.URLError, OSError) as error:
+        raise ComputeError(f"the Companion isn't running here ({getattr(error, 'reason', error)}): open Koios, or run reader-companion start") from None
+
+
+def mounted_now(link: dict) -> bool:
+    """Whether the folder is mounted on the compute this moment: then there is nothing to push."""
+    if not link.get("mount"):
+        return False
+    try:
+        return bool(companion_call(link, None, timeout=3).get("mount", {}).get("connected"))
+    except ComputeError:
+        return False
+
+
+def mount_words(status: dict, label: str) -> str:
+    mode = "a FUSE mount" if status.get("mode") == "fuse" else "a live mirror (no FUSE there)"
+    warm = status.get("warm") or {}
+    first = f" · {warm.get('files', 0)} small files sent ahead in {warm.get('seconds', 0)} s" if warm.get("files") else ""
+    return f"⇄ mounted on {label} at {status.get('at')}, as {mode}{first}. Saves here are there at once; what a run writes there is written here, and checkpoints go to the data place."
+
+
 # ------------------------------------------------------------------ the CLI --
 
 
@@ -710,6 +790,9 @@ def main(argv=None) -> int:
     sub.add_parser("shell", help="a shell there, in this terminal (exit, or ⌃D, comes back)")
     p_pull = sub.add_parser("pull", help="bring files or folders from there, here: koios pull outputs/ model.pt")
     p_pull.add_argument("paths", nargs="+")
+    p_mount = sub.add_parser("mount", help="mount this folder on the machine instead of copying it: live both ways")
+    p_mount.add_argument("--mode", choices=("auto", "fuse", "mirror"), default="auto", help="fuse (a real mount) or mirror (a directory kept current); auto takes fuse where the machine allows it")
+    sub.add_parser("unmount", help="stop the mount there; runs copy the changed files again")
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
@@ -727,6 +810,20 @@ def main(argv=None) -> int:
         if link["kind"] == "colab" and expires:
             left = (expires - time.time() * 1000) / 60_000
             print(f"The pass to Colab {'runs out in %d min' % left if left > 0 else 'has run out: open the project in Koios to renew it'}.")
+        if link.get("mount"):
+            print(f"Mounted there ({link['mount'].get('mode')}): {'connected' if mounted_now(link) else 'not connected now — koios mount starts it again'}.")
+        return 0
+    if args.command in ("mount", "unmount"):
+        try:
+            if args.command == "mount":
+                print(f"koios: mounting {root.name} on {label}…", file=sys.stderr)
+                print(mount_words(companion_call(link, {"action": "mount", "mode": args.mode}), label))
+            else:
+                companion_call(link, {"action": "unmount"})
+                print(f"koios: {label} no longer mounts {root.name}; runs copy the changed files before they start.")
+        except ComputeError as error:
+            print(f"koios: {error}", file=sys.stderr)
+            return 1
         return 0
 
     async def work() -> int:
@@ -734,6 +831,9 @@ def main(argv=None) -> int:
         try:
             await remote.open()
             if args.command == "push":
+                if mounted_now(link):
+                    print(f"koios: {root.name} is mounted on {label}: it is there already, as it is here.")
+                    return 0
                 print(push_words(await push(remote, root, args.big, say=print), label))
                 return 0
             if args.command == "pull":
@@ -748,7 +848,7 @@ def main(argv=None) -> int:
                 if not line.strip():
                     print("koios run: which command? koios run python train.py", file=sys.stderr)
                     return 2
-                if not args.no_push:
+                if not args.no_push and not mounted_now(link):
                     print(push_words(await push(remote, root, args.big), label), file=sys.stderr)
                 return await attach(remote, remote_folder(link, root, cwd), ["bash", "-lc", line])
             if args.command == "shell":

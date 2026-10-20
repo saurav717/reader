@@ -9,9 +9,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { useStore } from '../lib/store';
 import { COLAB, computeId, isOn, switched } from '../lib/compute';
-import { checkJupyter, colabAvailable, machineLabel, serverBase, sessionsNow, stopColabRuntimes, subscribeColab, type JupyterServer } from '../lib/colab';
+import { accountRuntimes, checkJupyter, colabAvailable, machineLabel, serverBase, sessionsNow, stopAccountRuntime, stopColabRuntimes, subscribeColab, type AccountRuntime, type JupyterServer } from '../lib/colab';
 import { findCompanion, shutdownCompanion, startCompanion, STARTABLE } from '../lib/companion';
-import { useServers } from '../lib/playground';
+import { playgroundById, useServers } from '../lib/playground';
+import { useAccountActivity } from '../lib/accountActivity';
 import { isCompanion } from './VsCodeExtension';
 
 /** Whether a place to run is on, and the way to turn it on or off. */
@@ -56,6 +57,33 @@ function useColabRuntimes() {
   return [...seen.values()];
 }
 
+/**
+ * Every Colab runtime of the account's, from Colab's own list: the app's, another browser's, this tab's. Asked when the
+ * list shows, every half minute while it does, and on asking. Null when Colab can't be asked without Google's window.
+ */
+function useAccountRuntimes(ready: boolean) {
+  const [list, setList] = useState<AccountRuntime[] | null | undefined>(undefined);
+  const [asking, setAsking] = useState(false);
+  const ask = async () => {
+    if (!ready) return;
+    setAsking(true);
+    try {
+      setList(await accountRuntimes());
+    } catch {
+      setList((now) => now ?? null);
+    } finally {
+      setAsking(false);
+    }
+  };
+  useEffect(() => {
+    void ask();
+    const timer = window.setInterval(() => void ask(), 30_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+  return { list, asking, ask };
+}
+
 type Power = 'up' | 'down' | 'checking' | 'starting' | 'stopping';
 
 /** Whether each server answers, asked when the list shows and again on asking. */
@@ -88,6 +116,9 @@ export function ComputeList({ compact = false }: { compact?: boolean }) {
   const [note, setNote] = useState<Record<string, string>>({});
   const [stoppingColab, setStoppingColab] = useState(false);
   const colabReady = colabAvailable(settings.googleClientId);
+  const account = useAccountRuntimes(colabReady);
+  const [stoppingOne, setStoppingOne] = useState<string | null>(null);
+  const online = account.list ?? null;
   const say = (id: string, text: string) => setNote((current) => ({ ...current, [id]: text }));
 
   const stop = async (server: JupyterServer) => {
@@ -117,15 +148,19 @@ export function ComputeList({ compact = false }: { compact?: boolean }) {
           <small>
             {!colabReady
               ? 'needs set-up: a Google client ID and the paper proxy'
-              : runtimes.length
-                ? `running · ${runtimes.map((runtime) => runtime.label).join(', ')}${runtimes.some((runtime) => runtime.rate) ? ` · ${runtimes.reduce((sum, runtime) => sum + (runtime.rate ?? 0), 0).toFixed(2)} units/h` : ''}`
-                : isOn(settings, COLAB)
-                  ? 'nothing running'
-                  : 'off'}
+              : online && online.length
+                ? `${online.length} runtime${online.length === 1 ? '' : 's'} online on your account${runtimes.some((runtime) => runtime.rate) ? ` · ${runtimes.reduce((sum, runtime) => sum + (runtime.rate ?? 0), 0).toFixed(2)} units/h here` : ''}`
+                : runtimes.length
+                  ? `running · ${runtimes.map((runtime) => runtime.label).join(', ')}${runtimes.some((runtime) => runtime.rate) ? ` · ${runtimes.reduce((sum, runtime) => sum + (runtime.rate ?? 0), 0).toFixed(2)} units/h` : ''}`
+                  : online && !online.length
+                    ? 'no runtime online on your account'
+                    : isOn(settings, COLAB)
+                      ? 'nothing running in this tab'
+                      : 'off'}
           </small>
           {note.colab ? <small className="cp-note">{note.colab}</small> : null}
         </span>
-        {runtimes.length ? (
+        {runtimes.length && !(online && online.length) ? (
           <button
             type="button"
             className="btn sm"
@@ -143,6 +178,47 @@ export function ComputeList({ compact = false }: { compact?: boolean }) {
         ) : null}
         <ComputeSwitch id={COLAB} label="Colab" small={compact} />
       </div>
+      {online && online.length ? (
+        <ul className="cp-runtimes" aria-label="Colab runtimes online on your account">
+          {online.map((runtime) => {
+            const names = runtime.scopes.map((scope) => playgroundById(scope)?.title).filter(Boolean) as string[];
+            return (
+              <li key={runtime.endpoint}>
+                <span className="cp-runtime-what">
+                  <b>{runtime.label.replace(/^Colab · /, '')}</b>
+                  <small>
+                    {names.length ? names.join(', ') : runtime.scopes.length ? 'a project of yours' : 'the paper pages, or started in Colab itself'}
+                    {runtime.here ? ' · this tab' : runtime.by ? ` · last used in ${runtime.by}` : ''}
+                  </small>
+                </span>
+                <button
+                  type="button"
+                  className="btn sm"
+                  disabled={stoppingOne === runtime.endpoint}
+                  title="Stops this runtime wherever it was started: what runs there ends, and no more units are spent"
+                  onClick={async () => {
+                    if (!confirm(`Stop the Colab runtime${names.length ? ` of ${names.join(', ')}` : ''}? Whatever runs on it ends, in every browser.`)) return;
+                    setStoppingOne(runtime.endpoint);
+                    try {
+                      await stopAccountRuntime(runtime.endpoint);
+                      say(COLAB, 'Stopped: that runtime is gone, and what ran on it.');
+                    } catch (error) {
+                      say(COLAB, error instanceof Error ? error.message : String(error));
+                    } finally {
+                      setStoppingOne(null);
+                      void account.ask();
+                    }
+                  }}
+                >
+                  {stoppingOne === runtime.endpoint ? 'Stopping…' : 'Stop'}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : online === null && colabReady ? (
+        <p className="cp-empty">Connect Colab once in this browser (a project’s chip) to see every runtime your account has online — the app’s and other browsers’ too.</p>
+      ) : null}
       {servers.map((server) => {
         const id = computeId(server);
         const state = power[server.id];
@@ -199,6 +275,8 @@ export function ComputeList({ compact = false }: { compact?: boolean }) {
 /** The rail's chip: lit while a Colab runtime runs; it opens the list. */
 export function RailCompute({ labelled = false }: { labelled?: boolean }) {
   const runtimes = useColabRuntimes();
+  // Lit for a runtime anywhere on the account too: the app's, another browser's.
+  const account = useAccountActivity();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -221,7 +299,7 @@ export function RailCompute({ labelled = false }: { labelled?: boolean }) {
       window.removeEventListener('keydown', key);
     };
   }, [open]);
-  const live = runtimes.length > 0;
+  const live = runtimes.length > 0 || Boolean(account.runtimes?.length) || account.byScope.size > 0;
   return (
     <>
       <button

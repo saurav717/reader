@@ -8,15 +8,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
 import { renewRuntimeProxy } from '../lib/colab';
-import { COMPUTE_SHELL, colabTarget, linkCompute, pushThroughCompanion, remoteLine, renewAt, serverTarget, type LinkState } from '../lib/computeLink';
-import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
+import { COMPUTE_SHELL, MOUNT_VERSION, colabTarget, linkCompute, linkState, mountThroughCompanion, mountWords, pushThroughCompanion, remoteLine, renewAt, serverTarget, unmountThroughCompanion, type LinkState } from '../lib/computeLink';
+import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, joinIfRunning, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, prepareNotebook, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
 import { latestCheckpoint } from '../lib/telemetry';
 import type { Checkpoint } from '../lib/telemetry';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, ProjectMachine, SyncReport } from '../lib/playground';
-import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, machineHostFor, machinesOf, moveFilesOutOfBrowser, poolEnv, runLogPath, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, readMeta, writeMeta, secureCompanions, serverById, shellCell, syncRules, unionHost, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { shellWord, AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -34,15 +34,18 @@ import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
 import Gutter, { DEFAULT_LAYOUT, TREE_FOLD, loadLayout, readLayout, saveLayout } from './Gutter';
 import type { PaneLayout } from './Gutter';
-import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
+import Terminal, { forgetTerminal, hasTerminals, shareTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
+import { attachFolder, attachedWords, detach, listAttached } from '../lib/shares';
+import type { Attachment, Backends } from '../lib/shares';
 import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
 import CliAgent, { queueCliRequest } from './CliAgent';
 import TensorBoardPane from './TensorBoardPane';
 import SimPane from './SimPane';
+import ExplainerPane from './ExplainerPane';
 import ExperimentFiler from './ExperimentFiler';
 import { CATALOGUE_FILE, KOIOS_TELEMETRY_PY, TELEMETRY_FILE } from '../lib/simProject';
 import { catalogueJson } from '../lib/simulators';
@@ -57,16 +60,20 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, cliWriteRequest, lineDelta, listAll, loadAgentChats, PLAN_FILE, planMarkdown, resumeAgentJob, savedJob, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import { currentDbName, subscribeDb } from '../lib/db';
+import { useEnsureProject } from '../lib/implementationProject';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
-import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
+import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataHost, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
+import { mayStopIdle } from '../lib/idleWork';
+import { offerProject, readProjectFiles } from '../lib/projectScreen';
+import { projectsOf } from '../lib/projects';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
 import { computerOf, useReach } from '../lib/away';
 import type { AgentChange, AgentRun, ProjectView } from '../lib/projectAgent';
 
-type Tab = 'notebook' | 'files';
+type Tab = 'notebook' | 'files' | 'explain';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
 type Primary = 'explorer' | 'search' | 'outline' | 'sync' | null;
 /** The right-hand pane's tabs: the agent, and the machine's numbers as a run goes. */
@@ -194,10 +201,44 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const backendOf = (playground: Playground): Backend | null => backendOfPlayground(playground);
 
 /** `backLabel` names where Back goes when the workspace is opened somewhere other than the Playground — a paper's Explain page. */
+/** By playground: what the idle stop does before it stops a Colab runtime — the files view's Bring back, while the results are copied rather than mounted. */
+const beforeIdleStop = new Map<string, () => Promise<void>>();
+/** Where a project's runs are kept, beside the machine: the data place (runs go there as they go) and the project's own folder (where runs from before were brought back), read as one. */
+function keptRunsHost(playground: Playground, home: FileHost): FileHost | undefined {
+  const own = playground.home.kind === 'machine' ? null : home;
+  const data = dataHost(playground);
+  if (data && own) return unionHost(data, own);
+  return data ?? own ?? undefined;
+}
+
+/** A project's terminal tabs and the server terminal each is, for every browser (in the project's .reader/). */
+const TERMINALS_FILE = 'terminals.json';
+
+/** By playground: a file the Explain page asked to open, opened by the files view when it shows. */
+const openFromExplain = new Map<string, string>();
+const OPEN_FROM_EXPLAIN = 'reader:open-from-explain';
+
+/**
+ * One of the workspace's views (Notebook, Files, Explain), kept once it has been opened: hidden, not unmounted, when
+ * another is chosen — the files open, the terminals, the panes, the runs read, all as they were on coming back.
+ */
+function KeepView({ show, children }: { show: boolean; children: React.ReactNode }) {
+  const [seen, setSeen] = useState(show);
+  useEffect(() => {
+    if (show) setSeen(true);
+  }, [show]);
+  if (!seen && !show) return null;
+  return (
+    <div className="pg-keep" hidden={!show}>
+      {children}
+    </div>
+  );
+}
+
 export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, backLabel }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void; backLabel?: string }) {
   const colab = useColab();
   const { papers, settings } = useStore();
-  useServers();
+  const servers = useServers();
   const [tab, setTab] = useState<Tab>(playground.kind === 'project' ? 'files' : 'notebook');
   const [side, setSide] = useState<NbSide>(null);
   const [title, setTitle] = useState(playground.title);
@@ -229,6 +270,16 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
     if (!backend) return;
     chooseBackend(backend, playground.id);
     if (playground.compute.kind === 'colab') setMachine(playground.compute.machine);
+    // Still running — after a reload (the site updated), or from another browser of the account's: joined, so what
+    // runs there (cells, commands, terminals, agents) is seen and followed, never left looking stopped. Never a new machine.
+    let open = true;
+    void joinIfRunning(playground.id).then(({ state, by }) => {
+      if (!open) return;
+      if (state === 'needs-click') setNote(`This project's Colab runtime is still running${by ? ` (last used in ${by})` : ''}. Connect from the chip to join it — what runs there carries on; nothing is restarted.`);
+    });
+    return () => {
+      open = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playground.id, playground.compute.kind === 'server' ? playground.compute.serverId : playground.compute.shared ? 'colab-shared' : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
 
@@ -261,9 +312,15 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         const state = first ? colabNow() : sessionOf(sessionsNow(), machine.scope);
         const since = first ? lastActivityAt() : lastActivityIn(machine.scope);
         if (state?.status !== 'idle' || since === undefined) continue;
-        if (Date.now() - since < playground.idleStopMin * 60_000) continue;
-        void (first ? stopRuntime() : stopRuntimeIn(machine.scope));
-        setNote(`The Colab runtime${first ? '' : ` of machine ${machine.rank}`} was stopped after ${playground.idleStopMin} minutes with nothing running, as this playground asks. The next Run starts a new one.`);
+        // The kernel idle that long: the machine asked too — a training in the terminal, or an agent, keeps it.
+        void mayStopIdle(first ? '' : machine.scope, since, playground.idleStopMin * 60_000).then(async (stop) => {
+          if (!stop) return;
+          // Copied, not mounted: the run's results (videos too) come home first — the runtime's disk goes with it.
+          const bringBack = beforeIdleStop.get(playground.id);
+          if (first && bringBack) await bringBack().catch(() => undefined);
+          void (first ? stopRuntime() : stopRuntimeIn(machine.scope));
+          setNote(`The Colab runtime${first ? '' : ` of machine ${machine.rank}`} was stopped after ${playground.idleStopMin} minutes with nothing running on it — no cell, no command in a terminal, no agent, the GPU unused — as this playground asks. The next Run starts a new one. Storage & compute changes the time, or turns this off.`);
+        });
       }
     }, 30_000);
     return () => window.clearInterval(check);
@@ -282,6 +339,9 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
   const nbKey = notebookKey(playground.id);
   const seed = useCallback(() => takeSeed(playground.id) ?? blankCells(playground.title), [playground.id, playground.title]);
   const connected = colab.status === 'idle' || colab.status === 'busy';
+  // The project's own folder, for the Explain page.
+  const explainHost = useMemo(() => homeHost(playground), [playground, servers]);
+  const explainKept = useMemo(() => keptRunsHost(playground, explainHost), [playground, explainHost]);
   const usable = Boolean(backend) && colabAvailable(settings.googleClientId);
   // A move of the files under way, from any browser: followed from here, and finished here when it is done.
   const { move, problem: moveProblem } = useMove(playground, connected);
@@ -315,6 +375,9 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
           </button>
           <button type="button" role="tab" aria-selected={tab === 'files'} aria-pressed={tab === 'files'} onClick={() => setTab('files')}>
             Files
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'explain'} aria-pressed={tab === 'explain'} onClick={() => setTab('explain')} title="An illustrated account of the project: how the code works, what was done with it, what the runs show">
+            Explain
           </button>
         </div>
         {playground.cites.length ? (
@@ -380,11 +443,32 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
       {playground.home.kind === 'browser' && playground.kind === 'project' ? <MoveOutOfBrowser playground={playground} machineName={machineName} onNote={setNote} /> : null}
       <MachinePool playground={playground} usable={usable} open={poolOpen} onOpen={setPoolOpen} onNote={setNote} />
       <div className="pg-body">
-        {tab === 'notebook' ? (
+        <KeepView show={tab === 'explain'}>
+          <ExplainerPane
+            title={playground.title}
+            projectId={playground.id}
+            host={explainHost}
+            where={`Files in ${explainHost.label} · runs on ${machineName}${connected ? '' : ' (not connected)'}`}
+            place={{ machineFolder: connected ? machineRoot(playground) : null, kept: explainKept }}
+            consoleLines={playground.console.map((entry) => entry.command)}
+            metricTexts={playground.console.flatMap((entry) => {
+              const run = colab.runs[consoleKey(playground.id, entry.id)];
+              return run ? [{ label: `$ ${entry.command.slice(0, 32)}${entry.command.length > 32 ? '…' : ''}`, text: run.outputs.map((o) => ('text' in o ? o.text : '')).join('') }] : [];
+            })}
+            onOpen={(path) => {
+              openFromExplain.set(playground.id, path);
+              window.dispatchEvent(new CustomEvent(OPEN_FROM_EXPLAIN, { detail: { id: playground.id } }));
+              setTab('files');
+            }}
+          />
+        </KeepView>
+        <KeepView show={tab === 'notebook'}>
           <div className="pg-notebook">
             <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed }} />
           </div>
-        ) : snapView && shows.snapshot ? (
+        </KeepView>
+        <KeepView show={tab === 'files'}>
+        {snapView && shows.snapshot ? (
           <SnapshotView playground={playground} reach={reach} onBring={shows.bring ? () => setBringing(true) : undefined} onBack={() => setSnapView(false)} />
         ) : away && shows.card ? (
           <AwayCard
@@ -399,6 +483,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         ) : (
           <FilesView key={JSON.stringify(playground.home)} playground={playground} connected={connected} usable={usable} machineName={machineName} />
         )}
+        </KeepView>
       </div>
       {bringing ? <BringDialog playground={playground} reach={reach} onClose={() => setBringing(false)} onOpen={(id) => window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id } }))} /> : null}
       {changing ? (
@@ -1279,6 +1364,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [currentKey, home, machine]);
   const filesRef = useRef(files);
   filesRef.current = files;
+  const activeRef = useRef<string | undefined>(undefined);
+  activeRef.current = current?.where === 'home' ? current.path : undefined;
+  // Ask AI reads this project's files while it is on screen: the one in front, the open tabs (unsaved edits too), the
+  // rest of its code and notes within a question's budget (projectScreen.ts). Nothing once the workspace goes.
+  const { collections } = useStore();
+  const researchProject = projectsOf(collections).find((item) => item.project.playgroundId === playground.id)?.name;
+  useEffect(() => {
+    offerProject(async () => {
+      const open = filesRef.current.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, unsaved: file.text !== file.saved }));
+      const read = await readProjectFiles(home, open, activeRef.current);
+      return {
+        title: playground.title,
+        kind: researchProject ? `the code of the research project “${researchProject}”` : playground.kind === 'project' ? 'a playground project' : 'a playground notebook',
+        where: `Its files are in ${home.label}; its code runs on ${machineName}.`,
+        ...read,
+      };
+    });
+    return () => offerProject(null);
+  }, [home, playground.id, playground.title, playground.kind, machineName, researchProject]);
   // A real terminal when the machine is a Jupyter server that offers one (a Reader Companion does); the command box otherwise, and on Colab.
   const computeServer = playground.compute.kind === 'server' ? servers.find((server) => server.id === (playground.compute.kind === 'server' ? playground.compute.serverId : '')) : undefined;
   const [terminals, setTerminals] = useState<boolean | null>(null);
@@ -1307,9 +1411,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const linkTarget = !filesHere
     ? null
     : proxy && proxy.kind !== 'jupyter'
-      ? colabTarget(proxy, machineName, machineRoot(playground), playground.sync.ignore)
+      ? colabTarget(proxy, machineName, machineRoot(playground), syncRules(playground).ignore)
       : computeServer && computeServer.id !== filesHere.id
-        ? serverTarget(computeServer, machineRoot(playground), playground.sync.ignore)
+        ? serverTarget(computeServer, machineRoot(playground), syncRules(playground).ignore)
         : null;
   const [link, setLink] = useState<LinkState | null>(null);
   const linkKey = linkTarget ? `${linkTarget.url}|${linkTarget.token}|${linkTarget.folder}|${linkTarget.ignore}|${linkTarget.label}` : '';
@@ -1333,6 +1437,61 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     };
   }, [filesHere?.id, filesHere?.url, filesHere?.token, homeRoot, linkKey, stale]); // eslint-disable-line react-hooks/exhaustive-deps
   const linked = Boolean(filesHere && link?.linked);
+  // Mounted there (Companion 0.19.0): the machine reads the folder where it is, through the Companion's tunnel, so a
+  // run copies nothing first and brings nothing back after. Started whenever the project asks for it and the machine
+  // doesn't have it (a new Colab runtime has none); a machine that drops it is copied to again until it is back.
+  const wantMount = Boolean(playground.sync.mount);
+  const mountKnown = Boolean(linked && link?.mount);
+  const [mounting, setMounting] = useState<{ busy: boolean; words?: string; problem?: string }>({ busy: false });
+  const mounted = Boolean(linked && wantMount && (link?.mount?.connected ?? 0) > 0);
+  const mountTried = useRef('');
+  // One start at a time: the switch and the effect below both start it, and a second start used to stop the first's mount
+  // under whatever was working in it (a ref, not the state: two calls in one render both see busy as false).
+  const mountBusy = useRef(false);
+  // Each mount that comes up: the notebook's kernel is moved into it (below), whatever it was in before.
+  const [mountEpoch, setMountEpoch] = useState(0);
+  const startMount = async (force = false) => {
+    if (!filesHere || mountBusy.current) return;
+    if (!force && mountTried.current === linkKey) return;
+    mountTried.current = linkKey;
+    mountBusy.current = true;
+    setMounting({ busy: true });
+    try {
+      const status = await mountThroughCompanion(filesHere, homeRoot);
+      setMounting({ busy: false, words: mountWords(status, machineName) });
+      setMountEpoch((n) => n + 1);
+    } catch (error) {
+      setMounting({ busy: false, problem: error instanceof Error ? error.message : String(error) });
+    } finally {
+      mountBusy.current = false;
+    }
+    const fresh = await linkState(filesHere, homeRoot);
+    if (fresh) setLink(fresh);
+  };
+  useEffect(() => {
+    if (!linked || !wantMount || !link?.mount || link.mount.connected) return;
+    void startMount();
+  }, [linked, wantMount, link?.mount?.connected, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While it is meant to be mounted: whether the machine still has it, every half minute.
+  useEffect(() => {
+    if (!linked || !wantMount || !filesHere) return;
+    const timer = window.setInterval(() => void linkState(filesHere, homeRoot).then((fresh) => fresh && setLink(fresh)), 30_000);
+    return () => window.clearInterval(timer);
+  }, [linked, wantMount, filesHere?.id, homeRoot]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setMount = async (on: boolean) => {
+    updatePlayground(playground.id, { sync: { ...playground.sync, mount: on } });
+    if (on) return void startMount(true);
+    if (!filesHere) return;
+    setMounting({ busy: true });
+    try {
+      await unmountThroughCompanion(filesHere, homeRoot);
+      setMounting({ busy: false });
+    } catch (error) {
+      setMounting({ busy: false, problem: error instanceof Error ? error.message : String(error) });
+    }
+    const fresh = await linkState(filesHere, homeRoot);
+    if (fresh) setLink(fresh);
+  };
   // VS Code in the page opens a folder on a Companion's computer: the project's, when its files are kept there —
   // in a folder of its (home) or on its own disk as the machine the code runs on.
   const vscodeAt: { server: JupyterServer; folder: string } | null =
@@ -1358,6 +1517,55 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setShells(next);
     writeSession(shellsKey, next);
   };
+  // The terminals, for every browser of the account's: which tabs the project has, and which server terminal each is,
+  // kept in its folder (.reader/terminals.json). A reload, or another browser, finds the shells running there — a
+  // training started in one, an agent's — rather than opening new ones beside them.
+  const termsRead = useRef(false);
+  useEffect(() => {
+    termsRead.current = false;
+    let live = true;
+    const readTerms = async (): Promise<{ tabs: string[]; names: Record<string, string> }> => {
+      try {
+        const kept = JSON.parse((await readMeta(home, TERMINALS_FILE)) ?? '{}') as { tabs?: string[]; names?: Record<string, string> };
+        return { tabs: Array.isArray(kept.tabs) ? kept.tabs : [], names: kept.names && typeof kept.names === 'object' ? kept.names : {} };
+      } catch {
+        return { tabs: [], names: {} };
+      }
+    };
+    shareTerminals(playground.id, {
+      get: async (key) => (await readTerms()).names[key] ?? null,
+      put: async (key, name) => {
+        const kept = await readTerms();
+        kept.names[key] = name;
+        await writeMeta(home, TERMINALS_FILE, `${JSON.stringify(kept)}\n`);
+      },
+    });
+    void readTerms().then((kept) => {
+      if (!live) return;
+      const mine = readSession<string[]>(shellsKey, []);
+      const extra = kept.tabs.filter((tab) => tab.startsWith(playground.id) && !mine.includes(tab));
+      if (extra.length) keepShells([...(mine.length ? mine : [playground.id]), ...extra]);
+      termsRead.current = true;
+    });
+    return () => {
+      live = false;
+      shareTerminals(playground.id, null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [home, playground.id]);
+  useEffect(() => {
+    // The tabs as they are now, once the folder's list has been read (so a new browser's lone tab doesn't replace it).
+    if (!termsRead.current) return;
+    void (async () => {
+      try {
+        const kept = JSON.parse((await readMeta(home, TERMINALS_FILE)) ?? '{}') as { tabs?: string[]; names?: Record<string, string> };
+        if (JSON.stringify(kept.tabs ?? []) === JSON.stringify(shells)) return;
+        await writeMeta(home, TERMINALS_FILE, `${JSON.stringify({ tabs: shells, names: kept.names ?? {} })}\n`);
+      } catch {
+        // the folder can't be reached now: the next change writes it
+      }
+    })();
+  }, [shells, home]);
   /** A new terminal: on the project's first machine, or on a pool member (its id after an `@`, so the tab comes back to it). */
   const addShell = (member: string | null = null) => {
     const id = `${playground.id}~${shortId()}${member ? `@${member}` : ''}`;
@@ -1641,6 +1849,10 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     }
   };
 
+  // What the idle stop does before it stops the runtime: bring the results back, when they are copied.
+  if (!mounted && playground.home.kind !== 'machine') beforeIdleStop.set(playground.id, pull);
+  else beforeIdleStop.delete(playground.id);
+
   /** The folder on the machine, as an absolute path the shell can cd into: the small kernel's start, joined to the folder. */
   const folderOnMachine = async (machine?: ProjectMachine) => {
     if (machine && machine.member !== null) {
@@ -1658,6 +1870,22 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (found) setBase(found);
     return found ?? machineRoot(playground);
   };
+
+  // Mounted: the notebook's kernel works in the project's folder there, as the console does — `import mymodule` and
+  // relative paths in a cell find the project. Once per kernel (a restart starts it in the machine's home again).
+  const preparedFor = useRef('');
+  useEffect(() => {
+    if (!mounted || !connected || !colab.kernel) return;
+    const key = `${colab.kernel}|${linkKey}|${mountEpoch}`;
+    if (preparedFor.current === key) return;
+    preparedFor.current = key;
+    void (async () => {
+      const folder = await folderOnMachine();
+      // By path, never relative to where the kernel is: that may be a mount since replaced, which no longer answers.
+      const ok = await prepareNotebook(`import os as _os, sys as _sys\n_d = ${JSON.stringify(folder)}\nif _os.path.isdir(_d):\n    _os.chdir(_d)\n    _sys.path.insert(0, _d) if _d not in _sys.path else None\ndel _os, _sys, _d`);
+      if (!ok) preparedFor.current = '';
+    })();
+  }, [mounted, connected, colab.kernel, linkKey, mountEpoch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** The koios helper written to a machine's folder, once per machine in this tab, so `import koios` works there. */
   const ensureHelper = async (m: ProjectMachine) => {
@@ -1684,14 +1912,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           return;
         }
       }
-      if (split && !(await push())) return;
+      // Mounted: the machine has the folder as it is here — only the edits on screen need saving.
+      if (split && mounted) for (const file of files) if (file.where === 'home' && file.text !== file.saved) await save(file);
+      if (split && !mounted && !(await push())) return;
       const folder = await folderOnMachine();
       await ensureHelper(m).catch(() => undefined);
       const env = { ...place, KOIOS_PYLIB: `${folder}/${KOIOS_PYLIB}`, ...dataFor(folder).env, ...extra };
       // Logged on the machine as it runs, so the project picked up from another computer shows it from the start.
       const log = runLogPath(folder, entry.id);
       await runCell(consoleKey(playground.id, entry.id), shellCell(folder, trimmed, env, log), { log });
-      if (split) await pull();
+      if (split && !mounted) await pull();
       return;
     }
     if (!m.backend) {
@@ -1761,6 +1991,22 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
 
   const consoleCells = playground.console.flatMap((entry, index) => entryRuns(playground.id, machines, entry).map(({ key, machine }) => ({ key, id: entry.id, label: `command ${index + 1}${pooled ? ` · machine ${machine.rank}` : ''}` })));
   const nbCells = useSyncExternalStore(subscribeNotebook, () => notebookFor(notebookKey(playground.id)));
+  // Where the Sim pane reads runs from beside the machine (kept stable: it restarts its reading when this changes).
+  const keptRuns = useMemo(() => keptRunsHost(playground, home), [playground, home]);
+  // A file named on the Explain page: opened here as the Files tab comes back (mounted then, or kept from before).
+  useEffect(() => {
+    const take = () => {
+      const path = openFromExplain.get(playground.id);
+      if (!path) return;
+      openFromExplain.delete(playground.id);
+      void open('home', path);
+    };
+    take();
+    const onAsk = (event: Event) => (event as CustomEvent<{ id: string }>).detail?.id === playground.id && take();
+    window.addEventListener(OPEN_FROM_EXPLAIN, onAsk);
+    return () => window.removeEventListener(OPEN_FROM_EXPLAIN, onAsk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id]);
   const metricCells = useMemo(
     () => [
       ...playground.console.flatMap((entry, index) =>
@@ -1801,6 +2047,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [playground.console.length]);
 
   const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId)).find(Boolean);
+  // A project from a paper has a Project on the Projects page, whose logbook its runs are filed in: made now when it has none.
+  useEnsureProject(cited?.id, playground);
   // The paper's Implementation page, when it has one: the plan goes with the agent's requests.
   // Read again when the browser's database moves to the signed-in account's.
   const dbName = useSyncExternalStore(subscribeDb, currentDbName);
@@ -2455,7 +2703,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : primary === 'outline' ? (
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
-              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), computer: filesHere.name, set: (on) => void setMount(on) } : undefined} filesComputer={homeServer && isCompanion(homeServer) ? homeServer : undefined} folder={homeServer?.root ? `${homeServer.root.replace(/\/+$/, '')}/${homeRoot}` : homeRoot} />
             ) : null}
           </aside>
         ) : null}
@@ -2610,7 +2858,13 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 </span>
               )}
               <span className="spacer" />
-              {split ? (
+              {split && mounted ? (
+                <span className="vs-copy-chip is-mounted" title={`Your code is kept in ${homeLabel} and mounted on ${machineName} through the Companion's tunnel: a save here is there at once, and what a run writes there is written here. Checkpoints and data (the project's rules) stay on the machine and go to the data place.`}>
+                  <SyncGlyph />
+                  <span>Mounted on {machineName.split(' · ')[0]}</span>
+                  <b>⇄ live</b>
+                </span>
+              ) : split ? (
                 <button
                   type="button"
                   className={`vs-copy-chip${syncing === 'push' ? ' is-busy' : ''}`}
@@ -2733,7 +2987,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <CloseIcon size={14} />
               </button>
             </div>
-            {rightTab === 'agent' ? (
+            <KeepTab id="agent" active={rightTab}>
               <>
                 <div className="vs-agent-pick" role="radiogroup" aria-label="Which agent">
                   {agentChoices.map((choice) => (
@@ -2787,8 +3041,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   />
                 )}
               </>
-            ) : rightTab === 'runtime' ? (
-              pooled ? (
+            </KeepTab>
+            <KeepTab id="runtime" active={rightTab}>
+              {              pooled ? (
                 <div className="pg-pool-panes">
                   {machines.map((m) => {
                     const first = m.member === null;
@@ -2809,13 +3064,17 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               ) : (
                 <p className="pg-note pg-pad">Connect from the bar, or run a command, and {machineName} is read here: GPU, memory, disk, live.</p>
               )
-            ) : rightTab === 'metrics' ? (
+              }
+            </KeepTab>
+            <KeepTab id="metrics" active={rightTab}>
               <MetricsPane cells={metricCells} running={colab.running} />
-            ) : rightTab === 'sim' ? (
-              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} />
-            ) : (
+            </KeepTab>
+            <KeepTab id="sim" active={rightTab}>
+              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} kept={keptRuns} />
+            </KeepTab>
+            <KeepTab id="tensorboard" active={rightTab}>
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
-            )}
+            </KeepTab>
           </aside>
         ) : null}
       </div>
@@ -3071,7 +3330,136 @@ function Folder({ host, path, depth, onOpen, activePath, version, onContext }: {
   );
 }
 
-function SyncPane({ playground, homeLabel, machineName, report, syncing, connected, onPush, onPull }: { playground: Playground; homeLabel: string; machineName: string; report: (SyncReport & { at: number; what: 'push' | 'pull' }) | null; syncing: 'push' | 'pull' | null; connected: boolean; onPush: () => void; onPull: () => void }) {
+interface MountControl {
+  /** The Companion knows mounts (0.19.0 on). */
+  known: boolean;
+  linked: boolean;
+  on: boolean;
+  mounted: boolean;
+  busy: boolean;
+  words?: string;
+  problem?: string;
+  /** The Companion keeps this computer from sleeping while the folder is mounted. */
+  awake: boolean;
+  /** The computer the files are on, by its name alone ("Saurav’s MacBook Air"). */
+  computer: string;
+  set: (on: boolean) => void;
+}
+
+/**
+ * One tab of the right-hand pane, kept once it has been opened: hidden, not unmounted, when another is chosen — so
+ * coming back finds it as it was (the runs read, an agent's conversation and sign-in), not read again from nothing.
+ */
+function KeepTab({ id, active, children }: { id: RightTab; active: RightTab; children: React.ReactNode }) {
+  const [seen, setSeen] = useState(id === active);
+  useEffect(() => {
+    if (id === active) setSeen(true);
+  }, [id, active]);
+  if (!seen && id !== active) return null;
+  return (
+    <div className="vs-right-tab" hidden={id !== active}>
+      {children}
+    </div>
+  );
+}
+
+/** Which attachment of this project's folder is on which computer, by project and computer: kept in this browser to find it again in the list. */
+const attachedKey = (playgroundId: string, serverId: string) => `reader.attachedOn.${playgroundId}.${serverId}`;
+const attachedIdOn = (playgroundId: string, serverId: string) => {
+  try {
+    return localStorage.getItem(attachedKey(playgroundId, serverId));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The project's folder on the account's other computers, as a disk of their own (src/lib/shares.ts, Companion 0.20.0):
+ * Attach shares it from the computer it is on and mounts it on the other — Finder, File Explorer, any program there.
+ */
+function OnOtherComputers({ playground, filesComputer, folder }: { playground: Playground; filesComputer: JupyterServer; /** The folder on its computer: absolute, or relative to its Companion's folder. */ folder: string }) {
+  const others = useServers().filter((server) => isCompanion(server) && server.id !== filesComputer.id && (!server.companionId || server.companionId !== filesComputer.companionId));
+  const [state, setState] = useState<Record<string, { item?: Attachment; problem?: string; busy?: boolean; fuse?: Backends['fuse'] }>>({});
+  const [, setTick] = useState(0);
+  const look = useCallback(async () => {
+    const found = await Promise.all(
+      others.map(async (server) => {
+        try {
+          const list = await listAttached(server);
+          const id = attachedIdOn(playground.id, server.id);
+          return [server.id, { item: list.attached.find((a) => a.id === id), fuse: list.backends.fuse }] as const;
+        } catch (error) {
+          return [server.id, { problem: error instanceof Error ? error.message : String(error) }] as const;
+        }
+      }),
+    );
+    setState(Object.fromEntries(found));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [others.map((s) => s.id).join('|'), playground.id]);
+  useEffect(() => {
+    void look();
+  }, [look]);
+  if (!others.length) {
+    return (
+      <div className="pg-other-computers">
+        <b>On your other computers</b>
+        <p className="pg-note">Sign in to the Koios app on another computer (Mac, Windows or Linux) with this account, and this folder can be attached there as a disk of its own — in Finder or File Explorer, for any program.</p>
+      </div>
+    );
+  }
+  const attach = async (server: JupyterServer) => {
+    setState((now) => ({ ...now, [server.id]: { ...now[server.id], busy: true, problem: undefined } }));
+    try {
+      const done = await attachFolder(filesComputer, server, folder, 'used', playground.title);
+      try {
+        localStorage.setItem(attachedKey(playground.id, server.id), done.id);
+      } catch {
+        // private mode: found again by Settings → Compute's list
+      }
+      setTick((n) => n + 1);
+    } catch (error) {
+      setState((now) => ({ ...now, [server.id]: { ...now[server.id], busy: false, problem: error instanceof Error ? error.message : String(error) } }));
+      return;
+    }
+    await look();
+  };
+  const letGo = async (server: JupyterServer, id: string) => {
+    setState((now) => ({ ...now, [server.id]: { ...now[server.id], busy: true } }));
+    await detach(server, id).catch(() => undefined);
+    await look();
+  };
+  return (
+    <div className="pg-other-computers">
+      <b>On your other computers</b>
+      <p className="pg-note">
+        The folder as a disk of its own on another computer of yours: it stays on {filesComputer.name}, and files come over as they are opened there. (To run the code on another computer instead of {playground.compute.kind === 'colab' ? 'Colab' : 'this machine'}, pick it in <b>Storage &amp; compute</b>: the switch above then mounts the folder there.)
+      </p>
+      {others.map((server) => {
+        const here = state[server.id] ?? {};
+        const item = here.item;
+        return (
+          <div key={server.id} className="pg-other-row">
+            <span className="pg-other-name">{server.name}</span>
+            <span className="pg-other-state">{here.busy ? 'Working…' : item ? attachedWords(item) : here.problem ? '' : 'not attached'}</span>
+            {item ? (
+              <button type="button" className="btn sm" disabled={here.busy} onClick={() => void letGo(server, item.id)}>
+                Detach
+              </button>
+            ) : (
+              <button type="button" className="btn sm" disabled={here.busy} onClick={() => void attach(server)} title={`Attach this project's folder on ${server.name}, as a disk`}>
+                Attach
+              </button>
+            )}
+            {here.problem ? <small className="pg-error">{here.problem}</small> : null}
+            {item && here.fuse && !here.fuse.ok ? <small className="pg-note">A network drive there; {here.fuse.driver} makes it faster (Settings → Compute & playgrounds).</small> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SyncPane({ playground, homeLabel, machineName, report, syncing, connected, onPush, onPull, mount, filesComputer, folder }: { playground: Playground; homeLabel: string; machineName: string; report: (SyncReport & { at: number; what: 'push' | 'pull' }) | null; syncing: 'push' | 'pull' | null; connected: boolean; onPush: () => void; onPull: () => void; mount?: MountControl; /** The Companion computer the files are on, when they are on one: the folder can be attached on the account's other computers. */ filesComputer?: JupyterServer; folder?: string }) {
   const [ignore, setIgnore] = useState(playground.sync.ignore);
   const [bringBack, setBringBack] = useState(playground.sync.bringBack);
   const changed = ignore !== playground.sync.ignore || bringBack !== playground.sync.bringBack;
@@ -3082,16 +3470,48 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
         <span>⇄</span>
         <b>{machineName}</b>
       </div>
-      <p className="pg-note">The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.</p>
-      <div className="pg-machine-actions">
-        <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPush}>
-          {syncing === 'push' ? 'Copying…' : 'Copy to the machine now'}
-        </button>
-        <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPull}>
-          {syncing === 'pull' ? 'Bringing back…' : 'Bring results back'}
-        </button>
-      </div>
-      {report ? (
+      {mount ? (
+        <div className="pg-mount">
+          <label className="pg-mount-switch">
+            <input type="checkbox" checked={mount.on} disabled={mount.busy || !mount.linked || !mount.known} onChange={(event) => mount.set(event.target.checked)} />
+            <span>
+              <b>Mount the folder on {machineName}</b> instead of copying it
+            </span>
+          </label>
+          <p className="pg-note">
+            {!mount.linked
+              ? `Connect ${machineName} first: the Companion on ${mount.computer} mounts the folder through the link it keeps to it.`
+              : !mount.known
+                ? `Mounting needs Koios Companion ${MOUNT_VERSION} on ${mount.computer}: update it in Settings → Updates.`
+                : mount.busy
+                  ? `Starting the mount on ${machineName}… (the first time on Colab it installs fusepy, a minute or so)`
+                  : mount.mounted
+                    ? `${mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`} The rest of the files follow in the background, so a run keeps reading if ${mount.computer} goes to sleep${mount.awake ? ` — which it won’t while the folder is mounted` : ''}; what it writes meanwhile waits and comes over when ${mount.computer} is back. A terminal on ${machineName} opened before the mount: run cd "$PWD" there to see it.`
+                    : mount.on
+                      ? `${machineName} doesn’t have the folder mounted now: runs copy the changed files until it does.`
+                      : `${machineName} reads the folder where it is — on ${mount.computer} — through the Companion’s Cloudflare tunnel: a save here is there at once, what a run writes there is written here, and nothing is copied before a run. What the rules below leave out (checkpoints, data) stays on the machine and goes to the data place.`}
+          </p>
+          {mount.problem ? <p className="pg-error">{mount.problem}</p> : null}
+        </div>
+      ) : null}
+      {filesComputer && folder !== undefined ? <OnOtherComputers playground={playground} filesComputer={filesComputer} folder={folder} /> : null}
+      <p className="pg-note">{mount?.mounted ? 'While it is mounted the rules below say what stays on the machine (and goes to the data place) and what is yours; nothing needs copying or bringing back.' : 'The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.'}</p>
+      {syncRules(playground).runsInData ? (
+        <p className="pg-note">
+          <b>Runs</b> (<code>runs/</code>) stay on {machineName} and go to the data place as they run — not to {homeLabel}. The Sim pane and Explain read them there. To keep them with the code instead: Storage &amp; compute → Data &amp; results.
+        </p>
+      ) : null}
+      {mount?.mounted ? null : (
+        <div className="pg-machine-actions">
+          <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPush}>
+            {syncing === 'push' ? 'Copying…' : 'Copy to the machine now'}
+          </button>
+          <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPull}>
+            {syncing === 'pull' ? 'Bringing back…' : 'Bring results back'}
+          </button>
+        </div>
+      )}
+      {report && !mount?.mounted ? (
         <p className="pg-ok">
           {report.what === 'push' ? `${report.sent.length} ${report.sent.length === 1 ? 'file' : 'files'} copied to the machine` : `${report.back.length} ${report.back.length === 1 ? 'file' : 'files'} brought back`}
           {report.skipped.length ? ` · ${report.skipped.length} left where they were: over 2 MB, or not text (videos, images, weights)` : ''} · {new Date(report.at).toLocaleTimeString()}
@@ -3105,7 +3525,7 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
         <span>Brought back after a run</span>
         <textarea value={bringBack} onChange={(event) => setBringBack(event.target.value)} rows={5} spellCheck={false} />
       </label>
-      <button type="button" className="btn sm primary" disabled={!changed} onClick={() => updatePlayground(playground.id, { sync: { ignore, bringBack } })}>
+      <button type="button" className="btn sm primary" disabled={!changed} onClick={() => updatePlayground(playground.id, { sync: { ...playground.sync, ignore, bringBack } })}>
         Keep these rules
       </button>
     </div>

@@ -5837,6 +5837,9 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-sync-flow { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
 .pg-sync-flow span { color: var(--muted); }
 .pg-rules { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.pg-mount { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 8px; }
+.pg-mount-switch { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; cursor: pointer; }
+.pg-mount-switch input { margin-top: 2px; }
 .pg-rules textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 11.5px/1.5 var(--mono); resize: vertical; outline: 0; }
 .pg-rules textarea:focus { border-color: var(--accent); }
 .pg-sync > .btn { align-self: flex-start; }
@@ -5901,6 +5904,15 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .companion-pair input:focus { border-color: var(--accent); }
 .pg-vscode { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--ink-2); }
 .pg-vscode small { font-size: 11.5px; }
+.shared-folders { display: flex; flex-direction: column; gap: 10px; }
+.shared-form { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; }
+.shared-form label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.shared-form select, .shared-picker input { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; min-width: 0; }
+.shared-picker { display: flex; flex-direction: column; gap: 6px; }
+.shared-picker input { width: 100%; font-family: var(--mono); }
+.shared-picker-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow: auto; }
+.shared-form small, .shared-note { font-size: 12px; color: var(--ink-2); }
+.shared-problem { font-size: 12px; color: var(--danger, #c0392b); }
 .pg-vscode .pg-bad { flex-basis: 100%; margin: 0; }
 .pg-pair .pg-pair-kv { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; padding: 11px 13px; border-radius: 10px; background: var(--panel); font-size: 12px; margin-bottom: 10px; }
 .pg-pair .pg-pair-kv span { color: var(--muted); }
@@ -6527,6 +6539,8 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-copy-chip:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--ink-2); }
 .vs-copy-chip:disabled { cursor: default; opacity: 0.7; }
 .vs-copy-chip.is-busy svg { animation: vs-spin 1s linear infinite; }
+.vs-copy-chip.is-mounted { cursor: default; }
+.vs-copy-chip.is-mounted b { background: color-mix(in srgb, var(--ul-green) 16%, transparent); color: var(--ul-green); }
 @keyframes vs-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .vs-copy-chip > span { display: none; } }
 
@@ -9807,3 +9821,113 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .mv-sheet .link, .mv-progress .link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; }
 .mv-sheet .link:hover, .mv-progress .link:hover { text-decoration: underline; }
 .mv-progress .hint { font-size: 12px; color: var(--muted); }
+
+/* Messages sent while an agent works (QueuedMessages.tsx). */
+.queued-msgs { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; padding: 6px 8px; border: 1px dashed var(--border); border-radius: 8px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.queued-head { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.queued-msg { display: flex; align-items: flex-start; gap: 6px; }
+.queued-msg p { flex: 1; margin: 0; font-size: 12.5px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 5.5em; overflow: auto; }
+.vs-turn.is-during { opacity: 0.92; }
+.vs-turn-during { display: block; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.sim-looked { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sim-looked small { color: var(--muted); font-size: 12px; }
+
+/* The playground's Explain page (ExplainerPane.tsx): the paper explanation's layout (.explain-scroll, .explain-outline,
+   .explain-doc, .explain-section…), in the workspace rather than over the page. */
+.pg-explainer { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); }
+.pg-explainer .explain-bar { gap: 10px; }
+.pg-explainer .explain-scroll { --explain-pad-top: 32px; }
+.pg-explainer .explain-doc { max-width: 900px; }
+.pg-explainer-start { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 22px 0 12px; }
+.pg-explainer-start .btn.primary { display: inline-flex; align-items: center; gap: 7px; }
+.pgx-block, .explainer-chart, .explainer-media, .explainer-code { max-width: 760px; margin: 14px 0 22px; }
+.explainer-chart { padding: 12px 14px 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; }
+.explainer-media img, .explainer-media video { display: block; max-width: 100%; max-height: 460px; margin: 0 auto; border-radius: 8px; border: 1px solid var(--border-soft); background: #000; }
+figure[class^='explainer-'] figcaption, .pgx-block figcaption { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+figure[class^='explainer-'] figcaption code { font-size: 11px; }
+.explainer-code pre { margin: 4px 0 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px; font: 12.5px/1.55 var(--mono); overflow: auto; }
+.explainer-file { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 900px) { .pg-explainer .explain-scroll { grid-template-columns: minmax(0, 1fr); padding: 24px 16px 100px; } .pg-explainer .explain-outline { display: none; } }
+/* The Explain page's ask bar: the paper page's (.explain-ask), and a question's answer under it. */
+.pg-explainer-ask { padding-top: 10px; }
+.ask-status.is-answer { align-items: flex-start; color: var(--ink-2); max-height: 40vh; overflow: auto; }
+.ask-status.is-answer > svg { flex: none; margin-top: 2px; color: var(--accent); }
+.ask-status.is-answer em { display: block; margin-bottom: 4px; color: var(--muted); }
+.pgx-answer { display: block; font-size: 15px; line-height: 1.6; max-width: none; }
+.pgx-answer p:last-child { margin-bottom: 0; }
+@media (max-width: 900px) { .pg-explainer-ask { grid-template-columns: minmax(0, 1fr); padding: 10px 16px; } .pg-explainer-ask .ask-column { grid-column: 1; } }
+/* The Sync pane: the project's folder attached on the account's other computers. */
+.pg-other-computers { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; }
+.pg-other-computers > b { font-size: 13px; }
+.pg-other-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.pg-other-name { font-weight: 600; color: var(--ink); }
+.pg-other-state { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.pg-other-row small { flex-basis: 100%; }
+.mv-idle { align-items: flex-start; margin: 10px 2px 0; line-height: 1.5; color: var(--ink-2); }
+.mv-idle input { margin-top: 3px; }
+/* The account's Colab runtimes, under Colab in the compute list. */
+.cp-runtimes { list-style: none; margin: -2px 0 4px; padding: 0 12px 6px 52px; display: flex; flex-direction: column; gap: 6px; }
+.cp-runtimes li { display: flex; align-items: center; gap: 8px; }
+.cp-runtime-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cp-runtime-what b { font-size: 12.5px; }
+.cp-runtime-what small { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+/* What runs on the account now (accountActivity.ts): the Playground's strip, and a row's chip. */
+.pg-running-now { margin: 0 0 18px; }
+.pg-running-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; }
+.pg-running-list li { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.pg-running-list li + li { border-top: 1px solid var(--border-soft); }
+.pg-running-dot, .pg-running-chip i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #3fb36b; box-shadow: 0 0 0 3px rgb(63 179 107 / 0.18); animation: pg-running-pulse 2s ease-in-out infinite; }
+@keyframes pg-running-pulse { 50% { box-shadow: 0 0 0 5px rgb(63 179 107 / 0.05); } }
+.pg-running-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pg-running-what b { font-size: 14px; }
+.pg-running-what small, .pg-running-other small { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.pg-running-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); padding: 2px 8px; border-radius: 999px; background: rgb(63 179 107 / 0.12); width: fit-content; }
+/* The experiment notice floats over the panes: nearly solid under glass, with a heavy blur, so the pane under it doesn't read through. */
+.xp-toast { box-shadow: var(--shadow-lg); }
+:root[data-glass='on'] .xp-toast {
+  background: rgb(var(--float-rgb) / max(0.96, var(--float-a))); border-color: rgb(var(--accent-rgb) / 0.22);
+  -webkit-backdrop-filter: blur(28px) saturate(185%); backdrop-filter: blur(28px) saturate(185%);
+}
+/* A right-hand pane's tab, kept when another is chosen (KeepTab): it lays out as the pane did, and is gone from view when hidden. */
+.vs-right-tab { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.vs-right-tab[hidden] { display: none; }
+.pg-keep { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.pg-keep[hidden] { display: none; }
+/* The simulator picker: the dialog a fixed height, and only the grid of simulators scrolls — the chosen one's
+   details (its preview, environments and templates) stay in view beside it. */
+.sheet.sim-picker { display: flex; flex-direction: column; height: min(940px, calc(100vh - 48px)); max-height: none; overflow: hidden; }
+.sim-picker > .pg-sheet-head, .sim-picker > .sim-picker-filters { flex: none; }
+.sim-picker .sim-picker-body { flex: 1; min-height: 0; max-height: none; grid-template-rows: minmax(0, 1fr); }
+.sim-picker .sim-picker-grid { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The details: the preview stays at the top and Next at the bottom; only what is between them scrolls. */
+.sim-picker .sim-picker-side { min-height: 0; overflow: hidden; padding-bottom: 0; }
+.sim-picker-detail { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; margin: 0 -14px; padding: 2px 14px 10px; }
+.sim-picker-detail h3 { margin: 0; font-size: 15px; color: var(--ink); }
+.sim-preview { flex: none; position: relative; margin: -2px -4px 4px; border-radius: 10px; overflow: hidden; background: #0b0d10; aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; }
+.sim-preview img, .sim-preview video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.sim-preview figcaption { position: absolute; left: 8px; bottom: 6px; font-size: 10.5px; color: rgb(255 255 255 / 0.75); background: rgb(0 0 0 / 0.45); padding: 1px 6px; border-radius: 5px; }
+.sim-preview figcaption a { color: inherit; }
+.sim-preview.is-missing { color: var(--muted); font-size: 12px; }
+.sim-preview-what { position: absolute; left: 8px; top: 7px; max-width: calc(100% - 16px); font-size: 11px; font-weight: 600; color: #fff; background: rgb(0 0 0 / 0.55); padding: 2px 7px; border-radius: 5px; }
+.sim-preview-what.is-general { font-weight: 400; color: rgb(255 255 255 / 0.85); }
+.sim-preview-what small { font-weight: 400; font-size: 10.5px; color: rgb(255 255 255 / 0.8); }
+.sim-preview-load { position: relative; z-index: 1; }
+.sim-preview-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: rgb(255 255 255 / 0.6); pointer-events: none; }
+.sim-facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 2px 0 4px; font-size: 12px; }
+.sim-facts dt { color: var(--muted); }
+.sim-facts dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.sim-install { display: flex; flex-direction: column; gap: 3px; }
+.sim-install code { font-family: var(--mono); font-size: 11.5px; padding: 2px 6px; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sim-install span { color: var(--muted); }
+.sim-picker-go { flex: none; margin: 0 -14px; padding: 10px 14px 12px; border-top: 1px solid var(--border); }
+.sim-picker-go .btn { margin: 0; }
+@media (max-width: 900px) { .sheet.sim-picker { height: auto; max-height: calc(100vh - 32px); overflow-y: auto; } .sim-picker .sim-picker-body { grid-template-rows: auto; } .sim-picker .sim-picker-side, .sim-picker-detail { overflow: visible; } }
+
+/* What shows when part of the page fails as it draws (components/ErrorBoundary.tsx). */
+.failure-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--paper); color: var(--ink); }
+.failure-page .failure-note { max-width: 640px; width: 100%; padding: 22px 24px; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); }
+.failure-note h3 { margin: 0 0 8px; font-size: 16px; color: var(--ink); }
+.failure-note p { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.failure-note pre { margin: 0 0 14px; padding: 10px 12px; max-height: 180px; overflow: auto; border-radius: 8px; background: rgb(0 0 0 / 0.08); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+.failure-actions { display: flex; gap: 8px; }
+.sheet > .failure-note { padding: 22px 24px; max-width: 640px; }

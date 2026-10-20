@@ -49,6 +49,7 @@ import {
   TreeIcon,
 } from './icons';
 import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
+import SharedFolders from './SharedFolders';
 import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
 import { KeyRow } from './Assistant';
 import CompanionUpdates from './CompanionUpdate';
@@ -1428,6 +1429,14 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
           keeps it. Stop ends what runs now: Colab’s runtimes, which spend units, or a Companion, which can be started
           again here on this computer.
         </p>
+      </Card>
+
+      <Card
+        id="settings-shared-folders"
+        title="Folders across your computers"
+        note="A folder of one of your computers, attached on another as a disk of its own — in Finder, File Explorer or your file manager, and to every program there. Files come over as they are opened; nothing passes through this page."
+      >
+        <SharedFolders />
       </Card>
 
       <Card title="Where to turn it on and off">

@@ -1,5 +1,8 @@
+import faulthandler
 import os
 import pty
+import subprocess
+import sys
 import time
 import unittest
 
@@ -39,20 +42,46 @@ class Drain:
 @unittest.skipUnless(os.path.exists("/bin/bash"), "needs bash")
 class TerminalJobsTest(unittest.TestCase):
     def setUp(self):
-        pid, fd = pty.fork()
-        if pid == 0:
-            os.execvpe("bash", ["bash", "--norc", "--noprofile", "-i"], {**os.environ, "PS1": "$ "})
-        self.pid, self.fd = pid, fd
+        # A watchdog: whatever blocks here for a minute prints every thread's stack and ends the run, rather than
+        # hanging it with no word of where.
+        faulthandler.dump_traceback_later(60, exit=True)
+        self.addCleanup(faulthandler.cancel_dump_traceback_later)
+        # Not pty.fork(): by now the test process has threads, and a fork of one can deadlock in the child on macOS.
+        # A fresh Python, single-threaded, makes the terminal its own (setsid, then TIOCSCTTY) and becomes bash.
+        fd, tty = pty.openpty()
+        start = (
+            "import os, sys, fcntl, termios\n"
+            "os.setsid()\n"
+            "t = int(sys.argv[1])\n"
+            "fcntl.ioctl(t, termios.TIOCSCTTY, 0)\n"
+            "[os.dup2(t, n) for n in (0, 1, 2)]\n"
+            "os.execvpe('bash', ['bash', '--norc', '--noprofile', '-i'], {**os.environ, 'PS1': '$ '})\n"
+        )
+        self.process = subprocess.Popen([sys.executable, "-c", start, str(tty)], pass_fds=(tty,))
+        os.close(tty)
+        self.pid, self.fd = self.process.pid, fd
         self.drain = Drain(fd)
+        # Cleaned up even when setUp itself fails (tearDown wouldn't run then).
+        self.addCleanup(self.end_shell)
         self.assertTrue(wait_for(lambda: b"$ " in self.drain()), "the shell's prompt")
 
-    def tearDown(self):
+    def end_shell(self):
+        # Everything in the shell's session goes, the commands it started included (a sleep left holding the
+        # terminal can make closing it block on macOS); what it wrote is read as it goes; then the terminal is closed.
+        subprocess.run(["pkill", "-9", "-s", str(self.pid)], capture_output=True, timeout=5)
         try:
             os.kill(self.pid, 9)
-            os.waitpid(self.pid, 0)
         except OSError:
             pass
+        # Read while waiting: on macOS a killed shell can't finish exiting while what it wrote to the terminal is unread.
+        end = time.time() + 10
+        while self.process.poll() is None and time.time() < end:
+            self.drain()
+            time.sleep(0.02)
+        self.drain()
         os.close(self.fd)
+        if self.process.poll() is None:
+            self.process.wait(timeout=5)
 
     def test_at_the_prompt_nothing_runs(self):
         self.assertEqual(jobs.foreground(self.fd, self.pid), {"alive": True, "busy": False})

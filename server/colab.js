@@ -103,14 +103,24 @@ const stripXssi = (text) => (text.startsWith(XSSI_PREFIX) ? text.slice(XSSI_PREF
 
 /** What Colab's status codes mean, in the page's terms. */
 function refusal(status, body) {
-  const detail = String(body || '').slice(0, 200).trim();
+  const text = String(body || '');
+  // An HTML error page (Google's "Error 503 (Service Unavailable)!!1") is its title, not its markup.
+  const title = /<html|<!doctype/i.test(text) ? text.match(/<title>([^<]*)<\/title>/i)?.[1]?.replace(/!+1?$/, '').trim() : null;
+  const detail = (title ?? text).slice(0, 200).trim();
   if (status === 401) return new ColabRefused(401, 'Google did not accept the Colab sign-in; connect Colab again', { reauth: true });
   if (status === 403) return new ColabRefused(403, 'this Google account may not use Colab this way (is the Colab API on for the app, and the account allowed?)', { reauth: true });
   if (status === 412) return new ColabRefused(412, 'Colab says this account already has as many runtimes as its tier allows — stop one in Colab (Runtime → Manage sessions) and try again', { limit: true });
   if (status === 429) return new ColabRefused(429, 'Colab is asking for a pause; try again in a minute');
   if (status === 400) return new ColabRefused(400, `Colab refused the request${detail ? `: ${detail}` : ''} — often a machine this account has no entitlement for; try the CPU`);
+  if (status === 502 || status === 503 || status === 504) {
+    return new ColabRefused(503, `Colab can’t give out a runtime right now (${detail || status}) — usually no machine of that kind is free at the moment, or Colab is having a moment. Try again in a minute, or pick another GPU or the CPU`, { busy: true });
+  }
   return new ColabRefused(502, `Colab answered ${status}${detail ? `: ${detail}` : ''}`);
 }
+
+/** Colab's busy answers, asked again after a pause: a moment's shortage often passes within seconds. */
+const BUSY = new Set([502, 503, 504]);
+export const BUSY_WAITS_MS = [1500, 4000];
 
 /**
  * One request to Colab's session backend, as the signed-in person: their
@@ -121,11 +131,17 @@ async function colabFetch(googleToken, path, { method = 'GET', headers = {}, par
   const url = new URL(`${TUN}${path}`, COLAB_HOST);
   url.searchParams.set('authuser', '0');
   for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-  const response = await fetch(url, {
-    method,
-    headers: { Authorization: `Bearer ${googleToken}`, Accept: 'application/json', 'X-Colab-Client-Agent': CLIENT_AGENT, ...headers },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  let response;
+  for (let attempt = 0; ; attempt++) {
+    response = await fetch(url, {
+      method,
+      headers: { Authorization: `Bearer ${googleToken}`, Accept: 'application/json', 'X-Colab-Client-Agent': CLIENT_AGENT, ...headers },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!BUSY.has(response.status) || attempt >= BUSY_WAITS_MS.length) break;
+    await response.body?.cancel().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, BUSY_WAITS_MS[attempt]));
+  }
   const text = await response.text().catch(() => '');
   if (!response.ok) throw refusal(response.status, text);
   const body = stripXssi(text).trim();

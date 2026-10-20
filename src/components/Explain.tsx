@@ -44,6 +44,7 @@ import { SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
 import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
+import { useEnsureProject } from '../lib/implementationProject';
 import { currentDbName, subscribeDb } from '../lib/db';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
@@ -993,6 +994,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const project = projectId ? playgrounds.find((p) => p.id === projectId) : undefined;
   const projectOpen = Boolean(project);
   const paperProject = useMemo(() => playgrounds.filter((p) => p.kind === 'project' && p.start === 'paper' && p.cites.some((c) => c.paperId === paperId)).sort((a, b) => b.updated - a.updated)[0], [playgrounds, paperId]);
+  // Its Project on the Projects page — overview, logbook, experiments — made now if it was set up without one.
+  const paperProjectCard = useEnsureProject(paperId, paperProject);
   const goTo = (next: ExplainPage) => {
     setProjectId(null);
     setPage(next);
@@ -1575,7 +1578,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         >
           <ColabIcon size={15} /> <span>Colab</span>
         </button>
-        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} plan={planBundle} paper={{ paperId, title, authors, published }} onPlan={() => goTo('implement')} existing={paperProject} projectOpen={projectOpen} onProject={setProjectId} />
+        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} plan={planBundle} paper={{ paperId, title, authors, published }} onPlan={() => goTo('implement')} existing={paperProject} projectCard={paperProjectCard} projectOpen={projectOpen} onProject={setProjectId} />
         {page === 'colab' ? (
           nbBusy ? (
             <button type="button" className="btn sm" onClick={stopNotebookAsk}>

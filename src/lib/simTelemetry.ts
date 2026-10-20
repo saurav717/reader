@@ -14,6 +14,7 @@
 // ===========================================================================
 
 import { runQuietly } from './colab';
+import type { FileHost } from './playground';
 import type { Point, Series } from './telemetry';
 import { downsample } from './telemetry';
 
@@ -492,6 +493,8 @@ export interface RunListing {
   size: number;
   /** When events.jsonl was last written, machine seconds. */
   mtime: number;
+  /** Not on the machine (an earlier runtime's): read from the project's own folder. */
+  kept?: boolean;
 }
 
 export interface SimRead {
@@ -507,18 +510,34 @@ const py = (value: unknown) => JSON.stringify(JSON.stringify(value));
 export const READ_CODE = (folder: string, focus: { dir: string; offset: number } | null) => String.raw`
 import os, json, glob, time
 root = os.path.abspath(${JSON.stringify(folder)})
+# The folder as the page names it, from where this kernel is; if that isn't it, from the usual homes of a project.
+if not os.path.isdir(root):
+    for base in (os.path.expanduser('~'), '/content', '/workspace'):
+        alt = os.path.join(base, ${JSON.stringify(folder)})
+        if os.path.isdir(alt):
+            root = alt
+            break
 focus = json.loads(${py(focus)})
 CAP = ${READ_CAP}
 out = {'now': time.time(), 'runs': []}
 found = []
 # Walked with the folders that can't hold a run pruned, and no deeper than six levels, so a project with a
 # node_modules or a data/ folder of a million files costs nothing more than one without.
-PRUNE = {'.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints'}
-for here, dirs, files in os.walk(root):
-    dirs[:] = [d for d in dirs if d not in PRUNE and not d.startswith('.')]
+# A run's own folders (its videos, replays, checkpoints) hold no run, and can hold thousands of files: never walked.
+# Neither is a run's folder once found — runs don't nest. Links are followed (a runs/ kept elsewhere), each once.
+PRUNE = {'.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints', 'media', 'replays', 'videos', 'frames', 'checkpoints', 'ckpt', 'ckpts', 'live', 'dreams'}
+seen = set()
+for here, dirs, files in os.walk(root, followlinks=True):
+    real = os.path.realpath(here)
+    if real in seen:
+        dirs[:] = []
+        continue
+    seen.add(real)
+    dirs[:] = sorted((d for d in dirs if d not in PRUNE and not d.startswith('.')), key=lambda d: (d != 'runs', d))
     if here[len(root):].count(os.sep) >= 6:
         dirs[:] = []
     if 'events.jsonl' in files:
+        dirs[:] = []
         path = os.path.join(here, 'events.jsonl')
         try:
             found.append((os.path.getmtime(path), os.path.relpath(here, root), path))
@@ -578,8 +597,104 @@ print(json.dumps({'size': size, 'data': base64.b64encode(data).decode()}))
 
 export const mimeOf = (path: string) => (/\.mp4$/i.test(path) ? 'video/mp4' : /\.webm$/i.test(path) ? 'video/webm' : /\.gif$/i.test(path) ? 'image/gif' : /\.png$/i.test(path) ? 'image/png' : /\.jpe?g$/i.test(path) ? 'image/jpeg' : 'application/octet-stream');
 
-/** A run's video or image, fetched from the machine a chunk at a time, as a blob the page can play. */
+// ------------------------------------------------------- the kept copy ----
+//
+// The machine's disk goes with it: a Colab runtime that stops takes its working copy along. But the project's own
+// folder — on your computer, in Drive, on a server — has the runs too, written back as they go (the mount) or brought
+// back after a run. So the pane reads them there when the machine isn't connected, and, while it is, shows there the
+// runs the machine no longer has (an earlier runtime's).
+
+/** The runs read from the project's own folder, by the machine folder the pane shows: which to read from there. */
+const keptRuns = new Map<string, { host: FileHost; dirs: Set<string> }>();
+/** The runs of `folder` (by their dirs) that are to be read from `host`, the project's own folder; null forgets them. */
+export function readRunsFrom(folder: string, host: FileHost | null, dirs: Iterable<string> = []) {
+  if (host) keptRuns.set(folder, { host, dirs: new Set(dirs) });
+  else keptRuns.delete(folder);
+}
+const keptHost = (folder: string, runDir: string) => {
+  const kept = keptRuns.get(folder);
+  return kept && kept.dirs.has(runDir) ? kept.host : null;
+};
+
+/** Folders walked at most, on a slow host (Drive): runs sit a level or two down, under runs/. */
+const KEPT_WALK = 150;
+const PRUNED = new Set(['.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints', 'media', 'replays', 'videos', 'frames', 'checkpoints', 'ckpt', 'ckpts', 'live', 'dreams']);
+
+/** The runs in the project's own folder, as readSimRuns gives the machine's: the focused one's text whole (its tail, when long). */
+export async function readKeptRuns(host: FileHost, focus: { dir: string; offset: number } | null): Promise<SimRead> {
+  const runs = await listKeptRuns(host);
+  const listed = focus ? runs.find((run) => run.dir === focus.dir) : undefined;
+  return { now: Date.now() / 1000, runs, ...(focus && listed ? { focus: await readKeptRun(host, focus) } : {}) };
+}
+
+/** The runs in the project's own folder, newest first. */
+export async function listKeptRuns(host: FileHost): Promise<RunListing[]> {
+  const found: { dir: string; size: number; mtime: number }[] = [];
+  // runs/ first: where koios_telemetry writes them, and where the data place keeps them.
+  const queue: { path: string; depth: number }[] = [{ path: 'runs', depth: 1 }, { path: '', depth: 0 }];
+  const listed = new Set<string>();
+  let walked = 0;
+  while (queue.length && walked < KEPT_WALK) {
+    const { path, depth } = queue.shift()!;
+    if (listed.has(path)) continue;
+    listed.add(path);
+    walked++;
+    const entries = await host.list(path).catch(() => []);
+    const run = entries.find((entry) => entry.type !== 'directory' && entry.name === 'events.jsonl');
+    if (run) {
+      // A run's folder: nothing under it is walked (its videos, replays, checkpoints hold no run).
+      found.push({ dir: path, size: run.size ?? 0, mtime: run.modified ? Date.parse(run.modified) / 1000 || 0 : 0 });
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.type === 'directory' && depth < 6 && !PRUNED.has(entry.name) && !entry.name.startsWith('.')) queue.push({ path: entry.path, depth: depth + 1 });
+    }
+  }
+  found.sort((a, b) => b.mtime - a.mtime);
+  return Promise.all(
+    found.slice(0, 40).map(async (run) => {
+      let meta: RunMeta = {};
+      try {
+        meta = JSON.parse((await host.read(`${run.dir}/run.json`)) ?? '{}') as RunMeta;
+      } catch {
+        // no run.json, or half of one
+      }
+      return { dir: run.dir, meta, size: run.size, mtime: run.mtime, kept: true };
+    }),
+  );
+}
+
+/** One run's lines from the project's own folder, from `offset` (in the text's characters: the file is read whole). */
+export async function readKeptRun(host: FileHost, focus: { dir: string; offset: number }): Promise<NonNullable<SimRead['focus']>> {
+  {
+    let text = (await host.read(`${focus.dir}/events.jsonl`)) ?? '';
+    let truncated = false;
+    if (text.length > 4 * READ_CAP) {
+      text = text.slice(text.length - 4 * READ_CAP);
+      text = text.slice(text.indexOf('\n') + 1);
+      truncated = true;
+    }
+    const whole = text.slice(0, text.lastIndexOf('\n') + 1);
+    // Read whole each time: what was taken already (focus.offset, in this text's characters) is left out.
+    const from = focus.offset <= whole.length ? focus.offset : 0;
+    return { dir: focus.dir, from, to: whole.length, text: whole.slice(from), size: whole.length, truncated };
+  }
+}
+
+/** A run's video or image, from the project's own folder. */
+async function readKeptMedia(host: FileHost, runDir: string, path: string, maxBytes: number): Promise<Blob> {
+  if (!host.readBase64) throw new Error(`${host.label} can’t hand over videos to the page; open ${runDir}/${path} there.`);
+  const data = await host.readBase64(`${runDir}/${path}`);
+  if (data === null) throw new Error(`${runDir}/${path} isn’t in the project’s folder.`);
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  if (bytes.length > maxBytes) throw new Error(`${Math.round(bytes.length / 1048576)} MB is more than the ${Math.round(maxBytes / 1048576)} MB fetched; it is at ${runDir}/${path}.`);
+  return new Blob([bytes] as BlobPart[], { type: mimeOf(path) });
+}
+
+/** A run's video or image, fetched from the machine a chunk at a time (or from the project's own folder, for a run kept there), as a blob the page can play. */
 export async function readMedia(folder: string, runDir: string, path: string, scope?: string, onProgress?: (done: number, size: number) => void, maxBytes = MEDIA_LIMIT): Promise<Blob> {
+  const kept = keptHost(folder, runDir);
+  if (kept) return readKeptMedia(kept, runDir, path, maxBytes);
   const parts: Uint8Array[] = [];
   let offset = 0;
   let size = Infinity;

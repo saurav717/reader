@@ -7,6 +7,7 @@
 // papers are the collection's, so adding one from a search is adding it to
 // that collection, and a paper can be in several projects at once.
 
+import { startedIn, useAccountActivity } from '../lib/accountActivity';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import PresenceBar from './PresenceBar';
@@ -538,6 +539,8 @@ function ProjectBoard({ projects, onEnter, onNew, onCopy, copying }: { projects:
     void loadPlaygrounds();
   }, []);
   const ordered = useMemo(() => projects.slice().sort((a, b) => lastActive(b, papers).localeCompare(lastActive(a, papers))), [projects, papers]);
+  // Which projects' code runs now on the account, wherever it was started (accountActivity.ts).
+  const activity = useAccountActivity();
   if (!projects.length) {
     return (
       <div className="pj-scroll">
@@ -591,6 +594,12 @@ function ProjectBoard({ projects, onEnter, onNew, onCopy, copying }: { projects:
                     </span>
                   ) : null}
                 </p>
+                {code && activity.byScope.get(code.id) ? (
+                  <span className="pg-running-chip" title="Its code's machine is up on your account">
+                    <i aria-hidden="true" /> Code running on {activity.byScope.get(code.id)!.machine}
+                    {activity.byScope.get(code.id)!.here ? ' · here' : activity.byScope.get(code.id)!.by ? ` · ${startedIn(activity.byScope.get(code.id)!.by)}` : ''}
+                  </span>
+                ) : null}
               </div>
               {reading ? (
                 <div className="pj-card-part">

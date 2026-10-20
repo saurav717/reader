@@ -10,10 +10,11 @@ import { getState as assistantState, modelSpec, PROVIDERS, setAskModel, subscrib
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import type { AgentRun, AgentChange, ProjectView } from '../lib/projectAgent';
-import { AGENT_FILE, agentChatFor, askAgent, canUndo, clearAgentChat, dismissAgentError, isAgentRunning, loadAgentChats, openAgentChat, stopAgent, subscribeAgent, undoAgentTurn } from '../lib/projectAgent';
+import { AGENT_FILE, agentChatFor, askAgent, canUndo, clearAgentChat, dismissAgentError, dropQueuedMessage, isAgentRunning, loadAgentChats, openAgentChat, queueAgentMessage, stopAgent, subscribeAgent, undoAgentTurn } from '../lib/projectAgent';
 import { followProjectAgent } from '../lib/jobWatch';
 import FileIcon from './FileIcon';
 import ModelChip, { shortModelName } from './ModelChip';
+import QueuedMessages from './QueuedMessages';
 import { SparkleIcon } from './icons';
 
 const SUGGESTIONS = [
@@ -93,11 +94,30 @@ export default function ProjectAgent({
     log.current?.scrollTo({ top: log.current.scrollHeight });
   }, [chat.turns.length, chat.pending?.reply.length, chat.pending?.step]);
 
+  const queued = chat.queued ?? [];
+  // Stop & send now: the waiting messages go once the run has stopped.
+  const sendNow = useRef(false);
   const send = (request: string) => {
-    if (!request.trim() || running || !ready) return;
+    if (running) {
+      // It is working: the message waits for its next step.
+      if (request.trim()) queueAgentMessage(projectId, request);
+      setText('');
+      return;
+    }
+    // Left from a run that was stopped or failed: they go first, with this one.
+    const all = [...queued, request].map((part) => part.trim()).filter(Boolean);
+    if (!all.length || !ready) return;
+    if (queued.length) dropQueuedMessage(projectId);
     setText('');
-    void askAgent({ projectId, model, request, host, view: async () => ({ ...(await view()), runs: run ? (runsFor ? 'auto' : 'buttons') : undefined }), onWrote, run: runsFor ? run : undefined, interrupt });
+    void askAgent({ projectId, model, request: all.join('\n\n'), host, view: async () => ({ ...(await view()), runs: run ? (runsFor ? 'auto' : 'buttons') : undefined }), onWrote, run: runsFor ? run : undefined, interrupt });
   };
+
+  useEffect(() => {
+    if (running || !sendNow.current) return;
+    sendNow.current = false;
+    if (queued.length) send('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
 
   return (
     <div className="vs-agent-chat">
@@ -155,7 +175,8 @@ export default function ProjectAgent({
         ) : null}
         {chat.turns.map((turn) =>
           turn.role === 'user' ? (
-            <div key={turn.at} className="vs-turn is-user">
+            <div key={turn.at} className={`vs-turn is-user${turn.during ? ' is-during' : ''}`}>
+              {turn.during ? <small className="vs-turn-during">Added while it worked</small> : null}
               <p>{turn.text}</p>
             </div>
           ) : (
@@ -250,6 +271,17 @@ export default function ProjectAgent({
           send(text);
         }}
       >
+        <QueuedMessages
+          items={queued}
+          running={running}
+          when="at its next step, or when this answer is done"
+          onRemove={(index) => dropQueuedMessage(projectId, index)}
+          onSendNow={() => {
+            if (!running) return send('');
+            sendNow.current = true;
+            stopAgent();
+          }}
+        />
         <div className="vs-agent-ctx" aria-label="What goes with the request">
           {context.active ? (
             <span className="vs-chip" title="The file in front of you">
@@ -283,7 +315,7 @@ export default function ProjectAgent({
               send(text);
             }
           }}
-          placeholder={ready ? `Ask ${writer} to write, change or fix the code — ⏎ to send` : `${writer} needs its key in Settings → AI, or pick another model`}
+          placeholder={!ready ? `${writer} needs its key in Settings → AI, or pick another model` : running ? 'Add to the request, or ask for what’s next — it reads it at its next step' : `Ask ${writer} to write, change or fix the code — ⏎ to send`}
           aria-label="Ask the agent"
         />
         <div className="vs-agent-row">
@@ -293,11 +325,10 @@ export default function ProjectAgent({
             <button type="button" className="btn sm" onClick={stopAgent}>
               ■ Stop
             </button>
-          ) : (
-            <button type="submit" className="btn sm primary" disabled={!ready || !text.trim()}>
-              Send
-            </button>
-          )}
+          ) : null}
+          <button type="submit" className="btn sm primary" disabled={!ready || !text.trim()} title={running ? 'It waits for the agent’s next step' : undefined}>
+            {running ? 'Add' : 'Send'}
+          </button>
         </div>
       </form>
     </div>

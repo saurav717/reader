@@ -71,14 +71,16 @@ from jupyter_server.utils import url_path_join
 from tornado import web
 from tornado.ioloop import IOLoop, PeriodicCallback
 
+import asyncio
 import atexit
 import hmac
 import html
+import re
 from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, browsers, compute, desktop, folders, jobs, mover, paper, state, texlive, tools, tunnel
+from . import account, attach, awake, browsers, compute, desktop, folders, jobs, mount, mover, paper, state, texlive, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -257,7 +259,7 @@ async def open_tunnel(serverapp) -> None:
         return
     serverapp.web_app.settings["allow_remote_access"] = True  # read on every request
     try:
-        running = await IOLoop.current().run_in_executor(None, lambda: tunnel.start(companion.port, tunnel.cloudflared(say=lambda *_: None)))
+        running = await IOLoop.current().run_in_executor(None, lambda: tunnel.open_configured(companion.port, state.load_config(), say=lambda *_: None))
     except Exception as error:  # this computer still reaches it; others don't, until it is started again
         print(f"  The HTTPS tunnel didn't open ({error}): other computers won't reach this one until it starts again.", flush=True)
         return
@@ -870,7 +872,24 @@ class ComputeHandler(VsCodeHandler):
     the project's folder here is linked to one, and to what (never its pass). POST {root, compute}: the link the page
     hands over — the machine's Jupyter address and a pass, renewed while the page is open — or {root, compute: null}
     to forget it. POST {root, action: "push"}: the changed files copied over now, as one archive, for the page's
-    Copy and Run; it answers what was sent."""
+    Copy and Run; it answers what was sent.
+
+    From 0.19.0, the folder mounted there instead of copied (mount.py, koios_mount.py): POST {root, action: "mount",
+    mode?} opens the tunnel if it isn't open, makes the folder's key, and starts the mount on the machine through the
+    link's kernel; {root, action: "unmount"} stops it there and forgets the key; {root, action: "mount-status"} asks
+    the machine how it is. GET says whether a machine is connected to the folder now. These three also answer this
+    computer's own programs (no Origin, the server's token), for `koios mount`."""
+
+    def initialize(self, serverapp=None):
+        self.serverapp = serverapp
+
+    def allowed(self) -> bool:
+        if super().allowed():
+            return True
+        companion = state.current
+        given = self.request.headers.get("Authorization", "")
+        local = "Origin" not in self.request.headers and not tunnel.via_tunnel(self.request.host)
+        return bool(companion) and local and secrets.compare_digest(given, f"token {companion.token}")
 
     def folder(self, root: str) -> Path:
         relative = mover.safe_member(str(root or "").strip("/"))
@@ -885,7 +904,60 @@ class ComputeHandler(VsCodeHandler):
             folder = self.folder(self.get_query_argument("root", ""))
         except ValueError as error:
             return self.reply(400, {"error": str(error)})
-        self.reply(200, compute.public(compute.load_link_file(compute.link_file(folder))))
+        link = compute.load_link_file(compute.link_file(folder))
+        self.reply(200, {**compute.public(link), "mount": self.mount_state(folder, link)})
+
+    @staticmethod
+    def mount_state(folder: Path, link: dict | None) -> dict:
+        wanted = (link or {}).get("mount") or {}
+        return {"on": bool(wanted), "mode": wanted.get("mode"), "connected": mount.connected(folder), "keepingAwake": awake.current.holding()}
+
+    # One mount action at a time per folder: two starts at once would each stop the other's mount.
+    mount_locks: dict = {}
+
+    async def mount_action(self, action: str, folder: Path, body: dict):
+        lock = ComputeHandler.mount_locks.setdefault(str(folder.resolve()), asyncio.Lock())
+        async with lock:
+            return await self.mount_action_now(action, folder, body)
+
+    async def mount_action_now(self, action: str, folder: Path, body: dict):
+        link = compute.load_link_file(compute.link_file(folder))
+        if not link:
+            return self.reply(409, {"error": "This project isn't linked to a compute here yet."})
+        remote = compute.Remote(link)
+        try:
+            if action == "mount":
+                if self.serverapp is not None:
+                    await open_tunnel(self.serverapp)
+                if not state.current.tunnel_url:
+                    return self.reply(503, {"error": "The Companion's HTTPS tunnel isn't open, and the machine reaches this computer through it. Restart the Companion with --tunnel, or check that cloudflared can run here."})
+                key = mount.key_for(folder)
+                url = mount.socket_url(state.current.tunnel_url, self.serverapp.base_url if self.serverapp else "/")
+                mode = body.get("mode") if body.get("mode") in ("auto", "fuse", "mirror") else "auto"
+                await remote.open()
+                status = await mount.start_remote(remote, url, key, mode)
+                if not (status.get("ready") and status.get("mounted")):
+                    words = status.get("why") or (status.get("error") or "") or (status.get("log") or "")[-400:]
+                    return self.reply(502, {"error": f"The mount didn't start on {link['label']}: {words or 'no word from it'}", **status})
+                compute.update_link(link, mount={"mode": status.get("mode"), "at": int(time.time() * 1000), "url": link["url"]})
+                return self.reply(200, {**status, "connected": mount.connected(folder), "label": link["label"]})
+            if action == "unmount":
+                status = {}
+                try:
+                    await remote.open()
+                    status = await mount.stop_remote(remote)
+                except compute.ComputeError as error:  # the machine is gone: nothing there to stop
+                    status = {"stopped": False, "note": str(error)}
+                mount.forget_key(folder)
+                compute.update_link(link, mount=None)
+                return self.reply(200, {**status, "connected": mount.connected(folder)})
+            await remote.open()
+            status = await mount.status_remote(remote)
+            return self.reply(200, {**status, **self.mount_state(folder, link)})
+        except compute.ComputeError as error:
+            return self.reply(502, {"error": str(error)})
+        finally:
+            remote.close()
 
     async def post(self):
         if not self.allowed():
@@ -895,10 +967,15 @@ class ComputeHandler(VsCodeHandler):
             folder = self.folder(body.get("root"))
         except ValueError as error:
             return self.reply(400, {"error": str(error)})
+        if body.get("action") in ("mount", "unmount", "mount-status"):
+            return await self.mount_action(body["action"], folder, body)
         if body.get("action") == "push":
             link = compute.load_link_file(compute.link_file(folder))
             if not link:
                 return self.reply(409, {"error": "This project isn't linked to a compute here yet."})
+            if mount.connected(folder):
+                # Mounted there: the machine reads the folder as it is here, so there is nothing to send.
+                return self.reply(200, {"sent": [], "bytes": 0, "removed": [], "unchanged": 0, "big": [], "seconds": 0, "mounted": True, "words": f"⇄ mounted on {link['label']}: nothing to copy"})
             remote = compute.Remote(link)
             try:
                 await remote.open()
@@ -910,12 +987,101 @@ class ComputeHandler(VsCodeHandler):
             return self.reply(200, {**report, "words": compute.push_words(report, link["label"])})
         if "compute" not in body:
             return self.reply(400, {"error": "compute, or action"})
+        if body["compute"] is None:
+            mount.forget_key(folder)
         try:
             folder.mkdir(parents=True, exist_ok=True)
             link = compute.save_link(folder, body["compute"])
         except compute.ComputeError as error:
             return self.reply(400, {"error": str(error)})
-        self.reply(200, compute.public(link))
+        self.reply(200, {**compute.public(link), "mount": self.mount_state(folder, link)})
+
+
+class ShareHandler(ComputeHandler):
+    """A folder here, shared so another computer of yours can attach it as a disk (mount.share_folder, from 0.20.0).
+    GET: the shares here (never their keys). POST {path, name?}: the folder shared (the one share it has, or a new
+    one) and the tunnel opened if it isn't — it answers {url, key, name, root, computer, code}, what the other
+    computer's Companion needs (companion/attach). POST {path, action: "stop"}: the share forgotten, and every
+    computer that had it attached cut off. Paired pages, and this computer's own programs (`reader-companion share`)."""
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        self.reply(200, {"shares": mount.list_shares(), "computer": state.current.name, "id": state.current.id})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+            root = Path(os.path.expanduser(str(body.get("path") or "")))
+            if not str(body.get("path") or "").strip():
+                raise ValueError("which folder?")
+        except ValueError as error:
+            return self.reply(400, {"error": str(error)})
+        if body.get("action") == "stop":
+            return self.reply(200, {"stopped": mount.stop_share(root), "shares": mount.list_shares()})
+        try:
+            share = mount.share_folder(root, str(body.get("name") or "")[:120])
+        except ValueError as error:
+            return self.reply(400, {"error": str(error)})
+        if self.serverapp is not None:
+            await open_tunnel(self.serverapp)
+        if not state.current.tunnel_url:
+            return self.reply(503, {"error": "The Companion's HTTPS tunnel isn't open, and the other computer reaches this one through it. Check that cloudflared can run here."})
+        url = mount.socket_url(state.current.tunnel_url, self.serverapp.base_url if self.serverapp else "/")
+        computer = state.current.name
+        self.reply(200, {"url": url, "key": share["key"], "name": share["name"], "root": share["root"], "computer": computer, "code": attach.attach_code(url, share["key"], share["name"], computer)})
+
+
+class AttachHandler(ComputeHandler):
+    """Folders of your other computers, attached here as disks (attach.py, from 0.20.0). GET: what is attached, and
+    what this computer can attach with (fuse, or the system's own WebDAV client). POST {url, key, name?, from?,
+    cache?, backend?} (or {code}): attached, answering once it is mounted; {id, action: "detach", forget?};
+    {action: "install-driver"}: the faster driver's installer (FUSE-T on a Mac, WinFsp on Windows) downloaded and
+    opened. Paired pages, and this computer's own programs (`reader-companion attach`)."""
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        loop = IOLoop.current()
+        attached = await loop.run_in_executor(None, attach.list_all)
+        found = await loop.run_in_executor(None, attach.backends)
+        self.reply(200, {"attached": attached, "backends": found, "computer": state.current.name})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+            if body.get("code"):
+                body = {**attach.read_code(str(body["code"])), **{k: v for k, v in body.items() if k != "code"}}
+        except ValueError as error:
+            return self.reply(400, {"error": f"That isn't an attach code: {error}"})
+        loop = IOLoop.current()
+        action = body.get("action") or "attach"
+        try:
+            if action == "detach":
+                ident = str(body.get("id") or "")
+                if not re.fullmatch(r"[0-9a-f]{12}", ident):
+                    return self.reply(400, {"error": "which attached folder?"})
+                stopped = await loop.run_in_executor(None, attach.stop, ident, bool(body.get("forget", True)))
+                return self.reply(200, {"stopped": stopped, "attached": attach.list_all()})
+            if action == "install-driver":
+                return self.reply(200, await loop.run_in_executor(None, attach.install_driver, lambda *_: None))
+            url, key = str(body.get("url") or ""), str(body.get("key") or "")
+            if not url.startswith(("wss://", "ws://")) or not key:
+                return self.reply(400, {"error": "url (wss://…) and key"})
+            status = await loop.run_in_executor(
+                None,
+                lambda: attach.start(url, key, str(body.get("cache") or "used"), str(body.get("backend") or "auto"), str(body.get("name") or ""), str(body.get("from") or ""), str(body.get("where") or "")),
+            )
+        except (attach.Refused, OSError) as error:
+            return self.reply(502, {"error": str(error)})
+        if not status.get("mounted"):
+            words = status.get("error") or (status.get("log") or "")[-400:] or "no word from it"
+            return self.reply(502, {**status, "error": f"The folder wasn't attached: {words}"})
+        self.reply(200, status)
 
 
 class BrowsersHandler(VsCodeHandler):
@@ -1093,7 +1259,10 @@ def load(serverapp):
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/folders"), FoldersHandler),
             (url_path_join(base, "companion/move"), MoveHandler),
-            (url_path_join(base, "companion/compute"), ComputeHandler),
+            (url_path_join(base, "companion/compute"), ComputeHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/share"), ShareHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/attach"), AttachHandler, {"serverapp": serverapp}),
+            (url_path_join(base, mount.SOCKET_PATH), mount.MountSocket),
             (url_path_join(base, "companion/browsers"), BrowsersHandler),
             (url_path_join(base, "companion/paper"), PaperHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),

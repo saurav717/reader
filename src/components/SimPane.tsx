@@ -11,7 +11,8 @@ import { KOIOS_TELEMETRY_PY } from '../lib/simProject';
 import { SIMULATORS, simulatorById } from '../lib/simulators';
 import type { Doctor, Dream, Media, RunListing, SimRun } from '../lib/simTelemetry';
 import type { LiveFrame } from '../lib/simTelemetry';
-import { applyEvents, diagnose, dreamSeries, dreamTrend, evaluationRows, latestEvaluations, lengthSeries, newRun, readLive, readMedia, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
+import { applyEvents, diagnose, dreamSeries, dreamTrend, evaluationRows, latestEvaluations, lengthSeries, listKeptRuns, newRun, readKeptRun, readLive, readMedia, readRunsFrom, readSimRuns, returnSeries, runDoctor, scalarCharts, shownStatus, successSeries } from '../lib/simTelemetry';
+import type { FileHost } from '../lib/playground';
 import { short } from '../lib/telemetry';
 
 /** A number for a table: four significant figures, NaN and the infinities as they are. */
@@ -24,6 +25,9 @@ import { useFiled } from '../lib/experimentFiling';
 
 const ago = (seconds: number) => (seconds < 90 ? `${Math.max(0, Math.round(seconds))} s ago` : seconds < 5400 ? `${Math.round(seconds / 60)} min ago` : seconds < 172_800 ? `${Math.round(seconds / 3600)} h ago` : `${Math.round(seconds / 86_400)} days ago`);
 const span = (seconds: number) => (seconds < 120 ? `${Math.round(seconds)} s` : seconds < 7200 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} h`);
+
+/** What the pane last showed, by folder: the list, the run on screen, the folder's list of kept runs. */
+const simCache = new Map<string, { runs: RunListing[]; now: number; run: SimRun | null; focus: string | null; kept: { at: number; runs: RunListing[] } | null; source: string }>();
 
 /** Blobs already fetched, by folder, run and path, so going back to a video doesn't fetch it again. */
 const blobs = new Map<string, string>();
@@ -332,13 +336,34 @@ function DoctorView() {
   );
 }
 
-export default function SimPane({ folder, connected, machineName, busy, server, playgroundId }: { folder: string; connected: boolean; machineName: string; busy: boolean; /** The machine, when it is a Jupyter server the page added: a Companion's ports can be reached for Live 3D. */ server?: JupyterServer; /** Whose runs these are, for what was filed of them. */ playgroundId?: string }) {
+export default function SimPane({
+  folder,
+  connected,
+  machineName,
+  busy,
+  server,
+  playgroundId,
+  kept,
+}: {
+  folder: string;
+  connected: boolean;
+  machineName: string;
+  busy: boolean;
+  /** The machine, when it is a Jupyter server the page added: a Companion's ports can be reached for Live 3D. */
+  server?: JupyterServer;
+  /** Whose runs these are, for what was filed of them. */
+  playgroundId?: string;
+  /** The project's own folder, when it isn't the machine's disk (your computer, Drive, a server): the runs are kept there, and read there when the machine isn't connected or no longer has them. */
+  kept?: FileHost;
+}) {
   const filed = useFiled(playgroundId ?? '');
-  const [runs, setRuns] = useState<RunListing[]>([]);
-  const [now, setNow] = useState(0);
+  // What this pane showed last for the folder: shown at once on coming back (another page, another tab), then read again.
+  const cached = simCache.get(folder);
+  const [runs, setRuns] = useState<RunListing[]>(cached?.runs ?? []);
+  const [now, setNow] = useState(cached?.now ?? 0);
   const [chosen, setChosen] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [read, setRead] = useState(false);
+  const [read, setRead] = useState(Boolean(cached));
   const [round, setRound] = useState(0);
   const [, setVersion] = useState(0);
   const [filter, setFilter] = useState('');
@@ -346,24 +371,85 @@ export default function SimPane({ folder, connected, machineName, busy, server, 
   const [dreamAt, setDreamAt] = useState<number | null>(null);
   /** The run being watched live, by its folder: one at a time, and only while it runs. */
   const [watching, setWatching] = useState<string | null>(null);
-  const runRef = useRef<SimRun | null>(null);
-  const focusRef = useRef<string | null>(null);
+  const runRef = useRef<SimRun | null>(cached?.run ?? null);
+  const focusRef = useRef<string | null>(cached?.focus ?? null);
+  /** The project folder's runs, listed a minute at a time (Drive is slow), and the size each was last read at. */
+  const keptList = useRef<{ at: number; runs: RunListing[] } | null>(cached?.kept ?? null);
+  /** The folder's list being read again behind the machine's (it walks Drive: seconds, not a moment). */
+  const keptReading = useRef<Promise<void> | null>(null);
+  const sourceRef = useRef(cached?.source ?? '');
+  const roundRef = useRef(round);
+  /** Bumped as the folder's list comes in from behind, so the pane shows it then rather than at the next round. */
+  const [keptTick, setKeptTick] = useState(0);
+  /** When the runs were last looked for, and where: what the pane says under Look again. */
+  const [looked, setLooked] = useState<{ at: number; where: string[]; problem?: string } | null>(null);
 
   useEffect(() => {
-    if (!connected) return;
+    if (!connected && !kept) return;
     let live = true;
     let timer = 0;
+    // Another place to read from (connected or not): the runs are read again from the start. Look again lists the folder again.
+    const source = `${connected}|${kept?.label ?? ''}`;
+    if (sourceRef.current !== source) {
+      sourceRef.current = source;
+      runRef.current = null;
+      keptList.current = null;
+    }
+    // Look again lists the folder again; picking another run doesn't (the list is the same).
+    if (roundRef.current !== round) {
+      roundRef.current = round;
+      keptList.current = null;
+    }
     const look = async () => {
       let again = false;
       try {
         const focus = chosen ?? focusRef.current;
         const current = runRef.current && runRef.current.dir === focus ? runRef.current : null;
-        const got = await readSimRuns(folder, focus ? { dir: focus, offset: current?.offset ?? 0 } : null);
+        const keptOnly = new Set((keptList.current?.runs ?? []).map((r) => r.dir));
+        // The machine's failure is said, not swallowed: "none found" must mean none.
+        let machineProblem = '';
+        const fromMachine = connected
+          ? await readSimRuns(folder, focus ? { dir: focus, offset: current?.offset ?? 0 } : null).catch((error: unknown) => {
+              if (!kept) throw error;
+              machineProblem = error instanceof Error ? error.message : String(error);
+              return null;
+            })
+          : null;
+        // The project's own folder: listed once, then again a minute later or at Look again — waited for only when
+        // there is nothing else to show (no machine, or not listed yet); otherwise read behind, and shown the next round.
+        if (kept && (!keptList.current || Date.now() - keptList.current.at > 60_000) && !keptReading.current) {
+          const first = !keptList.current;
+          const reading = listKeptRuns(kept)
+            .then((runs) => {
+              keptList.current = { at: Date.now(), runs };
+              if (fromMachine && live) setKeptTick((n) => n + 1);
+            })
+            .catch(() => undefined)
+            .finally(() => (keptReading.current = null));
+          keptReading.current = reading;
+          // Waited for only when there is nothing else to show: the machine's runs show now, the folder's as they come.
+          if (!fromMachine && first) await reading;
+        }
+        const onMachine = new Set((fromMachine?.runs ?? []).map((r) => r.dir));
+        const extra = (keptList.current?.runs ?? []).filter((r) => !onMachine.has(r.dir));
+        keptOnly.clear();
+        extra.forEach((r) => keptOnly.add(r.dir));
+        if (kept) readRunsFrom(folder, kept, keptOnly);
+        const all = [...(fromMachine?.runs ?? []), ...extra].sort((a, b) => b.mtime - a.mtime);
+        let focused = fromMachine?.focus;
+        if (focus && keptOnly.has(focus) && kept) {
+          // Kept in the folder: read whole, again only when it has grown.
+          const listed = extra.find((r) => r.dir === focus);
+          focused = current && listed && current.offset >= listed.size ? undefined : await readKeptRun(kept, { dir: focus, offset: current?.offset ?? 0 });
+        }
+        const got = { now: fromMachine?.now ?? Date.now() / 1000, runs: all, focus: focused };
         if (!live) return;
         setRuns(got.runs);
         setNow(got.now);
+        simCache.set(folder, { runs: got.runs, now: got.now, run: runRef.current, focus: chosen ?? got.runs[0]?.dir ?? null, kept: keptList.current, source: sourceRef.current });
         setProblem(null);
         setRead(true);
+        setLooked({ at: Date.now(), where: [...(fromMachine ? [machineName] : []), ...(kept ? [kept.label] : [])], problem: machineProblem ? `${machineName} didn’t answer: ${machineProblem}` : keptReading.current && !keptList.current ? `still listing ${kept?.label ?? 'the folder'}…` : undefined });
         // Nothing chosen: the newest run, read on the next round.
         const want = chosen ?? got.runs[0]?.dir ?? null;
         if (want !== focusRef.current) {
@@ -383,6 +469,8 @@ export default function SimPane({ folder, connected, machineName, busy, server, 
           run.truncated ||= f.truncated;
           if (listing) run.meta = { ...run.meta, ...listing.meta };
           runRef.current = run;
+          const keep = simCache.get(folder);
+          if (keep) simCache.set(folder, { ...keep, run, focus: run.dir });
           setVersion((n) => n + 1);
           again ||= f.to < f.size && f.text.length > 0;
         }
@@ -392,25 +480,25 @@ export default function SimPane({ folder, connected, machineName, busy, server, 
       const latest = runRef.current;
       const running = latest?.status === 'running';
       // At once while there is more of the file to read; every three seconds while a run is live; every fifteen otherwise.
-      if (live) timer = window.setTimeout(() => void look(), again ? 50 : running || busy ? 3000 : 15000);
+      if (live) timer = window.setTimeout(() => void look(), again ? 50 : running || busy ? 3000 : connected ? 15000 : 60000);
     };
     void look();
     return () => {
       live = false;
       window.clearTimeout(timer);
     };
-  }, [folder, connected, busy, round, chosen]);
+  }, [folder, connected, busy, round, chosen, kept, keptTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = runRef.current;
   const findings = useMemo(() => (run ? diagnose(run, now) : []), [run, now, run?.offset]); // eslint-disable-line react-hooks/exhaustive-deps
   const marks = useMemo(() => (run ? run.notes.filter((note) => note.tag !== 'spaces').map((note) => ({ x: note.step, label: `${note.by}: ${note.text}` })) : []), [run, run?.offset]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!connected) return <p className="pg-note pg-pad">Connect to {machineName}, and the simulation runs in this project (koios_telemetry) are drawn here: episodes, videos, dreams, notes.</p>;
+  if (!connected && !kept) return <p className="pg-note pg-pad">Connect to {machineName}, and the simulation runs in this project (koios_telemetry) are drawn here: episodes, videos, dreams, notes. (This project’s files are on {machineName}’s own disk, so runs there go with it when it stops: file the ones to keep as experiments.)</p>;
   if (problem && !read) return <p className="pg-note is-problem pg-pad">{problem}</p>;
   if (!read)
     return (
       <p className="pg-note pg-pad">
-        <span className="spinner" /> Looking for runs on {machineName}…
+        <span className="spinner" /> Looking for runs {connected ? `on ${machineName}` : ''}{connected && kept ? ' and ' : ''}{kept ? `in ${kept.label}` : ''}…
       </p>
     );
   if (!runs.length) {
@@ -423,10 +511,18 @@ env = run.wrap(gym.make("CartPole-v1", render_mode="rgb_array"))
 run.log({"loss/policy": loss}, step=env_steps)
 run.finish()`}</pre>
         <p className="pg-note">The Playground&rsquo;s <b>A simulation</b> start makes a project with it in place, for any of {SIMULATORS.length} simulators.</p>
-        <button type="button" className="btn sm" onClick={() => setRound((n) => n + 1)}>
-          Look again
-        </button>
-        <DoctorView />
+        <p className="sim-looked">
+          <button type="button" className="btn sm" disabled={!looked} onClick={() => (setLooked(null), setRound((n) => n + 1))}>
+            {looked ? 'Look again' : 'Looking…'}
+          </button>{' '}
+          {looked ? (
+            <small>
+              Looked {new Date(looked.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })} {looked.where.length ? `on ${looked.where.join(' and in ')}` : ''}: none found{looked.problem ? ` — ${looked.problem}` : '.'}
+            </small>
+          ) : null}
+        </p>
+        {kept ? null : <p className="pg-note">This project’s files are on {machineName}’s own disk, so its runs go with the runtime when it stops: file the ones to keep as experiments.</p>}
+        {connected ? <DoctorView /> : null}
       </div>
     );
   }
@@ -447,10 +543,23 @@ run.finish()`}</pre>
   return (
     <div className="sim-pane" aria-live="polite">
       <div className="sim-bar">
-        <select value={run?.dir ?? focusRef.current ?? ''} onChange={(event) => setChosen(event.target.value || null)} aria-label="Run">
+        <select
+          value={chosen ?? run?.dir ?? focusRef.current ?? ''}
+          onChange={(event) => {
+            // The pick shows at once; its run is read next (the pane says so meanwhile).
+            const next = event.target.value || null;
+            focusRef.current = next;
+            runRef.current = null;
+            setMediaAt(null);
+            setDreamAt(null);
+            setChosen(next);
+          }}
+          aria-label="Run"
+        >
           {runs.map((r) => (
             <option key={r.dir} value={r.dir}>
               {r.meta.name ?? r.dir} · {shownStatus(r.meta.status, r.mtime, now)} · {ago(now - r.mtime)}
+              {r.kept ? ` · in ${kept?.label ?? 'the folder'}` : ''}
             </option>
           ))}
         </select>
@@ -458,6 +567,12 @@ run.finish()`}</pre>
           ↻
         </button>
       </div>
+      {!run && focusRef.current ? (
+        <p className="pg-note">
+          <span className="spinner" /> Reading {listing?.meta.name ?? focusRef.current}
+          {listing?.kept && kept ? ` from ${kept.label}` : ''}…
+        </p>
+      ) : null}
       <div className="sim-status">
         <span className={`sim-pill is-${status}`}>{status === 'running' ? 'live' : status}</span>
         {sim ? <span className="mono">{sim}</span> : null}

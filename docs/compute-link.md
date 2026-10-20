@@ -15,6 +15,9 @@ koios status                # where the project runs, and whether it can be reac
 This needs Koios Companion **0.17.0 or later** on the computer that has the files. Update it under Settings →
 Updates.
 
+From 0.19.0 the folder can also be **mounted** on the compute instead of copied: the machine reads it where it is,
+through the Companion's Cloudflare tunnel, and nothing is pushed before a run. See [compute-mount.md](compute-mount.md).
+
 ## 0. The agent, by the files
 
 With the link up, the agent pane's last choice is **On <your computer>**: Claude Code, Codex or any agent with a
