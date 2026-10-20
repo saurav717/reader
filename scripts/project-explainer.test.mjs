@@ -72,6 +72,17 @@ describe('the explainer', () => {
     assert.equal(printed[0]?.name, '$ python train.py');
   });
 
+  it('reads an answer to the ask bar: a question’s note, or a change’s note and the page, as it streams', () => {
+    assert.deepEqual(explainer.readAskReply('<note>It trains for **2M** steps.</note>'), { note: 'It trains for **2M** steps.', page: null, pageDone: false });
+    assert.deepEqual(explainer.readAskReply('<note>Made it simpler.</note>\n<explainer>\n## In short\nA lander'), { note: 'Made it simpler.', page: '## In short\nA lander', pageDone: false });
+    assert.equal(explainer.readAskReply('<note>x</note><explainer>## A\nb</explainer>').pageDone, true);
+    assert.equal(explainer.readAskReply('Plain words, no tags').note, 'Plain words, no tags');
+    const message = explainer.askMessage({ where: 'w', listing: [], files: [], agents: '', console: [], runs: [], metrics: [], media: [] }, '## In short\nold', 'simpler', 'In short');
+    assert.match(message, /<explainer_now>/);
+    assert.match(message, /<request section="In short">\s*simpler\s*<\/request>/);
+    assert.doesNotMatch(message, /Write the Explainer for this project/);
+  });
+
   it('gives a run in a few lines, with what looks wrong', () => {
     const run = sim.parseRun('runs/a', { name: 'lander', sim: 'gymnasium/LunarLander-v3' }, `${JSON.stringify({ t: 1, kind: 'episode', step: 10, return: -100 })}\n`);
     const digest = explainer.runDigest(run, 10);

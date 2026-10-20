@@ -9848,3 +9848,18 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .explainer-code pre { margin: 4px 0 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px; font: 12.5px/1.55 var(--mono); overflow: auto; }
 .explainer-file { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 @media (max-width: 900px) { .pg-explainer .explain-scroll { grid-template-columns: minmax(0, 1fr); padding: 24px 16px 100px; } .pg-explainer .explain-outline { display: none; } }
+/* The Explain page's ask bar: the paper page's (.explain-ask), and a question's answer under it. */
+.pg-explainer-ask { padding-top: 10px; }
+.ask-status.is-answer { align-items: flex-start; color: var(--ink-2); max-height: 40vh; overflow: auto; }
+.ask-status.is-answer > svg { flex: none; margin-top: 2px; color: var(--accent); }
+.ask-status.is-answer em { display: block; margin-bottom: 4px; color: var(--muted); }
+.pgx-answer { display: block; font-size: 15px; line-height: 1.6; max-width: none; }
+.pgx-answer p:last-child { margin-bottom: 0; }
+@media (max-width: 900px) { .pg-explainer-ask { grid-template-columns: minmax(0, 1fr); padding: 10px 16px; } .pg-explainer-ask .ask-column { grid-column: 1; } }
+/* The Sync pane: the project's folder attached on the account's other computers. */
+.pg-other-computers { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; }
+.pg-other-computers > b { font-size: 13px; }
+.pg-other-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.pg-other-name { font-weight: 600; color: var(--ink); }
+.pg-other-state { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.pg-other-row small { flex-basis: 100%; }

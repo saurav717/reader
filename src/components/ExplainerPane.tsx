@@ -6,21 +6,21 @@
 
 import DOMPurify from 'dompurify';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { explainError, getState as assistantState, modelSpec, PROVIDERS, sdk, setExplainModel, streamModel, subscribe as subscribeAssistant } from '../lib/assistant';
+import { explainError, getState as assistantState, modelSpec, PROVIDERS, sdk, setAskModel, setExplainModel, streamModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import { cleanFigure } from '../lib/sanitize';
 import { lengthSeries, mimeOf, readMedia, returnSeries, successSeries } from '../lib/simTelemetry';
 import type { RunListing, SimRun } from '../lib/simTelemetry';
-import { consoleChartSeries, EXPLAINER_SYSTEM, explainerMessage, gatherInputs, listRuns, loadExplainer, loadRun, parseExplainer, runChartSeries, saveExplainer } from '../lib/projectExplainer';
+import { askMessage, consoleChartSeries, EXPLAINER_ASK, EXPLAINER_SYSTEM, explainerMessage, readAskReply, gatherInputs, listRuns, loadExplainer, loadRun, parseExplainer, runChartSeries, saveExplainer } from '../lib/projectExplainer';
 import type { ExplainerBlock, ExplainerMeta, RunPlace } from '../lib/projectExplainer';
 import { LineChart } from './Charts';
 import ModelChip, { shortModelName } from './ModelChip';
 import FileIcon from './FileIcon';
-import { ExplainIcon } from './icons';
+import { ExplainIcon, SparkleIcon } from './icons';
 
 /** One explainer being written per project, kept across the pane being closed and opened. */
-const writing = new Map<string, { text: string; step: string; abort: () => void }>();
+const writing = new Map<string, { text: string; step: string; abort: () => void; request?: string }>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 const subscribe = (l: () => void) => (listeners.add(l), () => void listeners.delete(l));
@@ -60,6 +60,16 @@ export default function ExplainerPane({
   const [saved, setSaved] = useState<{ text: string; meta: ExplainerMeta } | null | undefined>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunListing[]>([]);
+  // The ask bar: what is typed, the section it is about, the answer to a question, and the page before the last change (for Undo).
+  const askModel = assistant.prefs.askModel ?? model;
+  const askReady = Boolean(assistant.keys[modelSpec(askModel).provider]);
+  const asker = PROVIDERS[modelSpec(askModel).provider].name;
+  const [ask, setAsk] = useState('');
+  const [askSection, setAskSection] = useState<string | null>(null);
+  const [askFocused, setAskFocused] = useState(false);
+  const [answer, setAnswer] = useState<{ request: string; note: string; changed: boolean } | null>(null);
+  const [before, setBefore] = useState<{ text: string; meta: ExplainerMeta } | null>(null);
+  const askRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let on = true;
@@ -130,6 +140,90 @@ export default function ExplainerPane({
     }
   };
 
+  /** A question about the page, or a change to it: answered under the bar, or the page written again (Undo puts it back). */
+  const submit = async (request = ask) => {
+    const asked = request.trim();
+    const current = saved?.text;
+    if (!asked || !current || writing.has(projectId) || !askReady) return;
+    setAsk('');
+    setAnswer(null);
+    setProblem(null);
+    let stop: () => void = () => undefined;
+    const state = { text: '', step: 'Reading your request', abort: () => stop(), request: asked };
+    writing.set(projectId, state);
+    notify();
+    const show = (patch: Partial<typeof state>) => {
+      Object.assign(state, patch);
+      writing.set(projectId, { ...state });
+      notify();
+    };
+    let SDK = null;
+    let reply = '';
+    try {
+      if (modelSpec(askModel).provider === 'anthropic') SDK = await sdk();
+      const inputs = await gatherInputs({ projectId, host, where, place, console: consoleLines, metricTexts: metricTexts.map((m) => m.text), onStep: (step) => show({ step }) });
+      show({ step: 'Thinking', text: current });
+      const stream = await streamModel({
+        model: askModel,
+        maxTokens: 32_000,
+        system: [
+          { type: 'text', text: EXPLAINER_SYSTEM, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: EXPLAINER_ASK },
+        ],
+        messages: [{ role: 'user', content: askMessage(inputs, current, asked, askSection ?? undefined) }],
+        effort: 'medium',
+      });
+      stop = () => stream.abort();
+      let frame = 0;
+      stream.on('text', (delta: string) => {
+        reply += delta;
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          const read = readAskReply(reply);
+          // A change: the page as it is written again, from the top. A question: the page stays as it is.
+          show(read.page !== null ? { step: 'Rewriting the page', text: read.page } : { step: read.note ? 'Answering' : 'Thinking' });
+        });
+      });
+      const final = await stream.finalMessage();
+      if (frame) cancelAnimationFrame(frame);
+      if (final.stop_reason === 'refusal') throw new Error(`${asker} declined that request.`);
+      const read = readAskReply(reply);
+      if (read.page !== null && read.pageDone && read.page.trim()) {
+        const meta: ExplainerMeta = { ...(saved?.meta ?? { files: 0, runs: [], agentTurns: 0 }), at: Date.now(), model: askModel };
+        setBefore(saved ?? null);
+        await saveExplainer(host, read.page, meta).catch((error: unknown) => setProblem(`The change isn’t saved in the project’s folder: ${error instanceof Error ? error.message : String(error)}`));
+        setSaved({ text: read.page, meta });
+        setAnswer({ request: asked, note: read.note || 'Done.', changed: true });
+      } else {
+        if (read.page !== null) throw new Error(`${asker} ran out of room before the end of the page: ask for a smaller change.`);
+        setAnswer({ request: asked, note: read.note || reply.trim(), changed: false });
+      }
+      setAskSection(null);
+    } catch (error) {
+      const message = explainError(error, SDK);
+      if (message !== 'Stopped.') setProblem(message);
+    } finally {
+      writing.delete(projectId);
+      notify();
+    }
+  };
+  const undo = async () => {
+    if (!before) return;
+    await saveExplainer(host, before.text, before.meta).catch(() => undefined);
+    setSaved(before);
+    setBefore(null);
+    setAnswer(null);
+  };
+  const askAbout = (section: string) => {
+    setAskSection(section);
+    askRef.current?.focus();
+  };
+  const asking = Boolean(live?.request);
+  const suggestions = askSection
+    ? ['Explain this more simply', 'Go deeper', 'Add a diagram for this', 'Show the code for this', 'Add a chart from the runs', 'Is anything here wrong or out of date?']
+    : ['Make it simpler, for a newcomer', 'Add a diagram of how the data flows', 'Add a section on how to run it', 'Chart every run’s returns', 'What should I try next, and why?', 'Shorter: just the essentials'];
+
   const text = live?.text ?? saved?.text ?? '';
   const sections = useMemo(() => sectionsOf(text), [text]);
   const newRuns = saved ? runs.filter((r) => !saved.meta.runs.includes(r.dir)).length : 0;
@@ -163,7 +257,7 @@ export default function ExplainerPane({
     <div className="pg-explainer">
       <header className="explain-bar">
         <span className="explain-brand">
-          <ExplainIcon size={17} /> <span>{live ? `${writer} is writing` : saved ? `Explained by ${writtenBy}` : 'Explain this project'}</span>
+          <ExplainIcon size={17} /> <span>{asking ? `${asker} is answering` : live ? `${writer} is writing` : saved ? `Explained by ${writtenBy}` : 'Explain this project'}</span>
         </span>
         <span className="explain-bar-title">
           {live
@@ -183,6 +277,99 @@ export default function ExplainerPane({
           </button>
         ) : null}
       </header>
+      {saved || asking ? (
+        <div className="explain-ask pg-explainer-ask">
+          <div className="ask-column">
+            <form
+              className={`ask-field${asking ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}${!askReady || Boolean(live && !asking) ? ' is-off' : ''}`}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit();
+              }}
+            >
+              <SparkleIcon size={16} />
+              {askSection ? (
+                <span className="ask-chip" title={`About the section “${askSection}”`}>
+                  § {askSection}
+                  <button type="button" aria-label="Not about this section" onClick={() => setAskSection(null)}>
+                    ×
+                  </button>
+                </span>
+              ) : null}
+              <input
+                ref={askRef}
+                value={ask}
+                disabled={Boolean(live)}
+                onChange={(event) => setAsk(event.target.value)}
+                onFocus={() => setAskFocused(true)}
+                onBlur={() => window.setTimeout(() => setAskFocused(false), 150)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') return;
+                  if (askSection) setAskSection(null);
+                  else event.currentTarget.blur();
+                }}
+                placeholder={
+                  !askReady
+                    ? `${asker} needs its key in Settings → AI — or pick another model here`
+                    : askSection
+                      ? 'Ask about this section, or say how to change it…'
+                      : `Ask ${asker} anything about this page or the project — or how to change the page: simpler, deeper, a new diagram, a new section…`
+                }
+                aria-label="Ask about the explanation, or ask for a change"
+              />
+              <ModelChip value={askModel} writer={saved?.meta.model} keys={assistant.keys} disabled={Boolean(live)} what="Answers here with" onChange={(id) => setAskModel(id)} />
+              {asking ? (
+                <button type="button" className="btn sm" onClick={() => live?.abort()}>
+                  Stop
+                </button>
+              ) : (
+                <button type="submit" className="btn sm primary" disabled={!askReady || !ask.trim() || Boolean(live)}>
+                  Ask
+                </button>
+              )}
+            </form>
+            {asking && live ? (
+              <div className="ask-status is-live">
+                <span className="spinner" />
+                <span className="ask-note">
+                  {live.step} — <em>{live.request}</em>
+                </span>
+              </div>
+            ) : askFocused && !ask && askReady && !live ? (
+              <div className="ask-suggestions">
+                {suggestions.map((suggestion) => (
+                  <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            ) : answer ? (
+              <div className={`ask-status ${answer.changed ? 'is-done' : 'is-answer'}`}>
+                {answer.changed ? <span className="check">✓</span> : <SparkleIcon size={14} />}
+                <span className="ask-note">
+                  {answer.changed ? (
+                    answer.note
+                  ) : (
+                    <>
+                      <em>{answer.request}</em>
+                      <span className="explain-prose pgx-answer" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(answer.note)) }} />
+                    </>
+                  )}
+                </span>
+                {answer.changed && before ? (
+                  <button type="button" className="btn sm ghost" onClick={() => void undo()} title={`Put the page back as it was before “${answer.request}”`}>
+                    Undo
+                  </button>
+                ) : (
+                  <button type="button" className="btn sm ghost" onClick={() => setAnswer(null)}>
+                    Dismiss
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div className="explain-split">
         <div className="explain-scroll" ref={scrollRef}>
           <nav className="explain-outline" aria-label="Sections">
@@ -277,6 +464,11 @@ export default function ExplainerPane({
                       <header className="explain-section-head">
                         <span className="section-number">{String(index + (sections[0]?.title ? 1 : 0)).padStart(2, '0')}</span>
                         <h2>{section.title}</h2>
+                        {saved && !live ? (
+                          <button type="button" className="btn sm ghost ask" onClick={() => askAbout(section.title)} title="Ask about this section, or ask for it to change">
+                            <SparkleIcon size={13} /> Ask
+                          </button>
+                        ) : null}
                       </header>
                     ) : null}
                     {section.blocks.map((block, i) => (
@@ -284,7 +476,7 @@ export default function ExplainerPane({
                     ))}
                   </section>
                 ))}
-                {live ? (
+                {live && !asking ? (
                   <p className="explain-writing">
                     <span className="spinner" /> <span>{live.text ? `${writer} is writing${sections.length ? ` — ${sections[sections.length - 1].title || 'the opening'}` : ''}…` : `${live.step}… a big project can take a minute or two before the first words.`}</span>
                   </p>

@@ -326,3 +326,31 @@ export async function saveExplainer(host: FileHost, text: string, meta: Explaine
   await writeMeta(host, EXPLAINER_NAME, text);
   await writeMeta(host, EXPLAINER_META, `${JSON.stringify(meta)}\n`);
 }
+
+// ------------------------------------------------- asked of the page --
+
+/**
+ * The ask bar under the Explain page's title: a question about the page or
+ * the project, or a change to the page ("simpler", "add a diagram of the data
+ * flow", "a section on how to run it"). The model answers in two parts: a
+ * <note> — the answer, or a line on what changed — and, for a change, the
+ * whole page again in <explainer>, which replaces it (and can be undone).
+ */
+export const EXPLAINER_ASK = `The person is reading the Explainer below and asks something of it. Either:
+- they ask a question (about the page, the code, the runs): answer it in <note>…</note>, in Markdown, short and exact, and leave the page as it is; or
+- they ask for a change to the page (simpler, deeper, a new diagram or chart, a new section, fewer words, a different emphasis): write <note>one sentence on what you changed</note>, then the whole page again, changed, in <explainer>…</explainer> — every section, the ones you didn't touch word for word as they were, in the same format and with the same kinds of illustration.
+When they name a section, the request is about that section: change it alone unless they ask for more. Describe only what the inputs show.`;
+
+export function askMessage(inputs: ExplainerInputs, current: string, request: string, section?: string): string {
+  return [explainerMessage({ ...inputs, previous: undefined }, false).replace(/\n\nWrite the Explainer for this project\.$/, ''), tag('explainer_now', current), tag('request', request, section ? { section } : {})].join('\n\n');
+}
+
+/** The answer as it streams: the note, and the page so far once its tag has opened. */
+export function readAskReply(text: string): { note: string; page: string | null; pageDone: boolean } {
+  const note = text.match(/<note>([\s\S]*?)(?:<\/note>|$)/)?.[1]?.trim() ?? (text.includes('<explainer>') ? '' : text.replace(/<\/?note>/g, '').trim());
+  const open = text.indexOf('<explainer>');
+  if (open < 0) return { note, page: null, pageDone: false };
+  const rest = text.slice(open + '<explainer>'.length);
+  const close = rest.indexOf('</explainer>');
+  return { note, page: (close >= 0 ? rest.slice(0, close) : rest).replace(/^\n+/, ''), pageDone: close >= 0 };
+}
