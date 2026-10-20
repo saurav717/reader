@@ -1,9 +1,13 @@
 # Your folder, mounted on the compute
 
-Your project's files can stay on your computer while its code runs on Colab's GPU or a GPU server of yours. Until
-0.19.0 the code got there as a copy: before each run the changed files were copied over, and after it the results
+Your project's files can stay on your computer while its code runs on Colab's GPU or a GPU server of yours. Before
+Companion 0.19.0 the code got there as a copy: before each run the changed files were copied over, and after it the results
 were copied back. With the **mount**, the GPU machine reads the folder where it is, the way a notebook reads Google
 Drive once it is mounted. Nothing is copied before a run and nothing is brought back after it.
+
+How it was built, checked and measured, with the step-by-step test plan, is in
+[compute-mount-process.md](compute-mount-process.md). Both documents are printed as one PDF,
+`docs/compute-mount-process.pdf` (`node scripts/compute-mount-pdf.mjs`).
 
 This needs Koios Companion **0.19.0 or later** on the computer that has the files, and a compute link
 ([compute-link.md](compute-link.md)).
@@ -40,8 +44,8 @@ Sync pane, and they mean the same thing they did before.
 ## 3. How it reaches your computer
 
 ```mermaid
-flowchart LR
-  subgraph gpu["GPU machine (Colab, a server)"]
+flowchart TB
+  subgraph gpu["GPU machine"]
     P[python train.py] -- "open, read, write" --> M["/content/playgrounds/p · FUSE"]
     M --- D[koios_mount daemon]
     M -. "checkpoints, data" .-> L[(machine's disk)]
@@ -184,7 +188,7 @@ a `trycloudflare.com` address (that request is ordinary HTTPS) but couldn't open
 | --- | --- |
 | `companion/reader_companion/koios_mount.py` | The machine's side: the socket, the cache, the FUSE operations, the mirror, the data shipper, `start`/`stop`/`status`. Standard library, tornado and fusepy. |
 | `companion/reader_companion/mount.py` | The Companion's side: the keys, the socket (`MountSocket`), the watch, and starting the daemon there through the link's kernel. |
-| `companion/reader_companion/extension.py` | `ComputeHandler`: `POST companion/compute {action: "mount" \| "unmount" \| "mount-status"}`. `GET` says whether a machine is connected. |
+| `companion/reader_companion/extension.py` | `ComputeHandler`: `POST companion/compute` with the action `mount`, `unmount` or `mount-status`. `GET` says whether a machine is connected. |
 | `companion/reader_companion/awake.py` | This computer kept from sleeping while a machine has a folder mounted. |
 | `companion/reader_companion/cloudflare.py`, `tunnel.py` | `reader-companion tunnel setup`: a named tunnel at your hostname, with Argo Smart Routing; the Companion runs it instead of a quick tunnel. |
 | `companion/reader_companion/compute.py` | `koios mount`, `koios unmount`; `koios run` and `koios push` skip the copy while the folder is mounted. |

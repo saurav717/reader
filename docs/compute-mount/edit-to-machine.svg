@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 330" width="680" height="330" font-family="IBM Plex Sans, Helvetica Neue, Arial, sans-serif" role="img" aria-label="After editing one file: until the machine has it">
+<rect width="680" height="330" fill="#fcfcfb"/>
+<text x="16" y="28" font-size="16" font-weight="600" fill="#0b0b0b">After editing one file: until the machine has it</text>
+<text x="16" y="48" font-size="12" fill="#52514e">Copy: koios run’s push (connect, compare, send one). Mount: pushed on save, no command needed</text>
+<rect x="16" y="62" width="12" height="12" rx="3" fill="#d95926"/>
+<text x="34" y="72.5" font-size="12" fill="#52514e">Copy before the run (koios push)</text>
+<rect x="267.2" y="62" width="12" height="12" rx="3" fill="#2a78d6"/>
+<text x="285.2" y="72.5" font-size="12" fill="#52514e">Mount</text>
+<line x1="56" x2="664" y1="286" y2="286" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="290" font-size="11" fill="#8a887f" text-anchor="end">0.00 s</text>
+<line x1="56" x2="664" y1="247.2" y2="247.2" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="251.2" font-size="11" fill="#8a887f" text-anchor="end">0.20 s</text>
+<line x1="56" x2="664" y1="208.39999999999998" y2="208.39999999999998" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="212.39999999999998" font-size="11" fill="#8a887f" text-anchor="end">0.40 s</text>
+<line x1="56" x2="664" y1="169.59999999999997" y2="169.59999999999997" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="173.59999999999997" font-size="11" fill="#8a887f" text-anchor="end">0.60 s</text>
+<line x1="56" x2="664" y1="130.79999999999998" y2="130.79999999999998" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="134.79999999999998" font-size="11" fill="#8a887f" text-anchor="end">0.80 s</text>
+<line x1="56" x2="664" y1="92" y2="92" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="96" font-size="11" fill="#8a887f" text-anchor="end">1.00 s</text>
+<g><title>Copy before the run (koios push), 0 ms round trip: 0.17 s</title><path d="M110.33333333333333,286 V256.05 Q110.33333333333333,252.05 114.33333333333333,252.05 H152.33333333333331 Q156.33333333333331,252.05 156.33333333333331,256.05 V286 Z" fill="#d95926"/></g>
+<text x="133.33333333333331" y="246.05" font-size="11" fill="#52514e" text-anchor="middle">0.17</text>
+<g><title>Mount, 0 ms round trip: 0.49 s</title><path d="M158.33333333333331,286 V194.164 Q158.33333333333331,190.164 162.33333333333331,190.164 H200.33333333333331 Q204.33333333333331,190.164 204.33333333333331,194.164 V286 Z" fill="#2a78d6"/></g>
+<text x="181.33333333333331" y="184.164" font-size="11" fill="#52514e" text-anchor="middle">0.49</text>
+<text x="157.33333333333331" y="306" font-size="12" fill="#52514e" text-anchor="middle">0 ms round trip</text>
+<g><title>Copy before the run (koios push), 50 ms round trip: 0.32 s</title><path d="M312.99999999999994,286 V227.726 Q312.99999999999994,223.726 316.99999999999994,223.726 H354.99999999999994 Q358.99999999999994,223.726 358.99999999999994,227.726 V286 Z" fill="#d95926"/></g>
+<text x="335.99999999999994" y="217.726" font-size="11" fill="#52514e" text-anchor="middle">0.32</text>
+<g><title>Mount, 50 ms round trip: 0.44 s</title><path d="M360.99999999999994,286 V204.834 Q360.99999999999994,200.834 364.99999999999994,200.834 H402.99999999999994 Q406.99999999999994,200.834 406.99999999999994,204.834 V286 Z" fill="#2a78d6"/></g>
+<text x="383.99999999999994" y="194.834" font-size="11" fill="#52514e" text-anchor="middle">0.44</text>
+<text x="359.99999999999994" y="306" font-size="12" fill="#52514e" text-anchor="middle">50 ms round trip</text>
+<g><title>Copy before the run (koios push), 150 ms round trip: 0.84 s</title><path d="M515.6666666666666,286 V126.846 Q515.6666666666666,122.846 519.6666666666666,122.846 H557.6666666666666 Q561.6666666666666,122.846 561.6666666666666,126.846 V286 Z" fill="#d95926"/></g>
+<text x="538.6666666666666" y="116.846" font-size="11" fill="#52514e" text-anchor="middle">0.84</text>
+<g><title>Mount, 150 ms round trip: 0.34 s</title><path d="M563.6666666666666,286 V224.428 Q563.6666666666666,220.428 567.6666666666666,220.428 H605.6666666666666 Q609.6666666666666,220.428 609.6666666666666,224.428 V286 Z" fill="#2a78d6"/></g>
+<text x="586.6666666666666" y="214.428" font-size="11" fill="#52514e" text-anchor="middle">0.34</text>
+<text x="562.6666666666666" y="306" font-size="12" fill="#52514e" text-anchor="middle">150 ms round trip</text>
+<line x1="56" x2="664" y1="286" y2="286" stroke="#8a887f" stroke-width="1"/>
+</svg>

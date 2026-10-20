@@ -1,0 +1,79 @@
+{
+  "mode": "fuse",
+  "modules": 300,
+  "local_import_s": 0.179,
+  "rtts": [
+    {
+      "rtt_ms": 0,
+      "copy": {
+        "first_push_s": 2.221,
+        "files": 303,
+        "edit_push_s": 0.175,
+        "connect_s": 0.063,
+        "edit_files": 1,
+        "import_s": 0.206
+      },
+      "mount": {
+        "ready_s": 0.371,
+        "warm": {
+          "files": 302,
+          "bytes": 364202,
+          "seconds": 0.11
+        },
+        "import_s": 0.701,
+        "cold_read_6MB_s": 0.308,
+        "cached_read_6MB_s": 0.0105,
+        "edit_visible_s": 0.494,
+        "write_back_s": 0.0
+      }
+    },
+    {
+      "rtt_ms": 50,
+      "copy": {
+        "first_push_s": 1.214,
+        "files": 303,
+        "edit_push_s": 0.321,
+        "connect_s": 0.187,
+        "edit_files": 1,
+        "import_s": 0.165
+      },
+      "mount": {
+        "ready_s": 0.454,
+        "warm": {
+          "files": 302,
+          "bytes": 363029,
+          "seconds": 0.16
+        },
+        "import_s": 0.608,
+        "cold_read_6MB_s": 0.315,
+        "cached_read_6MB_s": 0.0134,
+        "edit_visible_s": 0.439,
+        "write_back_s": 0.0
+      }
+    },
+    {
+      "rtt_ms": 150,
+      "copy": {
+        "first_push_s": 1.691,
+        "files": 303,
+        "edit_push_s": 0.841,
+        "connect_s": 0.504,
+        "edit_files": 1,
+        "import_s": 0.179
+      },
+      "mount": {
+        "ready_s": 0.766,
+        "warm": {
+          "files": 302,
+          "bytes": 363041,
+          "seconds": 0.25
+        },
+        "import_s": 0.521,
+        "cold_read_6MB_s": 0.499,
+        "cached_read_6MB_s": 0.0109,
+        "edit_visible_s": 0.338,
+        "write_back_s": 0.0
+      }
+    }
+  ]
+}

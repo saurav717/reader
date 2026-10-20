@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 330" width="680" height="330" font-family="IBM Plex Sans, Helvetica Neue, Arial, sans-serif" role="img" aria-label="Importing 300 modules on the machine">
+<rect width="680" height="330" fill="#fcfcfb"/>
+<text x="16" y="28" font-size="16" font-weight="600" fill="#0b0b0b">Importing 300 modules on the machine</text>
+<text x="16" y="48" font-size="12" fill="#52514e">Copy: from the machine’s own disk. Mount: through FUSE, every file already cached</text>
+<rect x="16" y="62" width="12" height="12" rx="3" fill="#d95926"/>
+<text x="34" y="72.5" font-size="12" fill="#52514e">Copy before the run (koios push)</text>
+<rect x="267.2" y="62" width="12" height="12" rx="3" fill="#2a78d6"/>
+<text x="285.2" y="72.5" font-size="12" fill="#52514e">Mount</text>
+<line x1="340.2" x2="354.2" y1="68" y2="68" stroke="#52514e" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="360.2" y="72.5" font-size="12" fill="#52514e">This computer’s own disk (0.18 s)</text>
+<line x1="56" x2="664" y1="286" y2="286" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="290" font-size="11" fill="#8a887f" text-anchor="end">0.00 s</text>
+<line x1="56" x2="664" y1="247.2" y2="247.2" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="251.2" font-size="11" fill="#8a887f" text-anchor="end">0.18 s</text>
+<line x1="56" x2="664" y1="208.4" y2="208.4" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="212.4" font-size="11" fill="#8a887f" text-anchor="end">0.36 s</text>
+<line x1="56" x2="664" y1="169.60000000000002" y2="169.60000000000002" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="173.60000000000002" font-size="11" fill="#8a887f" text-anchor="end">0.54 s</text>
+<line x1="56" x2="664" y1="130.8" y2="130.8" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="134.8" font-size="11" fill="#8a887f" text-anchor="end">0.72 s</text>
+<line x1="56" x2="664" y1="92.00000000000003" y2="92.00000000000003" stroke="#e7e5df" stroke-width="1"/>
+<text x="48" y="96.00000000000003" font-size="11" fill="#8a887f" text-anchor="end">0.90 s</text>
+<g><title>Copy before the run (koios push), 0 ms round trip: 0.21 s</title><path d="M110.33333333333333,286 V245.59555555555556 Q110.33333333333333,241.59555555555556 114.33333333333333,241.59555555555556 H152.33333333333331 Q156.33333333333331,241.59555555555556 156.33333333333331,245.59555555555556 V286 Z" fill="#d95926"/></g>
+<text x="133.33333333333331" y="235.59555555555556" font-size="11" fill="#52514e" text-anchor="middle">0.21</text>
+<g><title>Mount, 0 ms round trip: 0.70 s</title><path d="M158.33333333333331,286 V138.89555555555557 Q158.33333333333331,134.89555555555557 162.33333333333331,134.89555555555557 H200.33333333333331 Q204.33333333333331,134.89555555555557 204.33333333333331,138.89555555555557 V286 Z" fill="#2a78d6"/></g>
+<text x="181.33333333333331" y="128.89555555555557" font-size="11" fill="#52514e" text-anchor="middle">0.70</text>
+<text x="157.33333333333331" y="306" font-size="12" fill="#52514e" text-anchor="middle">0 ms round trip</text>
+<g><title>Copy before the run (koios push), 50 ms round trip: 0.17 s</title><path d="M312.99999999999994,286 V254.43333333333334 Q312.99999999999994,250.43333333333334 316.99999999999994,250.43333333333334 H354.99999999999994 Q358.99999999999994,250.43333333333334 358.99999999999994,254.43333333333334 V286 Z" fill="#d95926"/></g>
+<text x="335.99999999999994" y="244.43333333333334" font-size="11" fill="#52514e" text-anchor="middle">0.17</text>
+<g><title>Mount, 50 ms round trip: 0.61 s</title><path d="M360.99999999999994,286 V158.94222222222223 Q360.99999999999994,154.94222222222223 364.99999999999994,154.94222222222223 H402.99999999999994 Q406.99999999999994,154.94222222222223 406.99999999999994,158.94222222222223 V286 Z" fill="#2a78d6"/></g>
+<text x="383.99999999999994" y="148.94222222222223" font-size="11" fill="#52514e" text-anchor="middle">0.61</text>
+<text x="359.99999999999994" y="306" font-size="12" fill="#52514e" text-anchor="middle">50 ms round trip</text>
+<g><title>Copy before the run (koios push), 150 ms round trip: 0.18 s</title><path d="M515.6666666666666,286 V251.41555555555556 Q515.6666666666666,247.41555555555556 519.6666666666666,247.41555555555556 H557.6666666666666 Q561.6666666666666,247.41555555555556 561.6666666666666,251.41555555555556 V286 Z" fill="#d95926"/></g>
+<text x="538.6666666666666" y="241.41555555555556" font-size="11" fill="#52514e" text-anchor="middle">0.18</text>
+<g><title>Mount, 150 ms round trip: 0.52 s</title><path d="M563.6666666666666,286 V177.69555555555556 Q563.6666666666666,173.69555555555556 567.6666666666666,173.69555555555556 H605.6666666666666 Q609.6666666666666,173.69555555555556 609.6666666666666,177.69555555555556 V286 Z" fill="#2a78d6"/></g>
+<text x="586.6666666666666" y="167.69555555555556" font-size="11" fill="#52514e" text-anchor="middle">0.52</text>
+<text x="562.6666666666666" y="306" font-size="12" fill="#52514e" text-anchor="middle">150 ms round trip</text>
+<line x1="56" x2="664" y1="247.41555555555556" y2="247.41555555555556" stroke="#52514e" stroke-width="1.5" stroke-dasharray="5 4"/>
+<line x1="56" x2="664" y1="286" y2="286" stroke="#8a887f" stroke-width="1"/>
+</svg>
