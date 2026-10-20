@@ -437,6 +437,8 @@ class Store:
         self.dirty_lock = threading.Lock()
         self.shipper = Shipper(self.local, [str(self.local / ".reader" / "pylib"), os.environ.get("KOIOS_PYLIB", "")], say, lambda: self.write_status())
         self.wire = Wire(url, key, self.on_push, self.on_state)
+        # Which mount this is, for start() to know it is already running: the address, and the key's hash (never the key).
+        self.url, self.key_hash = url, key_hash(key)
 
     # -- what lives where --
 
@@ -747,6 +749,8 @@ class Store:
         body = {
             "v": VERSION,
             "pid": os.getpid(),
+            "url": self.url,
+            "key": self.key_hash,
             "mode": self.mode,
             "at": str(self.at),
             "connected": self.wire.up.is_set(),
@@ -1370,6 +1374,10 @@ def run_mirror(store: Store) -> None:
 # ------------------------------------------------------------------ the daemon --
 
 
+def key_hash(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
 def state_dir(at: Path) -> Path:
     base = Path(os.environ.get("KOIOS_MOUNT_HOME") or Path.home() / ".koios-mount")
     return base / hashlib.sha1(str(at.resolve()).encode()).hexdigest()[:16]
@@ -1491,8 +1499,18 @@ def serve(url: str, key: str, at: Path, mode: str) -> None:
 
 
 def start(url: str, key: str, at: Path, mode: str, wait_s: float = 90) -> dict:
-    """The daemon, started in the background (again if one is running for this folder), and its status once it is ready."""
+    """The daemon, started in the background, and its status once it is ready. The same mount already running here —
+    the same address and key, mounted and connected — is left as it is and its status given back: stopping it would
+    pull the folder out from under every shell and kernel working in it. (Connected or not: a mount that lost its
+    socket dials it again by itself.)"""
     at = at.resolve() if at.exists() else Path(os.path.abspath(at))
+    running = read_status(at)
+    if (
+        running.get("running") and running.get("mounted")
+        and running.get("url") == url and running.get("key") == key_hash(key)
+        and mode in ("auto", running.get("mode"))
+    ):
+        return {**running, "why": "", "reused": True}
     stop(at)
     chosen, why = choose_mode(mode)
     state = state_dir(at)
