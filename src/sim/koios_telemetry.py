@@ -26,6 +26,7 @@ anywhere for it to draw them.
 From a terminal:
 
     python koios_telemetry.py doctor           # what this machine can simulate, and whether it can render off-screen
+    python koios_telemetry.py render [--fix]   # the off-screen renderer that draws here (EGL, OSMesa); --fix installs one
     python koios_telemetry.py summary [runs]   # every run, digested, with what looks wrong and what to try
     python koios_telemetry.py tail runs/<run>  # follow one run's events as they come
     python koios_telemetry.py note runs/<run> "text" [--step N] [--by agent]   # a note on a run's timeline
@@ -69,26 +70,206 @@ def _has_lib(name: str) -> bool:
         return False
 
 
+# Where glvnd looks for EGL vendors, and where NVIDIA's EGL library is on the machines code runs on: a Linux box with
+# the driver (the distribution's folders), a container given the GPU (/usr/local/nvidia), Colab (/usr/lib64-nvidia).
+_EGL_VENDOR_DIRS = ("/usr/share/glvnd/egl_vendor.d", "/etc/glvnd/egl_vendor.d")
+_NVIDIA_EGL = (
+    "/usr/lib64-nvidia/libEGL_nvidia.so*",
+    "/usr/local/nvidia/lib64/libEGL_nvidia.so*",
+    "/usr/local/nvidia/lib/libEGL_nvidia.so*",
+    "/usr/lib/x86_64-linux-gnu/libEGL_nvidia.so*",
+    "/usr/lib/x86_64-linux-gnu/nvidia/current/libEGL_nvidia.so*",
+    "/usr/lib/aarch64-linux-gnu/libEGL_nvidia.so*",
+    "/usr/lib64/libEGL_nvidia.so*",
+    "/usr/lib/libEGL_nvidia.so*",
+)
+
+
+def _nvidia_egl_library(libraries=_NVIDIA_EGL):
+    """NVIDIA's EGL library on this machine, by its path: the usual folders, then LD_LIBRARY_PATH's."""
+    patterns = list(libraries) + [os.path.join(d, "libEGL_nvidia.so*") for d in os.environ.get("LD_LIBRARY_PATH", "").split(":") if d]
+    for pattern in patterns:
+        found = sorted(glob.glob(pattern))
+        if found:
+            return found[-1]
+    return None
+
+
+def nvidia_egl(vendor_dirs=_EGL_VENDOR_DIRS, libraries=_NVIDIA_EGL):
+    """NVIDIA's EGL made known to the EGL loader, where the machine has the library but no vendor file names it.
+
+    glvnd finds an EGL driver by a vendor file (10_nvidia.json). A machine given a GPU without the full driver
+    install — Colab, most containers (Docker, RunPod, Vast, Kubernetes), a pip-installed CUDA — has
+    libEGL_nvidia but no such file, so EGL finds no device and MuJoCo can't render. Here the file is written to a
+    temporary folder, naming the library by its path, and named in __EGL_VENDOR_LIBRARY_FILENAMES (no root needed);
+    nothing is done where a vendor file for NVIDIA is there, or the variable is set already. Answers the file, or None.
+    """
+    if os.environ.get("__EGL_VENDOR_LIBRARY_FILENAMES"):
+        return None
+    for folder in vendor_dirs:
+        try:
+            if any("nvidia" in name.lower() for name in os.listdir(folder)):
+                return None
+        except OSError:
+            continue
+    library = _nvidia_egl_library(libraries)
+    if library is None and not _has_lib("EGL_nvidia"):
+        return None
+    import tempfile
+
+    path = os.path.join(tempfile.gettempdir(), "koios_10_nvidia.json")
+    try:
+        with open(path, "w") as f:
+            json.dump({"file_format_version": "1.0.0", "ICD": {"library_path": library or "libEGL_nvidia.so.0"}}, f)
+    except OSError:
+        return None
+    os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] = path
+    return path
+
+
+def _gpu() -> bool:
+    return shutil.which("nvidia-smi") is not None or bool(glob.glob("/dev/nvidia[0-9]*")) or bool(glob.glob("/dev/dri/renderD*"))
+
+
+# One frame drawn, as MuJoCo draws a video's: the test of a renderer, in a process of its own (a renderer that fails
+# can take the process down, and MuJoCo reads MUJOCO_GL once).
+_FRAME = """
+import mujoco
+m = mujoco.MjModel.from_xml_string('<mujoco><worldbody><light pos="0 0 3"/><geom type="sphere" size=".2"/></worldbody></mujoco>')
+d = mujoco.MjData(m)
+r = mujoco.Renderer(m, 48, 64)
+mujoco.mj_forward(m, d)
+r.update_scene(d)
+img = r.render()
+print("ok", img.shape, int(img.max()))
+"""
+
+
+def _render_cache() -> str:
+    """Where this machine's working renderer is kept: per boot, as a new runtime or container may differ."""
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            boot = f.read().strip()[:12]
+    except OSError:
+        boot = "0"
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "koios", f"render-{boot}.json")
+
+
+def _try_renderer(backend: str, timeout: float = 30):
+    env = {**os.environ, "MUJOCO_GL": backend, "PYOPENGL_PLATFORM": backend, "KOIOS_HEADLESS": "0"}
+    try:
+        p = subprocess.run([sys.executable, "-c", _FRAME], capture_output=True, text=True, timeout=timeout, env=env)
+    except Exception as error:
+        return False, str(error)
+    text = (p.stdout + p.stderr).strip()
+    return p.returncode == 0 and text.splitlines()[-1:] != [] and text.splitlines()[-1].startswith("ok"), (text.splitlines() or [""])[-1][:300]
+
+
+def install_renderer() -> str:
+    """The off-screen GL libraries put on this machine, where it can be done without asking: apt or dnf as root (or
+    with sudo that needs no password), else conda. Answers what was done, or the command to run."""
+    sudo = [] if hasattr(os, "geteuid") and os.geteuid() == 0 else (["sudo", "-n"] if shutil.which("sudo") and subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0 else None)
+    if shutil.which("apt-get"):
+        packages = ["libegl1", "libgl1", "libosmesa6", "libglu1-mesa"]
+        if sudo is None:
+            return f"sudo apt-get install -y {' '.join(packages)}"
+        subprocess.run(sudo + ["apt-get", "update", "-qq"], capture_output=True, timeout=300)
+        p = subprocess.run(sudo + ["apt-get", "install", "-y", "-qq", *packages], capture_output=True, text=True, timeout=600, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
+        return "installed " + " ".join(packages) if p.returncode == 0 else f"apt-get failed: {(p.stderr or p.stdout).strip().splitlines()[-1:]}"
+    for manager in ("dnf", "yum"):
+        if shutil.which(manager):
+            packages = ["mesa-libEGL", "mesa-libGL", "mesa-libOSMesa"]
+            if sudo is None:
+                return f"sudo {manager} install -y {' '.join(packages)}"
+            p = subprocess.run(sudo + [manager, "install", "-y", "-q", *packages], capture_output=True, text=True, timeout=600)
+            return "installed " + " ".join(packages) if p.returncode == 0 else f"{manager} failed: {(p.stderr or p.stdout).strip().splitlines()[-1:]}"
+    conda = shutil.which("mamba") or shutil.which("conda")
+    if conda and os.environ.get("CONDA_PREFIX"):
+        p = subprocess.run([conda, "install", "-y", "-q", "-c", "conda-forge", "mesalib"], capture_output=True, text=True, timeout=900)
+        return "installed mesalib (conda-forge)" if p.returncode == 0 else "conda install mesalib failed"
+    return "install OSMesa or EGL (Mesa) with your system's package manager"
+
+
+def renderer(fix: bool = False, fresh: bool = False) -> dict:
+    """The off-screen renderer that works on this machine, found by drawing a frame — EGL (on the GPU when there is
+    one, through Mesa on the CPU otherwise) and OSMesa — and kept for this boot, so it is found once.
+
+    With fix, a machine where none works gets the libraries (install_renderer) and is tried again. On a Mac or
+    Windows, MuJoCo renders through the system's own GL, so there is nothing to choose.
+    """
+    if not sys.platform.startswith("linux"):
+        return {"renderer": None, "ok": None, "why": "MuJoCo renders through the system's own GL here"}
+    cache = _render_cache()
+    if not fresh:
+        try:
+            with open(cache) as f:
+                kept = json.load(f)
+            if kept.get("ok") or not fix:
+                return kept
+        except (OSError, ValueError):
+            pass
+    if importlib.util.find_spec("mujoco") is None:
+        return {"renderer": None, "ok": None, "why": "MuJoCo isn't installed"}
+    gpu = _gpu()
+    if gpu:
+        nvidia_egl()
+    order = ["egl", "osmesa"] if gpu else ["osmesa", "egl"]
+    tried = {}
+    result = None
+    for attempt in range(2):
+        for backend in order:
+            ok, text = _try_renderer(backend)
+            tried[backend] = text
+            if ok:
+                result = {"renderer": backend, "ok": True, "gpu": gpu, "vendor": os.environ.get("__EGL_VENDOR_LIBRARY_FILENAMES"), "tried": tried}
+                break
+        if result or not fix or attempt:
+            break
+        tried["install"] = install_renderer()
+    result = result or {"renderer": None, "ok": False, "gpu": gpu, "tried": tried, "why": "no off-screen renderer draws here" + (f" ({tried['install']})" if "install" in tried else ": `python koios_telemetry.py render --fix` installs one (OSMesa, Mesa's EGL) where it can")}
+    try:
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        with open(cache, "w") as f:
+            json.dump(result, f)
+    except OSError:
+        pass
+    return result
+
+
 def headless(force: bool = False) -> dict:
     """Off-screen rendering, chosen before a simulator is imported.
 
-    A Colab runtime or a server has no display, and a simulator that opens a window there fails. On Linux with no
-    DISPLAY this picks MuJoCo's renderer (EGL on a GPU, else OSMesa on the CPU) and points pygame (classic control,
-    Box2D) at its dummy video driver. Anything already set is left alone. Runs on import unless KOIOS_HEADLESS=0.
+    A Colab runtime, a GPU server or a container has no display, and a simulator that opens a window there fails.
+    On Linux with no DISPLAY this sets MuJoCo's renderer to the one that draws on this machine (renderer(): tried
+    once per boot, when MuJoCo is installed), NVIDIA's EGL made known where a GPU's driver left it out, and points
+    pygame (classic control, Box2D) at its dummy video driver. Anything already set is left alone. Runs on import
+    unless KOIOS_HEADLESS=0.
     """
     if sys.platform.startswith("linux") and (force or not os.environ.get("DISPLAY")):
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
         if "MUJOCO_GL" not in os.environ:
-            # EGL renders on a GPU; with no GPU behind it (a CPU runtime) its library can be there and still fail,
-            # so it is chosen only when there is one, and OSMesa, slower but anywhere, otherwise.
-            gpu = shutil.which("nvidia-smi") is not None or bool(glob.glob("/dev/dri/renderD*"))
-            if _has_lib("EGL") and (gpu or not _has_lib("OSMesa")):
-                os.environ["MUJOCO_GL"] = "egl"
-                os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
-            elif _has_lib("OSMesa"):
-                os.environ["MUJOCO_GL"] = "osmesa"
-                os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
-    return {key: os.environ.get(key) for key in ("MUJOCO_GL", "PYOPENGL_PLATFORM", "SDL_VIDEODRIVER")}
+            found = renderer() if importlib.util.find_spec("mujoco") is not None else {}
+            if found.get("ok"):
+                if found["renderer"] == "egl" and found.get("vendor"):
+                    nvidia_egl()
+                os.environ["MUJOCO_GL"] = found["renderer"]
+                os.environ.setdefault("PYOPENGL_PLATFORM", found["renderer"])
+            else:
+                # Not tried (no MuJoCo yet), or nothing drew: the best guess — EGL on a GPU, OSMesa on a CPU.
+                gpu = _gpu()
+                if _has_lib("EGL") and (gpu or not _has_lib("OSMesa")):
+                    if gpu:
+                        nvidia_egl()
+                    os.environ["MUJOCO_GL"] = "egl"
+                    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+                elif _has_lib("OSMesa"):
+                    os.environ["MUJOCO_GL"] = "osmesa"
+                    os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
+        elif os.environ.get("MUJOCO_GL") == "egl" and _gpu():
+            # EGL asked for by hand on a GPU: it needs NVIDIA's vendor file all the same.
+            nvidia_egl()
+    return {key: os.environ.get(key) for key in ("MUJOCO_GL", "PYOPENGL_PLATFORM", "SDL_VIDEODRIVER", "__EGL_VENDOR_LIBRARY_FILENAMES")}
 
 
 if os.environ.get("KOIOS_HEADLESS", "1") != "0":
@@ -1553,6 +1734,8 @@ def _doctor_text(d: dict) -> str:
     ]
     if d.get("render"):
         lines.append(f"MuJoCo off-screen render: {'works' if d['render']['ok'] else 'FAILED'} - {d['render']['text']}")
+        if not d["render"]["ok"]:
+            lines.append("  fix: python koios_telemetry.py render --fix  (finds the renderer that draws here, and installs OSMesa or Mesa's EGL if none does)")
     if d.get("torch_threads"):
         t = d["torch_threads"]
         lines.append("torch on the CPU, a small layer: " + ", ".join(f"{n} thread{'s' if n > 1 else ''} {ms:.2f} ms" for n, ms in t["ms"].items()) + f" -> export KOIOS_TORCH_THREADS={t['best']}")
@@ -1619,7 +1802,8 @@ def native_env_py(sim: dict, env_id: str) -> str:
 
 def setup_sh(sim: dict) -> str:
     extra = ["numpy", "imageio", "imageio-ffmpeg", "pillow", "rerun-sdk"] + (['"gymnasium>=1.0"'] if sim.get("api") == "gymnasium" else [])
-    lines = ["#!/usr/bin/env bash", "# What this project needs, installed on the machine it runs on. Run it once per machine (on Colab, once a session).", "set -e", *sim["install"], f"pip install -q {' '.join(extra)}", "# What the machine can do: GPUs, off-screen rendering, video encoding, which simulators import.", "python koios_telemetry.py doctor"]
+    render = ["# Off-screen rendering for the videos, on whatever machine this is: the renderer that draws here, installed if none does.", "python koios_telemetry.py render --fix || true"] if sim.get("video") else []
+    lines = ["#!/usr/bin/env bash", "# What this project needs, installed on the machine it runs on. Run it once per machine (on Colab, once a session).", "set -e", *sim["install"], f"pip install -q {' '.join(extra)}", *render, "# What the machine can do: GPUs, off-screen rendering, video encoding, which simulators import.", "python koios_telemetry.py doctor"]
     return "\n".join(lines) + "\n"
 
 
@@ -1687,6 +1871,19 @@ def _main(argv: list[str]) -> int:
         print(__doc__)
         return 0
     command, rest = argv[0], argv[1:]
+    if command == "render":
+        found = renderer(fix="--fix" in rest, fresh="--fresh" in rest or "--fix" in rest)
+        if "--json" in rest:
+            print(json.dumps(found))
+        elif found.get("ok"):
+            print(f"off-screen rendering works here with {found['renderer']}" + (" (NVIDIA's EGL registered for it)" if found.get("vendor") else "") + " — kept for this boot; MUJOCO_GL is set to it on import")
+        elif found.get("ok") is None:
+            print(found.get("why"))
+        else:
+            print(found.get("why"))
+            for backend, text in (found.get("tried") or {}).items():
+                print(f"  {backend}: {text}")
+        return 0 if found.get("ok") is not False else 1
     if command == "doctor":
         d = doctor(render_check="--no-render" not in rest)
         print(json.dumps(d) if "--json" in rest else _doctor_text(d))

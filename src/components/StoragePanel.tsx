@@ -515,6 +515,14 @@ export default function StoragePanel({ playground, machineName, connected, move,
               )}
             </li>
           </ul>
+          {dataPlace.kind !== 'machine' ? (
+            <label className="pg-idle mv-idle">
+              <input type="checkbox" checked={Boolean(playground.sync.runsWithCode)} onChange={(event) => updatePlayground(playground.id, { sync: { ...playground.sync, runsWithCode: event.target.checked } })} />
+              <span>
+                <b>Keep runs with the code</b> — off (the default), each run’s folder (<code>runs/</code>: events, videos, replays) stays on the machine and goes to the data place as it runs, and doesn’t cross to {homeName}; mounted or copied alike. On: runs come back into the project’s folder with the code.
+              </span>
+            </label>
+          ) : null}
         </section>
 
         <section className="mv-section" aria-label="Compute">

@@ -323,3 +323,34 @@ describe('where a playground’s code is, and what opening it takes', () => {
     assert.equal(pg.browserLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36'), 'Chrome on a Mac');
   });
 });
+
+describe('where runs go', () => {
+  const sync = { ignore: pg.DEFAULT_IGNORE, bringBack: pg.DEFAULT_BRING_BACK };
+  it('with a data place away from the machine, runs stay on the machine and don’t come back with the code', () => {
+    const rules = pg.syncRules({ sync, data: { kind: 'drive' } });
+    assert.equal(rules.runsInData, true);
+    assert.match(rules.ignore, /^runs\/$/m);
+    assert.doesNotMatch(rules.bringBack, /^runs\/$/m);
+    assert.match(rules.bringBack, /^results\/$/m, 'the rest of the bring-back rules stay');
+  });
+  it('kept with the code when asked, or when the data is on the machine’s own disk', () => {
+    assert.equal(pg.syncRules({ sync: { ...sync, runsWithCode: true }, data: { kind: 'drive' } }).ignore, sync.ignore);
+    const onMachine = pg.syncRules({ sync, data: { kind: 'machine' } });
+    assert.equal(onMachine.runsInData, false);
+    assert.match(onMachine.bringBack, /^runs\/$/m);
+  });
+  it('reads two folders as one: the first’s, then what only the second has', async () => {
+    const host = (label, files) => ({
+      label,
+      list: async (path = '') => Object.keys(files).filter((p) => p.startsWith(path ? `${path}/` : '')).map((p) => ({ name: p.slice(path ? path.length + 1 : 0).split('/')[0], path: p, type: 'file', size: 1, modified: null })),
+      read: async (path) => files[path] ?? null,
+      write: async () => undefined,
+      readBase64: async (path) => (path in files ? btoa(files[path]) : null),
+    });
+    const both = pg.unionHost(host('Drive', { 'runs/a': 'drive a', 'runs/b': 'drive b' }), host('Laptop', { 'runs/a': 'laptop a', 'runs/c': 'laptop c' }));
+    assert.deepEqual((await both.list('runs')).map((e) => e.name), ['a', 'b', 'c']);
+    assert.equal(await both.read('runs/a'), 'drive a');
+    assert.equal(await both.read('runs/c'), 'laptop c');
+    assert.equal(atob(await both.readBase64('runs/c')), 'laptop c');
+  });
+});

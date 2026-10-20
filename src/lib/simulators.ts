@@ -949,7 +949,7 @@ export const SIMULATORS: Simulator[] = [
       { id: 'InvertedPendulum-v5', label: 'InvertedPendulum: a quick check', space: 'continuous' },
     ],
     docs: 'https://gymnasium.farama.org/environments/mujoco/',
-    caveats: ['Videos need an off-screen OpenGL: EGL on a GPU, OSMesa on a CPU. koios_telemetry picks one; the doctor checks it renders.'],
+    caveats: ['Videos need an off-screen OpenGL: EGL on a GPU, OSMesa on a CPU. koios_telemetry picks one (and on a Colab GPU registers NVIDIA’s EGL, which Colab leaves out); the doctor checks it renders.'],
   },
   {
     id: 'dm_control',

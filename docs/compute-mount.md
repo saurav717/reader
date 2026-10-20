@@ -35,6 +35,7 @@ nothing to copy.
 | of your project (code, configs, notebooks, small results) | on your computer | the machine reads it there; a save on either side is on the other within about a second |
 | the project's sync rules leave out (`data/`, `wandb/`, `*.pt`, `*.ckpt`, `*.safetensors`, by default) | on the machine's own disk, under the mount | put in the project's **data place** (Google Drive by default, or a computer of yours) a few seconds after it is closed |
 | over 100 MB, written on the machine | on the machine's own disk | the data place, never the tunnel |
+| a run's folder (`runs/`: events, videos, replays) | on the machine's own disk | the data place, pushed by `koios_telemetry` as the run goes — unless **Keep runs with the code** is on (Storage & compute → Data & results), or the data place is the machine's own disk; then it comes back with the code |
 | a cache (`__pycache__`, `.ipynb_checkpoints`, `.reader/`) | on the machine | nowhere |
 
 So a checkpoint written to `checkpoints/model.pt` is written at local disk speed on the GPU machine and goes to
