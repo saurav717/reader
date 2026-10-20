@@ -51,8 +51,9 @@ export const MAX_RUNS = 30;
 const available = () => Boolean(currentPass() && apiBase());
 
 /** This browser, in a few words, for the row's `by`. */
-export function browserWords(agent = typeof navigator !== 'undefined' ? navigator.userAgent : ''): string {
-  const app = /Edg\//.test(agent) ? 'Edge' : /Firefox\//.test(agent) ? 'Firefox' : /Chrome\//.test(agent) ? 'Chrome' : /Safari\//.test(agent) ? 'Safari' : 'a browser';
+export function browserWords(agent = typeof navigator !== 'undefined' ? navigator.userAgent : '', inApp = typeof window !== 'undefined' && Boolean((window as { readerDesktop?: unknown }).readerDesktop)): string {
+  // The Koios app is Chrome inside (Electron), with Electron's word taken out of its user agent: it is named as itself.
+  const app = inApp || /Electron\//.test(agent) ? 'the Koios app' : /Edg\//.test(agent) ? 'Edge' : /Firefox\//.test(agent) ? 'Firefox' : /Chrome\//.test(agent) ? 'Chrome' : /Safari\//.test(agent) ? 'Safari' : 'a browser';
   const os = /iPhone|iPad/.test(agent) ? 'iPhone or iPad' : /Mac OS X|Macintosh/.test(agent) ? 'a Mac' : /Windows/.test(agent) ? 'Windows' : /Android/.test(agent) ? 'Android' : /Linux/.test(agent) ? 'Linux' : '';
   return os ? `${app} on ${os}` : app;
 }
