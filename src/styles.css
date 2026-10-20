@@ -9888,3 +9888,8 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
   background: rgb(var(--float-rgb) / max(0.96, var(--float-a))); border-color: rgb(var(--accent-rgb) / 0.22);
   -webkit-backdrop-filter: blur(28px) saturate(185%); backdrop-filter: blur(28px) saturate(185%);
 }
+/* A right-hand pane's tab, kept when another is chosen (KeepTab): it lays out as the pane did, and is gone from view when hidden. */
+.vs-right-tab { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.vs-right-tab[hidden] { display: none; }
+.pg-keep { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.pg-keep[hidden] { display: none; }

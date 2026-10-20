@@ -216,6 +216,24 @@ const TERMINALS_FILE = 'terminals.json';
 
 /** By playground: a file the Explain page asked to open, opened by the files view when it shows. */
 const openFromExplain = new Map<string, string>();
+const OPEN_FROM_EXPLAIN = 'reader:open-from-explain';
+
+/**
+ * One of the workspace's views (Notebook, Files, Explain), kept once it has been opened: hidden, not unmounted, when
+ * another is chosen — the files open, the terminals, the panes, the runs read, all as they were on coming back.
+ */
+function KeepView({ show, children }: { show: boolean; children: React.ReactNode }) {
+  const [seen, setSeen] = useState(show);
+  useEffect(() => {
+    if (show) setSeen(true);
+  }, [show]);
+  if (!seen && !show) return null;
+  return (
+    <div className="pg-keep" hidden={!show}>
+      {children}
+    </div>
+  );
+}
 
 export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, backLabel }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void; backLabel?: string }) {
   const colab = useColab();
@@ -425,7 +443,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
       {playground.home.kind === 'browser' && playground.kind === 'project' ? <MoveOutOfBrowser playground={playground} machineName={machineName} onNote={setNote} /> : null}
       <MachinePool playground={playground} usable={usable} open={poolOpen} onOpen={setPoolOpen} onNote={setNote} />
       <div className="pg-body">
-        {tab === 'explain' ? (
+        <KeepView show={tab === 'explain'}>
           <ExplainerPane
             title={playground.title}
             projectId={playground.id}
@@ -439,14 +457,18 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
             })}
             onOpen={(path) => {
               openFromExplain.set(playground.id, path);
+              window.dispatchEvent(new CustomEvent(OPEN_FROM_EXPLAIN, { detail: { id: playground.id } }));
               setTab('files');
             }}
           />
-        ) : tab === 'notebook' ? (
+        </KeepView>
+        <KeepView show={tab === 'notebook'}>
           <div className="pg-notebook">
             <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed }} />
           </div>
-        ) : snapView && shows.snapshot ? (
+        </KeepView>
+        <KeepView show={tab === 'files'}>
+        {snapView && shows.snapshot ? (
           <SnapshotView playground={playground} reach={reach} onBring={shows.bring ? () => setBringing(true) : undefined} onBack={() => setSnapView(false)} />
         ) : away && shows.card ? (
           <AwayCard
@@ -461,6 +483,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         ) : (
           <FilesView key={JSON.stringify(playground.home)} playground={playground} connected={connected} usable={usable} machineName={machineName} />
         )}
+        </KeepView>
       </div>
       {bringing ? <BringDialog playground={playground} reach={reach} onClose={() => setBringing(false)} onOpen={(id) => window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id } }))} /> : null}
       {changing ? (
@@ -1970,12 +1993,18 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const nbCells = useSyncExternalStore(subscribeNotebook, () => notebookFor(notebookKey(playground.id)));
   // Where the Sim pane reads runs from beside the machine (kept stable: it restarts its reading when this changes).
   const keptRuns = useMemo(() => keptRunsHost(playground, home), [playground, home]);
-  // A file named on the Explain page: opened here once the Files tab is back.
+  // A file named on the Explain page: opened here as the Files tab comes back (mounted then, or kept from before).
   useEffect(() => {
-    const path = openFromExplain.get(playground.id);
-    if (!path) return;
-    openFromExplain.delete(playground.id);
-    void open('home', path);
+    const take = () => {
+      const path = openFromExplain.get(playground.id);
+      if (!path) return;
+      openFromExplain.delete(playground.id);
+      void open('home', path);
+    };
+    take();
+    const onAsk = (event: Event) => (event as CustomEvent<{ id: string }>).detail?.id === playground.id && take();
+    window.addEventListener(OPEN_FROM_EXPLAIN, onAsk);
+    return () => window.removeEventListener(OPEN_FROM_EXPLAIN, onAsk);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playground.id]);
   const metricCells = useMemo(
@@ -2958,7 +2987,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <CloseIcon size={14} />
               </button>
             </div>
-            {rightTab === 'agent' ? (
+            <KeepTab id="agent" active={rightTab}>
               <>
                 <div className="vs-agent-pick" role="radiogroup" aria-label="Which agent">
                   {agentChoices.map((choice) => (
@@ -3012,8 +3041,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   />
                 )}
               </>
-            ) : rightTab === 'runtime' ? (
-              pooled ? (
+            </KeepTab>
+            <KeepTab id="runtime" active={rightTab}>
+              {              pooled ? (
                 <div className="pg-pool-panes">
                   {machines.map((m) => {
                     const first = m.member === null;
@@ -3034,13 +3064,17 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               ) : (
                 <p className="pg-note pg-pad">Connect from the bar, or run a command, and {machineName} is read here: GPU, memory, disk, live.</p>
               )
-            ) : rightTab === 'metrics' ? (
+              }
+            </KeepTab>
+            <KeepTab id="metrics" active={rightTab}>
               <MetricsPane cells={metricCells} running={colab.running} />
-            ) : rightTab === 'sim' ? (
+            </KeepTab>
+            <KeepTab id="sim" active={rightTab}>
               <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} kept={keptRuns} />
-            ) : (
+            </KeepTab>
+            <KeepTab id="tensorboard" active={rightTab}>
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
-            )}
+            </KeepTab>
           </aside>
         ) : null}
       </div>
@@ -3310,6 +3344,23 @@ interface MountControl {
   /** The computer the files are on, by its name alone ("Saurav’s MacBook Air"). */
   computer: string;
   set: (on: boolean) => void;
+}
+
+/**
+ * One tab of the right-hand pane, kept once it has been opened: hidden, not unmounted, when another is chosen — so
+ * coming back finds it as it was (the runs read, an agent's conversation and sign-in), not read again from nothing.
+ */
+function KeepTab({ id, active, children }: { id: RightTab; active: RightTab; children: React.ReactNode }) {
+  const [seen, setSeen] = useState(id === active);
+  useEffect(() => {
+    if (id === active) setSeen(true);
+  }, [id, active]);
+  if (!seen && id !== active) return null;
+  return (
+    <div className="vs-right-tab" hidden={id !== active}>
+      {children}
+    </div>
+  );
 }
 
 /** Which attachment of this project's folder is on which computer, by project and computer: kept in this browser to find it again in the list. */

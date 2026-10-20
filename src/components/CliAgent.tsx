@@ -45,6 +45,8 @@ interface Saved {
 }
 
 const FILE = 'cli-agent.json';
+/** The last check of each agent, by project and agent, kept while the page is open. */
+const statusSeen = new Map<string, CliStatus>();
 const LINES_KEPT = 4000;
 const TURNS_KEPT = 30;
 const store = new Map<string, Saved>();
@@ -262,7 +264,12 @@ export default function CliAgent({
   // Stopped with ■ Stop: what waits stays until it is sent by hand (Stop & send now clears this).
   const [held, setHeld] = useState(false);
   const chat = saved.chats[agent] ?? { turns: [] };
-  const [status, setStatus] = useState<CliStatus | null>(null);
+  // The last check of the agent here (installed, signed in), by project: shown at once on coming back, checked again behind.
+  const [status, setStatusState] = useState<CliStatus | null>(() => statusSeen.get(`${projectId}|${agent}`) ?? null);
+  const setStatus = (next: CliStatus | null) => {
+    if (next) statusSeen.set(`${projectId}|${agent}`, next);
+    setStatusState(next);
+  };
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | 'status' | 'install' | 'login' | 'logout'>(null);
   const [jobLog, setJobLog] = useState('');
@@ -287,7 +294,8 @@ export default function CliAgent({
 
   const refresh = useCallback(async () => {
     if (!connected) return;
-    setBusy('status');
+    // With a check from before, the pane stays as it was while it is checked again.
+    if (!statusSeen.has(`${projectId}|${agent}`)) setBusy('status');
     setProblem(null);
     try {
       setStatus(await cliStatus(agent, env, projectId));
@@ -296,10 +304,11 @@ export default function CliAgent({
     } finally {
       setBusy(null);
     }
-  }, [agent, connected, env]);
+  }, [agent, connected, env, projectId]);
   useEffect(() => {
-    setStatus(null);
+    setStatusState(statusSeen.get(`${projectId}|${agent}`) ?? null);
     void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
   useEffect(() => {
     void load(projectId, host);

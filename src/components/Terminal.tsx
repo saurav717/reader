@@ -186,14 +186,24 @@ export default function Terminal({ server, cwd, sessionId, label, playgroundId, 
         if (server.token) url.searchParams.set('token', server.token);
         socket = new WebSocket(url.href);
         const send = (message: unknown[]) => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
+        // The shell is told a new size once the pane has settled, and only a size that changed: each resize makes a
+        // shell redraw its prompt, and a drag that sends every pixel's width leaves a column of half-drawn prompts
+        // (a two-sided prompt, as powerlevel10k's, the worst). A hidden pane (another tab) measures nothing: left as it is.
+        let sent = '';
         const resize = () => {
+          const box = host.current?.getBoundingClientRect();
+          if (!box || box.width < 20 || box.height < 20) return;
           try {
             fit.fit();
           } catch {
             return;
           }
+          const size = `${term.rows}x${term.cols}`;
+          if (size === sent) return;
+          sent = size;
           send(['set_size', term.rows, term.cols]);
         };
+        let resizeTimer = 0;
         let ended = false;
         socket.onopen = () => {
           retries.current = 0;
@@ -239,7 +249,10 @@ export default function Terminal({ server, cwd, sessionId, label, playgroundId, 
           send(['stdin', data]);
           noteKeys(sessionId, data);
         });
-        const observer = new ResizeObserver(() => resize());
+        const observer = new ResizeObserver(() => {
+          window.clearTimeout(resizeTimer);
+          resizeTimer = window.setTimeout(resize, 150);
+        });
         observer.observe(host.current);
         // Light, dark or glass changed in Settings: the terminal follows at once.
         const themeWatch = new MutationObserver(() => {
