@@ -93,12 +93,19 @@ export default function KernelTerminal({ name, cwd, label, connected, playground
         };
         const unregister = registerTerminal(name, type);
         const typing = term.onData(type);
+        // Once the pane has settled (below), only a size that changed, and never a hidden pane's (it measures nothing).
+        let sent = '';
         const resize = () => {
+          const box = host.current?.getBoundingClientRect();
+          if (!box || box.width < 20 || box.height < 20) return;
           try {
             fit.fit();
           } catch {
             return;
           }
+          const size = `${term.rows}x${term.cols}`;
+          if (size === sent) return;
+          sent = size;
           void call(`_rt_resize(${JSON.stringify(name)}, ${term.rows}, ${term.cols})`).catch(() => undefined);
         };
         let resizeTimer = 0;

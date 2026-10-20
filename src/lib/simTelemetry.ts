@@ -510,18 +510,34 @@ const py = (value: unknown) => JSON.stringify(JSON.stringify(value));
 export const READ_CODE = (folder: string, focus: { dir: string; offset: number } | null) => String.raw`
 import os, json, glob, time
 root = os.path.abspath(${JSON.stringify(folder)})
+# The folder as the page names it, from where this kernel is; if that isn't it, from the usual homes of a project.
+if not os.path.isdir(root):
+    for base in (os.path.expanduser('~'), '/content', '/workspace'):
+        alt = os.path.join(base, ${JSON.stringify(folder)})
+        if os.path.isdir(alt):
+            root = alt
+            break
 focus = json.loads(${py(focus)})
 CAP = ${READ_CAP}
 out = {'now': time.time(), 'runs': []}
 found = []
 # Walked with the folders that can't hold a run pruned, and no deeper than six levels, so a project with a
 # node_modules or a data/ folder of a million files costs nothing more than one without.
-PRUNE = {'.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints'}
-for here, dirs, files in os.walk(root):
-    dirs[:] = [d for d in dirs if d not in PRUNE and not d.startswith('.')]
+# A run's own folders (its videos, replays, checkpoints) hold no run, and can hold thousands of files: never walked.
+# Neither is a run's folder once found — runs don't nest. Links are followed (a runs/ kept elsewhere), each once.
+PRUNE = {'.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints', 'media', 'replays', 'videos', 'frames', 'checkpoints', 'ckpt', 'ckpts', 'live', 'dreams'}
+seen = set()
+for here, dirs, files in os.walk(root, followlinks=True):
+    real = os.path.realpath(here)
+    if real in seen:
+        dirs[:] = []
+        continue
+    seen.add(real)
+    dirs[:] = sorted((d for d in dirs if d not in PRUNE and not d.startswith('.')), key=lambda d: (d != 'runs', d))
     if here[len(root):].count(os.sep) >= 6:
         dirs[:] = []
     if 'events.jsonl' in files:
+        dirs[:] = []
         path = os.path.join(here, 'events.jsonl')
         try:
             found.append((os.path.getmtime(path), os.path.relpath(here, root), path))
@@ -602,7 +618,7 @@ const keptHost = (folder: string, runDir: string) => {
 
 /** Folders walked at most, on a slow host (Drive): runs sit a level or two down, under runs/. */
 const KEPT_WALK = 150;
-const PRUNED = new Set(['.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints']);
+const PRUNED = new Set(['.git', '.reader', 'node_modules', 'wandb', 'data', 'datasets', '__pycache__', '.venv', 'venv', 'site-packages', '.ipynb_checkpoints', 'media', 'replays', 'videos', 'frames', 'checkpoints', 'ckpt', 'ckpts', 'live', 'dreams']);
 
 /** The runs in the project's own folder, as readSimRuns gives the machine's: the focused one's text whole (its tail, when long). */
 export async function readKeptRuns(host: FileHost, focus: { dir: string; offset: number } | null): Promise<SimRead> {
@@ -614,18 +630,24 @@ export async function readKeptRuns(host: FileHost, focus: { dir: string; offset:
 /** The runs in the project's own folder, newest first. */
 export async function listKeptRuns(host: FileHost): Promise<RunListing[]> {
   const found: { dir: string; size: number; mtime: number }[] = [];
-  const queue: { path: string; depth: number }[] = [{ path: '', depth: 0 }];
+  // runs/ first: where koios_telemetry writes them, and where the data place keeps them.
+  const queue: { path: string; depth: number }[] = [{ path: 'runs', depth: 1 }, { path: '', depth: 0 }];
+  const listed = new Set<string>();
   let walked = 0;
   while (queue.length && walked < KEPT_WALK) {
     const { path, depth } = queue.shift()!;
+    if (listed.has(path)) continue;
+    listed.add(path);
     walked++;
     const entries = await host.list(path).catch(() => []);
+    const run = entries.find((entry) => entry.type !== 'directory' && entry.name === 'events.jsonl');
+    if (run) {
+      // A run's folder: nothing under it is walked (its videos, replays, checkpoints hold no run).
+      found.push({ dir: path, size: run.size ?? 0, mtime: run.modified ? Date.parse(run.modified) / 1000 || 0 : 0 });
+      continue;
+    }
     for (const entry of entries) {
-      if (entry.type === 'directory') {
-        if (depth < 6 && !PRUNED.has(entry.name) && !entry.name.startsWith('.')) queue.push({ path: entry.path, depth: depth + 1 });
-      } else if (entry.name === 'events.jsonl') {
-        found.push({ dir: path, size: entry.size ?? 0, mtime: entry.modified ? Date.parse(entry.modified) / 1000 || 0 : 0 });
-      }
+      if (entry.type === 'directory' && depth < 6 && !PRUNED.has(entry.name) && !entry.name.startsWith('.')) queue.push({ path: entry.path, depth: depth + 1 });
     }
   }
   found.sort((a, b) => b.mtime - a.mtime);

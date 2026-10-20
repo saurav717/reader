@@ -158,3 +158,22 @@ describe('the idle stop asks the machine', () => {
     }
   });
 });
+
+describe('finding runs in a big folder', () => {
+  it('walks runs/ first and never into a run’s own videos, replays or checkpoints', async () => {
+    const files = { 'README.md': '#' };
+    for (let r = 0; r < 30; r++) {
+      files[`runs/run-${r}/events.jsonl`] = '{}\n';
+      for (let k = 0; k < 50; k++) files[`runs/run-${r}/replays/battle-${k}/log.txt`] = 'x';
+      files[`runs/run-${r}/media/clip.mp4`] = 'v';
+    }
+    for (let c = 0; c < 200; c++) files[`checkpoints/step-${c}/model.pt`] = 'w';
+    const listed = [];
+    const host = memoryHost(files);
+    const counting = { ...host, list: async (path = '') => (listed.push(path), host.list(path)) };
+    const runs = await sim.listKeptRuns(counting);
+    assert.equal(runs.length, 30);
+    assert.ok(!listed.some((p) => /replays|media|checkpoints\//.test(p)), `walked ${listed.filter((p) => /replays|media|checkpoints\//.test(p)).slice(0, 3)}`);
+    assert.ok(listed.length <= 40, `listed ${listed.length} folders`);
+  });
+});

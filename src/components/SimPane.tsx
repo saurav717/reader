@@ -26,6 +26,9 @@ import { useFiled } from '../lib/experimentFiling';
 const ago = (seconds: number) => (seconds < 90 ? `${Math.max(0, Math.round(seconds))} s ago` : seconds < 5400 ? `${Math.round(seconds / 60)} min ago` : seconds < 172_800 ? `${Math.round(seconds / 3600)} h ago` : `${Math.round(seconds / 86_400)} days ago`);
 const span = (seconds: number) => (seconds < 120 ? `${Math.round(seconds)} s` : seconds < 7200 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} h`);
 
+/** What the pane last showed, by folder: the list, the run on screen, the folder's list of kept runs. */
+const simCache = new Map<string, { runs: RunListing[]; now: number; run: SimRun | null; focus: string | null; kept: { at: number; runs: RunListing[] } | null; source: string }>();
+
 /** Blobs already fetched, by folder, run and path, so going back to a video doesn't fetch it again. */
 const blobs = new Map<string, string>();
 function remember(key: string, url: string) {
@@ -354,11 +357,13 @@ export default function SimPane({
   kept?: FileHost;
 }) {
   const filed = useFiled(playgroundId ?? '');
-  const [runs, setRuns] = useState<RunListing[]>([]);
-  const [now, setNow] = useState(0);
+  // What this pane showed last for the folder: shown at once on coming back (another page, another tab), then read again.
+  const cached = simCache.get(folder);
+  const [runs, setRuns] = useState<RunListing[]>(cached?.runs ?? []);
+  const [now, setNow] = useState(cached?.now ?? 0);
   const [chosen, setChosen] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [read, setRead] = useState(false);
+  const [read, setRead] = useState(Boolean(cached));
   const [round, setRound] = useState(0);
   const [, setVersion] = useState(0);
   const [filter, setFilter] = useState('');
@@ -366,16 +371,18 @@ export default function SimPane({
   const [dreamAt, setDreamAt] = useState<number | null>(null);
   /** The run being watched live, by its folder: one at a time, and only while it runs. */
   const [watching, setWatching] = useState<string | null>(null);
-  const runRef = useRef<SimRun | null>(null);
-  const focusRef = useRef<string | null>(null);
+  const runRef = useRef<SimRun | null>(cached?.run ?? null);
+  const focusRef = useRef<string | null>(cached?.focus ?? null);
   /** The project folder's runs, listed a minute at a time (Drive is slow), and the size each was last read at. */
-  const keptList = useRef<{ at: number; runs: RunListing[] } | null>(null);
+  const keptList = useRef<{ at: number; runs: RunListing[] } | null>(cached?.kept ?? null);
   /** The folder's list being read again behind the machine's (it walks Drive: seconds, not a moment). */
   const keptReading = useRef<Promise<void> | null>(null);
-  const sourceRef = useRef('');
+  const sourceRef = useRef(cached?.source ?? '');
   const roundRef = useRef(round);
+  /** Bumped as the folder's list comes in from behind, so the pane shows it then rather than at the next round. */
+  const [keptTick, setKeptTick] = useState(0);
   /** When the runs were last looked for, and where: what the pane says under Look again. */
-  const [looked, setLooked] = useState<{ at: number; where: string[] } | null>(null);
+  const [looked, setLooked] = useState<{ at: number; where: string[]; problem?: string } | null>(null);
 
   useEffect(() => {
     if (!connected && !kept) return;
@@ -399,16 +406,29 @@ export default function SimPane({
         const focus = chosen ?? focusRef.current;
         const current = runRef.current && runRef.current.dir === focus ? runRef.current : null;
         const keptOnly = new Set((keptList.current?.runs ?? []).map((r) => r.dir));
-        const fromMachine = connected ? await readSimRuns(folder, focus ? { dir: focus, offset: current?.offset ?? 0 } : null).catch((error: unknown) => (kept ? null : Promise.reject(error))) : null;
+        // The machine's failure is said, not swallowed: "none found" must mean none.
+        let machineProblem = '';
+        const fromMachine = connected
+          ? await readSimRuns(folder, focus ? { dir: focus, offset: current?.offset ?? 0 } : null).catch((error: unknown) => {
+              if (!kept) throw error;
+              machineProblem = error instanceof Error ? error.message : String(error);
+              return null;
+            })
+          : null;
         // The project's own folder: listed once, then again a minute later or at Look again — waited for only when
         // there is nothing else to show (no machine, or not listed yet); otherwise read behind, and shown the next round.
         if (kept && (!keptList.current || Date.now() - keptList.current.at > 60_000) && !keptReading.current) {
+          const first = !keptList.current;
           const reading = listKeptRuns(kept)
-            .then((runs) => void (keptList.current = { at: Date.now(), runs }))
+            .then((runs) => {
+              keptList.current = { at: Date.now(), runs };
+              if (fromMachine && live) setKeptTick((n) => n + 1);
+            })
             .catch(() => undefined)
             .finally(() => (keptReading.current = null));
           keptReading.current = reading;
-          if (!fromMachine || !keptList.current) await reading;
+          // Waited for only when there is nothing else to show: the machine's runs show now, the folder's as they come.
+          if (!fromMachine && first) await reading;
         }
         const onMachine = new Set((fromMachine?.runs ?? []).map((r) => r.dir));
         const extra = (keptList.current?.runs ?? []).filter((r) => !onMachine.has(r.dir));
@@ -426,9 +446,10 @@ export default function SimPane({
         if (!live) return;
         setRuns(got.runs);
         setNow(got.now);
+        simCache.set(folder, { runs: got.runs, now: got.now, run: runRef.current, focus: chosen ?? got.runs[0]?.dir ?? null, kept: keptList.current, source: sourceRef.current });
         setProblem(null);
         setRead(true);
-        setLooked({ at: Date.now(), where: [...(fromMachine ? [machineName] : []), ...(kept ? [kept.label] : [])] });
+        setLooked({ at: Date.now(), where: [...(fromMachine ? [machineName] : []), ...(kept ? [kept.label] : [])], problem: machineProblem ? `${machineName} didn’t answer: ${machineProblem}` : keptReading.current && !keptList.current ? `still listing ${kept?.label ?? 'the folder'}…` : undefined });
         // Nothing chosen: the newest run, read on the next round.
         const want = chosen ?? got.runs[0]?.dir ?? null;
         if (want !== focusRef.current) {
@@ -448,6 +469,8 @@ export default function SimPane({
           run.truncated ||= f.truncated;
           if (listing) run.meta = { ...run.meta, ...listing.meta };
           runRef.current = run;
+          const keep = simCache.get(folder);
+          if (keep) simCache.set(folder, { ...keep, run, focus: run.dir });
           setVersion((n) => n + 1);
           again ||= f.to < f.size && f.text.length > 0;
         }
@@ -464,7 +487,7 @@ export default function SimPane({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [folder, connected, busy, round, chosen, kept]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [folder, connected, busy, round, chosen, kept, keptTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = runRef.current;
   const findings = useMemo(() => (run ? diagnose(run, now) : []), [run, now, run?.offset]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -494,7 +517,7 @@ run.finish()`}</pre>
           </button>{' '}
           {looked ? (
             <small>
-              Looked {new Date(looked.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })} {looked.where.length ? `on ${looked.where.join(' and in ')}` : ''}: none found.
+              Looked {new Date(looked.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })} {looked.where.length ? `on ${looked.where.join(' and in ')}` : ''}: none found{looked.problem ? ` — ${looked.problem}` : '.'}
             </small>
           ) : null}
         </p>
