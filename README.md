@@ -4526,8 +4526,8 @@ It asks **where it is** first, and guides by what that place can do:
   later from the chip in the bar, and the code stays where it is.
 
   With the files on a computer running the Companion (0.19.0 on), the folder can be **mounted** on the
-  remote machine instead of copied to it, the way a notebook mounts Google Drive: Storage & compute → Sync →
-  *Mount the folder on …*, or `koios mount` in a terminal. The machine keeps one connection open to the
+  remote machine instead of copied to it, the way a notebook mounts Google Drive: the **Sync** panel (the circling-arrows
+  icon left of the explorer) → *Mount the folder on …*, or `koios mount` in a terminal. The machine keeps one connection open to the
   Companion through its Cloudflare tunnel. A save on your computer is on the machine within a second. What a run
   writes there is written back to your folder. Checkpoints and data (what the sync rules leave out) stay on the
   machine's disk and go to the project's data place. See [docs/compute-mount.md](docs/compute-mount.md).

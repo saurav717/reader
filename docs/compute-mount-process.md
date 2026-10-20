@@ -390,7 +390,7 @@ baseline without the tunnel on the same computer: `KOIOS_LIVE_LOCAL=1 python3 -m
 
 1. Open a project whose files are on your laptop (Storage & compute → **Move files here** if they aren't), with its
    code on Colab, and connect a GPU runtime.
-2. Storage & compute → **Sync** → tick **Mount the folder on Colab**. The first time, wait about a minute while fusepy
+2. Open the **Sync** panel (the circling-arrows icon in the narrow bar left of the explorer) and tick **Mount the folder on Colab**. The first time, wait about a minute while fusepy
    installs. The bar should then read **Mounted on Colab ⇄ live**.
 3. In the compute's terminal: `ls /content/playgrounds/*/` shows your files, and `mount | grep koios` shows the FUSE
    mount.
