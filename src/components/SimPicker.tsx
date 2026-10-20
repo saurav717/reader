@@ -5,7 +5,7 @@
 // "Where should it run?" step.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { previewFor } from '../lib/simPreviews';
+import { HEAVY, previewFor, warmPreview } from '../lib/simPreviews';
 import ErrorBoundary from './ErrorBoundary';
 import type { SimEnv, SimFamily, Simulator, TemplateId } from '../lib/simulators';
 import { FAMILIES, SIMULATORS, TEMPLATES, needsLine, templatesFor } from '../lib/simulators';
@@ -24,15 +24,32 @@ const GPU = { no: 'none: any CPU does', helps: 'optional: faster on one', needs:
 function Preview({ sim, env }: { sim: Simulator; env?: SimEnv }) {
   const preview = previewFor(sim.id, env?.id);
   const [failed, setFailed] = useState<string | null>(null);
-  if (!preview || failed === preview.url) return <figure className="sim-preview is-missing">No preview for {sim.name}</figure>;
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const [asked, setAsked] = useState<string | null>(null);
+  if (!preview || failed === preview.url) return <figure className="sim-preview is-missing">No preview of {env && sim.envs.length > 1 ? env.label : sim.name}</figure>;
   const fail = () => setFailed(preview.url);
+  const done = () => setLoaded(preview.url);
+  // Which scene this is: the environment's own clip, or the simulator in general when the environment has none.
+  const what = env && sim.envs.length > 1 ? (preview.own ? env.label : `${sim.name} in general: no clip of ${env.label}`) : null;
+  const wait = (preview.bytes ?? 0) >= HEAVY && asked !== preview.url;
   return (
     <figure className="sim-preview">
-      {preview.kind === 'video' ? (
-        <video key={preview.url} src={preview.url} autoPlay muted loop playsInline onError={fail} />
+      {wait ? (
+        <button type="button" className="btn sim-preview-load" onClick={() => setAsked(preview.url)}>
+          Load the clip ({Math.round((preview.bytes ?? 0) / 1e6)} MB)
+        </button>
+      ) : preview.kind === 'video' ? (
+        <video key={preview.url} src={preview.url} autoPlay muted loop playsInline onError={fail} onLoadedData={done} />
       ) : (
-        <img key={preview.url} src={preview.url} alt={`${env?.label ?? sim.name}, running`} loading="lazy" referrerPolicy="no-referrer" onError={fail} />
+        <img key={preview.url} src={preview.url} alt={`${env?.label ?? sim.name}, running`} referrerPolicy="no-referrer" onError={fail} onLoad={done} />
       )}
+      {!wait && loaded !== preview.url ? <span className="sim-preview-wait">Loading {preview.own && env ? env.label : sim.name}…</span> : null}
+      {what || preview.note ? (
+        <span className={`sim-preview-what${preview.own ? '' : ' is-general'}`}>
+          {what}
+          {preview.note ? <small>{what ? ' · ' : ''}{preview.note}</small> : null}
+        </span>
+      ) : null}
       {preview.credit ? (
         <figcaption>{preview.page ? <a href={preview.page} target="_blank" rel="noreferrer noopener">{preview.credit} ↗</a> : preview.credit}</figcaption>
       ) : null}
@@ -174,7 +191,7 @@ export default function SimPicker({ onClose, onPick }: { onClose: () => void; on
                   <div className="rt-part-label">Environment</div>
                   <div className="sim-picker-list" role="radiogroup" aria-label="Environment">
                     {sim.envs.map((e) => (
-                      <label key={e.id} className={env?.id === e.id ? 'is-on' : ''}>
+                      <label key={e.id} className={env?.id === e.id ? 'is-on' : ''} onPointerEnter={() => warmPreview(previewFor(sim.id, e.id))}>
                         <input type="radio" checked={env?.id === e.id} onChange={() => setEnvId(e.id)} />
                         <span>
                           {e.label}
