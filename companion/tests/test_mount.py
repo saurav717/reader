@@ -254,6 +254,9 @@ class Mounted(unittest.TestCase):
         if self.mode == "fuse" and FUSE_WHY:
             self.skipTest(FUSE_WHY)
         self.start_daemon()
+        if self.mode == "fuse":
+            # The rest of the files come over by themselves: big.txt (3 MB, past the first archives) is here unopened.
+            wait_for(lambda: koios_mount.read_status(self.at).get("fill", {}).get("done"), 20)
 
         def away():
             self.server.stop()
@@ -262,6 +265,9 @@ class Mounted(unittest.TestCase):
 
         self.on_server(away)
         wait_for(lambda: not koios_mount.read_status(self.at)["connected"], 10)
+        # Every file of yours is still readable — none needs your computer now.
+        self.assertEqual((self.at / "big.txt").read_bytes(), (self.root / "big.txt").read_bytes())
+        self.assertGreater(koios_mount.read_status(self.at)["awaySince"], 0)
         # The program writing it isn't stopped by the computer being away: the file waits on the machine.
         (self.at / "notes.txt").write_text("written while away\n")
         self.assertEqual((self.at / "notes.txt").read_text(), "written while away\n")
@@ -423,7 +429,7 @@ if TORNADO:
             at = self.there / "playgrounds" / "p1"
             self.assertEqual((at / "train.py").read_text(), "print('training')\n")
             shown = json.loads(self.call(method="GET", path="/companion/compute?root=playgrounds/p1").body)
-            self.assertEqual(shown["mount"], {"on": True, "mode": self.mode, "connected": 1})
+            self.assertEqual({k: shown["mount"][k] for k in ("on", "mode", "connected")}, {"on": True, "mode": self.mode, "connected": 1})
             # The link handed over again (the pass renewed) keeps the mount.
             self.call({"root": "playgrounds/p1", "compute": {**link, "token": "abc"}})
             self.assertTrue(json.loads(self.call(method="GET", path="/companion/compute?root=playgrounds/p1").body)["mount"]["on"])

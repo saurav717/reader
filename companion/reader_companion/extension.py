@@ -78,7 +78,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, browsers, compute, desktop, folders, jobs, mount, mover, paper, state, texlive, tools, tunnel
+from . import account, awake, browsers, compute, desktop, folders, jobs, mount, mover, paper, state, texlive, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -257,7 +257,7 @@ async def open_tunnel(serverapp) -> None:
         return
     serverapp.web_app.settings["allow_remote_access"] = True  # read on every request
     try:
-        running = await IOLoop.current().run_in_executor(None, lambda: tunnel.start(companion.port, tunnel.cloudflared(say=lambda *_: None)))
+        running = await IOLoop.current().run_in_executor(None, lambda: tunnel.open_configured(companion.port, state.load_config(), say=lambda *_: None))
     except Exception as error:  # this computer still reaches it; others don't, until it is started again
         print(f"  The HTTPS tunnel didn't open ({error}): other computers won't reach this one until it starts again.", flush=True)
         return
@@ -908,7 +908,7 @@ class ComputeHandler(VsCodeHandler):
     @staticmethod
     def mount_state(folder: Path, link: dict | None) -> dict:
         wanted = (link or {}).get("mount") or {}
-        return {"on": bool(wanted), "mode": wanted.get("mode"), "connected": mount.connected(folder)}
+        return {"on": bool(wanted), "mode": wanted.get("mode"), "connected": mount.connected(folder), "keepingAwake": awake.current.holding()}
 
     async def mount_action(self, action: str, folder: Path, body: dict):
         link = compute.load_link_file(compute.link_file(folder))

@@ -92,26 +92,103 @@ In fuse mode, what was in the folder before the mount is sorted when the mount s
 Unmounting puts the machine's own files back in the folder, so copy-before-run works again as it did. A mirror
 leaves what was there as it was, and sends only what changes after it starts.
 
-## 5. What it costs, and what it can't do
+## 5. When your computer sleeps, or is far away
 
-- **The first read** of a file over 2 MB takes a round trip from the GPU machine to your computer through Cloudflare.
-  That is tens of milliseconds within a region, a few hundred across oceans. Later reads come from the cache.
-- **Your computer must stay on.** If it sleeps, a running job can still read what is already cached, and writes wait
-  and are sent when the socket is back. A file it has never opened can't be read until then. For a run of several
-  days with your laptop closed, copy-before-run (unmount) is still the safer choice.
-- **Datasets** belong in the data place (`koios_data.path(...)`), not in the project folder. The mount carries code
-  and results, not terabytes.
-- **Notebook cells** run in the notebook's kernel, which starts in the machine's home folder (`/content` on Colab).
-  To import the project from a cell, `%cd /content/playgrounds/<project>` first, as before.
+The mount is built so a laptop that sleeps, loses its network, or sits on another continent slows a run down at
+worst. It never stops one.
 
-## 6. Reference
+- **Everything comes over in the background.** After the first archives, the daemon fetches the rest of your files
+  one at a time, smallest first. That covers each file up to 200 MB, and up to 4 GB in all
+  (`KOIOS_MOUNT_FILL_FILE_MB`, `KOIOS_MOUNT_FILL_MB`; `0` turns it off). After that the machine reads nothing from your
+  computer, so a sleep mid-run costs nothing for reads.
+- **A read that does need your computer waits instead of failing.** If a file isn't on the machine yet and your
+  computer can't be reached, the read waits up to 15 minutes for the connection to come back (`KOIOS_MOUNT_WAIT_S`).
+  The program is held up, not crashed. Listings and file sizes never wait: they come from the tree the machine
+  already has.
+- **Writes queue.** A file written while your computer is away is kept on the machine, and the program's `close()`
+  succeeds. The queue is saved on disk, so it survives a restart of the daemon. It is sent as soon as the socket is
+  back, and the daemon redials with backoff. If your computer saved the same file in the meantime, the machine's
+  version wins, and the daemon logs it.
+- **Your computer is kept awake while it is mounted.** While a machine is connected, the Companion holds the system's
+  own lock against sleep: `caffeinate -i -s` on macOS, `systemd-inhibit` on Linux, `SetThreadExecutionState` on
+  Windows. It lets go when the last machine disconnects. The display can still sleep. A laptop on battery with its lid
+  closed sleeps anyway; nothing a program does changes that, and the three points above cover it. To turn this off,
+  put `"keep_awake": false` in `~/.reader-companion/config.json`.
+- **Notebook cells run in the project's folder.** While the folder is mounted, the page moves the notebook's kernel
+  into it, quietly, once per kernel: no output, and no cell number used. So `import mymodule` and relative paths work
+  from a cell as they do from the console.
+- **Distance.** The first read of a big file costs a round trip through Cloudflare: tens of milliseconds within a
+  region, a few hundred across an ocean. Argo Smart Routing (below) shortens that middle leg. Datasets still belong
+  in the data place (`koios_data.path(...)`), not in the project folder.
+
+## 6. A tunnel of your own, with Argo Smart Routing
+
+The Companion's default tunnel is a free **quick tunnel**. It needs no account, but it gets a new
+`….trycloudflare.com` address at every start and can't use Argo. **Argo Smart Routing** is Cloudflare's paid
+routing. It carries traffic between Cloudflare's data centres on the paths it currently measures as fastest. For a
+mount, that is the leg between the edge near the GPU machine and the edge near your computer. To use it, give the
+Companion a **named tunnel** on your own Cloudflare account:
+
+1. You need a domain on Cloudflare (any plan) with billing set up; Argo is billed per month and per GB.
+2. Create an API token at dash.cloudflare.com → My Profile → API Tokens. It needs these permissions, and can be
+   limited to the one zone:
+   - Account · Cloudflare Tunnel: Edit
+   - Zone · DNS: Edit
+   - Zone · Zone Settings: Edit
+   - Zone · Zone: Read
+3. On the computer with the files:
+
+   ```bash
+   reader-companion tunnel setup --hostname koios.example.com --api-token <token>
+   reader-companion start            # or reopen the Koios app
+   reader-companion tunnel status    # named tunnel, Argo on
+   ```
+
+Setup does the following through Cloudflare's API:
+
+- creates (or reuses) a tunnel named `koios-<computer id>`;
+- points `https://koios.example.com` at the Companion;
+- adds the DNS record;
+- turns Argo Smart Routing on for the zone;
+- keeps the tunnel's own token in the Companion's settings (0600).
+
+The API token is not saved. The Companion runs `cloudflared tunnel run` with the tunnel's token in its environment,
+not on the command line. Mounts then dial the fixed address, so a restart of the Companion no longer changes it.
+
+If Argo can't be turned on (no billing, or a token without Zone Settings: Edit), setup says why and the tunnel works
+without it. You can turn Argo on later under your domain → Traffic → Argo Smart Routing.
+`reader-companion tunnel quick` goes back to quick tunnels.
+
+## 7. Measuring it over a real tunnel
+
+`companion/tests/live_tunnel.py` serves a folder and mounts it through a real tunnel, measures it, and prints:
+
+- how long the mount takes to be ready;
+- a cold and a cached read of a 6 MB file;
+- how long a save takes to reach the other side, each way;
+- the round trip of a read.
+
+```bash
+cd companion && python -m tests.live_tunnel                    # a quick tunnel
+KOIOS_LIVE_HOSTNAME=koios.example.com KOIOS_LIVE_TUNNEL_TOKEN=<tunnel token> python -m tests.live_tunnel   # yours, with Argo
+```
+
+Both ends run on one computer, but the daemon dials the tunnel's public address, so every byte goes out to
+Cloudflare and back in. It needs `cloudflared` to reach Cloudflare's edge: TCP or UDP port 7844 out, and DNS for
+`argotunnel.com`. Many CI sandboxes block that; the one this feature was built in did. There, `cloudflared` was handed
+a `trycloudflare.com` address (that request is ordinary HTTPS) but couldn't open the tunnel itself.
+
+## 8. Reference
 
 | File | What |
 | --- | --- |
 | `companion/reader_companion/koios_mount.py` | The machine's side: the socket, the cache, the FUSE operations, the mirror, the data shipper, `start`/`stop`/`status`. Standard library, tornado and fusepy. |
 | `companion/reader_companion/mount.py` | The Companion's side: the keys, the socket (`MountSocket`), the watch, and starting the daemon there through the link's kernel. |
 | `companion/reader_companion/extension.py` | `ComputeHandler`: `POST companion/compute {action: "mount" \| "unmount" \| "mount-status"}`. `GET` says whether a machine is connected. |
+| `companion/reader_companion/awake.py` | This computer kept from sleeping while a machine has a folder mounted. |
+| `companion/reader_companion/cloudflare.py`, `tunnel.py` | `reader-companion tunnel setup`: a named tunnel at your hostname, with Argo Smart Routing; the Companion runs it instead of a quick tunnel. |
 | `companion/reader_companion/compute.py` | `koios mount`, `koios unmount`; `koios run` and `koios push` skip the copy while the folder is mounted. |
 | `src/lib/computeLink.ts` | `mountThroughCompanion`, `unmountThroughCompanion`, `linkState`. |
 | `src/components/PlaygroundWorkspace.tsx` | The switch in the Sync pane, the **Mounted** chip, and runs that skip the copy. |
-| `companion/tests/test_mount.py`, `scripts/compute-link.test.mjs` | Tests. These include a real FUSE mount and a mirror, each edited on both sides, and the page's one call against a real Jupyter server standing in for the GPU box. |
+| `companion/tests/live_tunnel.py` | The mount over a real tunnel, measured (section 7). |
+| `companion/tests/test_mount.py`, `test_awake.py`, `test_cloudflare.py`, `scripts/compute-link.test.mjs` | Tests. These include a real FUSE mount and a mirror, each edited on both sides, and the page's one call against a real Jupyter server standing in for the GPU box. |

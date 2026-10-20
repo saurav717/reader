@@ -115,6 +115,47 @@ def start(port: int, binary: str, timeout_s: float = 45) -> Tunnel:
     return Tunnel(process, found["url"])
 
 
+def start_named(binary: str, token: str, hostname: str, timeout_s: float = 45) -> Tunnel:
+    """A tunnel of the person's own (cloudflare.py): run with its token — given in the environment, never on the
+    command line where any program could read it — at its fixed address. Its route to this computer is kept on
+    Cloudflare (the tunnel's ingress), so it needs no --url."""
+    process = subprocess.Popen(
+        [binary, "tunnel", "--no-autoupdate", "run"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, bufsize=1, env={**os.environ, "TUNNEL_TOKEN": token},
+    )
+    ready = threading.Event()
+    tail: list[str] = []
+
+    def read():
+        for line in process.stderr:
+            tail.append(line.rstrip())
+            del tail[:-20]
+            if READY_RE.search(line):
+                ready.set()
+
+    threading.Thread(target=read, daemon=True).start()
+    deadline = time.time() + timeout_s
+    while time.time() < deadline and not ready.is_set():
+        if process.poll() is not None:
+            break
+        time.sleep(0.2)
+    if not ready.is_set():
+        process.kill()
+        raise RuntimeError("the tunnel didn't connect to Cloudflare: " + " | ".join(tail[-3:]))
+    return Tunnel(process, f"https://{hostname}")
+
+
+def open_configured(port: int, config: dict, say=print) -> Tunnel:
+    """The tunnel the settings ask for: the person's own named one when `reader-companion tunnel setup` made it,
+    else a quick tunnel."""
+    binary = cloudflared(say=say)
+    if config.get("tunnel_token") and config.get("tunnel_hostname"):
+        if int(config.get("tunnel_port") or port) != port:
+            say(f"  The tunnel sends to port {config.get('tunnel_port')}, but the Companion is on {port}: run reader-companion tunnel setup again.")
+        return start_named(binary, config["tunnel_token"], config["tunnel_hostname"])
+    return start(port, binary)
+
+
 def via_tunnel(host: str | None) -> bool:
     """A request that came in through the tunnel, by its Host."""
     name = (host or "").rsplit(":", 1)[0].strip("[]")

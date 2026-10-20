@@ -37,7 +37,7 @@ from pathlib import Path
 from tornado import websocket
 from tornado.ioloop import IOLoop, PeriodicCallback
 
-from . import compute, state
+from . import awake, compute, state
 from .koios_mount import compile_rules, frame, matches, unframe
 
 SCAN_MS = 500
@@ -192,12 +192,16 @@ class Share:
 
     def add(self, conn: "MountSocket") -> None:
         self.conns.add(conn)
+        # A machine reads and writes here now: this computer doesn't sleep under it (awake.py).
+        awake.current.hold(str(self.root))
         if self.timer is None:
             self.timer = PeriodicCallback(self.tick, SCAN_MS)
             self.timer.start()
 
     def remove(self, conn: "MountSocket") -> None:
         self.conns.discard(conn)
+        if not self.conns:
+            awake.current.release(str(self.root))
         if not self.conns and self.timer is not None:
             self.timer.stop()
             self.timer = None

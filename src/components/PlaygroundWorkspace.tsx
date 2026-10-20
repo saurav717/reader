@@ -9,7 +9,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import type { Backend, JupyterServer } from '../lib/colab';
 import { renewRuntimeProxy } from '../lib/colab';
 import { COMPUTE_SHELL, MOUNT_VERSION, colabTarget, linkCompute, linkState, mountThroughCompanion, mountWords, pushThroughCompanion, remoteLine, renewAt, serverTarget, unmountThroughCompanion, type LinkState } from '../lib/computeLink';
-import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
+import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, prepareNotebook, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
 import { latestCheckpoint } from '../lib/telemetry';
 import type { Checkpoint } from '../lib/telemetry';
@@ -1706,6 +1706,21 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     return found ?? machineRoot(playground);
   };
 
+  // Mounted: the notebook's kernel works in the project's folder there, as the console does — `import mymodule` and
+  // relative paths in a cell find the project. Once per kernel (a restart starts it in the machine's home again).
+  const preparedFor = useRef('');
+  useEffect(() => {
+    if (!mounted || !connected || !colab.kernel) return;
+    const key = `${colab.kernel}|${linkKey}`;
+    if (preparedFor.current === key) return;
+    preparedFor.current = key;
+    void (async () => {
+      const folder = await folderOnMachine();
+      const ok = await prepareNotebook(`import os as _os, sys as _sys\n_d = ${JSON.stringify(folder)}\nif _os.path.isdir(_d):\n    _os.chdir(_d)\n    _sys.path.insert(0, _d) if _d not in _sys.path else None\ndel _os, _sys, _d`);
+      if (!ok) preparedFor.current = '';
+    })();
+  }, [mounted, connected, colab.kernel, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /** The koios helper written to a machine's folder, once per machine in this tab, so `import koios` works there. */
   const ensureHelper = async (m: ProjectMachine) => {
     const host = m.member === null ? machine : machineHostFor(playground, m);
@@ -2506,7 +2521,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : primary === 'outline' ? (
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
-              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, set: (on) => void setMount(on) } : undefined} />
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), set: (on) => void setMount(on) } : undefined} />
             ) : null}
           </aside>
         ) : null}
@@ -3137,6 +3152,8 @@ interface MountControl {
   busy: boolean;
   words?: string;
   problem?: string;
+  /** The Companion keeps this computer from sleeping while the folder is mounted. */
+  awake: boolean;
   set: (on: boolean) => void;
 }
 
@@ -3167,7 +3184,7 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
                 : mount.busy
                   ? `Starting the mount on ${machineName}… (the first time on Colab it installs fusepy, a minute or so)`
                   : mount.mounted
-                    ? mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`
+                    ? `${mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`} The rest of the files follow in the background, so a run keeps reading if ${homeLabel} goes to sleep${mount.awake ? ` — which it won’t while the folder is mounted` : ''}; what it writes meanwhile waits and comes over when ${homeLabel} is back.`
                     : mount.on
                       ? `${machineName} doesn’t have the folder mounted now: runs copy the changed files until it does.`
                       : `${machineName} reads the folder where it is — on ${homeLabel} — through the Companion’s Cloudflare tunnel: a save here is there at once, what a run writes there is written here, and nothing is copied before a run. What the rules below leave out (checkpoints, data) stays on the machine and goes to the data place.`}

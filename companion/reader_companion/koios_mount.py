@@ -70,6 +70,15 @@ PACK_MAX = 8 * 1024 * 1024
 PIECE = 4 * 1024 * 1024
 # Bigger than this, a file written here stays here and goes to the data place, not through the tunnel.
 BIG = 100 * 1024 * 1024
+MB = 1024 * 1024
+# After the small files, the rest of your computer's files come over in the background, one at a time — each up to
+# this size, this much in all — so that before long the machine reads nothing from your computer at all, and your
+# computer sleeping mid-run costs nothing. KOIOS_MOUNT_FILL_MB=0 turns it off.
+FILL_FILE_MAX = int(float(os.environ.get("KOIOS_MOUNT_FILL_FILE_MB", "200")) * MB)
+FILL_TOTAL_MAX = int(float(os.environ.get("KOIOS_MOUNT_FILL_MB", "4096")) * MB)
+# A read of a file that isn't here yet, while your computer can't be reached, waits this long for it to come back
+# before it fails: a run is held up, not stopped, by a laptop that slept.
+AWAY_WAIT_S = float(os.environ.get("KOIOS_MOUNT_WAIT_S", "900"))
 # Always on this machine's own disk and never sent anywhere: caches and the helpers Koios writes.
 SCRATCH = ".git/\n.reader/\nreader-meta/\n__pycache__/\n.ipynb_checkpoints/\n.venv/\nvenv/\nnode_modules/\n.DS_Store\n.koios-data/\n*.koios-part*\n"
 # What the Companion never sends, as compute.ALWAYS_SKIP: the same paths are this machine's.
@@ -205,8 +214,8 @@ class Wire:
             if not self.stopped:
                 await asyncio.sleep(wait)
 
-    def call(self, header: dict, payload: bytes = b"", timeout: float = 300) -> tuple[dict, bytes]:
-        if not self.up.wait(timeout=min(timeout, 20)):
+    def call(self, header: dict, payload: bytes = b"", timeout: float = 300, wait: float = 20) -> tuple[dict, bytes]:
+        if not self.up.wait(timeout=wait):
             raise Gone(self.error or "the Companion can't be reached")
         with self.lock:
             self.next_id += 1
@@ -399,7 +408,8 @@ class Store:
         self.rules_text = DEFAULT_RULES
         self.held: set[str] = set()
         self.have: dict[str, list] = self._load("have.json")  # what the cache holds: path → [size, mtime_ns]
-        self.dirty: set[str] = set()
+        # Written here and not yet back on your computer: kept on disk too, so a restart of this daemon still sends them.
+        self.dirty: set[str] = set(self._load("dirty.json") or []) if mode == "fuse" else set()
         self.fetching: dict[str, threading.Lock] = {}
         self.lock = threading.RLock()
         self.label = "your computer"
@@ -408,6 +418,9 @@ class Store:
         self.started = time.time()
         self.counts = {"read": 0, "fetched": 0, "written": 0, "pushed": 0}
         self.last_change = 0.0
+        self.away_since = 0.0
+        self.fill = {"files": 0, "bytes": 0, "done": False, "running": False}
+        self.dirty_lock = threading.Lock()
         self.shipper = Shipper(self.local, [str(self.local / ".reader" / "pylib"), os.environ.get("KOIOS_PYLIB", "")], say, lambda: self.write_status())
         self.wire = Wire(url, key, self.on_push, self.on_state)
 
@@ -431,6 +444,30 @@ class Store:
         except (OSError, ValueError):
             return {}
 
+    def mark_dirty(self, rel: str) -> None:
+        if rel in self.dirty:
+            return
+        with self.dirty_lock:
+            self.dirty.add(rel)
+            self._save_dirty()
+
+    def clean(self, rel: str) -> None:
+        if rel not in self.dirty:
+            return
+        with self.dirty_lock:
+            self.dirty.discard(rel)
+            self._save_dirty()
+
+    def _save_dirty(self) -> None:
+        if self.mode != "fuse":
+            return
+        tmp = self.state / "dirty.json.part"
+        try:
+            tmp.write_text(json.dumps(sorted(self.dirty)))
+            os.replace(tmp, self.state / "dirty.json")
+        except OSError:
+            pass
+
     def _save_have(self) -> None:
         tmp = self.state / "have.json.part"
         tmp.write_text(json.dumps(self.have))
@@ -439,6 +476,11 @@ class Store:
     # -- what the Companion pushes --
 
     def on_state(self, up: bool) -> None:
+        if up:
+            self.away_since = 0.0
+        elif not self.away_since:
+            self.away_since = time.time()
+            self.say("your computer can't be reached: reads of what is here go on, writes wait, and it is dialled again")
         self.write_status()
         if up:
             threading.Thread(target=self.flush_dirty, daemon=True).start()
@@ -484,6 +526,7 @@ class Store:
                     self.forget_cached(rel)
         self.warm_up()
         self.ready.set()
+        self.start_fill()
 
     def on_changed(self, rel: str, st: list, data: bytes | None) -> None:
         with self.lock:
@@ -573,8 +616,41 @@ class Store:
         if total["files"]:
             self.say(f"↓ {total['files']} files ({total['bytes'] // 1024} KB) from {self.label} in {self.warm['seconds']} s")
 
-    def fetch(self, rel: str) -> None:
-        """A file of your computer's into the cache, whole, if what is here isn't current."""
+    def start_fill(self) -> None:
+        if self.fill["running"] or FILL_TOTAL_MAX <= 0:
+            return
+        self.fill["running"] = True
+        threading.Thread(target=self._fill, daemon=True, name="koios-fill").start()
+
+    def _fill(self) -> None:
+        """The rest of your computer's files, smallest first, one at a time: once they are all here, the machine reads
+        nothing from your computer, and a laptop that sleeps or loses its network mid-run costs nothing."""
+        try:
+            total, count = 0, 0
+            for rel, st in sorted(list(self.tree.files.items()), key=lambda kv: (kv[1][0], kv[0])):
+                if self.wire.stopped:
+                    return
+                if st[0] > FILL_FILE_MAX or total + st[0] > FILL_TOTAL_MAX:
+                    continue
+                if not self.current(rel):
+                    try:
+                        self.fetch(rel, wait=5)
+                    except Gone:
+                        return  # started again when the socket is back (on_tree)
+                    except Refused:
+                        continue
+                total += st[0]
+                count += 1
+                self.fill.update(files=count, bytes=total)
+            self.fill["done"] = True
+            self.say(f"every file up to {FILL_FILE_MAX // MB} MB is here now ({count} files, {total // MB} MB): your computer is needed only for what changes")
+        finally:
+            self.fill["running"] = False
+            self.write_status()
+
+    def fetch(self, rel: str, wait: float = AWAY_WAIT_S) -> None:
+        """A file of your computer's into the cache, whole, if what is here isn't current. While your computer can't
+        be reached, it waits for it (up to KOIOS_MOUNT_WAIT_S) rather than failing the program that asked."""
         lock = self.fetching.setdefault(rel, threading.Lock())
         with lock:
             if self.current(rel):
@@ -586,7 +662,7 @@ class Store:
             offset = 0
             got = st
             while True:
-                reply, data = self.wire.call({"op": "read", "path": rel, "offset": offset, "size": PIECE})
+                reply, data = self.wire.call({"op": "read", "path": rel, "offset": offset, "size": PIECE}, wait=wait)
                 got = reply.get("stat") or got
                 buf += data
                 offset += len(data)
@@ -608,7 +684,7 @@ class Store:
             mode = stat.S_IMODE(source.stat().st_mode)
         except OSError:
             with self.lock:
-                self.dirty.discard(rel)
+                self.clean(rel)
             return
         if size > BIG:
             self.hold(rel)
@@ -630,14 +706,14 @@ class Store:
             if st:
                 self.tree.put(rel, st)
                 self.have[rel] = list(st[:2])
-            self.dirty.discard(rel)
+            self.clean(rel)
             self.counts["written"] += 1
 
     def hold(self, rel: str) -> None:
         """Too big for the tunnel: kept on this machine as data, and sent to the data place instead."""
         with self.lock:
             self.held.add(rel)
-            self.dirty.discard(rel)
+            self.clean(rel)
             if self.mode == "fuse":
                 target = self.lpath(rel)
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -676,6 +752,8 @@ class Store:
             "rttMs": round(self.wire.rtt_ms, 1),
             "counts": self.counts,
             "waitingToWrite": len(self.dirty),
+            "awaySince": self.away_since,
+            "fill": {k: v for k, v in self.fill.items() if k != "running"},
             "data": {"place": self.shipper.place, "sent": self.shipper.sent, "waiting": self.shipper.pending(), "problem": self.shipper.failed},
             "since": self.started,
             "lastChange": self.last_change,
@@ -794,7 +872,7 @@ def fuse_ops(store: Store):
                     self.writers[fh] = rel
                 if flags & os.O_TRUNC:
                     with store.lock:
-                        store.dirty.add(rel)
+                        store.mark_dirty(rel)
             return fh
 
         def create(self, path, mode, fi=None):
@@ -809,7 +887,7 @@ def fuse_ops(store: Store):
             fh = os.open(store.cpath(rel), os.O_CREAT | os.O_RDWR | os.O_TRUNC, mode)
             with store.lock:
                 store.tree.put(rel, [0, time.time_ns(), stat.S_IMODE(mode)])
-                store.dirty.add(rel)
+                store.mark_dirty(rel)
             with self.guard:
                 self.writers[fh] = rel
             return fh
@@ -821,7 +899,7 @@ def fuse_ops(store: Store):
             rel = self.writers.get(fh)
             if rel is not None:
                 with store.lock:
-                    store.dirty.add(rel)
+                    store.mark_dirty(rel)
             return os.pwrite(fh, data, offset)
 
         def truncate(self, path, length, fh=None):
@@ -832,7 +910,7 @@ def fuse_ops(store: Store):
                 store.fetch(rel)
             os.truncate(store.cpath(rel), length)
             with store.lock:
-                store.dirty.add(rel)
+                store.mark_dirty(rel)
             if not self.writing(rel):
                 store.upload(rel)
             return 0
@@ -874,7 +952,7 @@ def fuse_ops(store: Store):
             store.wire.call({"op": "unlink", "path": rel})
             with store.lock:
                 store.tree.drop(rel)
-                store.dirty.discard(rel)
+                store.clean(rel)
                 store.have.pop(rel, None)
                 store.forget_cached(rel)
             return 0
@@ -939,7 +1017,7 @@ def fuse_ops(store: Store):
                 os.replace(store.lpath(a), store.cpath(b))
                 with store.lock:
                     store.tree.put(b, [store.cpath(b).stat().st_size, time.time_ns(), 0o644])
-                    store.dirty.add(b)
+                    store.mark_dirty(b)
                 store.upload(b)
                 return 0
             # One of your computer's becomes this machine's (a checkpoint renamed into checkpoints/, say).
@@ -1032,7 +1110,7 @@ def adopt(store: Store) -> dict:
                 os.replace(full, target)
                 with store.lock:
                     store.tree.put(rel, [target.stat().st_size, time.time_ns(), 0o644])
-                    store.dirty.add(rel)
+                    store.mark_dirty(rel)
                 sent += 1
                 continue
             try:

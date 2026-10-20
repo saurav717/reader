@@ -36,7 +36,7 @@ export interface LinkState {
   label?: string;
   expiresAt?: number;
   /** From 0.19.0: whether the folder is to be mounted there, and how many machines have it mounted now. Absent from an older Companion. */
-  mount?: { on: boolean; mode?: MountMode | null; connected: number };
+  mount?: { on: boolean; mode?: MountMode | null; connected: number; keepingAwake?: boolean };
 }
 
 export type MountMode = 'fuse' | 'mirror';
