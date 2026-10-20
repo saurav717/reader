@@ -28,6 +28,7 @@ same file to a machine without the Companion (src/lib/moverScript.ts), and the C
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import http.client
 import io
@@ -369,7 +370,9 @@ def pack(worker: Worker, root: Path, skip: set[str]) -> dict:
     progress.send()
     manifest = []
     sink = Parts(worker.part)
-    with tarfile.open(fileobj=sink, mode="w|gz", compresslevel=3) as archive:
+    # gzip'd here rather than by tarfile ("w|gz"): a stream's compresslevel needs Python 3.12, and this runs on 3.9 too.
+    zipped = gzip.GzipFile(fileobj=sink, mode="wb", compresslevel=3, mtime=0)
+    with tarfile.open(fileobj=zipped, mode="w|") as archive:
         for relative, full in entries:
             info = archive.gettarinfo(str(full), arcname=relative)
             if info.issym():
@@ -381,6 +384,7 @@ def pack(worker: Worker, root: Path, skip: set[str]) -> dict:
                     archive.addfile(info, io.BufferedReader(reader, 1024 * 1024))
                 manifest.append({"path": relative, "size": info.size, "sha256": reader.digest.hexdigest(), "md5": reader.md5.hexdigest()})
             progress.add(files=1)
+    zipped.close()
     sink.finish()
     leave_record(root, worker.move, {entry["path"]: entry["md5"] for entry in manifest if "md5" in entry})
     progress.step = "packed"

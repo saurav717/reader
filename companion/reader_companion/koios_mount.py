@@ -110,6 +110,20 @@ def matches(compiled: list, rel: str) -> bool:
     return any(p.match(rel) for p in compiled)
 
 
+def write_json(path: Path, body) -> None:
+    """A JSON file replaced whole. The part file is this thread's own: several threads write the status, and two
+    sharing one part file could leave it half one and half the other."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.part")
+    try:
+        tmp.write_text(json.dumps(body))
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
 def safe(rel: str) -> bool:
     parts = rel.replace("\\", "/").split("/")
     return bool(rel) and not rel.startswith("/") and ".." not in parts and "" not in parts
@@ -461,17 +475,10 @@ class Store:
     def _save_dirty(self) -> None:
         if self.mode != "fuse":
             return
-        tmp = self.state / "dirty.json.part"
-        try:
-            tmp.write_text(json.dumps(sorted(self.dirty)))
-            os.replace(tmp, self.state / "dirty.json")
-        except OSError:
-            pass
+        write_json(self.state / "dirty.json", sorted(self.dirty))
 
     def _save_have(self) -> None:
-        tmp = self.state / "have.json.part"
-        tmp.write_text(json.dumps(self.have))
-        os.replace(tmp, self.state / "have.json")
+        write_json(self.state / "have.json", dict(self.have))
 
     # -- what the Companion pushes --
 
@@ -759,12 +766,7 @@ class Store:
             "lastChange": self.last_change,
             **extra,
         }
-        tmp = self.state / "status.json.part"
-        try:
-            tmp.write_text(json.dumps(body))
-            os.replace(tmp, self.state / "status.json")
-        except OSError:
-            pass
+        write_json(self.state / "status.json", body)
 
 
 # ------------------------------------------------------------------ fuse mode --
@@ -1139,6 +1141,20 @@ def run_fuse(store: Store) -> None:
     found = adopt(store)
     store.write_status(adopted=found)
     store.say(f"mounted {at} from {store.label} (fuse) · before it: {found['kept']} kept here, {found['dropped']} old copies gone, {found['sent']} sent back")
+
+    def watch():
+        # libfuse takes SIGTERM for itself and only acts on it at the next request, so the daemon ends on its own
+        # once the mount is gone (stop() unmounts first): the queue of writes is on disk for the next start.
+        deadline = time.time() + 30
+        while not os.path.ismount(at) and time.time() < deadline:
+            time.sleep(0.05)
+        while os.path.ismount(at):
+            time.sleep(0.25)
+        store.wire.stop()
+        store.write_status(stopped=True)
+        os._exit(0)
+
+    threading.Thread(target=watch, daemon=True, name="koios-unmounted").start()
     FUSE(fuse_ops(store), str(at), foreground=True, nothreads=False, attr_timeout=1.0, entry_timeout=1.0, negative_timeout=0.5, big_writes=True, max_read=1 << 20, fsname=f"koios:{store.label}"[:60])
 
 
@@ -1166,9 +1182,7 @@ class Mirror:
             return None
 
     def save_seen(self) -> None:
-        tmp = self.store.state / "seen.json.part"
-        tmp.write_text(json.dumps(self.seen))
-        os.replace(tmp, self.store.state / "seen.json")
+        write_json(self.store.state / "seen.json", dict(self.seen))
 
     def place(self, rel: str, data: bytes, st: list) -> None:
         target = self.store.lpath(rel)
@@ -1361,21 +1375,29 @@ def state_dir(at: Path) -> Path:
     return base / hashlib.sha1(str(at.resolve()).encode()).hexdigest()[:16]
 
 
+def alive(pid: int) -> bool:
+    """Whether the process is running: not gone, and not a zombie left for a parent to reap."""
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return True
+
+
 def read_status(at: Path) -> dict:
     try:
         status = json.loads((state_dir(at) / "status.json").read_text())
     except (OSError, ValueError):
         return {"running": False}
-    pid = int(status.get("pid") or 0)
-    alive = False
-    if pid:
-        try:
-            os.kill(pid, 0)
-            alive = True
-        except OSError:
-            alive = False
-    status["running"] = alive
-    status["mounted"] = alive and (status.get("mode") != "fuse" or os.path.ismount(at))
+    running = alive(int(status.get("pid") or 0))
+    status["running"] = running
+    status["mounted"] = running and (status.get("mode") != "fuse" or os.path.ismount(at))
     return status
 
 
@@ -1414,13 +1436,11 @@ def stop(at: Path, wait_s: float = 10) -> bool:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-        deadline = time.time() + wait_s
+        deadline = time.time() + (wait_s if status.get("mode") != "fuse" else 3)
         while time.time() < deadline:
-            try:
-                os.kill(pid, 0)
-            except OSError:
+            if not alive(pid):
                 break
-            time.sleep(0.1)
+            time.sleep(0.05)
         else:
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -1445,6 +1465,10 @@ def serve(url: str, key: str, at: Path, mode: str) -> None:
     state.mkdir(parents=True, exist_ok=True)
     # Somewhere that stays: koios_data reads the working directory, and the one it was started in may go.
     os.chdir(state)
+    # kill -USR1 <pid> prints every thread's stack into mount.log: what a mount that hangs is waiting on.
+    import faulthandler
+
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     log = lambda text: print(time.strftime("%H:%M:%S"), text, flush=True)  # noqa: E731
     store = Store(url, key, at, state, mode, say=log)
     store.write_status()
@@ -1475,10 +1499,12 @@ def start(url: str, key: str, at: Path, mode: str, wait_s: float = 90) -> dict:
     state.mkdir(parents=True, exist_ok=True)
     (state / "status.json").unlink(missing_ok=True)
     with open(state / "mount.log", "ab") as out:
-        subprocess.Popen(
+        daemon = subprocess.Popen(
             [sys.executable, os.path.abspath(__file__), "serve", f"--url={url}", f"--key={key}", f"--at={at}", f"--mode={chosen}"],
             stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(state), env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
+    # Reaped when it ends, so it doesn't linger as a zombie of the kernel that started it.
+    threading.Thread(target=daemon.wait, daemon=True, name="koios-reap").start()
     deadline = time.time() + wait_s
     status = {}
     while time.time() < deadline:

@@ -1,7 +1,7 @@
 """Copy-before-run against the mount, measured, at three network distances. Not a unit test: it prints the numbers
 docs/compute-mount-process.md charts.
 
-    cd companion && python -m tests.bench_mount            # JSON on stdout, progress on stderr
+    cd companion && python3 -m tests.bench_mount            # JSON on stdout, progress on stderr
 
 Both run on this computer: a Jupyter server stands in for the GPU machine (for the copy, `koios push` as `koios run`
 does it), and the Companion's mount socket serves the folder (for the mount, FUSE where it can, else the mirror).

@@ -195,6 +195,9 @@ Each step was chosen so the next could be checked against something real.
 | 10 | Background fill, reads that wait, a durable write queue, keep-awake, notebook cells in the folder, named tunnel and Argo | Tests for each (section 7). In the away test, a 3 MB file never opened was readable with the laptop gone. |
 | 11 | A real tunnel from the sandbox (`tests/live_tunnel.py`) | **Could not be done here**. Cloudflare handed out the address (`agenda-virginia-pic-packed.trycloudflare.com`), because that is an HTTPS call. But `cloudflared` couldn't resolve `_v2-origintunneld._tcp.argotunnel.com` or open TCP 7844 to the edge. That is the sandbox's network, not the code. |
 | 12 | Measured copy against mount, with simulated distance (`tests/bench_mount.py`) | Section 6. |
+| 13 | The suite on Python 3.9 (the oldest the Companion supports, and the Mac's Homebrew Python) | The mount's tests passed. Seven tests in two older modules failed. `mover.py` packed with `tarfile.open` in streaming gzip mode with a `compresslevel`, which needs 3.12; it now gzips the stream itself. `test_paper.py` used a union type (`bytes` or `str`) in an annotation evaluated at run time; it now has `from __future__ import annotations`. |
+| 14 | The suite run again and again | `ThroughTheLink` failed about once in six runs: the daemon mounted, but the Companion was told it hadn't. A start/stop loop (60 runs) showed why. Several of the daemon's threads wrote `status.json` through **one shared part file**, so it could end up half one write and half the other, and unreadable. Each thread now writes a part file of its own. |
+| 15 | The same loop, timing `stop` | **Every stop took 10 s** and ended in SIGKILL. libfuse takes SIGTERM for itself and acts on it only at the next request. And the daemon, once it did exit, stayed a zombie of the process that started it, so `stop` thought it was still running. Now the daemon ends by itself when its mount goes, a thread reaps it, and `stop` treats a zombie as gone. Stop takes 0.05 s, and the suite runs in about 60 s instead of 140 s. |
 
 ## 6. What was measured
 
@@ -207,7 +210,7 @@ Each step was chosen so the next could be checked against something real.
   150 ms**. Those stand in for a machine in the same city, on the same continent, or across an ocean. The proxy
   limits latency, not bandwidth, and it is not Cloudflare.
 - The project is 300 small Python modules (12 KB each) that a package imports, and a 6 MB file.
-- The raw numbers are in `docs/compute-mount-bench.json`; run `python -m tests.bench_mount` to measure again.
+- The raw numbers are in `docs/compute-mount-bench.json`; run `python3 -m tests.bench_mount` to measure again.
 
 ![Before the first run: the copy's first push against the mount being ready, by round trip](compute-mount/first-ready.svg)
 
@@ -257,7 +260,7 @@ disk, and a laptop on Wi-Fi. `tests/live_tunnel.py` measures the first one, and 
 | `scripts/compute-link.test.mjs` | The page's mount calls, their errors, and the words shown | Stand-in fetch |
 | `tests/live_tunnel.py` | The mount over a real tunnel, measured | **Real Cloudflare; not run here** (section 5, step 11) |
 
-Totals at the last run: 177 Companion tests pass (1 skipped, as before), the page's 75 related tests pass, and
+Totals at the last run: 177 Companion tests pass on Python 3.9 and 3.13 (1 skipped, as before), the page's 75 related tests pass, and
 `tsc -b` is clean.
 
 ## 8. Which limits are the mount's, and which the tunnel's
@@ -306,20 +309,22 @@ several days with the laptop closed, unmounting (copying) is still the safer cho
 
 ```bash
 cd companion
-python -m venv .venv && . .venv/bin/activate
+git fetch origin && git checkout claude/epic-darwin-18jc7s   # the mount is on this branch until #322 is merged
+python3 -m venv .venv && . .venv/bin/activate
 pip install -e . fusepy
-python -m unittest discover -s tests          # 177 tests; FUSE ones skip where there's no /dev/fuse (macOS)
+python3 -m unittest discover -s tests          # 177 tests; FUSE ones skip where there's no /dev/fuse (macOS)
 cd .. && npm ci && npx tsc -b && node --test scripts/compute-link.test.mjs scripts/companion.test.mjs
 ```
 
-On macOS, which has no `/dev/fuse` without macFUSE, the FUSE tests skip and the mirror tests still run. On Linux,
+Use `python3` (macOS has no `python` command outside a virtual environment). On macOS, which has no `/dev/fuse`
+without macFUSE, the FUSE tests skip and the mirror tests still run. On Linux,
 `sudo apt-get install fuse libfuse2` first.
 
 ### 9.3 A real tunnel, measured (5 minutes)
 
 ```bash
 cd companion
-python -m tests.live_tunnel
+python3 -m tests.live_tunnel
 ```
 
 Expect a `trycloudflare.com` address, "mounted", and then these lines:
@@ -358,7 +363,7 @@ Paste the JSON back to me and I'll tune the fill and wait settings from it.
 5. Measure again with your tunnel, and compare with 9.3:
 
    ```bash
-   KOIOS_LIVE_HOSTNAME=koios.yourdomain.com KOIOS_LIVE_TUNNEL_TOKEN=<from ~/.reader-companion/config.json> python -m tests.live_tunnel
+   KOIOS_LIVE_HOSTNAME=koios.yourdomain.com KOIOS_LIVE_TUNNEL_TOKEN=<from ~/.reader-companion/config.json> python3 -m tests.live_tunnel
    ```
 
 6. If you decide Argo isn't worth what it costs, turn it off under the domain → Traffic → Argo Smart Routing, or run
