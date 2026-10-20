@@ -61,6 +61,7 @@ import { useEnsureProject } from '../lib/implementationProject';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
 import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
+import { mayStopIdle } from '../lib/idleWork';
 import ProjectStart from './ProjectStart';
 import StoragePanel, { MoveProgress, useMove } from './StoragePanel';
 import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
@@ -195,6 +196,9 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const backendOf = (playground: Playground): Backend | null => backendOfPlayground(playground);
 
 /** `backLabel` names where Back goes when the workspace is opened somewhere other than the Playground — a paper's Explain page. */
+/** By playground: what the idle stop does before it stops a Colab runtime — the files view's Bring back, while the results are copied rather than mounted. */
+const beforeIdleStop = new Map<string, () => Promise<void>>();
+
 export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, backLabel }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void; backLabel?: string }) {
   const colab = useColab();
   const { papers, settings } = useStore();
@@ -262,9 +266,15 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         const state = first ? colabNow() : sessionOf(sessionsNow(), machine.scope);
         const since = first ? lastActivityAt() : lastActivityIn(machine.scope);
         if (state?.status !== 'idle' || since === undefined) continue;
-        if (Date.now() - since < playground.idleStopMin * 60_000) continue;
-        void (first ? stopRuntime() : stopRuntimeIn(machine.scope));
-        setNote(`The Colab runtime${first ? '' : ` of machine ${machine.rank}`} was stopped after ${playground.idleStopMin} minutes with nothing running, as this playground asks. The next Run starts a new one.`);
+        // The kernel idle that long: the machine asked too — a training in the terminal, or an agent, keeps it.
+        void mayStopIdle(first ? '' : machine.scope, since, playground.idleStopMin * 60_000).then(async (stop) => {
+          if (!stop) return;
+          // Copied, not mounted: the run's results (videos too) come home first — the runtime's disk goes with it.
+          const bringBack = beforeIdleStop.get(playground.id);
+          if (first && bringBack) await bringBack().catch(() => undefined);
+          void (first ? stopRuntime() : stopRuntimeIn(machine.scope));
+          setNote(`The Colab runtime${first ? '' : ` of machine ${machine.rank}`} was stopped after ${playground.idleStopMin} minutes with nothing running on it — no cell, no command in a terminal, no agent, the GPU unused — as this playground asks. The next Run starts a new one. Storage & compute changes the time, or turns this off.`);
+        });
       }
     }, 30_000);
     return () => window.clearInterval(check);
@@ -1697,6 +1707,10 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     }
   };
 
+  // What the idle stop does before it stops the runtime: bring the results back, when they are copied.
+  if (!mounted && playground.home.kind !== 'machine') beforeIdleStop.set(playground.id, pull);
+  else beforeIdleStop.delete(playground.id);
+
   /** The folder on the machine, as an absolute path the shell can cd into: the small kernel's start, joined to the folder. */
   const folderOnMachine = async (machine?: ProjectMachine) => {
     if (machine && machine.member !== null) {
@@ -2894,7 +2908,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : rightTab === 'metrics' ? (
               <MetricsPane cells={metricCells} running={colab.running} />
             ) : rightTab === 'sim' ? (
-              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} />
+              <SimPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} server={computeServer} playgroundId={playground.id} kept={playground.home.kind === 'machine' ? undefined : home} />
             ) : (
               <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
             )}

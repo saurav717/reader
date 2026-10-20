@@ -31,6 +31,8 @@ import {
   asksWhere,
   stop,
   subscribe,
+  queueQuestion,
+  dropQueued,
 } from '../lib/assistant';
 import type { Passage, Provider, Recommendation, Screen, Turn } from '../lib/assistant';
 import { FLASH_EVENT, showPassage, type LocateResult } from '../lib/locate';
@@ -40,6 +42,7 @@ import { stacked, useFloatingWindow, viewport } from './FloatingWindow';
 import { markdown } from '../lib/markdown';
 import { placeFigures } from '../lib/figures';
 import ModelChip from './ModelChip';
+import QueuedMessages from './QueuedMessages';
 import { CameraIcon, CheckIcon, CloseIcon, FileIcon, GlobeIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import { webNote } from '../lib/webTools';
 import { useStore } from '../lib/store';
@@ -887,7 +890,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !(event.metaKey || event.ctrlKey) && frame.current?.contains(document.activeElement)) {
         event.preventDefault();
-        if (s.live) stop();
+        if (s.live) halt();
         else onClose();
       }
     };
@@ -935,15 +938,36 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
+  // Stopped by hand: the questions waiting stay until they are sent with Send now.
+  const [held, setHeld] = useState(false);
+  const halt = () => {
+    setHeld(true);
+    stop();
+  };
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const text = input.trim();
-    if (!text || s.live || !s.hasKey) return;
-    following.current = true;
+    if (!text || !s.hasKey) return;
     setInput('');
     requestAnimationFrame(grow);
+    if (s.live) {
+      // An answer is still coming: this one is asked next.
+      queueQuestion(text);
+      return;
+    }
+    following.current = true;
+    setHeld(false);
     void send(text, screen());
   };
+  // The questions asked while it answered, one after another, each with the screen as it is then.
+  useEffect(() => {
+    if (s.live || held || !s.hasKey || !s.queued.length) return;
+    const next = dropQueued();
+    if (!next) return;
+    following.current = true;
+    void send(next, screen());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.live, held, s.hasKey, s.queued.length]);
 
   const ideas = reading
     ? ['What is the main contribution, in two sentences?', 'Explain the passage I am looking at.', 'What would I need to know to follow section 3?']
@@ -1181,6 +1205,17 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         <p className="chat-shot-error">{shotError}</p>
       ) : null}
 
+      <QueuedMessages
+        items={s.queued}
+        running={s.live}
+        when="each in turn, once this answer is done"
+        onRemove={(index) => void dropQueued(index)}
+        onSendNow={() => {
+          setHeld(false);
+          if (s.live) stop();
+        }}
+      />
+
       <form className="chat-compose" onSubmit={submit}>
         {canCapture() ? (
           <button
@@ -1234,14 +1269,13 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           }}
         />
         {s.live ? (
-          <button type="button" className="btn sm" onClick={stop}>
+          <button type="button" className="btn sm" onClick={halt}>
             Stop
           </button>
-        ) : (
-          <button type="submit" className="btn primary sm" disabled={!s.hasKey || !input.trim()} title="Send (↵) — ⇧↵ makes a new line">
-            Send
-          </button>
-        )}
+        ) : null}
+        <button type="submit" className="btn primary sm" disabled={!s.hasKey || !input.trim()} title={s.live ? 'Asked next, once this answer is done' : 'Send (↵) — ⇧↵ makes a new line'}>
+          {s.live ? 'Queue' : 'Send'}
+        </button>
       </form>
 
       {grips.map(({ key, ...grip }) => (

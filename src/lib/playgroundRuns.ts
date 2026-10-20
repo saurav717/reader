@@ -18,6 +18,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { CellRun, ColabState, Output } from './colab';
 import { backendLabel, colabNow, keptKernelFor, machineLabel, PAGES, sessionsNow, shutDownScope, stopRunsIn, stripAnsi, subscribeColab } from './colab';
+import { mayStopIdle } from './idleWork';
 import { notebookFor, setOutputs, subscribeNotebook } from './notebook';
 import type { Playground } from './playground';
 import { machinesOf, notebookKey, playgroundById, playgroundOfScope, playgroundsNow, serverById, subscribePlaygrounds } from './playground';
@@ -436,7 +437,10 @@ function idleCheck() {
     const machine = p ? machinesOf(p).find((m) => m.scope === state.scope) : undefined;
     if (!p || !machine || machine.compute.kind !== 'colab' || !p.idleStopMin) continue;
     const since = Math.max(outcomes[p.id]?.at ?? 0, state.startedAt ?? 0);
-    if (since && Date.now() - since > p.idleStopMin * 60_000) void shutDownScope(state.scope);
+    // Idle in the kernel; the machine asked too before it is stopped (src/lib/idleWork.ts).
+    if (since && Date.now() - since > p.idleStopMin * 60_000) void mayStopIdle(state.scope, since, p.idleStopMin * 60_000).then((stop) => {
+        if (stop) void shutDownScope(state.scope);
+      });
   }
 }
 

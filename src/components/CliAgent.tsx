@@ -16,6 +16,7 @@ import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import { readMeta, writeMeta } from '../lib/playground';
 import FileIcon from './FileIcon';
+import QueuedMessages from './QueuedMessages';
 import { KOIOS_PYLIB } from '../lib/koiosHelper';
 import { CHART_LABELS_NOTE, LIVE_VIEW_NOTE, PAPER_FILES_NOTE } from '../lib/paperFiles';
 
@@ -30,6 +31,8 @@ interface CliTurn {
   lines: string[];
   done: boolean;
   code?: number | null;
+  /** Its session was gone from the machine (a new Colab runtime has no ~/.claude): sent again, in a new one, once. */
+  retried?: boolean;
 }
 interface CliChat {
   session?: string;
@@ -105,6 +108,57 @@ export function queueCliRequest(projectId: string, agent: CliAgentId, request: s
     else memoryQueue.delete(key);
   }
   notify();
+}
+
+/**
+ * Messages sent while a run is going. Claude Code and Codex take one request
+ * at a time (-p / exec): these wait, and go together as the next request in the
+ * same session once the run ends — or at once with "Stop & send now". Kept in
+ * this browser, like the request above.
+ */
+const followKey = (projectId: string, agent: CliAgentId) => `reader.cliFollowUps.${projectId}.${agent}`;
+const followUpsRaw = (projectId: string, agent: CliAgentId) => {
+  try {
+    return localStorage.getItem(followKey(projectId, agent)) || '[]';
+  } catch {
+    return memoryQueue.get(followKey(projectId, agent)) || '[]';
+  }
+};
+function setFollowUps(projectId: string, agent: CliAgentId, items: string[]) {
+  const key = followKey(projectId, agent);
+  const raw = JSON.stringify(items);
+  try {
+    if (items.length) localStorage.setItem(key, raw);
+    else localStorage.removeItem(key);
+  } catch {
+    if (items.length) memoryQueue.set(key, raw);
+    else memoryQueue.delete(key);
+  }
+  notify();
+}
+const parseFollowUps = (raw: string): string[] => {
+  try {
+    const items = JSON.parse(raw) as unknown;
+    return Array.isArray(items) ? items.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+/** What the agent says when the session it is asked to go on with isn't on this machine (its disk was a new runtime's). */
+const LOST_SESSION = /No conversation found with session ID|session (?:id )?\S* ?not found|no (?:saved )?session found|rollout .*not found/i;
+const lostSession = (turn: CliTurn) => turn.done && !turn.retried && turn.lines.slice(-40).some((line) => LOST_SESSION.test(line));
+
+/** The conversation so far, short, for a new session that can't resume the old one: each request, and how the agent answered it. */
+function recapOf(agent: CliAgentId, turns: CliTurn[]): string {
+  const parts = turns.slice(-8).flatMap((turn) => {
+    const { events } = parseRun(agent, turn.lines);
+    const said = events.filter((event): event is Extract<CliEvent, { kind: 'text' }> => event.kind === 'text').map((event) => event.text).join('\n').trim();
+    const edited = [...new Set(events.flatMap((event) => (event.kind === 'tool' && event.path && /^(Edit|Write|MultiEdit)$/.test(event.name) ? [event.path] : [])))];
+    if (!said && !edited.length) return [];
+    return [`- Asked: ${turn.request.slice(0, 400)}\n  You answered: ${said.slice(-700) || '(no words)'}${edited.length ? `\n  Files you edited: ${edited.slice(0, 12).join(', ')}` : ''}`];
+  });
+  return parts.length ? `(This continues an earlier conversation whose session isn't on this machine any more — the runtime was replaced. What was said, in short:\n${parts.join('\n')}\nThe files are as that work left them. Now the new request.)\n\n` : '';
 }
 
 /** A run's log read until it ends, a second at a time; what it said parsed as it comes. */
@@ -203,6 +257,10 @@ export default function CliAgent({
   const spec = CLI_AGENTS[agent];
   const saved = useSyncExternalStore(subscribe, () => savedFor(projectId));
   const queued = useSyncExternalStore(subscribe, () => queuedFor(projectId, agent));
+  const followRaw = useSyncExternalStore(subscribe, () => followUpsRaw(projectId, agent));
+  const followUps = useMemo(() => parseFollowUps(followRaw), [followRaw]);
+  // Stopped with ■ Stop: what waits stays until it is sent by hand (Stop & send now clears this).
+  const [held, setHeld] = useState(false);
   const chat = saved.chats[agent] ?? { turns: [] };
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -329,20 +387,28 @@ export default function CliAgent({
   };
 
   const running = chat.turns.some((turn) => !turn.done);
-  const send = async (request: string) => {
+  const send = async (request: string, fresh?: { recap: string }) => {
     const prompt = request.trim();
+    if (prompt && running) {
+      // It is working: the message waits, and goes as the next request when this one ends.
+      setFollowUps(projectId, agent, [...followUps, prompt]);
+      setText('');
+      return;
+    }
     if (!prompt || running || !status?.loggedIn) return;
+    setHeld(false);
     setText('');
     setProblem(null);
     if (!(await beforeRun())) return;
     const job = `run-${agent}-${Date.now().toString(36)}`;
     const turn: CliTurn = { at: Date.now(), request: prompt, job, offset: 0, lines: [], done: false };
-    setChat(projectId, agent, { ...chat, turns: [...chat.turns, turn].slice(-TURNS_KEPT) });
+    const base = savedFor(projectId).chats[agent] ?? chat;
+    setChat(projectId, agent, { ...base, ...(fresh ? { session: undefined } : {}), turns: [...base.turns, turn].slice(-TURNS_KEPT) });
     try {
       const context = `You are running inside Koios's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short. Koios's simulation toolkit is on hand: \`python koios_telemetry.py simulators\` lists 31 simulators (MuJoCo, DeepMind Control, robot hands, Atari, Brax, Isaac Lab…) with what each needs, \`python koios_telemetry.py use <simulator> [env]\` writes env.py and setup.sh for one into the folder, and runs logged through koios_telemetry.Run show in the Sim pane and are filed as experiments; the module is in the folder or at .reader/pylib/koios_telemetry.py (on PYTHONPATH). ${CHART_LABELS_NOTE} ${LIVE_VIEW_NOTE} Read AGENTS.md when there is one.${paper ? ` ${PAPER_FILES_NOTE}` : ''}${dataNote ? ` ${dataNote}` : ''}`;
       // The Koios helpers (koios, koios_telemetry, the catalogue) on the agent's path too, as on the console's.
       const pylib = `${folder.replace(/\/$/, '')}/${KOIOS_PYLIB}`;
-      await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context, noWeb: paper }), { cwd: folder, env: { ...env, ...(extraEnv ?? {}), KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);
+      await startJob(job, runArgv(agent, { prompt: fresh ? `${fresh.recap}${prompt}` : prompt, session: fresh ? undefined : chat.session, model: prefs.model || undefined, commands: prefs.commands, context, noWeb: paper }), { cwd: folder, env: { ...env, ...(extraEnv ?? {}), KOIOS_PYLIB: pylib, PYTHONPATH: pylib } }, projectId);
       await persist(projectId, host);
       void follow(projectId, agent, job, host, afterRun, onEdit);
     } catch (error) {
@@ -351,6 +417,22 @@ export default function CliAgent({
       setChat(projectId, agent, { ...now, turns: now.turns.filter((t) => t.job !== job) });
     }
   };
+  // The session was gone (a new runtime): the request again, once, in a new session that is told what came before.
+  useEffect(() => {
+    const last = chat.turns[chat.turns.length - 1];
+    if (!last || !lostSession(last) || !connected || !status?.loggedIn) return;
+    const earlier = chat.turns.slice(0, -1);
+    setChat(projectId, agent, { ...chat, session: undefined, turns: chat.turns.map((t) => (t === last ? { ...t, retried: true } : t)) });
+    void send(last.request, { recap: recapOf(agent, earlier) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.turns, connected, status?.loggedIn]);
+  // Messages sent while it worked: the next request, in the same session, once the run has ended.
+  useEffect(() => {
+    if (!followUps.length || running || held || !connected || !status?.loggedIn) return;
+    setFollowUps(projectId, agent, []);
+    void send(followUps.join('\n\n'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followUps, running, held, connected, status?.loggedIn]);
   // The request handed over before the agent was ready, sent once it is.
   useEffect(() => {
     if (!queued || !connected || !status?.loggedIn || running) return;
@@ -366,7 +448,8 @@ export default function CliAgent({
       </button>
     </p>
   ) : null;
-  const stop = () => {
+  const stop = (thenSend = false) => {
+    setHeld(!thenSend);
     const open = chat.turns.find((turn) => !turn.done);
     if (open) void stopJob(open.job, projectId);
   };
@@ -534,6 +617,13 @@ export default function CliAgent({
           void send(text);
         }}
       >
+        <QueuedMessages
+          items={followUps}
+          running={running}
+          when={`as the next message, when ${spec.name} is done with this one`}
+          onRemove={(index) => setFollowUps(projectId, agent, followUps.filter((_, i) => i !== index))}
+          onSendNow={() => (running ? stop(true) : setHeld(false))}
+        />
         <div className="vs-agent-ctx">
           <span className="vs-chip" title={folder}>
             {machineName} · {folder}
@@ -557,7 +647,7 @@ export default function CliAgent({
               void send(text);
             }
           }}
-          placeholder={running ? `${spec.name} is working…` : `Ask ${spec.name} — ⏎ to send`}
+          placeholder={running ? `${spec.name} is working — add to it, or ask for what’s next: it goes when this run ends` : `Ask ${spec.name} — ⏎ to send`}
           aria-label={`Ask ${spec.name}`}
         />
         <div className="vs-agent-row">
@@ -576,14 +666,13 @@ export default function CliAgent({
           </label>
           <span className="spacer" />
           {running ? (
-            <button type="button" className="btn sm" onClick={stop}>
+            <button type="button" className="btn sm" onClick={() => stop()}>
               ■ Stop
             </button>
-          ) : (
-            <button type="submit" className="btn sm primary" disabled={!text.trim()}>
-              Send
-            </button>
-          )}
+          ) : null}
+          <button type="submit" className="btn sm primary" disabled={!text.trim()} title={running ? `It goes when ${spec.name} is done with this run` : undefined}>
+            {running ? 'Queue' : 'Send'}
+          </button>
         </div>
         {problem ? <p className="pg-note is-problem">{problem}</p> : null}
       </form>
@@ -678,6 +767,7 @@ function Turn({ agent, turn, folder, onOpen }: { agent: CliAgentId; turn: CliTur
           }
           return null;
         })}
+        {turn.retried ? <p className="pg-note">This runtime is a new one, without the earlier session: the request went again below, in a new session told what came before.</p> : null}
         {!turn.done ? (
           <div className="vs-turn-step">
             <span className="spinner" /> {events.length ? 'Working' : `Starting ${CLI_AGENTS[agent].name}`}

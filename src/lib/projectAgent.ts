@@ -264,6 +264,8 @@ export interface AgentTurn {
   undone?: boolean;
   /** Cut short: the answer ran out of room. */
   cut?: boolean;
+  /** A message the person sent while the agent was working on the request before it: handed to it at its next step. */
+  during?: boolean;
 }
 
 /** One command run for the agent in the console, and what came of it. */
@@ -347,6 +349,8 @@ export interface AgentChat {
   /** The earlier ones, newest first, as the project's folder keeps them. */
   history: SavedChat[];
   pending?: AgentPending;
+  /** Messages sent while it works, not yet handed to it: at its next step, or as the next request once it is done. */
+  queued?: string[];
   /** Whether the folder's copy has been read; and why not, when it couldn't be. */
   loaded?: boolean;
   problem?: string;
@@ -491,6 +495,28 @@ export function openAgentChat(projectId: string, id: string) {
 export function stopAgent() {
   running?.abort();
 }
+
+/** A message sent while the agent works: it reads it at its next step (after a command or a read), or as the next request. */
+export function queueAgentMessage(projectId: string, text: string) {
+  const message = text.trim();
+  if (!message) return;
+  update(projectId, { queued: [...(agentChatFor(projectId).queued ?? []), message] });
+}
+/** One waiting message taken back; all of them with no index. */
+export function dropQueuedMessage(projectId: string, index?: number) {
+  const queued = agentChatFor(projectId).queued ?? [];
+  update(projectId, { queued: index === undefined ? [] : queued.filter((_, i) => i !== index) });
+}
+/** The waiting messages, taken: shown in the conversation where they were read. */
+const takeQueued = (projectId: string): string[] => {
+  const queued = agentChatFor(projectId).queued ?? [];
+  if (!queued.length) return [];
+  const at = Date.now();
+  update(projectId, { queued: [], turns: [...agentChatFor(projectId).turns, ...queued.map((text, i): AgentTurn => ({ role: 'user', text, at: at + i, during: true }))].slice(-TURNS_KEPT) });
+  return queued;
+};
+/** What the person added while it worked, as the next step's message carries it. */
+const addedWhileWorking = (queued: string[]) => (queued.length ? `\n\nWhile you were working, the person added — take it into account from here on:\n${queued.map((text) => `- ${text}`).join('\n')}` : '');
 export function dismissAgentError(projectId: string) {
   update(projectId, { pending: undefined });
 }
@@ -565,6 +591,7 @@ export async function askAgent(params: {
   update(projectId, { turns: [...before, userTurn].slice(-TURNS_KEPT), pending: { ...pending } });
   let SDK: SDK | null = null;
   const writer = PROVIDERS[modelSpec(model).provider].name;
+  let finished = false;
   try {
     if (modelSpec(model).provider === 'anthropic') SDK = await sdk();
     const view = await params.view();
@@ -672,7 +699,7 @@ export async function askAgent(params: {
           if (done.state === 'interrupted') break;
         }
         if (runs[runs.length - 1]?.state === 'interrupted') throw new Error('Stopped.');
-        messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${printed.join('\n\n')}\n\nGo on: fix what failed, run again if need be, or answer the request. Say in a few sentences what the runs showed.` });
+        messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${printed.join('\n\n')}\n\nGo on: fix what failed, run again if need be, or answer the request. Say in a few sentences what the runs showed.${addedWhileWorking(takeQueued(projectId))}` });
         continue;
       }
       if (!onlyReads(reply) || reads >= READ_ROUNDS) break;
@@ -687,7 +714,13 @@ export async function askAgent(params: {
         }),
       );
       pending.read.push(...paths.filter((path) => known.has(path)));
-      messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${read.join('\n\n')}\n\nNow answer the request.` });
+      const added = takeQueued(projectId);
+      if (added.length) {
+        // A reload couldn't replay this step as it was: the messages are in it.
+        resumable = false;
+        keepJob(projectId, null);
+      }
+      messages.push({ role: 'assistant', content: pending.reply }, { role: 'user', content: `${read.join('\n\n')}\n\nNow answer the request.${addedWhileWorking(added)}` });
     }
     // The files, written in one move; what was there before is kept for Undo. Commands left in the last answer (the rounds used up, or none run for it) are buttons.
     await writeFiles(reply.blocks);
@@ -696,6 +729,7 @@ export async function askAgent(params: {
     const agentTurn: AgentTurn = { role: 'agent', text: reply.note, at: Date.now(), model, ...(pending.read.length ? { read: [...pending.read] } : {}), ...(changes.length ? { changes } : {}), ...(runs.length ? { runs } : {}), ...(commands.length ? { commands } : {}), ...(stop === 'max_tokens' ? { cut: true } : {}) };
     update(projectId, { pending: undefined, turns: [...agentChatFor(projectId).turns, agentTurn].slice(-TURNS_KEPT) });
     if (changes.length) params.onWrote?.(changes);
+    finished = true;
   } catch (error) {
     const message = explainError(error, SDK);
     update(projectId, { pending: message === 'Stopped.' ? undefined : { ...pending, error: message } });
@@ -703,8 +737,15 @@ export async function askAgent(params: {
     running = null;
     // In, failed or stopped: there is nothing left to join.
     keepJob(projectId, null);
+    notify();
   }
   await saveAgentChats(projectId, host);
+  // Messages that came after its last step: the next request, in the same conversation. (Stopped or failed: they wait to be sent.)
+  if (finished && agentChatFor(projectId).queued?.length) {
+    const next = agentChatFor(projectId).queued!;
+    update(projectId, { queued: [] });
+    void askAgent({ ...params, request: next.join('\n\n'), resume: undefined });
+  }
 }
 
 /**
