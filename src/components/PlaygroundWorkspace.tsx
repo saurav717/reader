@@ -1342,16 +1342,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const [mounting, setMounting] = useState<{ busy: boolean; words?: string; problem?: string }>({ busy: false });
   const mounted = Boolean(linked && wantMount && (link?.mount?.connected ?? 0) > 0);
   const mountTried = useRef('');
+  // One start at a time: the switch and the effect below both start it, and a second start used to stop the first's mount
+  // under whatever was working in it (a ref, not the state: two calls in one render both see busy as false).
+  const mountBusy = useRef(false);
+  // Each mount that comes up: the notebook's kernel is moved into it (below), whatever it was in before.
+  const [mountEpoch, setMountEpoch] = useState(0);
   const startMount = async (force = false) => {
-    if (!filesHere || mounting.busy) return;
+    if (!filesHere || mountBusy.current) return;
     if (!force && mountTried.current === linkKey) return;
     mountTried.current = linkKey;
+    mountBusy.current = true;
     setMounting({ busy: true });
     try {
       const status = await mountThroughCompanion(filesHere, homeRoot);
       setMounting({ busy: false, words: mountWords(status, machineName) });
+      setMountEpoch((n) => n + 1);
     } catch (error) {
       setMounting({ busy: false, problem: error instanceof Error ? error.message : String(error) });
+    } finally {
+      mountBusy.current = false;
     }
     const fresh = await linkState(filesHere, homeRoot);
     if (fresh) setLink(fresh);
@@ -1711,15 +1720,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const preparedFor = useRef('');
   useEffect(() => {
     if (!mounted || !connected || !colab.kernel) return;
-    const key = `${colab.kernel}|${linkKey}`;
+    const key = `${colab.kernel}|${linkKey}|${mountEpoch}`;
     if (preparedFor.current === key) return;
     preparedFor.current = key;
     void (async () => {
       const folder = await folderOnMachine();
+      // By path, never relative to where the kernel is: that may be a mount since replaced, which no longer answers.
       const ok = await prepareNotebook(`import os as _os, sys as _sys\n_d = ${JSON.stringify(folder)}\nif _os.path.isdir(_d):\n    _os.chdir(_d)\n    _sys.path.insert(0, _d) if _d not in _sys.path else None\ndel _os, _sys, _d`);
       if (!ok) preparedFor.current = '';
     })();
-  }, [mounted, connected, colab.kernel, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mounted, connected, colab.kernel, linkKey, mountEpoch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** The koios helper written to a machine's folder, once per machine in this tab, so `import koios` works there. */
   const ensureHelper = async (m: ProjectMachine) => {
@@ -2521,7 +2531,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : primary === 'outline' ? (
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
-              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), set: (on) => void setMount(on) } : undefined} />
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), computer: filesHere.name, set: (on) => void setMount(on) } : undefined} />
             ) : null}
           </aside>
         ) : null}
@@ -3154,6 +3164,8 @@ interface MountControl {
   problem?: string;
   /** The Companion keeps this computer from sleeping while the folder is mounted. */
   awake: boolean;
+  /** The computer the files are on, by its name alone ("Saurav’s MacBook Air"). */
+  computer: string;
   set: (on: boolean) => void;
 }
 
@@ -3178,30 +3190,32 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
           </label>
           <p className="pg-note">
             {!mount.linked
-              ? `Connect ${machineName} first: the Companion on ${homeLabel} mounts the folder through the link it keeps to it.`
+              ? `Connect ${machineName} first: the Companion on ${mount.computer} mounts the folder through the link it keeps to it.`
               : !mount.known
-                ? `Mounting needs Koios Companion ${MOUNT_VERSION} on ${homeLabel}: update it in Settings → Updates.`
+                ? `Mounting needs Koios Companion ${MOUNT_VERSION} on ${mount.computer}: update it in Settings → Updates.`
                 : mount.busy
                   ? `Starting the mount on ${machineName}… (the first time on Colab it installs fusepy, a minute or so)`
                   : mount.mounted
-                    ? `${mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`} The rest of the files follow in the background, so a run keeps reading if ${homeLabel} goes to sleep${mount.awake ? ` — which it won’t while the folder is mounted` : ''}; what it writes meanwhile waits and comes over when ${homeLabel} is back.`
+                    ? `${mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`} The rest of the files follow in the background, so a run keeps reading if ${mount.computer} goes to sleep${mount.awake ? ` — which it won’t while the folder is mounted` : ''}; what it writes meanwhile waits and comes over when ${mount.computer} is back. A terminal on ${machineName} opened before the mount: run cd "$PWD" there to see it.`
                     : mount.on
                       ? `${machineName} doesn’t have the folder mounted now: runs copy the changed files until it does.`
-                      : `${machineName} reads the folder where it is — on ${homeLabel} — through the Companion’s Cloudflare tunnel: a save here is there at once, what a run writes there is written here, and nothing is copied before a run. What the rules below leave out (checkpoints, data) stays on the machine and goes to the data place.`}
+                      : `${machineName} reads the folder where it is — on ${mount.computer} — through the Companion’s Cloudflare tunnel: a save here is there at once, what a run writes there is written here, and nothing is copied before a run. What the rules below leave out (checkpoints, data) stays on the machine and goes to the data place.`}
           </p>
           {mount.problem ? <p className="pg-error">{mount.problem}</p> : null}
         </div>
       ) : null}
       <p className="pg-note">{mount?.mounted ? 'While it is mounted the rules below say what stays on the machine (and goes to the data place) and what is yours; nothing needs copying or bringing back.' : 'The folder is copied onto the machine before each command in the console, and what a run writes under the folders below comes back after it. Text files up to 2 MB; data and weights stay on the machine — fetch them there.'}</p>
-      <div className="pg-machine-actions">
-        <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPush}>
-          {syncing === 'push' ? 'Copying…' : 'Copy to the machine now'}
-        </button>
-        <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPull}>
-          {syncing === 'pull' ? 'Bringing back…' : 'Bring results back'}
-        </button>
-      </div>
-      {report ? (
+      {mount?.mounted ? null : (
+        <div className="pg-machine-actions">
+          <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPush}>
+            {syncing === 'push' ? 'Copying…' : 'Copy to the machine now'}
+          </button>
+          <button type="button" className="btn sm" disabled={!connected || Boolean(syncing)} onClick={onPull}>
+            {syncing === 'pull' ? 'Bringing back…' : 'Bring results back'}
+          </button>
+        </div>
+      )}
+      {report && !mount?.mounted ? (
         <p className="pg-ok">
           {report.what === 'push' ? `${report.sent.length} ${report.sent.length === 1 ? 'file' : 'files'} copied to the machine` : `${report.back.length} ${report.back.length === 1 ? 'file' : 'files'} brought back`}
           {report.skipped.length ? ` · ${report.skipped.length} left where they were: over 2 MB, or not text (videos, images, weights)` : ''} · {new Date(report.at).toLocaleTimeString()}

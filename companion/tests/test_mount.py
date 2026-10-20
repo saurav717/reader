@@ -279,6 +279,23 @@ class Mounted(unittest.TestCase):
         self.on_server(back)
         wait_for(lambda: (self.root / "notes.txt").exists() and (self.root / "notes.txt").read_text() == "written while away\n", 40)
 
+    def test_starting_the_same_mount_again_leaves_it_running_under_whatever_works_in_it(self):
+        if self.mode == "fuse" and FUSE_WHY:
+            self.skipTest(FUSE_WHY)
+        url = f"ws://127.0.0.1:{self.port}/companion/mount/socket"
+        first = koios_mount.start(url, self.key, self.at, self.mode, wait_s=30)
+        self.addCleanup(koios_mount.stop, self.at)
+        self.assertTrue(first.get("mounted"), first)
+        # Something working in the folder, as a shell or a kernel is.
+        held = os.open(self.at, os.O_RDONLY)
+        self.addCleanup(os.close, held)
+        again = koios_mount.start(url, self.key, self.at, self.mode, wait_s=30)
+        self.assertTrue(again.get("reused"), again)
+        self.assertEqual(again["pid"], first["pid"])
+        self.assertIn("main.py", os.listdir(held))  # still the live folder, not a mount pulled away
+        self.assertEqual(first["key"], koios_mount.key_hash(self.key))
+        self.assertNotIn(self.key, json.dumps(again))  # the status names the key by its hash, never the key
+
     def test_stopping_gives_the_machines_own_files_back_and_the_key_is_refused_after_it_is_forgotten(self):
         if self.mode == "fuse" and FUSE_WHY:
             self.skipTest(FUSE_WHY)

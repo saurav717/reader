@@ -71,6 +71,7 @@ from jupyter_server.utils import url_path_join
 from tornado import web
 from tornado.ioloop import IOLoop, PeriodicCallback
 
+import asyncio
 import atexit
 import hmac
 import html
@@ -910,7 +911,15 @@ class ComputeHandler(VsCodeHandler):
         wanted = (link or {}).get("mount") or {}
         return {"on": bool(wanted), "mode": wanted.get("mode"), "connected": mount.connected(folder), "keepingAwake": awake.current.holding()}
 
+    # One mount action at a time per folder: two starts at once would each stop the other's mount.
+    mount_locks: dict = {}
+
     async def mount_action(self, action: str, folder: Path, body: dict):
+        lock = ComputeHandler.mount_locks.setdefault(str(folder.resolve()), asyncio.Lock())
+        async with lock:
+            return await self.mount_action_now(action, folder, body)
+
+    async def mount_action_now(self, action: str, folder: Path, body: dict):
         link = compute.load_link_file(compute.link_file(folder))
         if not link:
             return self.reply(409, {"error": "This project isn't linked to a compute here yet."})
