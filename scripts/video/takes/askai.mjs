@@ -47,7 +47,7 @@ const FIGURE = [
 ].join('\n');
 
 const WEB = [
-  'Yes — two have largely taken over:',
+  'Two schemes have largely taken over:',
   '',
   '- **Rotary embeddings (RoPE)** rotate each query and key by an angle set by its position, so attention depends on relative distance. From [RoFormer (Su et al., 2021)](https://arxiv.org/abs/2104.09864); LLaMA and most open models since use it.',
   '- **ALiBi** drops position embeddings and subtracts a penalty growing with distance from the attention scores, so models handle longer inputs than they trained on ([Press et al., 2021](https://arxiv.org/abs/2108.12409)).',
@@ -80,8 +80,8 @@ const READ = [
 const QUESTIONS = {
   where: 'Where do they define scaled dot-product attention, and why scale it?',
   figure: 'What does this figure show?',
-  web: 'Has anything replaced their sinusoidal position encoding since?',
-  read: 'What should I read before and after this paper?',
+  web: 'What has replaced their sinusoidal position encoding?',
+  read: 'What should I read before and after this?',
 };
 
 const SEARCH_RESULTS = [
@@ -106,7 +106,7 @@ function standIns({ answers, questions }) {
   const enc = new TextEncoder();
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   /** Words, a few at a time: what a model streams. */
-  const pieces = (text) => text.match(/\S+\s*|\s+/g) || [];
+  const pieces = (text) => text.match(/(?:\S+\s*){1,3}|\s+/g) || [];
   const stream = (produce) =>
     new Response(
       new ReadableStream({
@@ -122,7 +122,7 @@ function standIns({ answers, questions }) {
     for (const [key, q] of Object.entries(questions)) if (question.includes(q)) return key;
     return 'where';
   };
-  const PACE = 34;
+  const PACE = 85;
 
   const claude = (body) =>
     stream(async (send) => {
@@ -152,10 +152,8 @@ function standIns({ answers, questions }) {
       const after = body.messages.slice(body.messages.lastIndexOf(users.at(-1)) + 1);
       const tools = after.filter((m) => m.role === 'tool').length;
       const think = async (text) => {
-        for (const piece of pieces(text)) {
-          chunk({ reasoning_content: piece });
-          await wait(14);
-        }
+        chunk({ reasoning_content: text });
+        await wait(300);
       };
       await wait(600);
       chunk({ role: 'assistant', content: null });
@@ -299,13 +297,22 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const box = page.getByRole('textbox', { name: 'Ask AI' });
   const lastAnswer = page.locator('.chat-claude').last();
   const answered = async () => {
+    log('waiting');
     await page.waitForSelector('.chat-claude:not(.is-streaming)', { timeout: 30000 });
     await page.waitForFunction(() => !document.querySelector('.chat-claude.is-streaming'), null, { timeout: 60000 });
+    log('answered');
   };
+  const T0 = Date.now();
+  const log = (what) => console.log(`        ${((Date.now() - T0) / 1000).toFixed(1)} ${what}`);
   const ask = async (question) => {
     await pointer.click(box, { pause: 250 });
-    await pointer.type(question, { delay: 22 });
+    // Typed a few letters at a time (one call each), so the box fills at a typist's pace even under load.
+    for (const bit of question.match(/.{1,3}/g)) {
+      await page.keyboard.insertText(bit);
+      await hold(28);
+    }
     await hold(300);
+    log('typed');
     await pointer.key('Enter', '↵', 200);
   };
 
@@ -317,15 +324,15 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.key('Control+Backslash', 'Ctrl \\', 500);
   await win.waitFor();
   await spot(win);
-  await hold(2300);
+  await hold(2000);
 
   mark('models');
   await pointer.click(page.locator('.assistant-win .model-chip'), { pause: 500 });
   await spot(page.locator('.model-menu'));
   await pointer.moveTo(page.locator('.rw-group.p-deepseek'), { ms: 600 });
+  await hold(300);
+  await pointer.moveTo(page.locator('.rw-group.p-gemini'), { ms: 500 });
   await hold(700);
-  await pointer.moveTo(page.locator('.rw-group.p-gemini'), { ms: 600 });
-  await hold(1000);
   await pointer.click(page.locator('.rw-model.is-current'), { pause: 400 });
 
   mark('ask-where');
@@ -337,7 +344,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(700);
   mark('passage-shown');
   await spot([page.locator('.passage-band').first(), page.locator('.passage-tag')]);
-  await hold(3000);
+  await hold(2600);
   await spot(page.locator('.chat-passages'));
   await pointer.moveTo(page.locator('.chat-passage-row').nth(1));
   await hold(700);
@@ -346,7 +353,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await page.waitForSelector('.passage-tag', { timeout: 8000 });
   await hold(500);
   await spot([page.locator('.passage-band').first(), page.locator('.passage-tag'), page.locator('.chat-passage-row').nth(1)]);
-  await hold(3000);
+  await hold(2700);
 
   mark('figure');
   unspot();
@@ -357,7 +364,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     const scroller = figure.closest('.reader-scroll');
     scroller.scrollBy({ top: figure.getBoundingClientRect().top - 140, behavior: 'smooth' });
   });
-  await hold(1600);
+  await hold(1300);
   await spot(page.locator('.chat-shot-btn'), { pad: 12 });
   await pointer.click(page.locator('.chat-shot-btn'), { pause: 300 });
   await page.waitForSelector('.chat-shot', { timeout: 10000 });
@@ -383,14 +390,14 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
 
   mark('web');
   await spot(page.locator('.chat-web-btn'), { pad: 12 });
-  await pointer.click(page.locator('.chat-web-btn'), { pause: 900 });
+  await pointer.click(page.locator('.chat-web-btn'), { pause: 700 });
   await ask(QUESTIONS.web);
   await page.waitForSelector('.chat-steps', { timeout: 15000 });
   await spot(page.locator('.chat-claude').last());
   await answered();
   await hold(400);
   await spot(lastAnswer);
-  await hold(3200);
+  await hold(2800);
 
   mark('read-next');
   await ask(QUESTIONS.read);
@@ -399,40 +406,40 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(600);
   await page.locator('.chat-reading').last().scrollIntoViewIfNeeded();
   await spot(lastAnswer);
-  await hold(2200);
+  await hold(1700);
   const addAll = page.getByRole('button', { name: 'Add all to Reading list' }).last();
   await spot(page.locator('.chat-reading').last());
   await pointer.click(addAll, { pause: 300 });
   await page.waitForFunction(() => /All in Reading list/.test(document.querySelector('.chat-claude:last-of-type .chat-reading summary')?.textContent || [...document.querySelectorAll('.chat-reading summary')].pop()?.textContent || ''), null, { timeout: 15000 });
   await spot([page.locator('.chat-reading').last(), ...[0, 1, 2, 3].map((i) => lastAnswer.locator('.chat-card').nth(i))]);
-  await hold(2500);
+  await hold(2200);
 
   mark('history');
   await spot(page.locator('.chat-toolbar'));
-  await pointer.click(page.getByRole('button', { name: 'New chat' }), { pause: 600 });
+  await pointer.click(page.getByRole('button', { name: 'New chat' }), { pause: 400 });
   await spot(win);
-  await hold(1100);
+  await hold(800);
   await pointer.click(page.getByRole('button', { name: /^History/ }), { pause: 500 });
   await spot(page.locator('.chat-drawer'));
-  await hold(1900);
-  await pointer.click(page.locator('.chat-hist-open').first(), { pause: 500 });
+  await hold(1600);
+  await pointer.click(page.locator('.chat-hist-open').first(), { pause: 300 });
   await spot(win);
-  await hold(1000);
+  await hold(700);
 
   mark('looks');
   const style = page.locator('.win-style');
   await spot(win);
-  for (let i = 0; i < 4; i += 1) {
-    await pointer.click(style, { pause: 1150 });
+  for (let i = 0; i < 3; i += 1) {
+    await pointer.click(style, { pause: 950 });
   }
 
   mark('dock');
   unspot();
   await pointer.click(page.locator('.chat-body'), { dx: 0.5, dy: 0.05, pause: 200 });
-  await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 1300);
-  await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 1300);
+  await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 800);
+  await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 900);
   await spot(win);
-  await hold(2200);
+  await hold(1900);
   unspot();
   await pointer.key('Control+Backslash', 'Ctrl \\', 600);
   mark('closed');

@@ -504,7 +504,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.click(switchRow.locator('.find-title'), { dx: 0.3, pause: 300 });
   await page.locator('.find-detail .locations .eyebrow').first().filter({ hasText: /Readable in/ }).waitFor({ timeout: 15000 });
   await spot([switchRow, page.locator('.find-abstract')]);
-  await hold(2200);
+  await hold(1900);
   mark('copies');
   await spot(page.locator('.find-detail .locations'));
   const copies = page.locator('.find-detail .locations li');
@@ -537,9 +537,9 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await spot(panel.locator('form .field'));
   await pointer.click(field, { dx: 0.3, pause: 300 });
   await pointer.type('Noam Shazeer', { delay: 75 });
-  await hold(1200);
+  await hold(800);
   await spot(panel.locator('.chip', { hasText: /^OpenAlex$/ }));
-  await pointer.click(panel.locator('.chip', { hasText: /^OpenAlex$/ }), { pause: 1400 });
+  await pointer.click(panel.locator('.chip', { hasText: /^OpenAlex$/ }), { pause: 1000 });
   await spot(panel.locator('form .field'));
   await pointer.click(field, { dx: 0.6, pause: 200 });
   await pointer.key('Enter', '↵', 300);

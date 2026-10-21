@@ -479,42 +479,64 @@ export async function prepare({ page }) {
 const hold = (page, ms) => page.waitForTimeout(ms);
 const shot = (page, name) => page.screenshot({ path: path.join(ROOT, `.video/work/projects-${name}.png`) });
 
-export default async function ({ page, pointer, mark }) {
+export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(page, 1500);
   mark('board');
   const card = page.locator('.pj-card', { hasText: 'Sparse-gated MoE' });
+  await spot(card);
   await pointer.moveTo(card);
   await hold(page, 2500);
   await shot(page, 'board');
 
   mark('overview');
+  unspot();
   await pointer.click(card.getByRole('button', { name: 'Overview' }));
   await page.locator('.pj-people-btn').waitFor({ timeout: 15_000 });
   await hold(page, 2200);
 
   mark('presence');
+  const avatars = page.locator('.pj-people-btn');
+  await spot(avatars);
+  await pointer.moveTo(avatars, { dx: 0.05 });
+  await hold(page, 1500);
   await pointer.moveTo(page.locator('.pj-avatars .pj-av[title^="Priya"]'));
-  await hold(page, 2500);
+  await page.locator('.pj-person').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await spot([avatars, page.locator('.pj-person')]);
+  await hold(page, 2600);
   await shot(page, 'presence');
+  unspot();
   await pointer.moveTo({ x: 900, y: 500 });
   tell({ type: 'place', who: PRIYA, place: place({ tab: 'code', path: 'src/router.py', line: 118, col: 1, offset: 4100 }) });
+  await page.locator('.pj-toast').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await spot(page.locator('.pj-toast'));
   await hold(page, 2800);
   await shot(page, 'toast');
 
   mark('papers');
+  unspot();
   await page.mouse.wheel(0, 650);
-  await hold(page, 3000);
+  await hold(page, 900);
+  await spot([page.locator('.pj-group').nth(0), page.locator('.pj-group').nth(1), page.locator('.pj-group').nth(2)]);
+  await hold(page, 2400);
   await shot(page, 'papers');
 
   mark('bibliography');
+  unspot();
   const bib = page.locator('.bib-card');
   await bib.scrollIntoViewIfNeeded();
-  await pointer.click(bib.locator('.bib-row', { hasText: 'ST-MoE' }).locator('.bib-main'));
+  const stmoe = bib.locator('.bib-row', { hasText: 'ST-MoE' });
+  await pointer.moveTo(stmoe.locator('.bib-main'));
+  await hold(page, 300);
+  await spot(stmoe);
+  await pointer.click(stmoe.locator('.bib-main'));
   await bib.locator('.bib-variant').first().waitFor();
+  await hold(page, 500);
+  await spot([stmoe, bib.locator('.bib-variant').nth(0), bib.locator('.bib-variant').nth(1), bib.locator('.bib-variant').nth(2), bib.locator('.bib-text')]);
   await hold(page, 3000);
   await shot(page, 'bib');
 
   mark('write');
+  unspot();
   await pointer.click(page.locator('.pj-views').getByRole('button', { name: 'Write' }));
   const doc = page.locator('.wr-doc').first();
   await Promise.race([doc.waitFor({ timeout: 20_000 }), page.locator('.wr-tree-item').first().waitFor({ timeout: 20_000 })]);
@@ -524,15 +546,20 @@ export default async function ({ page, pointer, mark }) {
   await pointer.click(related);
   const area = page.locator('.wr-editor textarea');
   await page.waitForFunction(() => /balances without a loss/.test(document.querySelector('.wr-editor textarea')?.value ?? ''), null, { timeout: 10_000 });
-  await hold(page, 1200);
+  await spot(page.locator('.wr-editor'));
+  await hold(page, 1600);
 
   mark('compile');
-  await pointer.click(page.getByRole('button', { name: /^(Recompile|Compiling…)$/ }));
+  const recompile = page.getByRole('button', { name: /^(Recompile|Compiling…)$/ });
+  await spot(recompile);
+  await pointer.click(recompile);
   await page.locator('.wr-pdf canvas, .wr-pdf img, .wr-pdf-pages *').first().waitFor({ timeout: 15_000 });
+  await spot(page.locator('.wr-pdf'));
   await hold(page, 3000);
   await shot(page, 'compiled');
 
   mark('cite');
+  unspot();
   const box = await area.boundingBox();
   await pointer.moveTo({ x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 });
   await page.evaluate(() => {
@@ -543,28 +570,49 @@ export default async function ({ page, pointer, mark }) {
     element.dispatchEvent(new Event('select', { bubbles: true }));
   });
   await page.keyboard.press('End');
-  await page.locator('.wr-helper').waitFor({ timeout: 8000 });
+  const helper = page.locator('.wr-helper');
+  await helper.waitFor({ timeout: 8000 });
+  // The sentence: the two lines above the card, which opens under the caret.
+  const lineHeight = await area.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 22);
+  const card2 = await helper.boundingBox();
+  const sentence = { x: box.x, y: card2.y - lineHeight * 2.4, w: box.width, h: lineHeight * 2.2 };
+  await spot([sentence, helper]);
   await hold(page, 1200);
   const first = page.locator('.wr-helper-item').first();
   await pointer.moveTo(first);
   await hold(page, 2400);
   await shot(page, 'cite-card');
   await pointer.click(first, { pause: 900 });
+  await spot(sentence);
   await hold(page, 1500);
 
   mark('recompile');
-  await pointer.click(page.getByRole('button', { name: /^(Recompile|Compiling…)$/ }));
+  unspot();
+  await pointer.click(recompile);
   await page.waitForTimeout(2600);
+  // Where the citation and its reference are on the page, as the PDF is set (paperHtml).
+  const sheet = await page.locator('.wr-page').first().boundingBox();
+  if (sheet) {
+    const at = (top, bottom) => ({ x: sheet.x + sheet.width * 0.12, y: sheet.y + sheet.height * top, w: sheet.width * 0.76, h: sheet.height * (bottom - top) });
+    await spot([at(0.592, 0.632), at(0.758, 0.792)]);
+  } else await spot(page.locator('.wr-pdf'));
   await pointer.moveTo(page.locator('.wr-pdf'), { dy: 0.6 });
-  await hold(page, 2500);
+  await hold(page, 3000);
   await shot(page, 'recompiled');
 
   mark('logbook');
+  unspot();
   await pointer.click(page.locator('.pj-views').getByRole('button', { name: 'Logbook' }));
   await pointer.click(page.locator('.lb-tab', { hasText: 'Whiteboard' }));
-  await page.locator('.lb-canvas').waitFor();
+  const canvas = page.locator('.lb-canvas');
+  await canvas.waitFor();
+  await spot(canvas);
+  await hold(page, 1600);
   tell({ type: 'place', who: PRIYA, place: place({ tab: 'logbook', path: 'board' }) });
   const tick = [[1125, 400], [1132, 410], [1140, 420], [1150, 404], [1160, 388], [1170, 372]];
+  const board = await canvas.boundingBox();
+  const k = board.width / 1600;
+  await spot([{ x: board.x + 920 * k, y: board.y + 330 * k, w: 560 * k, h: 300 * k }, page.locator('.lb-drawing')]);
   for (let i = 2; i <= tick.length; i++) {
     tell({ type: 'ink', who: PRIYA, stroke: stroke(tick.slice(0, i), { color: '#b27414', width: 4, by: PRIYA }) });
     await hold(page, 160);
@@ -573,6 +621,7 @@ export default async function ({ page, pointer, mark }) {
   await shot(page, 'board-drawing');
 
   mark('calendar');
+  unspot();
   await pointer.click(page.locator('nav.rail').getByRole('button', { name: 'Calendar' }).first());
   await page.waitForSelector('.cal-time', { timeout: 10_000 });
   await hold(page, 300);
@@ -583,7 +632,13 @@ export default async function ({ page, pointer, mark }) {
   });
   await pointer.moveTo(page.locator('.cal-time').first(), { dy: 0.3 });
   await hold(page, 2200);
-  await pointer.click(page.locator('.cal-ev', { hasText: 'Router ablations sync' }).first());
+  const event = page.locator('.cal-ev', { hasText: 'Router ablations sync' }).first();
+  await spot(event);
+  await pointer.click(event);
+  await page.locator('.cal-card').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await spot([event, page.locator('.cal-card')]);
   await hold(page, 3000);
   await shot(page, 'calendar');
+  unspot();
+  await hold(page, 500);
 }

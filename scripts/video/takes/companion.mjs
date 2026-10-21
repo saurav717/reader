@@ -273,14 +273,21 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await spot([split.locator('.pg-mode-top'), split.locator('.pg-flow')]);
   await hold(page, 2200);
   const kept = page.getByRole('radiogroup', { name: 'Where the code is kept' });
-  await spot(kept);
-  await pointer.click(kept.getByRole('radio', { name: /MacBook/ }));
+  const mac = kept.getByRole('radio', { name: /MacBook/ });
+  await pointer.moveTo(mac);
+  await hold(page, 400);
+  await spot([kept.getByRole('radio').nth(0), kept.getByRole('radio').nth(1), kept.getByRole('radio').nth(2)]);
+  await pointer.click(mac);
   await hold(page, 2000);
   const runs = page.getByRole('radiogroup', { name: 'Where it runs' });
-  await spot(runs);
-  await pointer.moveTo(runs.getByRole('radio', { name: /Your Colab/ }));
+  const a100 = runs.getByRole('radio', { name: /Lab A100/ });
+  const colabGpu = runs.getByRole('radio', { name: /Your Colab/ });
+  await pointer.moveTo(colabGpu);
+  await hold(page, 400);
+  await spot([a100, colabGpu]);
   await hold(page, 1400);
-  await pointer.click(runs.getByRole('radio', { name: /Lab A100/ }));
+  await pointer.click(a100);
+  await spot(a100);
   await hold(page, 1800);
 
   mark('split-create');
@@ -306,6 +313,8 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(page, 2600);
 
   mark('koios-run');
+  await pointer.click(page.getByRole('button', { name: 'Maximise the panel' }));
+  await hold(page, 600);
   const tabs = page.getByRole('tablist', { name: 'Terminals' });
   await spot(tabs);
   await pointer.moveTo(tabs.getByRole('tab').first());
@@ -346,6 +355,9 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.moveTo(page.locator('.vs-copy-chip').first());
   await hold(page, 3200);
   await page.screenshot({ path: path.join(ROOT, '.video/work/companion-mount.png') });
+  unspot();
+  await pointer.click(page.getByRole('button', { name: 'Restore the panel' }));
+  await hold(page, 500);
 
   mark('data-place');
   unspot();
@@ -377,7 +389,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.click(page.getByRole('button', { name: 'Settings', exact: true }));
   await pointer.click(page.getByRole('tab', { name: /Compute & playgrounds/ }));
   await hold(page, 800);
-  await spot(page.locator('#settings-compute .cp-row'));
+  await spot(page.locator('#settings-compute .cp-list'));
   await hold(page, 1200);
   await spot(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));
   await pointer.moveTo(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));

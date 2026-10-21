@@ -37,9 +37,11 @@ import { ROOT } from '../lib.mjs';
 
 const WORK = path.join(ROOT, '.video/simwork');
 const VENV = path.join(ROOT, '.video/jvenv');
-const HOME = path.join(WORK, 'home');
+const HOME = path.join(ROOT, '.video/shome'); // short: the kernel's ipc socket paths must fit
 const RECORDED = path.join(WORK, 'cheetah/runs');
 const PORT = 47341;
+// The kernels' sockets: a path under the repository is longer than a Unix socket's name may be.
+const RUNTIME = '/tmp/koios-sim-video';
 const TOKEN = 'video-sim-token-0123456789abcdefABCDEF';
 const CID = 'a1b2c3d4e5f60718';
 const NAME = 'Saurav’s MacBook Pro';
@@ -54,11 +56,12 @@ const FOLDER = path.join(HOME, 'Reader/playgrounds/mujoco-halfcheetah-v5');
 let child = null;
 function startCompanion() {
   rmSync(path.join(HOME, 'Reader'), { recursive: true, force: true });
+  mkdirSync(RUNTIME, { recursive: true });
   mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
   mkdirSync(path.join(HOME, '.reader-companion'), { recursive: true });
   writeFileSync(path.join(HOME, '.reader-companion/config.json'), JSON.stringify({ token: TOKEN, id: CID, root: path.join(HOME, 'Reader'), site: 'http://localhost:8080', name: NAME, python: path.join(VENV, 'bin/python'), tunnel: false, port: PORT, tls_port: PORT + 10 }));
   child = spawn(path.join(VENV, 'bin/reader-companion'), ['--no-browser', '--no-tunnel'], {
-    env: { ...process.env, HOME, SHELL: '/bin/bash', READER_COMPANION_HOME: path.join(HOME, '.reader-companion'), VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${path.join(VENV, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, HOME, SHELL: '/bin/bash', READER_COMPANION_HOME: path.join(HOME, '.reader-companion'), JUPYTER_RUNTIME_DIR: RUNTIME, VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${path.join(VENV, 'bin')}:${process.env.PATH}` },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });
@@ -308,6 +311,8 @@ export async function prepare({ page, arrive }) {
     { PROJECT_ID, PROJECT_NAME, PG_ID },
   );
   await page.reload({ waitUntil: 'networkidle' });
+  const skip = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
+  if (await skip.isVisible().catch(() => false)) await skip.click();
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(800);
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
@@ -394,13 +399,18 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await pointer.click(page.locator('.pg-sheet-foot .btn.primary'));
     await page.locator('.vs-activity').waitFor({ timeout: 20_000 });
     unspot();
-    const made = JSON.parse(readFileSync(path.join(FOLDER, '.reader/playground.json'), 'utf8'));
-    if (!JSON.stringify(made).includes(PG_ID)) console.log('  ! the playground did not get the fixed id: the logbook beat will fail');
+    const pgFile = path.join(FOLDER, '.reader/playground.json');
+    for (let i = 0; i < 40 && !existsSync(pgFile); i++) await hold(page, 250);
+    if (!existsSync(pgFile) || !readFileSync(pgFile, 'utf8').includes(PG_ID)) console.log('  ! the playground did not get the fixed id: the logbook beat will fail');
     // The runs: the world model's already along, PPO's at a third.
-    wm.prime(0.45, 20);
+    wm.prime(Number(process.env.WM_FRAC || 0.45), 20);
     ppo.prime(0.3, 1);
     ppo.feedLive(frames);
-    await hold(page, 1200);
+    await hold(page, 900);
+    // The kernel on this computer, started: the pane and the filing read the runs through it.
+    await pointer.click(page.locator('.pg-chip').first(), { pause: 500 });
+    await pointer.click(page.getByRole('menuitem', { name: 'Connect now' }), { pause: 300 });
+    await page.locator('.pg-chip', { hasText: 'idle' }).first().waitFor({ timeout: 30_000 });
     await spot(page.locator('.pg-tree.vs-sidebar'));
     await hold(page, 1600);
 

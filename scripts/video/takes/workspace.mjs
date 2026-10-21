@@ -31,7 +31,7 @@
  *   node scripts/build-vscode.mjs .video/wscode  (then unzip extension/ into .video/whome/.vscode/extensions/saurav717.reader-playground-0.3.0)
  * setup() checks for these and says what is missing.
  */
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -200,6 +200,8 @@ function startCompanion() {
   }
   // A fresh folder each take: the project is made on camera.
   rmSync(path.join(HOME, 'Reader/playgrounds'), { recursive: true, force: true });
+  mkdirSync(SHOTS, { recursive: true });
+  rmSync(path.join(SHOTS, 'companion.log'), { force: true });
   mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
   mkdirSync(RUNTIME, { recursive: true });
   // VS Code in the page: no welcome, no trust prompt, no chat; the site's look, from the Koios extension.
@@ -245,6 +247,11 @@ function startCompanion() {
     let said = '';
     const read = (chunk) => {
       said += String(chunk);
+      try {
+        writeFileSync(path.join(SHOTS, 'companion.log'), String(chunk), { flag: 'a' });
+      } catch {
+        // no log
+      }
       if (/code (?:\u001b\[[0-9;]*m)*[A-Z0-9]{3}-[A-Z0-9]{3}/.test(said)) {
         clearTimeout(timer);
         resolve();
@@ -277,6 +284,26 @@ export async function setup(context) {
     return route.fallback();
   });
 
+  // VS Code's page itself, through the Companion. Its proxy (extension.VsCodeProxy) hands VS Code's own
+  // Content-Security-Policy on as it came, and VS Code 1.143 writes that header over several lines, which
+  // Tornado 6.6 refuses to send (a 500, "Invalid header value"). Only that one page is fetched here instead,
+  // from the same `code serve-web` the Companion started, and given the headers the Companion means to give
+  // it (the policy on one line, framed only by the site); everything after it goes through the Companion.
+  await context.route(new RegExp(`^http://127\\.0\\.0\\.1:${PORT}/companion/vscode/[^/]+/(\\?.*)?$`), async (route) => {
+    const args = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' }).split('\n').find((line) => line.includes(' serve-web ') && line.includes(HOME));
+    const port = /--port (\d+)/.exec(args || '')?.[1];
+    const token = /--connection-token (\S+)/.exec(args || '')?.[1];
+    if (!port || !token) return route.fallback();
+    const asked = new URL(route.request().url());
+    const response = await fetch(`http://127.0.0.1:${port}${asked.pathname}${asked.search}`, { headers: { Cookie: `vscode-tkn=${token}` } });
+    const headers = {};
+    response.headers.forEach((value, name) => {
+      if (['set-cookie', 'x-frame-options', 'content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(name)) return;
+      headers[name] = name === 'content-security-policy' ? value.replace(/\s+/g, ' ').split(';').filter((part) => !/^\s*frame-ancestors/i.test(part)).join(';') + `; frame-ancestors 'self' ${BASE}` : value;
+    });
+    return route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
+  });
+
   // The paper, for the folder's paper/ files.
   const PDF = await attentionPdf();
   const pdf = (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
@@ -300,15 +327,19 @@ export async function setup(context) {
           return new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'not in this take' } }), { status: 400, headers: { 'content-type': 'application/json' } });
         }
         const last = JSON.stringify(body.messages?.at(-1)?.content ?? '');
-        const events = /<command/.test(last) ? replies[2] : /<file/.test(last) ? replies[1] : replies[0];
-        const pace = /<command/.test(last) ? 45 : /<file/.test(last) ? 38 : 40;
+        const round = /Go on: fix what failed/.test(last) ? 2 : /Now answer the request/.test(last) ? 1 : 0;
+        const events = replies[round];
+        // How long each round takes on screen, as a person would see it think and write.
+        const pace = [3200, 9000, 4200][round] / events.length;
+        (window.__wsLog ??= []).push(`round ${round} asked at ${Math.round(performance.now())}`);
         const stream = new ReadableStream({
           async start(controller) {
-            await new Promise((resolve) => setTimeout(resolve, 700));
+            await new Promise((resolve) => setTimeout(resolve, 800));
             for (const event of events) {
               controller.enqueue(new TextEncoder().encode(event));
               await new Promise((resolve) => setTimeout(resolve, pace));
             }
+            window.__wsLog.push(`round ${round} done at ${Math.round(performance.now())}`);
             controller.close();
           },
         });
@@ -440,24 +471,22 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   mark('thinking');
   await spot('.vs-agent-log');
   await page.locator('.vs-turn.is-live').waitFor();
-  await hold(2600);
+  await hold(2400);
   await shot(page, '7-thinking');
-  await page.locator('.vs-turn-step', { hasText: /Reading paper/ }).waitFor({ timeout: 30_000 }).catch(() => undefined);
-  await hold(1500);
-  await shot(page, '8-reading');
+  // The paper read, then its second thought, then the files as they stream.
+  await page.locator('.vs-turn-stream', { hasText: 'file=attention.py' }).waitFor({ timeout: 60_000 });
 
   mark('writing');
-  await page.locator('.vs-turn-step', { hasText: /Writing/ }).waitFor({ timeout: 30_000 });
-  await hold(2500);
+  await hold(2600);
   await shot(page, '9-writing');
 
   mark('test-run');
   await page.locator('.vs-turn-step', { hasText: /Running/ }).waitFor({ timeout: 60_000 });
-  await spot('.pg-console');
-  await hold(1200);
+  await spot(['.pg-console', '.vs-turn.is-live']);
   await page.locator('.pg-console', { hasText: /passed/ }).waitFor({ timeout: 60_000 });
   await hold(2600);
   await shot(page, '10-ran');
+  console.log('    ', await page.evaluate(() => (window.__wsLog || []).join(' · ')));
 
   mark('answer');
   await page.locator('.vs-turn.is-live').waitFor({ state: 'detached', timeout: 60_000 });
