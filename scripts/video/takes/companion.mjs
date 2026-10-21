@@ -12,36 +12,110 @@
  * Its own answers pass through; only its name of the hardware and folder are put as a Mac would say them,
  * show-code says it showed the code, and it stays hidden (as if not started yet) until the take starts it.
  */
-import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { execSync, spawn } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import WebSocket from 'ws';
 import { ROOT, json } from '../lib.mjs';
 
 const VENV = path.join(ROOT, '.video/jvenv');
 const HOME = path.join(ROOT, '.video/chome');
+// The lab's A100 box: a real Jupyter server on this computer (port 8899, its own HOME and folder), reached by the page and
+// by the Companion as a100.lab.example.org (scripts/video/stage/sitecustomize.py, and the routes below). Its nvidia-smi is
+// .video/a100/bin's stand-in: this computer has no GPU.
+const A100 = path.join(ROOT, '.video/a100');
+const A100_HOST = 'a100.lab.example.org';
+const A100_PORT = 8899;
+const A100_TOKEN = 'lab-a100-token';
+const STAGE = path.join(ROOT, 'scripts/video/stage');
+const stageEnv = { PYTHONPATH: STAGE, KOIOS_STAGE_HOSTS: `${A100_HOST}=${A100_PORT}` };
 const NAME = 'Saurav’s MacBook Pro';
 const HARDWARE = 'Apple M3 Pro · 12 cores · 36 GB';
 const MAC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+
+/** A small training run: steps and a falling loss, the GPU it found, and a checkpoint under checkpoints/ (left to the data place). */
+const TRAIN = `import os, re, subprocess, time
+import numpy as np
+
+found = re.search(r'NVIDIA [A-Z0-9][\\w-]+', subprocess.run(['nvidia-smi'], capture_output=True, text=True).stdout)
+gpu = found.group(0) if found else 'cpu'
+print(f"device: {gpu}")
+rng = np.random.default_rng(0)
+w = rng.normal(size=(64, 8))
+loss = 2.9
+for step in range(0, 1200, 200):
+    loss *= 0.86 + 0.02 * rng.random()
+    print(f"step {step:5d}  loss {loss:.3f}  expert load {0.9 + 0.08 * rng.random():.2f}", flush=True)
+    time.sleep(0.45)
+os.makedirs('checkpoints', exist_ok=True)
+np.save('checkpoints/router.npy', w)
+os.replace('checkpoints/router.npy', 'checkpoints/router.pt')
+print("saved checkpoints/router.pt")
+`;
 
 let companionUp = false; // hidden from the page until the take "starts" it
 let code = '';
 let child = null;
 
-function startCompanion() {
-  mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
-  child = spawn(path.join(VENV, 'bin/reader-companion'), ['--site', 'http://localhost:8080', '--name', NAME, '--root', path.join(HOME, 'Reader'), '--python', path.join(VENV, 'bin/python'), '--no-browser', '--no-tunnel'], {
-    env: { ...process.env, HOME, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${path.join(VENV, 'bin')}:${process.env.PATH}` },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  });
-  const kill = () => {
+function killOnExit(proc) {
+  process.on('exit', () => {
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-proc.pid, 'SIGTERM');
     } catch {
       // gone already
     }
-  };
-  process.on('exit', kill);
+  });
+}
+
+/** A mount of the folder on the A100 box (its daemon outlives the kernel that started it): stopped, and let go of. */
+function cleanMounts() {
+  const root = path.join(A100, 'root');
+  try {
+    execSync(`pkill -f "koios_mount.py serve .*--at=${root}/"`, { stdio: 'ignore' });
+  } catch {
+    // none running
+  }
+  for (const line of readFileSync('/proc/mounts', 'utf8').split('\n')) {
+    const at = line.split(' ')[1]?.replace(/\\040/g, ' ');
+    if (at?.startsWith(`${root}/`)) execSync(`umount -l "${at}"`, { stdio: 'ignore' });
+  }
+}
+
+/** The A100 box's Jupyter server, fresh each take. */
+function startA100() {
+  cleanMounts();
+  process.on('exit', cleanMounts);
+  rmSync(path.join(A100, 'root'), { recursive: true, force: true });
+  mkdirSync(path.join(A100, 'root'), { recursive: true });
+  const proc = spawn(path.join(VENV, 'bin/jupyter'), ['server', '--ServerApp.ip=127.0.0.1', `--ServerApp.port=${A100_PORT}`, '--ServerApp.port_retries=0', `--IdentityProvider.token=${A100_TOKEN}`, `--ServerApp.root_dir=${path.join(A100, 'root')}`, '--ServerApp.allow_origin=http://localhost:8080', '--ServerApp.allow_remote_access=True', '--ServerApp.open_browser=False', '--allow-root'], {
+    env: { ...process.env, ...stageEnv, HOME: A100, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${path.join(A100, 'bin')}:${path.join(VENV, 'bin')}:${process.env.PATH}` },
+    cwd: path.join(A100, 'root'),
+    stdio: ['ignore', 'ignore', 'ignore'],
+    detached: true,
+  });
+  killOnExit(proc);
+  return (async () => {
+    for (let i = 0; i < 120; i++) {
+      const ok = await fetch(`http://127.0.0.1:${A100_PORT}/api`).then((r) => r.ok).catch(() => false);
+      if (ok) return;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('the A100 stand-in did not start');
+  })();
+}
+
+function startCompanion() {
+  mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
+  rmSync(path.join(HOME, 'Reader/playgrounds'), { recursive: true, force: true });
+  // The code the split project is made around, already in its folder on the Mac.
+  mkdirSync(path.join(HOME, 'Reader/playgrounds/moe-router'), { recursive: true });
+  writeFileSync(path.join(HOME, 'Reader/playgrounds/moe-router/train.py'), TRAIN);
+  child = spawn(path.join(VENV, 'bin/reader-companion'), ['--site', 'http://localhost:8080', '--name', NAME, '--root', path.join(HOME, 'Reader'), '--python', path.join(VENV, 'bin/python'), '--no-browser', '--no-tunnel'], {
+    env: { ...process.env, ...stageEnv, KOIOS_STAGE_TUNNEL: 'http://127.0.0.1:47321/', HOME, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${path.join(VENV, 'bin')}:${process.env.PATH}` },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  killOnExit(child);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('the Companion did not start in 60 s')), 60_000);
     const read = (chunk) => {
@@ -60,7 +134,7 @@ function startCompanion() {
 }
 
 export async function setup(context) {
-  await startCompanion();
+  await Promise.all([startCompanion(), startA100()]);
   const cors = { 'Access-Control-Allow-Origin': 'http://localhost:8080', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
   await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, async (route) => {
     const url = new URL(route.request().url());
@@ -76,12 +150,22 @@ export async function setup(context) {
     }
     return route.fallback();
   });
-  // The lab's A100 box: a Jupyter server that answers (nothing is run on it in this take).
-  await context.route('https://a100.lab.example.org/**', (route) => {
-    const at = new URL(route.request().url()).pathname;
-    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*' } });
-    const body = at === '/api' || at === '/api/' ? { version: '2.14.2' } : at.startsWith('/api/status') ? { started: new Date().toISOString(), kernels: 0, connections: 0 } : [];
-    return route.fulfill({ ...json(body), headers: { 'Access-Control-Allow-Origin': '*' } });
+  // The lab's A100 box, by its name: the page's calls and sockets passed to the Jupyter server standing in for it.
+  const a100 = (url) => url.replace(/^(http|ws)s?:\/\/a100\.lab\.example\.org/, (_, scheme) => `${scheme}://127.0.0.1:${A100_PORT}`);
+  await context.route(/^https?:\/\/a100\.lab\.example\.org\//, async (route) => {
+    const response = await route.fetch({ url: a100(route.request().url()) }).catch(() => null);
+    if (!response) return route.abort();
+    return route.fulfill({ response });
+  });
+  await context.routeWebSocket(/^wss?:\/\/a100\.lab\.example\.org\//, (ws) => {
+    const server = new WebSocket(a100(ws.url()), { headers: { Origin: 'http://localhost:8080' } });
+    const waiting = [];
+    server.on('open', () => waiting.splice(0).forEach((message) => server.send(message)));
+    server.on('message', (data, binary) => ws.send(binary ? data : data.toString()));
+    server.on('close', () => ws.close());
+    server.on('error', () => ws.close());
+    ws.onMessage((message) => (server.readyState === WebSocket.OPEN ? server.send(message) : waiting.push(message)));
+    ws.onClose(() => server.close());
   });
   // The Koios app's newest release, as GitHub lists it: a signed .dmg for this Mac, and the others.
   const asset = (name) => ({ name, browser_download_url: `https://github.com/saurav717/reader/releases/download/v0.20.0/${name}` });
@@ -95,7 +179,7 @@ export async function setup(context) {
   }, MAC_UA);
 }
 
-const GPU = { id: 's-a100', name: 'Lab A100', url: 'https://a100.lab.example.org/', token: 'lab', where: 'remote' };
+const GPU = { id: 's-a100', name: 'Lab A100', url: `http://${A100_HOST}/`, token: A100_TOKEN, where: 'remote' };
 
 export async function prepare({ page, arrive }) {
   await arrive({ settings: { googleClientId: 'video.apps.googleusercontent.com', proxyBase: 'http://localhost:9/' }, storage: { 'reader.playground.servers': [GPU] } });
@@ -214,3 +298,6 @@ export default async function ({ page, pointer, mark }) {
   await hold(page, 3200);
   await page.screenshot({ path: path.join(ROOT, '.video/work/companion-updates.png') });
 }
+
+/** For trying beats out of the take (.video/work/probe.mjs): the Companion shown, and its code now. */
+export const stage = { up: () => (companionUp = true), code: () => code };

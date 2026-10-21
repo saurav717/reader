@@ -240,93 +240,127 @@ export async function prepare({ page, arrive }) {
   await page.waitForTimeout(800);
 }
 
-export default async function ({ page, pointer, mark }) {
+export default async function ({ page, pointer, mark, spot, unspot }) {
   const hold = (ms) => page.waitForTimeout(ms);
   const home = page.locator('.main.home');
 
   mark('home-find-papers');
   // Out of the search box, so the number keys switch views.
   await page.evaluate(() => document.activeElement?.blur());
+  await hold(600);
+  await spot(['.home-hello', '.home-tabs']);
   await pointer.moveTo('.home-hello h1', { ms: 900 });
-  await hold(2200);
+  await hold(2600);
+  await spot('.find-colls');
   await pointer.moveTo('.find-colls', { ms: 900 });
-  await hold(1600);
+  await hold(2500);
   await pointer.moveTo('.find-carry', { ms: 900 });
-  await hold(1800);
+  await spot('.find-carry');
+  await hold(2500);
+  unspot();
   // Back up to the tabs, smoothly, before switching view.
   await page.locator('.home-scroll').evaluate((el) => el.scrollTo({ top: 0, behavior: 'smooth' }));
   await hold(900);
 
   mark('continue-reading');
-  await pointer.click(page.locator('.home-tab', { hasText: 'Continue reading' }));
+  const tab = page.locator('.home-tab', { hasText: 'Continue reading' });
+  await spot(tab);
+  await pointer.click(tab);
   await page.locator('.home-continue').waitFor();
-  await hold(800);
+  await hold(600);
+  await spot('.home-continue');
   await pointer.moveTo('.home-continue-title', { ms: 900 });
-  await hold(1500);
-  await pointer.moveTo('.home-peek .home-stop', { ms: 900, dx: 0.3 });
   await hold(2600);
+  await spot(['.home-peek-read', '.home-peek .home-stop']);
+  await pointer.moveTo('.home-peek .home-stop', { ms: 900, dx: 0.3 });
+  await hold(2800);
+  await spot(page.locator('.home-side .home-card').first());
   await pointer.moveTo(page.locator('.home-side .home-card').first(), { ms: 900 });
-  await hold(2200);
+  await hold(2600);
+  unspot();
 
   mark('today');
-  await pointer.key('3', '3');
+  await pointer.key('3', '3', 400);
   await page.locator('.home-today').waitFor();
-  await pointer.moveTo('.home-plan', { ms: 900 });
+  await spot('.home-today > .home-card');
+  await pointer.moveTo(page.locator('.home-plan').nth(1), { ms: 900 });
   await hold(2800);
+  unspot();
 
   mark('inbox');
-  await pointer.key('4', '4');
+  await pointer.key('4', '4', 400);
   await page.locator('.home-inbox').waitFor();
-  await pointer.moveTo(page.locator('.home-inbox .home-card').first(), { ms: 900 });
+  const fresh = page.locator('.home-inbox .home-card').first();
+  await spot(fresh);
+  await pointer.moveTo(fresh, { ms: 900 });
   await hold(2800);
+  unspot();
 
   mark('collections');
-  await pointer.key('5', '5');
+  await pointer.key('5', '5', 400);
   await page.locator('.cb').waitFor();
-  await hold(2400);
+  await spot('.cb-cols');
+  await hold(2600);
 
   mark('collections-drag');
   const column = (name) => page.locator('.cb-col', { hasText: name }).first();
   const card = column('Reading group').locator('.cb-card', { hasText: 'Scaling Laws' });
+  await spot(card);
   await pointer.moveTo(card, { ms: 900 });
-  await hold(500);
+  await hold(900);
+  await spot(column('Transformers'));
   await page.mouse.down();
   await pointer.moveTo(column('Transformers').locator('.cb-col-head'), { dy: 4, ms: 1100 });
   await hold(300);
   await page.mouse.up();
   await hold(2600);
+  unspot();
 
   mark('resume');
-  await pointer.key('2', '2');
+  await pointer.key('2', '2', 400);
   await page.locator('.home-continue').waitFor();
-  await hold(1000);
-  await pointer.click('.home-resume', { pause: 300 });
+  await spot('.home-resume', { pad: 12 });
+  await pointer.moveTo('.home-resume', { ms: 900 });
+  await hold(2200);
+  await pointer.click('.home-resume', { pause: 200 });
+  unspot();
   await page.waitForSelector('.main[data-paper-id="scholar:attention"]', { timeout: 15000 });
   await page.waitForSelector('.pdf-book-page:not(.drawing) canvas', { timeout: 30000 });
   await pointer.moveTo({ x: 1536 * 0.55, y: 864 * 0.5 }, { ms: 900 });
-  await hold(2600);
+  await hold(2200);
 
   mark('desk');
-  await pointer.key('r', 'R');
+  await pointer.key('r', 'R', 400);
   await page.locator('.desk-scrim').waitFor();
-  await hold(1200);
-  await pointer.moveTo(page.locator('.desk-card').nth(1), { ms: 1000, dy: 0.4 });
+  await hold(400);
+  await spot('.desk-cards');
+  await hold(2800);
+  const pick = page.locator('.desk-card').nth(1);
+  await spot(pick);
+  await pointer.moveTo(pick, { ms: 1000, dy: 0.4 });
   await hold(2600);
 
   mark('desk-switch');
-  await pointer.key('2', '2');
+  await pointer.key('2', '2', 200);
+  unspot();
   await page.waitForSelector('.main[data-paper-id="scholar:flash"]', { timeout: 15000 });
   await page.waitForSelector('.pdf-book-page:not(.drawing) canvas', { timeout: 30000 });
-  await hold(3600);
+  await hold(2800);
 
   mark('go-home');
-  await pointer.key('g', 'G');
+  await pointer.key('g', 'G', 400);
   await home.waitFor();
   await page.evaluate(() => document.activeElement?.blur());
-  await hold(1600);
+  await spot('.home-back');
+  await pointer.moveTo('.home-back', { ms: 900 });
+  await hold(2600);
+
   mark('home-continue-flash');
-  await pointer.key('2', '2');
+  unspot();
+  await pointer.key('2', '2', 400);
   await page.locator('.home-continue').waitFor();
+  await spot(['.home-continue-head', '.home-peek .home-stop']);
   await pointer.moveTo('.home-peek .home-stop', { ms: 900, dx: 0.3 });
   await hold(3000);
+  unspot();
 }

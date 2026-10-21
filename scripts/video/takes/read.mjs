@@ -282,40 +282,61 @@ export async function prepare({ page, arrive }) {
   await page.mouse.move(768, 500);
 }
 
-export default async function ({ page, pointer, mark }) {
+export default async function ({ page, pointer, mark, spot, unspot }) {
   const hold = (ms) => page.waitForTimeout(ms);
   const segment = (name) => page.locator('.reader-head .segmented button', { hasText: name }).first();
+  const switcher = page.locator('.reader-head .segmented').first();
+  const para = (text) => page.locator('.paper-body p', { hasText: text }).first();
 
   mark('pdf');
   await pointer.moveTo({ x: 820, y: 520 });
   await hold(1500);
   await glideScroll(page, 420);
-  await hold(1600);
+  await hold(1400);
 
   mark('reflow');
-  await pointer.click(segment('Reflow'), { pause: 300 });
+  await spot(switcher);
+  await pointer.moveTo(segment('Reflow'));
+  await hold(1200);
+  await pointer.click(null, { pause: 300 });
   await reflowReady(page, 20000);
-  await hold(2200);
+  await spot([page.locator('.paper-body h2', { hasText: 'Abstract' }).first(), para('dominant sequence transduction')]);
+  await hold(2500);
   await pointer.moveTo({ x: 760, y: 560 });
   await glideScroll(page, 520);
+  await spot([page.locator('.paper-body h2', { hasText: 'Introduction' }).first(), para('Recurrent neural networks, long short-term memory')]);
   await hold(2500);
 
   mark('book');
-  await pointer.click(page.getByRole('button', { name: /Read as a book/ }), { pause: 400 });
+  const bookBtn = page.getByRole('button', { name: /Read as a book/ });
+  await spot(bookBtn);
+  await pointer.moveTo(bookBtn);
+  await hold(1200);
+  await pointer.click(null, { pause: 400 });
   await page.waitForSelector('.book-pages');
-  await hold(2600);
+  await spot('.book-pages');
+  await hold(2500);
   await pointer.click(page.getByRole('button', { name: 'Next page' }), { pause: 1600 });
   await pointer.key('ArrowRight', '→', 2200);
 
   mark('one-page');
-  await pointer.click(page.getByRole('button', { name: /Read as one scrolling page/ }), { pause: 400 });
+  const oneBtn = page.getByRole('button', { name: /Read as one scrolling page/ });
+  await spot(oneBtn);
+  await pointer.moveTo(oneBtn);
+  await hold(1000);
+  await pointer.click(null, { pause: 400 });
   await page.waitForSelector('.reader-scroll');
+  await spot([page.locator('.paper-body h2', { hasText: 'Abstract' }).first(), para('dominant sequence transduction')]);
   await hold(2500);
 
   mark('pdf-again');
-  await pointer.click(segment('PDF'), { pause: 400 });
+  await spot(switcher);
+  await pointer.moveTo(segment('PDF'));
+  await hold(1000);
+  await pointer.click(null, { pause: 400 });
+  await unspot();
   await pdfReady(page);
-  await hold(1200);
+  await hold(800);
   // On to page 3, where Figure 1 is.
   await pointer.moveTo({ x: 800, y: 500 });
   const slot = page.locator('.pdf-scroll-slot[data-slot="3"]');
@@ -328,16 +349,23 @@ export default async function ({ page, pointer, mark }) {
     await pdfReady(page);
   };
   await toPage3();
-  await hold(1500);
-
-  mark('zoom');
   const fig = page.locator('.pdf-book-page[data-page="3"]');
   let box = await fig.boundingBox();
+  // Figure 1, as it sits on its page: the diagram and its caption.
+  const figureBox = () => ({ x: box.x + box.width * 0.27, y: box.y + box.height * 0.06, w: box.width * 0.46, h: box.height * 0.5 });
+  await spot(figureBox());
+  await hold(2500);
+
+  mark('zoom');
+  await unspot();
   await pointer.moveTo({ x: box.x + box.width * 0.55, y: 420 });
   await pointer.key('+', '+', 700);
   await pointer.key('+', '+', 700);
   await pdfReady(page);
-  await hold(2000);
+  await page.waitForSelector('.pdf-minimap', { timeout: 5000 });
+  await spot(['.pdf-minimap', '.pdf-zoom-pct']);
+  await hold(2600);
+  await unspot();
   await pointer.key('0', '0', 900);
   await pdfReady(page);
   await toPage3();
@@ -346,21 +374,27 @@ export default async function ({ page, pointer, mark }) {
   const figY = (f) => Math.max(260, Math.min(box.y + box.height * f, 640));
 
   mark('loupe');
-  await pointer.key('l', 'L', 400);
+  await pointer.key('l', 'L', 200);
   await pointer.moveTo({ x: box.x + box.width * 0.4, y: figY(0.35) }, { ms: 900 });
-  await hold(1200);
-  await pointer.moveTo({ x: box.x + box.width * 0.6, y: figY(0.25) }, { ms: 1600 });
-  await hold(1400);
+  await page.waitForSelector('.pdf-loupe', { timeout: 5000 });
+  await spot('.pdf-loupe');
+  await hold(1500);
+  await pointer.moveTo({ x: box.x + box.width * 0.6, y: figY(0.25) }, { ms: 1800 });
+  await hold(1500);
+  await unspot();
   await pointer.key('l', 'L', 800);
 
   mark('closeup');
   await pointer.moveTo({ x: box.x + box.width * 0.5, y: figY(0.3) });
   await pointer.key('c', 'C', 300);
   await page.waitForSelector('.pdf-closeup-card.is-drawn', { timeout: 30000 });
-  await hold(4200);
+  await spot('.pdf-closeup-card');
+  await hold(3500);
+  await unspot();
   await pointer.key('Escape', 'Esc', 1200);
 
   mark('zen');
+  await unspot();
   await pointer.moveTo({ x: 768, y: 480 });
   await pointer.key('z', 'Z', 600);
   await hold(2600);

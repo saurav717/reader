@@ -4,8 +4,10 @@
  * A take is scripts/video/takes/<name>.mjs. It may export setup(context)
  * for its routes and stand-ins, and prepare({ page }) to bring the app to
  * where the take begins (off camera); its default export runs on camera
- * with { page, pointer, mark }. Each take writes .video/takes/<name>/raw.mp4
- * and timeline.json, the marks it made, in seconds into the footage.
+ * with { page, pointer, mark, spot, unspot }: spot() lights up part of the
+ * screen in the video and dims the rest. Each take writes
+ * .video/takes/<name>/raw.mp4, timeline.json (the marks it made, in
+ * seconds into the footage) and spots.json (what it lit up, and when).
  *
  *   npm run build && npm start &
  *   node scripts/video/take.mjs showcase
@@ -37,7 +39,7 @@ for (const name of names) {
     if (take.pointer !== false) await pointer.show();
     camera.mark('start');
     try {
-      await take.default({ page, pointer, mark: camera.mark });
+      await take.default({ page, pointer, mark: camera.mark, spot: camera.spot, unspot: camera.unspot });
     } finally {
       camera.mark('end');
       await camera.stop();

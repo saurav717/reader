@@ -191,7 +191,10 @@ for (const [i, shot] of EDL.shots.entries()) {
         const name = c.take || shot.take || EDL.take;
         const from = await when(name, c.from);
         const to = await when(name, c.to);
-        return { ...c, from, to, file: path.join(ROOT, '.video/takes', name, 'raw.mp4'), srcW: w, srcH: h, srcFps: FPS, frames: frames((to - from) / (c.speed || 1)), holdFrames: frames(c.hold || 0) };
+        // What the take lit up, unless this clip asks for the whole screen.
+        const spotsFile = path.join(ROOT, '.video/takes', name, 'spots.json');
+        const spots = c.spot === false || !existsSync(spotsFile) ? [] : JSON.parse(await readFile(spotsFile, 'utf8'));
+        return { ...c, from, to, spots, file: path.join(ROOT, '.video/takes', name, 'raw.mp4'), srcW: w, srcH: h, srcFps: FPS, frames: frames((to - from) / (c.speed || 1)), holdFrames: frames(c.hold || 0) };
       }),
     );
     let own = out.clips.reduce((sum, c) => sum + c.frames + c.holdFrames, 0);

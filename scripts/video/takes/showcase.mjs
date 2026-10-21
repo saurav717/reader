@@ -38,7 +38,39 @@ export async function prepare({ page, arrive }) {
   await page.addStyleTag({ content: '.showcase-card { display: none !important; }' });
 }
 
-export default async function ({ page, mark }) {
+/**
+ * The light, following the showcase: each scene, as it comes up, lights what
+ * it is about. The showcase drives itself, so this watches for what appears.
+ */
+async function follow(page, spot, unspot, done) {
+  const seen = async (selector) => (await page.locator(selector).count()) > 0 && page.locator(selector).first().isVisible().catch(() => false);
+  const steps = [
+    ['.find-box', '.find-box'],
+    ['.find-list button.btn.sm', '.find-list'],
+    ['.reader-head', null],
+    ['.assistant-win textarea', '.assistant-win'],
+    ['.assistant-win .chat-passages', '.assistant-win .chat-passages'],
+    ['.showcase[data-scene="explain"]', null],
+    ['.explain-section', page.locator('.explain-section', { hasText: 'At a glance' }).first()],
+    ['.showcase[data-scene="implement"]', null],
+    ['.showcase[data-scene="implement"]', page.locator('.explain-section', { hasText: 'What you will build' }).first()],
+    ['.showcase[data-scene="colab"]', null],
+    ['.nb-cell .cell-output', ['.nb-cell >> nth=0', '.nb-cell >> nth=1']],
+    ['.rt-meter-fill', '.rt-meter-fill >> xpath=ancestor::*[contains(@class, "rt-")][last()]'],
+    ['.showcase[data-scene="toggle"]', null],
+  ];
+  for (const [when, what] of steps) {
+    while (!done.value && !(await seen(when))) await page.waitForTimeout(150);
+    if (done.value) return;
+    if (what && typeof what === 'object' && 'waitFor' in what) await what.waitFor({ timeout: 60_000 }).catch(() => undefined);
+    if (what) await spot(what).catch(() => undefined);
+    else unspot();
+  }
+}
+
+export default async function ({ page, mark, spot, unspot }) {
+  const done = { value: false };
+  const following = follow(page, spot, unspot, done);
   await page.exposeFunction('__mark', mark);
   await page.mouse.move(768, 432);
   await page.waitForTimeout(2500);
@@ -48,5 +80,8 @@ export default async function ({ page, mark }) {
   await page.keyboard.type('show me', { delay: 60 });
   await page.locator('.palette-row', { hasText: 'Show me, with a paper' }).click();
   await page.waitForSelector('.showcase[data-scene="done"]', { state: 'attached', timeout: 400_000 });
+  done.value = true;
+  await following;
+  unspot();
   await page.waitForTimeout(1500);
 }

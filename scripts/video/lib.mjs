@@ -213,11 +213,51 @@ export async function startCamera(context, page, out) {
   });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: Number(process.env.QUALITY || 88), maxWidth: VIEWPORT.width * SCALE, maxHeight: VIEWPORT.height * SCALE, everyNthFrame: 1 });
   const started = Date.now() / 1000;
+  // What the video lights up: boxes on screen, read from the page for as long as a spot lasts.
+  const spots = [];
+  let current = null;
+  const measure = async (targets) => {
+    const rects = [];
+    for (const target of targets) {
+      if (target && typeof target === 'object' && 'w' in target) rects.push(target);
+      else {
+        const locator = typeof target === 'string' ? page.locator(target).first() : target;
+        const box = await locator.boundingBox().catch(() => null);
+        if (box && box.width > 0 && box.height > 0) rects.push({ x: box.x, y: box.y, w: box.width, h: box.height });
+      }
+    }
+    return rects.map((r) => ({ x: r.x / VIEWPORT.width, y: r.y / VIEWPORT.height, w: r.w / VIEWPORT.width, h: r.h / VIEWPORT.height }));
+  };
+  const unspot = () => {
+    if (!current) return;
+    clearInterval(current.timer);
+    current.spot.to = Date.now() / 1000;
+    current = null;
+  };
   return {
     mark(name) {
       marks.push({ name, t: Date.now() / 1000 });
       console.log(`    ${(Date.now() / 1000 - started).toFixed(1).padStart(6)}s  ${name}`);
     },
+    /**
+     * Light up a part of the screen and dim the rest, until the next spot or unspot():
+     * a locator, a selector, a box in CSS pixels { x, y, w, h }, or a list of them.
+     * A box is read again every quarter second, so the light follows what moves.
+     */
+    async spot(target, { pad = 8 } = {}) {
+      unspot();
+      const targets = [].concat(target);
+      const padded = async () => (await measure(targets)).map((r) => ({ x: r.x - pad / VIEWPORT.width, y: r.y - pad / VIEWPORT.height, w: r.w + (2 * pad) / VIEWPORT.width, h: r.h + (2 * pad) / VIEWPORT.height }));
+      const spot = { from: Date.now() / 1000, to: null, samples: [{ t: Date.now() / 1000, rects: await padded() }] };
+      spots.push(spot);
+      const state = { spot, timer: setInterval(async () => {
+        if (current !== state) return;
+        const rects = await padded();
+        if (current === state && rects.length) spot.samples.push({ t: Date.now() / 1000, rects });
+      }, 250) };
+      current = state;
+    },
+    unspot,
     async stop() {
       // A last frame of what is on screen, so the footage runs to the end of the take.
       await page.waitForTimeout(400);
@@ -231,6 +271,15 @@ export async function startCamera(context, page, out) {
       const list = frames.map((f, i) => `file 'frames/${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? end) - f.t).toFixed(4)}`);
       list.push(`file 'frames/${frames.at(-1).file}'`);
       await writeFile(path.join(out, 'frames.txt'), list.join('\n'));
+      unspot();
+      await writeFile(
+        path.join(out, 'spots.json'),
+        JSON.stringify(
+          spots.filter((s) => s.samples.some((x) => x.rects.length)).map((s) => ({ from: +(s.from - t0).toFixed(3), to: +((s.to ?? end) - t0).toFixed(3), samples: s.samples.map((x) => ({ at: +(x.t - t0).toFixed(3), rects: x.rects.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(4)]))) })) })),
+          null,
+          1,
+        ),
+      );
       await writeFile(path.join(out, 'timeline.json'), JSON.stringify(marks.map(({ name, t }) => ({ name, at: +(t - t0).toFixed(3) })), null, 2));
       execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', 'frames.txt', '-vf', `fps=${FPS},format=yuv420p`, '-c:v', 'libx264', '-preset', 'medium', '-crf', '12', 'raw.mp4'], { cwd: out, stdio: 'inherit' });
       await rm(path.join(out, 'frames'), { recursive: true, force: true });

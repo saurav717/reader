@@ -457,58 +457,76 @@ export async function prepare({ page, arrive }) {
 
 // ------------------------------------------------------------ on camera ---
 
-export default async function ({ page, pointer, mark }) {
+export default async function ({ page, pointer, mark, spot, unspot }) {
   const hold = (ms) => page.waitForTimeout(ms);
   await hold(2000);
 
   // 1. Find papers: a topic, more sources, one merged list.
   mark('query');
   const box = page.getByLabel('Search for papers');
+  await spot('.find-box');
   await pointer.click(box, { dx: 0.3, pause: 300 });
   await pointer.type(Q, { delay: 65 });
-  await hold(900);
+  await hold(1200);
 
   mark('sources');
   const chip = (label) => page.locator('.find-options .chip', { hasText: new RegExp(`^${label}$`) });
+  await spot(chip('Google Scholar'));
   await pointer.moveTo(chip('Google Scholar'));
-  await hold(700);
-  await pointer.click(chip('OpenAlex'), { pause: 700 });
-  await pointer.click(chip('Semantic Scholar'), { pause: 1200 });
+  await hold(1300);
+  await spot(chip('OpenAlex'));
+  await pointer.click(chip('OpenAlex'), { pause: 1300 });
+  await spot(chip('Semantic Scholar'));
+  await pointer.click(chip('Semantic Scholar'), { pause: 1400 });
+  await spot([chip('OpenAlex'), chip('Semantic Scholar'), chip('Google Scholar')]);
+  await hold(2000);
 
   mark('results');
+  await spot(page.locator('.find-box button[type=submit]'));
   await pointer.click(page.locator('.find-box button[type=submit]'), { pause: 200 });
   await page.locator('.find-row').nth(7).waitFor({ timeout: 15000 });
   await page.waitForFunction(() => !document.querySelector('.find-box .spinner'));
+  const rows = page.locator('.find-row');
+  await spot([0, 1, 2, 3, 4, 5].map((n) => rows.nth(n)));
   await hold(1200);
   // Down the list, slowly, so the bylines and years read.
-  await pointer.moveTo(page.locator('.find-row').nth(1), { dx: 0.35 });
+  await pointer.moveTo(rows.nth(1), { dx: 0.35 });
+  await hold(700);
+  await pointer.moveTo(rows.nth(3), { dx: 0.35 });
   await hold(900);
-  await pointer.moveTo(page.locator('.find-row').nth(3), { dx: 0.35 });
-  await hold(900);
-  await pointer.moveTo(page.locator('.find-row').nth(5), { dx: 0.35 });
+  await pointer.moveTo(rows.nth(5), { dx: 0.35 });
   await hold(1200);
 
   // 2. One result: its abstract and every copy of it.
   mark('detail');
   const switchRow = page.locator('.find-row', { hasText: 'Switch Transformers' });
+  await spot(switchRow);
   await pointer.click(switchRow.locator('.find-title'), { dx: 0.3, pause: 300 });
   await page.locator('.find-detail .locations .eyebrow').first().filter({ hasText: /Readable in/ }).waitFor({ timeout: 15000 });
-  await hold(1500);
+  await spot([switchRow, page.locator('.find-abstract')]);
+  await hold(2200);
   mark('copies');
+  await spot(page.locator('.find-detail .locations'));
   const copies = page.locator('.find-detail .locations li');
   await pointer.moveTo(copies.first(), { dx: 0.2 });
   await hold(1000);
   await pointer.moveTo(copies.nth(2), { dx: 0.2 });
   await hold(1000);
   await pointer.moveTo(copies.last(), { dx: 0.2 });
-  await hold(1500);
+  await hold(1200);
 
   mark('save');
-  await pointer.click(page.locator('.find-detail-actions').getByRole('button', { name: /Save to Sparse models/ }), { pause: 400 });
+  const saveButton = page.locator('.find-detail-actions').getByRole('button', { name: /Save to Sparse models/ });
+  await spot(saveButton);
+  await pointer.moveTo(saveButton);
+  await hold(1600);
+  await pointer.click(null, { pause: 300 });
   await page.locator('.find-toast').waitFor({ timeout: 5000 });
+  await spot(page.locator('.find-toast'));
   // On the toast, so it stays while it is read.
   await pointer.moveTo(page.locator('.find-toast').getByRole('button', { name: 'Undo' }));
-  await hold(2800);
+  await hold(2600);
+  unspot();
 
   // 3. A person: Discover lays a name out as their profile.
   mark('people');
@@ -516,49 +534,76 @@ export default async function ({ page, pointer, mark }) {
   const panel = page.locator('.discover-panel');
   await panel.waitFor({ timeout: 10000 });
   const field = panel.getByLabel('Search papers and people');
+  await spot(panel.locator('form .field'));
   await pointer.click(field, { dx: 0.3, pause: 300 });
   await pointer.type('Noam Shazeer', { delay: 75 });
-  await hold(500);
-  await pointer.click(panel.locator('.chip', { hasText: /^OpenAlex$/ }), { pause: 700 });
+  await hold(1200);
+  await spot(panel.locator('.chip', { hasText: /^OpenAlex$/ }));
+  await pointer.click(panel.locator('.chip', { hasText: /^OpenAlex$/ }), { pause: 1400 });
+  await spot(panel.locator('form .field'));
   await pointer.click(field, { dx: 0.6, pause: 200 });
   await pointer.key('Enter', '↵', 300);
-  await panel.locator('article.result.person').waitFor({ timeout: 15000 });
+  const person = panel.locator('article.result.person');
+  await person.waitFor({ timeout: 15000 });
   await panel.locator('article.result:not(.person)').nth(3).waitFor({ timeout: 15000 });
-  await hold(800);
   mark('profile');
-  await pointer.moveTo(panel.locator('article.result.person h3'), { dx: 0.3 });
-  await hold(1400);
-  await pointer.moveTo(panel.locator('article.result.person .meta'), { dx: 0.4 });
-  await hold(1800);
+  await spot([person.locator('h3'), person.locator('p.authors').first()]);
+  await pointer.moveTo(person.locator('h3'), { dx: 0.3 });
+  await hold(2500);
+  await spot([person.locator('.meta'), person.locator('p.authors').nth(1)]);
+  await pointer.moveTo(person.locator('.meta'), { dx: 0.4 });
+  await hold(2500);
+  const works = panel.locator('article.result:not(.person)');
+  // The papers up into view, smoothly, under the profile.
+  await panel.locator('.scroll').evaluate((el) => el.scrollTo({ top: el.scrollTop + 260, behavior: 'smooth' }));
+  await hold(700);
+  await spot([panel.locator('.person-works'), works.nth(0), works.nth(1)]);
+  await pointer.moveTo(works.first(), { dx: 0.4 });
+  await hold(2500);
 
   mark('most-cited');
   const order = panel.getByRole('group', { name: 'Order of the papers' });
-  await pointer.click(order.getByRole('button', { name: 'Most cited' }), { pause: 300 });
+  await spot(order);
+  await pointer.moveTo(order.getByRole('button', { name: 'Most cited' }));
+  await hold(1200);
+  await pointer.click(null, { pause: 300 });
   await page.waitForFunction(() => !document.querySelector('.discover-panel .spinner'));
   await panel.locator('article.result:not(.person)', { hasText: 'Attention Is All You Need' }).first().waitFor({ timeout: 10000 });
-  await hold(1000);
-  await pointer.moveTo(panel.locator('article.result:not(.person)').first(), { dx: 0.4 });
-  await hold(2200);
+  await spot([order, works.first()]);
+  await pointer.moveTo(works.first(), { dx: 0.4 });
+  await hold(2500);
+  unspot();
 
   // 4. A paper whose first copy is the poster: read on the copy that is the paper.
   mark('poster');
   const ecRow = page.locator('.find-row', { hasText: 'Expert Choice Routing' });
+  await ecRow.scrollIntoViewIfNeeded();
+  await spot(ecRow);
+  await hold(800);
   await pointer.click(ecRow.getByRole('button', { name: /^Read$/ }), { pause: 600 });
+  unspot();
   const pdfMode = page.locator('.segmented button', { hasText: 'PDF' });
   await pdfMode.waitFor({ timeout: 15000 });
   if ((await pdfMode.getAttribute('aria-pressed')) !== 'true') await pointer.click(pdfMode, { pause: 400 });
   await page.locator('.copy-bar').waitFor({ timeout: 20000 });
   await page.waitForFunction(() => /openreview|NeurIPS/i.test(document.querySelector('.copy-current')?.textContent || ''), null, { timeout: 20000 });
-  await hold(1500);
+  await hold(1000);
   mark('copy-bar');
+  await spot(page.locator('.copy-line'));
   await pointer.moveTo(page.locator('.copy-current'));
-  await hold(1500);
-  mark('copy-picker');
-  await pointer.click(page.locator('.copy-current'), { pause: 600 });
-  await page.locator('.copy-picker').waitFor({ timeout: 5000 });
-  await hold(800);
-  await pointer.moveTo(page.locator('.copy-option', { hasText: 'neurips.cc' }).first(), { dx: 0.3 });
   await hold(2500);
+  mark('copy-picker');
+  await pointer.click(page.locator('.copy-current'), { pause: 400 });
+  await page.locator('.copy-picker').waitFor({ timeout: 5000 });
+  await spot(page.locator('.copy-picker ul'));
+  await hold(2500);
+  mark('poster-row');
+  const posterRow = page.locator('.copy-option', { hasText: 'neurips.cc' }).first();
+  await spot(posterRow);
+  await pointer.moveTo(posterRow, { dx: 0.3 });
+  await hold(2500);
+  await spot([posterRow, page.locator('.copy-option.showing')]);
   await pointer.moveTo(page.locator('.copy-option.showing'), { dx: 0.3 });
   await hold(2500);
+  unspot();
 }
