@@ -92,11 +92,11 @@ const runDir = (prefix) => readdirSync(RECORDED).filter((d) => d.startsWith(pref
 
 /** A recorded run, written into the project's runs/ as if it were going now. */
 class Replay {
-  constructor(prefix) {
+  constructor(prefix, { leave = [] } = {}) {
     this.id = runDir(prefix);
     this.src = path.join(RECORDED, this.id);
     this.dst = path.join(FOLDER, 'runs', this.id);
-    this.lines = readFileSync(path.join(this.src, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((text) => ({ text, e: JSON.parse(text) }));
+    this.lines = readFileSync(path.join(this.src, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((text) => ({ text, e: JSON.parse(text) })).filter((l) => !leave.includes(l.e.kind));
     this.meta = JSON.parse(readFileSync(path.join(this.src, 'run.json'), 'utf8'));
     this.at = 0;
     this.lastStep = 0;
@@ -108,12 +108,17 @@ class Replay {
     let cut = this.lines.findIndex((l) => (l.e.step ?? 0) > maxStep * fraction);
     if (cut < 0) cut = this.lines.length - 1;
     // Never past the end line.
-    cut = Math.min(cut, this.lines.findIndex((l) => l.e.kind === 'end'));
+    cut = Math.min(cut, this.endAt());
     this.shift = now() - ago - this.lines[cut - 1].e.t;
     mkdirSync(path.join(this.dst, 'media'), { recursive: true });
     this.writeMeta('running');
     this.write(this.lines.slice(0, cut), (e) => e.t + this.shift);
     this.at = cut;
+  }
+
+  endAt() {
+    const at = this.lines.findIndex((l) => l.e.kind === 'end');
+    return at < 0 ? this.lines.length : at;
   }
 
   writeMeta(status) {
@@ -137,7 +142,7 @@ class Replay {
   /** The rest (up to `fraction` of the lines left, or to the end), over `seconds`, a batch every half second. */
   play(seconds, { until = 1, onEnd } = {}) {
     const from = this.at;
-    const end = this.lines.findIndex((l) => l.e.kind === 'end');
+    const end = this.endAt();
     const to = until >= 1 ? this.lines.length : Math.min(end, from + Math.round((end - from) * until));
     const t0 = this.lines[from].e.t;
     const t1 = this.lines[to - 1].e.t;
@@ -204,7 +209,7 @@ function liveFrames(replay) {
 
 const NOTES = `**What was tried.** PPO from \`ppo.py\` as it comes — 8 environments, 256 steps each per update, lr 3e-4 — on MuJoCo's HalfCheetah-v5, 400k environment steps on this computer's CPU.
 
-**What happened.** __RETURNS__ The policy's entropy fell slowly, approx_kl stayed small, and the critic's explained variance rose: the updates were steady, not lucky.
+**What happened.** __RETURNS__ The policy's entropy fell slowly (8.5 → 7.6 nats) and approx_kl stayed far under 0.05, so the updates were steady. The critic's explained variance swings between 0.2 and 0.97: the value function is the weak part.
 
 **Trust it?** One seed, so treat the shape as real and the exact number as rough.
 
@@ -315,7 +320,8 @@ const SHOTS = path.join(WORK, 'shots');
 const shot = (page, name) => (process.env.SHOTS ? (mkdirSync(SHOTS, { recursive: true }), page.screenshot({ path: path.join(SHOTS, `${name}.png`) })) : undefined);
 
 export default async function ({ page, pointer, mark, spot, unspot }) {
-  const ppo = new Replay('ppo-');
+  // Its final evaluation is left out: ppo.py evaluates without the observation normalisation it trained with (see the report).
+  const ppo = new Replay('ppo-', { leave: ['evaluation'] });
   const wm = new Replay('world-model-');
   const frames = liveFrames(ppo);
   try {

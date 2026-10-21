@@ -297,9 +297,9 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   // The agent's pane closed, for room: the terminal is what this part is about.
   const closePane = page.getByRole('button', { name: 'Close the pane' });
   if (await closePane.isVisible().catch(() => false)) await pointer.click(closePane);
-  const explorer = page.locator('.vs-side').first();
+  const explorer = page.locator('.vs-sidebar').first();
   await spot(explorer);
-  await pointer.moveTo(page.locator('.vs-side').getByText('train.py').first());
+  await pointer.moveTo(explorer.getByText('train.py').first());
   await hold(page, 2600);
   await spot(page.locator('.pg-chip').first());
   await pointer.moveTo(page.locator('.pg-chip').first());

@@ -233,11 +233,11 @@ export async function setup(context) {
     route.fulfill(json({ ...body, ok: true, auth: false, gemini: true, ai: { anthropic: true, deepseek: true, gemini: true }, web: true }));
   });
   await context.route('**/api/web/search*', async (route) => {
-    await new Promise((r) => setTimeout(r, 1300));
+    await new Promise((r) => setTimeout(r, 900));
     route.fulfill(json({ results: SEARCH_RESULTS }));
   });
   await context.route('**/api/web/page*', async (route) => {
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 800));
     route.fulfill(
       json({
         url: 'https://arxiv.org/abs/2104.09864',
@@ -304,28 +304,28 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   };
   const ask = async (question) => {
     await pointer.click(box, { pause: 250 });
-    await pointer.type(question, { delay: 38 });
+    await pointer.type(question, { delay: 22 });
     await hold(300);
     await pointer.key('Enter', '↵', 200);
   };
 
   mark('paper');
   await pointer.moveTo({ x: 760, y: 470 });
-  await hold(1500);
+  await hold(1000);
 
   mark('open');
   await pointer.key('Control+Backslash', 'Ctrl \\', 500);
   await win.waitFor();
   await spot(win);
-  await hold(2600);
+  await hold(2300);
 
   mark('models');
   await pointer.click(page.locator('.assistant-win .model-chip'), { pause: 500 });
   await spot(page.locator('.model-menu'));
-  await pointer.moveTo(page.locator('.rw-group.p-deepseek'), { ms: 700 });
-  await hold(900);
-  await pointer.moveTo(page.locator('.rw-group.p-gemini'), { ms: 700 });
-  await hold(1200);
+  await pointer.moveTo(page.locator('.rw-group.p-deepseek'), { ms: 600 });
+  await hold(700);
+  await pointer.moveTo(page.locator('.rw-group.p-gemini'), { ms: 600 });
+  await hold(1000);
   await pointer.click(page.locator('.rw-model.is-current'), { pause: 400 });
 
   mark('ask-where');
@@ -340,7 +340,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(3000);
   await spot(page.locator('.chat-passages'));
   await pointer.moveTo(page.locator('.chat-passage-row').nth(1));
-  await hold(1200);
+  await hold(700);
   mark('passage-2');
   await pointer.click(page.locator('.chat-passage-row').nth(1), { pause: 300 });
   await page.waitForSelector('.passage-tag', { timeout: 8000 });
@@ -350,20 +350,19 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
 
   mark('figure');
   unspot();
-  // Back up to Figure 1.
+  // Back up to Figure 1, the paper's own scroll, eased.
   await pointer.moveTo({ x: 600, y: 480 });
-  const fig1 = page.locator('.paper-body figure', { hasText: 'Figure 1' }).first();
-  for (let i = 0; i < 10; i += 1) {
-    const top = await fig1.evaluate((el) => el.getBoundingClientRect().top);
-    if (Math.abs(top - 150) < 30) break;
-    await glideScroll(page, Math.max(-900, Math.min(900, top - 150)), { steps: 16, ms: 600 });
-  }
-  await hold(600);
+  await page.evaluate(() => {
+    const figure = [...document.querySelectorAll('.paper-body figure')].find((f) => /^Figure 1\b/.test(f.querySelector('figcaption')?.textContent || ''));
+    const scroller = figure.closest('.reader-scroll');
+    scroller.scrollBy({ top: figure.getBoundingClientRect().top - 140, behavior: 'smooth' });
+  });
+  await hold(1600);
   await spot(page.locator('.chat-shot-btn'), { pad: 12 });
   await pointer.click(page.locator('.chat-shot-btn'), { pause: 300 });
   await page.waitForSelector('.chat-shot', { timeout: 10000 });
   await spot(page.locator('.chat-shot'));
-  await hold(2200);
+  await hold(1700);
   await ask(QUESTIONS.figure);
   await spot(win);
   await answered();
@@ -380,7 +379,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(700);
   await pointer.click(flash, { pause: 400 });
   await spot(page.locator('.assistant-win .model-chip'), { pad: 10 });
-  await hold(1200);
+  await hold(900);
 
   mark('web');
   await spot(page.locator('.chat-web-btn'), { pad: 12 });
@@ -400,31 +399,31 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(600);
   await page.locator('.chat-reading').last().scrollIntoViewIfNeeded();
   await spot(lastAnswer);
-  await hold(2600);
+  await hold(2200);
   const addAll = page.getByRole('button', { name: 'Add all to Reading list' }).last();
   await spot(page.locator('.chat-reading').last());
   await pointer.click(addAll, { pause: 300 });
   await page.waitForFunction(() => /All in Reading list/.test(document.querySelector('.chat-claude:last-of-type .chat-reading summary')?.textContent || [...document.querySelectorAll('.chat-reading summary')].pop()?.textContent || ''), null, { timeout: 15000 });
   await spot([page.locator('.chat-reading').last(), ...[0, 1, 2, 3].map((i) => lastAnswer.locator('.chat-card').nth(i))]);
-  await hold(2800);
+  await hold(2500);
 
   mark('history');
   await spot(page.locator('.chat-toolbar'));
   await pointer.click(page.getByRole('button', { name: 'New chat' }), { pause: 600 });
   await spot(win);
-  await hold(1500);
+  await hold(1100);
   await pointer.click(page.getByRole('button', { name: /^History/ }), { pause: 500 });
   await spot(page.locator('.chat-drawer'));
-  await hold(2200);
+  await hold(1900);
   await pointer.click(page.locator('.chat-hist-open').first(), { pause: 500 });
   await spot(win);
-  await hold(1500);
+  await hold(1000);
 
   mark('looks');
   const style = page.locator('.win-style');
   await spot(win);
   for (let i = 0; i < 4; i += 1) {
-    await pointer.click(style, { pause: 1500 });
+    await pointer.click(style, { pause: 1150 });
   }
 
   mark('dock');
@@ -433,9 +432,9 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 1300);
   await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 1300);
   await spot(win);
-  await hold(2400);
+  await hold(2200);
   unspot();
   await pointer.key('Control+Backslash', 'Ctrl \\', 600);
   mark('closed');
-  await hold(1500);
+  await hold(1000);
 }

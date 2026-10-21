@@ -407,8 +407,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.moveTo({ x: 760, y: 330 });
   await hold(2600);
   await shot(page, '5-readme');
-  const paperDir = page.locator('.vs-sidebar').getByText(/^paper$/).first();
-  console.log('    debug sidebar', await page.locator('.vs-sidebar').count(), await paperDir.count(), (await page.locator('.vs-explorer').innerText().catch(() => '?')).slice(0, 200).replace(/\n/g, ' | '));
+  const paperDir = page.locator('.vs-explorer .pg-entry').filter({ hasText: /paper\s*$/ }).first();
   await spot('.vs-sidebar');
   await pointer.click(paperDir, { pause: 600 });
   await hold(2400);
