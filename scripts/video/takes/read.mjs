@@ -352,7 +352,10 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const fig = page.locator('.pdf-book-page[data-page="3"]');
   let box = await fig.boundingBox();
   // Figure 1, as it sits on its page: the diagram and its caption.
-  const figureBox = () => ({ x: box.x + box.width * 0.27, y: box.y + box.height * 0.06, w: box.width * 0.46, h: box.height * 0.5 });
+  const figureBox = () => {
+    const y = Math.max(box.y + box.height * 0.06, 100);
+    return { x: box.x + box.width * 0.27, y, w: box.width * 0.46, h: Math.min(box.y + box.height * 0.5, 760) - y };
+  };
   await spot(figureBox());
   await hold(2500);
 

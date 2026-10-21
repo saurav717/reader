@@ -173,7 +173,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(2500);
   await pointer.key('2', '2', 400);
   await page.waitForSelector('mark.hl');
-  await spot(await marks(page, 'mark.hl'));
+  await spot(await lineBoxes(page, sentence));
   await pointer.moveTo({ x: Math.min(ends.x1 + 120, 1300), y: ends.y1 + 90 });
   await hold(2300);
 
@@ -209,7 +209,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.type('S');
   await page.waitForSelector('mark.hl[data-has-note="true"]', { timeout: 5000 }).catch(() => undefined);
   await hold(700);
-  await pointer.type('ame as intra-attention (Cheng et al., 2016)?', { delay: 40 });
+  await pointer.type('ame as intra-attention (Cheng et al., 2016)?', { delay: 70 });
   await hold(2000);
   await unspot();
   await pointer.key('Escape', 'Esc', 900);

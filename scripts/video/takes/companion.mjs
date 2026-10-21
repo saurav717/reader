@@ -190,44 +190,51 @@ export async function prepare({ page, arrive }) {
 
 const hold = (page, ms) => page.waitForTimeout(ms);
 
-export default async function ({ page, pointer, mark }) {
+export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(page, 1500);
 
   mark('playground');
   await pointer.key('p', 'P');
   await page.locator('.pg-hero').waitFor();
-  await hold(page, 1800);
-  const card = page.locator('.pg-companion');
-  await pointer.moveTo(card.locator('.pg-section-head'));
   await hold(page, 1200);
+  const card = page.locator('.pg-companion');
+  await spot(card);
+  await pointer.moveTo(card.locator('.pg-section-head'));
+  await hold(page, 1800);
 
   mark('download-app');
-  await pointer.moveTo(card.locator('.pg-companion-way').first());
+  const ways = card.locator('.pg-companion-way');
+  await pointer.moveTo(ways.first());
   await page.mouse.wheel(0, 260);
-  await hold(page, 900);
+  await hold(page, 500);
+  await spot([ways.first(), card.locator('.pg-companion-download').first()]);
   await pointer.moveTo(card.locator('.pg-companion-download').first());
-  await hold(page, 2600);
+  await hold(page, 2800);
 
   mark('command-line');
-  await pointer.click(card.locator('.pg-companion-way').nth(1));
-  await hold(page, 900);
-  await pointer.moveTo(card.locator('pre, .copy-block, code').first());
-  await hold(page, 2200);
+  await pointer.click(ways.nth(1));
+  await spot([ways.nth(1), card.locator('.copy-block, pre').first()]);
+  await pointer.moveTo(card.locator('.copy-block, pre').first());
+  await hold(page, 2600);
 
   mark('vscode');
   await pointer.click(card.getByRole('radio', { name: 'VS Code' }));
+  await spot([card.getByRole('radiogroup', { name: 'This computer’s system' }), card.locator('.copy-block, pre').first()]);
   await hold(page, 2600);
 
   mark('found');
+  unspot();
   companionUp = true;
   await page.mouse.wheel(0, -400);
   await card.locator('.pg-companion-found').waitFor({ timeout: 10_000 });
+  await spot(card.locator('.pg-companion-found'));
   await pointer.moveTo(card.locator('.pg-companion-found'));
-  await hold(page, 2800);
+  await hold(page, 3000);
 
   mark('pairing');
   await pointer.click(card.getByRole('button', { name: 'Show the code on this computer' }));
-  await hold(page, 1200);
+  await hold(page, 900);
+  await spot(card.locator('.pg-companion-code'));
   await pointer.click(card.locator('.pg-companion-code input'));
   await pointer.type(code, { delay: 110 });
   await hold(page, 900);
@@ -236,67 +243,152 @@ export default async function ({ page, pointer, mark }) {
   mark('connected');
   const row = page.locator('.pg-side .pg-machine', { hasText: NAME });
   await row.waitFor({ timeout: 10_000 });
+  await spot(row);
   await pointer.moveTo(row.locator('.pg-machine-head'));
   await hold(page, 3200);
 
+  // ---- where code runs: Colab, this PC, and code on one machine with compute on another
   mark('where');
+  unspot();
   await pointer.click(page.locator('.pg-start', { hasText: 'Blank project' }));
   await page.locator('.pg-sheet').waitFor();
-  await hold(page, 2600);
+  const colab = page.locator('.pg-mode', { has: page.locator('b', { hasText: 'Colab, in the browser' }) });
+  await spot(colab.locator('.pg-mode-top, .pg-flow, ul'));
+  await pointer.moveTo(colab.locator('.pg-mode-top'));
+  await hold(page, 2800);
 
   mark('where-pc');
-  await pointer.click(page.locator('.pg-mode-top', { has: page.locator('b', { hasText: /^This PC$/ }) }));
-  await hold(page, 2600);
+  const pc = page.locator('.pg-mode', { has: page.locator('b', { hasText: /^This PC$/ }) });
+  await pointer.click(pc.locator('.pg-mode-top'));
+  await spot(pc);
+  await hold(page, 2800);
 
-  mark('where-gpu');
-  await pointer.click(page.locator('.pg-mode.is-wide .pg-mode-top'));
-  await hold(page, 900);
-  await pointer.moveTo(page.getByRole('radiogroup', { name: 'Where it runs' }).getByRole('radio', { name: /Lab A100/ }));
-  await hold(page, 2400);
+  mark('where-split');
+  const split = page.locator('.pg-mode.is-wide');
+  await pointer.click(split.locator('.pg-mode-top'));
+  await hold(page, 500);
+  await spot([split.locator('.pg-mode-top'), split.locator('.pg-flow')]);
+  await hold(page, 2200);
+  const kept = page.getByRole('radiogroup', { name: 'Where the code is kept' });
+  await spot(kept);
+  await pointer.click(kept.getByRole('radio', { name: /MacBook/ }));
+  await hold(page, 2000);
+  const runs = page.getByRole('radiogroup', { name: 'Where it runs' });
+  await spot(runs);
+  await pointer.moveTo(runs.getByRole('radio', { name: /Your Colab/ }));
+  await hold(page, 1400);
+  await pointer.click(runs.getByRole('radio', { name: /Lab A100/ }));
+  await hold(page, 1800);
 
-  mark('create-on-pc');
-  await pointer.click(page.locator('.pg-mode-top', { has: page.locator('b', { hasText: /^This PC$/ }) }));
-  await hold(page, 600);
+  mark('split-create');
+  unspot();
   const title = page.locator('.pg-title-field input');
   await pointer.click(title);
   await page.keyboard.press('Control+a');
-  await pointer.type('Transformer from scratch');
-  await hold(page, 600);
+  await pointer.type('MoE router');
+  await spot(page.locator('.pg-sheet-foot .btn.primary'));
   await pointer.click(page.locator('.pg-sheet-foot .btn.primary'));
-
-  mark('project');
+  unspot();
   await page.locator('.vs-activity').waitFor({ timeout: 20_000 });
-  await hold(page, 3000);
+  await hold(page, 1200);
+  // The agent's pane closed, for room: the terminal is what this part is about.
+  const closePane = page.getByRole('button', { name: 'Close the pane' });
+  if (await closePane.isVisible().catch(() => false)) await pointer.click(closePane);
+  const explorer = page.locator('.vs-side').first();
+  await spot(explorer);
+  await pointer.moveTo(page.locator('.vs-side').getByText('train.py').first());
+  await hold(page, 2600);
+  await spot(page.locator('.pg-chip').first());
+  await pointer.moveTo(page.locator('.pg-chip').first());
+  await hold(page, 2600);
 
-  mark('terminal');
-  const term = page.locator('.xterm').first();
-  await term.waitFor({ timeout: 15_000 });
+  mark('koios-run');
+  const tabs = page.getByRole('tablist', { name: 'Terminals' });
+  await spot(tabs);
+  await pointer.moveTo(tabs.getByRole('tab').first());
+  await hold(page, 2200);
+  const term = page.locator('.xterm:visible').first();
+  await spot(term);
   await pointer.click(term);
   await pointer.type('ls');
   await pointer.key('Enter', '⏎', 900);
-  await pointer.type('python -c "import numpy; print(numpy.__version__)"', { delay: 35 });
+  await pointer.type('koios run python train.py', { delay: 60 });
   await pointer.key('Enter', '⏎', 600);
-  await hold(page, 2800);
+  await page.waitForFunction(() => /saved checkpoints\/router\.pt/.test(document.querySelector('.xterm:not([hidden]) .xterm-rows')?.textContent ?? [...document.querySelectorAll('.xterm-rows')].map((el) => el.textContent).join('')), null, { timeout: 60_000 }).catch(() => undefined);
+  await hold(page, 3000);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-koios-run.png') });
+
+  mark('gpu-shell');
+  await pointer.click(tabs.getByRole('tab').nth(1));
+  await hold(page, 1500);
+  const gpuTerm = page.locator('.xterm:visible').first();
+  await spot([tabs.getByRole('tab').nth(1), gpuTerm]);
+  await pointer.click(gpuTerm);
+  await pointer.type('nvidia-smi');
+  await pointer.key('Enter', '⏎', 600);
+  await hold(page, 3200);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-gpu-shell.png') });
+
+  mark('mount');
+  unspot();
+  await pointer.click(page.getByRole('button', { name: /^Sync with Lab A100/ }));
+  const mount = page.locator('.pg-mount');
+  await mount.waitFor();
+  await spot(mount);
+  await hold(page, 1800);
+  await pointer.click(mount.getByRole('switch'));
+  await page.locator('.vs-copy-chip.is-mounted').waitFor({ timeout: 60_000 }).catch(() => undefined);
+  await hold(page, 800);
+  await spot([mount.locator('.pg-mount-head'), page.locator('.vs-copy-chip').first()]);
+  await pointer.moveTo(page.locator('.vs-copy-chip').first());
+  await hold(page, 3200);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-mount.png') });
+
+  mark('data-place');
+  unspot();
+  await pointer.click(page.getByRole('button', { name: 'Storage & compute' }));
+  const sections = page.locator('.mv-section');
+  await sections.first().waitFor();
+  await spot(sections.nth(0));
+  await hold(page, 2600);
+  await spot(sections.nth(1));
+  await pointer.moveTo(sections.nth(1).locator('.mv-list').first());
+  await hold(page, 3400);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-data-place.png') });
+  unspot();
+  await pointer.key('Escape', 'Esc', 700);
 
   mark('machine-menu');
-  await pointer.click(page.locator('.pg-chip').first());
-  await hold(page, 2800);
+  const chip = page.locator('.pg-chip').first();
+  await pointer.click(chip);
+  await spot(page.locator('.pg-chip-menu, [role=menu]').first());
+  await hold(page, 2400);
   await pointer.click(page.getByText('Run on more machines…'));
+  await hold(page, 800);
+  await spot([page.locator('.pg-pool'), page.locator('.pg-pool-add')]);
   await hold(page, 3000);
   await page.screenshot({ path: path.join(ROOT, '.video/work/companion-chip.png') });
 
   mark('settings-compute');
+  unspot();
   await pointer.click(page.getByRole('button', { name: 'Settings', exact: true }));
   await pointer.click(page.getByRole('tab', { name: /Compute & playgrounds/ }));
   await hold(page, 800);
+  await spot(page.locator('#settings-compute .cp-row'));
+  await hold(page, 1200);
+  await spot(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));
   await pointer.moveTo(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));
-  await hold(page, 3000);
+  await hold(page, 2600);
   await page.screenshot({ path: path.join(ROOT, '.video/work/companion-settings.png') });
 
   mark('settings-updates');
+  unspot();
   await pointer.click(page.getByRole('tab', { name: /Updates/ }));
+  await hold(page, 600);
+  await spot(page.getByText(/Companion on Saurav/).locator('..'));
   await hold(page, 3200);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-updates.png') });
+  unspot();
+  await hold(page, 600);
 }
 
 /** For trying beats out of the take (.video/work/probe.mjs): the Companion shown, and its code now. */
