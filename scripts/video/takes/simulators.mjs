@@ -114,6 +114,8 @@ class Replay {
     this.meta = JSON.parse(readFileSync(path.join(this.src, 'run.json'), 'utf8'));
     this.at = 0;
     this.lastStep = 0;
+    // Converted before the camera rolls, not as the lines land.
+    for (const { e } of this.lines) if (typeof e.path === 'string' && /\.mp4$/.test(e.path)) webmOf(path.join(this.src, e.path));
   }
 
   /** Lines up to the first one past `fraction` of the run's steps, written at once, the newest at about `ago` seconds ago. */
