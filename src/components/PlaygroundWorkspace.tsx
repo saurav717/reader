@@ -62,7 +62,7 @@ import { implementationFor, loadImplementation, subscribeImplement } from '../li
 import { currentDbName, subscribeDb } from '../lib/db';
 import { useEnsureProject } from '../lib/implementationProject';
 import { ensurePaperContext, PAPER_FILES_NOTE, PAPER_TEXT_FILE, paperContextSummary } from '../lib/paperContext';
-import { DATA_NOTE, dataConfigPath, dataFolderNameOf, dataHost, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
+import { DATA_NOTE, dataConfigPath, dataFolderId, dataFolderLink, dataFolderNameOf, dataHost, dataModulePath, dataPlaceOf, dataSetup, ensureDataLink, forgetDataLink, KOIOS_DATA_PY, OFFER_FREE_BYTES, renewDataLink, type DataLink } from '../lib/dataStore';
 import { companionDisk } from '../lib/moves';
 import { mayStopIdle } from '../lib/idleWork';
 import { offerProject, readProjectFiles } from '../lib/projectScreen';
@@ -804,8 +804,11 @@ function MachineChip({ playground, name, usable, onChange, onPool, onNote }: { p
 
 // --------------------------------------------------------------- the files --
 
+/** Where an open file is: the project's folder, the machine's copy, or the data place (datasets, checkpoints, runs). */
+type Where = 'home' | 'machine' | 'data';
+
 interface OpenFile {
-  where: 'home' | 'machine';
+  where: Where;
   path: string;
   text: string;
   saved: string;
@@ -1208,6 +1211,12 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const home = useMemo(() => homeHost(playground), [playground, servers]);
   const machine = useMemo(() => machineHost(playground, machineName), [playground, machineName, servers]);
   const homeLabel = homeLabelOf(playground, machineName);
+  // The data place, browsable beside the code: Koios/Data/<project> in Drive, koios-data/<project> on a computer of
+  // yours, or — data kept on the machine's own disk — the machine's folder, where runs and checkpoints are written.
+  const dataFiles = useMemo(() => dataHost(playground), [playground, driveOn, servers]);
+  const dataLabel = dataPlace.kind === 'drive' ? 'Google Drive' : dataPlace.kind === 'server' ? dataServer?.name ?? 'your computer' : `${machineName}’s disk`;
+  const hostOf = (where: Where): FileHost => (where === 'home' ? home : where === 'data' && dataFiles ? dataFiles : machine);
+  const whereLabel = (where: Where) => (where === 'home' ? homeLabel : where === 'data' ? `Data · ${dataLabel}` : machineName);
   // The workbench, as VS Code lays it out: the activity bar's view in the side bar, the agent on the right, the panel below.
   const [primary, setPrimary] = useState<Primary>(() => readLocal<Primary>('reader.pgPrimary', 'explorer'));
   const [agentOpen, setAgentOpenState] = useState(() => readLocal('reader.pgAgent', true));
@@ -1336,7 +1345,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   useEffect(() => {
     if (!current || !currentKey) return;
     const { where, path } = current;
-    const host = where === 'home' ? home : machine;
+    const host = hostOf(where);
     let live = true;
     let reading = false;
     const check = async () => {
@@ -1654,14 +1663,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     });
     setFocus(Math.min(group, 1));
   };
-  const open = async (where: 'home' | 'machine', path: string, at: { group?: number; line?: number } = {}) => {
+  const open = async (where: Where, path: string, at: { group?: number; line?: number } = {}) => {
     const key = `${where}:${path}`;
     const group = at.group ?? focused;
     if (at.line) goTo.current = { group: Math.min(group, 1), line: at.line };
     if (files.some((file) => `${file.where}:${file.path}` === key)) return show(key, group);
     setProblem(null);
     try {
-      const text = (await (where === 'home' ? home : machine).read(path)) ?? '';
+      const text = (await hostOf(where).read(path)) ?? '';
       setFiles((list) => (list.some((f) => `${f.where}:${f.path}` === key) ? list : [...list, { where, path, text, saved: text }]));
       show(key, group);
     } catch (error) {
@@ -1740,7 +1749,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const save = async (file: OpenFile) => {
     setProblem(null);
     try {
-      await (file.where === 'home' ? home : machine).write(file.path, file.text);
+      await hostOf(file.where).write(file.path, file.text);
       setFiles((list) => list.map((f) => (f === file ? { ...f, saved: f.text } : f)));
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -2175,7 +2184,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const reloadOpen = async () => {
     for (const file of filesRef.current) {
       if (file.text !== file.saved) continue;
-      const disk = await (file.where === 'home' ? home : machine).read(file.path).catch(() => null);
+      const disk = await hostOf(file.where).read(file.path).catch(() => null);
       if (disk !== null && disk !== file.saved) setFiles((list) => list.map((f) => (f.where === file.where && f.path === file.path && f.text === f.saved ? { ...f, text: disk, saved: disk } : f)));
     }
   };
@@ -2243,7 +2252,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     { id: 'autoSave', label: `File: ${settings.autoSave ? 'Turn Off' : 'Turn On'} Auto Save`, run: () => setSettings({ autoSave: !settings.autoSave }) },
     { id: 'close', label: 'View: Close Editor', keys: 'alt+w', run: () => active && closeTab(focused, active) },
     { id: 'closeAll', label: 'View: Close All Editors in Group', run: () => closeMany(focused, groups[focused]?.tabs ?? []) },
-    { id: 'reopen', label: 'View: Reopen Closed Editor', keys: 'alt+shift+t', run: () => closed.current[0] && void open(closed.current[0].startsWith('home:') ? 'home' : 'machine', closed.current[0].slice(closed.current[0].indexOf(':') + 1)) },
+    { id: 'reopen', label: 'View: Reopen Closed Editor', keys: 'alt+shift+t', run: () => closed.current[0] && void open(closed.current[0].slice(0, closed.current[0].indexOf(':')) as Where, closed.current[0].slice(closed.current[0].indexOf(':') + 1)) },
     { id: 'split', label: 'View: Split Editor Right', keys: 'mod+\\', run: splitRight },
     { id: 'group1', label: 'View: Focus First Editor Group', keys: 'mod+1', run: () => (setFocus(0), focusEditor()) },
     { id: 'group2', label: 'View: Focus Second Editor Group', keys: 'mod+2', run: () => (groups.length > 1 ? (setFocus(1), focusEditor()) : splitRight()) },
@@ -2439,9 +2448,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 onAuxClick={(event) => event.button === 1 && closeTab(index, key)}
                 onContextMenu={(event) => tabMenu(event, index, key)}
               >
-                <button type="button" role="tab" aria-selected={key === g.active} onClick={() => show(key, index)} title={`${tab.where === 'home' ? homeLabel : machineName} · ${tab.path}`}>
+                <button type="button" role="tab" aria-selected={key === g.active} onClick={() => show(key, index)} title={`${whereLabel(tab.where)} · ${tab.path}`}>
                   <FileIcon path={tab.path} />
-                  {tab.where === 'machine' ? '⇣ ' : ''}
+                  {tab.where === 'machine' ? '⇣ ' : tab.where === 'data' ? '◆ ' : ''}
                   {tab.path.split('/').pop()}
                 </button>
                 <button type="button" className="pg-tab-x" aria-label={`Close ${tab.path}`} title={`Close (${keyLabel('alt+w')})`} onClick={() => closeTab(index, key)}>
@@ -2483,7 +2492,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
         </div>
         {file ? (
           <div className="vs-crumbs">
-            {[file.where === 'home' ? homeLabel : machineName, ...file.path.split('/')].map((part, i, all) => (
+            {[whereLabel(file.where), ...file.path.split('/')].map((part, i, all) => (
               <span key={`${i}-${part}`} className={`${i === all.length - 1 ? 'is-file' : ''}${i === all.length - 1 && !path.length ? ' is-last' : ''}`} title={part}>
                 {i === all.length - 1 ? <FileIcon path={part} /> : null}
                 <span className="vs-crumb-text">{part}</span>
@@ -2705,6 +2714,27 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   // The machine's copy is a working copy: the files go over before each run and the runtime's disk goes with the
                   // runtime; what a run writes there (runs/, results/) is what comes back. Folded, so it doesn't read as a second set of files.
                   <Tree version={refresh + (connected ? 1000 : 0)} host={machine} label={`Working copy on ${machineName}`} note={connected ? `Sent before each run, gone with the runtime. What runs write here — runs/, results/ — comes back to ${homeLabel}.` : 'Connect to see the working copy on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} collapsed />
+                ) : null}
+                {dataFiles || split ? (
+                  // Where the project's data and its runs are (dataStore.ts): looked at here, opened in Drive itself when it is Drive.
+                  <Tree
+                    version={refresh + (connected ? 1000 : 0)}
+                    host={dataFiles ?? machine}
+                    label={`Data & runs · ${dataLabel}`}
+                    icon={dataPlace.kind === 'drive' ? <DriveMark size={12} /> : undefined}
+                    note={dataFiles ? undefined : `Data and runs are kept on ${machineName}’s own disk, and go with the runtime. Connect to see them; Storage & compute → Data & results keeps them in Google Drive or on a computer of yours instead.`}
+                    disabled={!dataFiles && !connected}
+                    action={
+                      dataPlace.kind === 'drive' ? (
+                        <button type="button" className="link pg-tree-action" onClick={() => void dataFolderId(playground).then((id) => window.open(dataFolderLink(id), '_blank', 'noopener')).catch((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)))} title="Open the project’s data folder (Koios/Data) in Google Drive">
+                          Open in Drive ↗
+                        </button>
+                      ) : undefined
+                    }
+                    onOpen={(path) => void open(dataFiles ? 'data' : 'machine', path)}
+                    activePath={current?.where === (dataFiles ? 'data' : 'machine') ? current.path : null}
+                    collapsed
+                  />
                 ) : null}
               </div>
             ) : primary === 'search' ? (
@@ -3163,7 +3193,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   );
 }
 
-function Tree({ host, label, icon, note, disabled, onOpen, activePath, version = 0, onContext, collapsed = false }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void; /** Folded when first shown: a working copy, not the files themselves. */ collapsed?: boolean }) {
+function Tree({ host, label, icon, note, action, disabled, onOpen, activePath, version = 0, onContext, collapsed = false }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; /** Beside the heading: a link out, as to the folder in Drive. */ action?: React.ReactNode; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void; /** Folded when first shown: a working copy, not the files themselves. */ collapsed?: boolean }) {
   const [open, setOpen] = useState(!collapsed);
   return (
     <div className="pg-tree-part">
@@ -3172,6 +3202,7 @@ function Tree({ host, label, icon, note, disabled, onOpen, activePath, version =
         {icon}
         <span>{label}</span>
       </button>
+      {action}
       {!open ? null : disabled ? <p className="pg-note pg-pad">{note}</p> : <Folder host={host} path="" depth={0} onOpen={onOpen} activePath={activePath} version={version} onContext={onContext} />}
     </div>
   );

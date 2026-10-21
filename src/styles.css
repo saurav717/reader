@@ -6089,6 +6089,9 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .vs-side-title span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-tree-head.vs-section { width: 100%; display: flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px; border: 0; background: transparent; font: 700 10.5px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; text-align: left; }
 .pg-tree-head.vs-section span:last-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-tree-part:has(> .pg-tree-action) { position: relative; }
+.pg-tree-part:has(> .pg-tree-action) > .pg-tree-head.vs-section { padding-right: 104px; }
+.pg-tree-action { position: absolute; top: 4px; right: 10px; font: 500 11px var(--sans); white-space: nowrap; }
 .vs-chev { display: inline-block; width: 10px; flex: none; color: var(--muted); font: 600 13px/1 var(--sans); transition: transform 0.12s; }
 .is-open > .vs-chev, .vs-section.is-open .vs-chev { transform: rotate(90deg); }
 .vs-sidebar .pg-entry::before, .vs-sidebar .pg-entry.is-dir.is-open::before { content: none; }
