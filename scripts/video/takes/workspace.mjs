@@ -24,10 +24,10 @@
  * Stood in for: Claude's answers to the agent (api.anthropic.com, as the
  * SSE stream the SDK reads, in the page — scripts/implement-smoke.mjs does
  * the same); the Companion's name and hardware, put as a Mac would say
- * them, as the companion take does; and, for VS Code's first page only,
- * the Companion's proxy (see setup: VS Code 1.143 and Tornado 6.6 don't get
- * on through it), with VS Code's own preferences set as a person would have
- * them (folder trusted, Koios Dark, no welcome tab or chat).
+ * them, as the companion take does; and VS Code's own preferences, set on
+ * its first page as a person would have them (folder trusted, Koios Dark, no
+ * welcome tab or chat). Everything VS Code sends comes through the
+ * Companion's proxy as it is.
  *
  * Needs, once:  .video/jvenv (see companion.mjs) with pytest in it;
  *   curl -sSL -o .video/wscode/cli.tgz https://update.code.visualstudio.com/latest/cli-linux-x64/stable && tar xzf .video/wscode/cli.tgz -C .video/wscode/bin
@@ -289,54 +289,12 @@ export async function setup(context) {
     return route.fallback();
   });
 
-  // VS Code's page itself, through the Companion. Three things stand in for the Companion's proxy here, all on
-  // that one page (everything after it goes through the Companion as it is):
-  //  - VS Code 1.143 sends its Content-Security-Policy in a form Tornado 6.6 won't relay (a 500, "Invalid header
-  //    value"), so the page is fetched here, from the same `code serve-web` the Companion started, and given the
-  //    headers the Companion means to give it (the policy without its own frame-ancestors, framed only by the site);
-  //  - the page names serve-web's own port as the address to reach VS Code's server at, which the frame can't
-  //    reach: it is pointed at the Companion's address instead, which relays to it;
-  //  - VS Code's preferences, as a person would have set them: the folder trusted (the Koios extension is off in
-  //    Restricted Mode), Koios Dark (the extension's theme), no welcome tab, no chat, no git prompt.
-  // And the frame's script reads VS Code's connection token from its cookie, which the Companion drops: given it.
-  await context.addInitScript(
-    ({ port, token }) => {
-      if (location.port !== port) return;
-      const own = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
-      Object.defineProperty(Document.prototype, 'cookie', {
-        configurable: true,
-        get() {
-          const jar = own.get.call(this);
-          return jar ? `${jar}; vscode-tkn=${token}` : `vscode-tkn=${token}`;
-        },
-        set(value) {
-          own.set.call(this, value);
-        },
-      });
-    },
-    { port: String(PORT), token: web.token },
-  );
-  const here = `127.0.0.1:${PORT}`;
+  // VS Code's page itself, through the Companion as it is. Only its preferences are set here, as a person would
+  // have set them: the folder trusted (the Koios extension is off in Restricted Mode), Koios Dark (the
+  // extension's theme), no welcome tab, no chat, no git prompt.
   await context.route(new RegExp(`^http://127\\.0\\.0\\.1:${PORT}/companion/vscode/[^/]+/(\\?.*)?$`), async (route) => {
-    const now = serveWeb() ?? web;
-    const asked = new URL(route.request().url());
-    const response = await fetch(`http://127.0.0.1:${now.port}${asked.pathname}${asked.search}`, { headers: { Cookie: `vscode-tkn=${now.token}` } });
-    const there = `127.0.0.1:${now.port}`;
-    const headers = {};
-    response.headers.forEach((value, name) => {
-      if (['set-cookie', 'x-frame-options', 'content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(name)) return;
-      const v =
-        name === 'content-security-policy'
-          ? value
-              .split(/[;,]/)
-              .map((part) => part.replace(/\s+/g, ' ').trim())
-              .filter((part) => part && !/^frame-ancestors/i.test(part))
-              .concat(`frame-ancestors 'self' ${BASE}`)
-              .join('; ')
-          : value;
-      headers[name] = v.replaceAll(there, here);
-    });
-    let body = (await response.text()).replaceAll(there, here);
+    const response = await route.fetch();
+    let body = await response.text();
     body = body.replace(/(id="vscode-workbench-web-configuration" data-settings=")([^"]*)"/, (all, head, raw) => {
       const settings = JSON.parse(raw.replaceAll('&quot;', '"').replaceAll('&amp;', '&'));
       settings.enableWorkspaceTrust = false;
@@ -353,7 +311,7 @@ export async function setup(context) {
       };
       return `${head}${JSON.stringify(settings).replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"`;
     });
-    return route.fulfill({ status: response.status, headers, body });
+    return route.fulfill({ response, body });
   });
 
   // The paper, for the folder's paper/ files.

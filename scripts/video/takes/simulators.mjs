@@ -15,11 +15,17 @@
  * experiments/ folder and the logbook in IndexedDB). The runs themselves are
  * real runs of this project's own ppo.py and world_model.py (made by the
  * app's simProject, run on this machine's CPU with MuJoCo/OSMesa in
- * .video/simvenv; see .video/simwork/cheetah), REPLAYED into the new
+ * .video/simvenv: PPO in .video/simwork/cheetah2, whose env.py renders
+ * through HalfCheetah's "track" camera so the cheetah stays in frame, and
+ * the world model in .video/simwork/cheetah, stopped at 1,000 of its 3,000
+ * iterations), REPLAYED into the new
  * project's runs/ folder by this take: a run that is already part-way
  * along when the pane opens, the rest of its lines written over ~40 s (the
  * last part of training sped up), its videos copied as their lines land,
- * and the live view fed with frames of its last recorded video.
+ * and the live view fed with frames of its last recorded video. Videos are
+ * converted to WebM (VP9): this Chromium plays no H.264. PPO's final
+ * evaluation is left out (ppo.py evaluates without its observation
+ * normalisation, so that number is wrong).
  *
  * Stood in for: the notes Ask AI's model writes (api.anthropic.com, a fixed
  * text streamed, written from the run's real numbers); the Companion's name
@@ -28,7 +34,7 @@
  * playground made on camera (its id fixed for that one create).
  *
  * Needs, once: python3 -m venv .video/simvenv && .video/simvenv/bin/pip install "gymnasium[mujoco]" imageio imageio-ffmpeg torch (cpu),
- * apt-get install libosmesa6, and the recorded runs in .video/simwork/cheetah/runs (python ppo.py --total-steps 400000; python world_model.py).
+ * apt-get install libosmesa6, and the recorded runs in .video/simwork/cheetah{,2}/runs (python ppo.py --total-steps 400000; python world_model.py).
  */
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -494,7 +500,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await videos.scrollIntoViewIfNeeded();
     await videos.locator('video').waitFor({ timeout: 15_000 });
     await spot(videos);
-    await pointer.moveTo(videos.locator('figcaption'));
+    await pointer.moveTo(videos.locator('figcaption').first());
     await hold(page, 2700);
     await shot(page, 'videos');
 
@@ -514,10 +520,11 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     void wm.play(80);
     const dream = pane.locator('.sim-section-open', { hasText: 'World model' });
     await dream.waitFor({ timeout: 20_000 });
-    await dream.scrollIntoViewIfNeeded();
+    await dream.evaluate((el) => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    await hold(page, 500);
     await dream.locator('video').waitFor({ timeout: 15_000 });
     await spot(dream);
-    await pointer.moveTo(dream.locator('figcaption'));
+    await pointer.moveTo(dream.locator('figcaption').nth(1));
     await hold(page, 3600);
     await shot(page, 'dream');
 
