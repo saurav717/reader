@@ -156,8 +156,8 @@ class Mounted(unittest.TestCase):
         log = open(self.tmp / "daemon.log", "wb")
         self.addCleanup(log.close)
         self.daemon = subprocess.Popen(
-            [sys.executable, koios_mount.__file__, "serve", f"--url=ws://127.0.0.1:{self.port}/companion/mount/socket", f"--key={self.key}", f"--at={self.at}", f"--mode={mode or self.mode}"],
-            stdout=log, stderr=log, env={**os.environ},
+            [sys.executable, koios_mount.__file__, "serve", f"--url=ws://127.0.0.1:{self.port}/companion/mount/socket", f"--at={self.at}", f"--mode={mode or self.mode}"],
+            stdout=log, stderr=log, env={**os.environ, "KOIOS_MOUNT_KEY": self.key},  # as start() hands it over: never in the arguments
         )
         self.addCleanup(self.stop_daemon)
         try:
@@ -322,6 +322,22 @@ class Mirrored(Mounted):
     """Where FUSE isn't allowed: a real directory, kept current both ways."""
 
     mode = "mirror"
+
+    def test_the_key_goes_in_a_header_and_an_older_machines_key_in_the_address_still_opens_it(self):
+        from tornado.httpclient import HTTPRequest
+        from tornado.websocket import websocket_connect
+
+        url = f"ws://127.0.0.1:{self.port}/companion/mount/socket"
+        wire = koios_mount.Wire(url, self.key, lambda *_: None)
+        self.assertNotIn(self.key, wire.url)
+
+        async def dial(request):
+            socket = await websocket_connect(request)
+            socket.close()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(dial(HTTPRequest(url, headers={koios_mount.KEY_HEADER: self.key})))
+        loop.run_until_complete(dial(f"{url}?key={self.key}"))
 
     def test_stopping_gives_the_machines_own_files_back_and_the_key_is_refused_after_it_is_forgotten(self):
         self.start_daemon()

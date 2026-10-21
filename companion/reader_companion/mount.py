@@ -39,7 +39,7 @@ from tornado import websocket
 from tornado.ioloop import IOLoop, PeriodicCallback
 
 from . import awake, compute, state
-from .koios_mount import compile_rules, frame, matches, unframe
+from .koios_mount import KEY_HEADER, compile_rules, frame, matches, unframe
 
 SCAN_MS = 500
 # A change this small is pushed with its bytes, so the machine never asks for it.
@@ -439,7 +439,7 @@ def stat_of(full: Path) -> list:
 
 
 class MountSocket(websocket.WebSocketHandler):
-    """/companion/mount/socket?key=…: one machine's mount of one project folder, or of a share (attach.py)."""
+    """/companion/mount/socket, with the key in X-Koios-Mount-Key: one machine's mount of one project folder, or of a share (attach.py)."""
 
     share: Share | None = None
 
@@ -454,7 +454,8 @@ class MountSocket(websocket.WebSocketHandler):
         return {"compression_level": 4, "mem_level": 8}
 
     async def get(self, *args, **kwargs):
-        record = record_for(self.get_query_argument("key", ""))
+        # In a header from 0.20.2 (kept out of the logs an address is written to); ?key= from older machines.
+        record = record_for(self.request.headers.get(KEY_HEADER) or self.get_query_argument("key", ""))
         if record is None or not record["root"].is_dir():
             self.set_status(403)
             return self.finish("This mount's key isn't known here (it was stopped): start the mount again from Koios.")
@@ -657,6 +658,10 @@ def connected(root: Path) -> int:
 # ------------------------------------------------------------- starting it there --
 
 
+# fusepy, at the version the mount is tested with: a release made later is never installed on a machine unseen.
+FUSEPY = "fusepy==3.0.1"
+
+
 def remote_code(script: bytes, url: str, key: str, folder: str, mode: str) -> str:
     """Run in the compute link's kernel there: koios_mount.py written beside its state, fusepy (and libfuse, as root)
     installed when the fuse mode can be had, and the daemon started. Prints its status as JSON."""
@@ -668,19 +673,20 @@ _p = _o.path.join(_home, 'koios_mount.py')
 open(_p, 'wb').write(_b.b64decode({base64.b64encode(script).decode()!r}))
 _mode = {mode!r}
 if _mode != 'mirror' and _o.path.exists('/dev/fuse'):
+    import ctypes.util as _c
+    # libfuse (apt, as root) and fusepy (pip) side by side: the apt one is most of the first mount's wait.
+    _apt = None
+    if not _c.find_library('fuse') and _o.geteuid() == 0:
+        _apt = _s.Popen('(command -v apt-get >/dev/null && apt-get install -y -q --no-install-recommends fuse libfuse2 || apt-get install -y -q --no-install-recommends fuse libfuse2t64) >/dev/null 2>&1', shell=True, env={{**_o.environ, 'DEBIAN_FRONTEND': 'noninteractive'}})
     try:
         import fuse as _f
     except ImportError:
-        _s.run([_y.executable, '-m', 'pip', 'install', '-q', 'fusepy'], stdout=_s.DEVNULL, stderr=_s.DEVNULL)
+        _s.run([_y.executable, '-m', 'pip', 'install', '-q', '--disable-pip-version-check', {FUSEPY!r}], stdout=_s.DEVNULL, stderr=_s.DEVNULL)
     except OSError:
         pass
-    try:
-        _i.invalidate_caches(); import fuse as _f
-    except OSError:
-        if _o.geteuid() == 0:
-            _s.run('(command -v apt-get >/dev/null && apt-get install -y -q fuse libfuse2 || apt-get install -y -q fuse libfuse2t64) >/dev/null 2>&1', shell=True)
-    except ImportError:
-        pass
+    if _apt is not None:
+        _apt.wait()
+    _i.invalidate_caches()
 _y.path.insert(0, _home)
 import koios_mount as _k
 _i.reload(_k)
