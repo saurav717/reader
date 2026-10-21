@@ -72,7 +72,14 @@ const TOP_WORKS = {
 };
 /** A cited work, as OpenAlex would know it: the title read off the entry, given back. */
 const CITES = [40100, 28700, 12900, 9800, 7600, 5400, 3300, 2200];
+const KNOWN = {
+  'long short-term memory': ['Long Short-Term Memory', 1997, 98400, 'Sepp Hochreiter', 'Neural Computation'],
+  'neural machine translation by jointly learning to align and translate': ['Neural Machine Translation by Jointly Learning to Align and Translate', 2015, 31200, 'Dzmitry Bahdanau', 'ICLR'],
+  'deep residual learning for image recognition': ['Deep Residual Learning for Image Recognition', 2016, 245000, 'Kaiming He', 'CVPR'],
+};
 const citedWork = (title) => {
+  const known = KNOWN[title.toLowerCase().replace(/[.\s]+$/, '')];
+  if (known) return { ...work(`W8${known[1]}`, ...known), abstract_inverted_index: { A: [0], model: [1], 'for': [2], sequences: [3] } };
   const n = [...title].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
   return { ...work(`W9${n}`, title, 2014 + (n % 3), CITES[n % CITES.length], 'Someone Else', ['NeurIPS', 'ICLR', 'EMNLP', 'ACL'][n % 4]), abstract_inverted_index: { A: [0], model: [1], 'for': [2], sequences: [3] } };
 };
@@ -320,9 +327,19 @@ export default async function ({ page, pointer, mark }) {
   await pdfReady(page);
   await hold(1500);
 
-  mark('loupe');
+  mark('zoom');
   const fig = page.locator('.pdf-book-page[data-page="3"]');
-  const box = await fig.boundingBox();
+  let box = await fig.boundingBox();
+  await pointer.moveTo({ x: box.x + box.width * 0.55, y: 420 });
+  await pointer.key('+', '+', 700);
+  await pointer.key('+', '+', 700);
+  await pdfReady(page);
+  await hold(2000);
+  await pointer.key('0', '0', 900);
+  await pdfReady(page);
+  box = await fig.boundingBox();
+
+  mark('loupe');
   await pointer.key('l', 'L', 400);
   await pointer.moveTo({ x: box.x + box.width * 0.4, y: Math.min(box.y + box.height * 0.35, 640) }, { ms: 900 });
   await hold(1200);
@@ -334,10 +351,7 @@ export default async function ({ page, pointer, mark }) {
   await pointer.moveTo({ x: box.x + box.width * 0.5, y: Math.min(box.y + box.height * 0.3, 600) });
   await pointer.key('c', 'C', 300);
   await page.waitForSelector('.pdf-closeup-card.is-drawn', { timeout: 30000 });
-  await hold(3000);
-  await pointer.key('Tab', 'Tab', 300);
-  await page.waitForSelector('.pdf-closeup-card.is-drawn', { timeout: 30000 });
-  await hold(2600);
+  await hold(4200);
   await pointer.key('Escape', 'Esc', 1200);
 
   mark('zen');

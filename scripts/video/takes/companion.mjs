@@ -30,7 +30,7 @@ let child = null;
 function startCompanion() {
   mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
   child = spawn(path.join(VENV, 'bin/reader-companion'), ['--site', 'http://localhost:8080', '--name', NAME, '--root', path.join(HOME, 'Reader'), '--python', path.join(VENV, 'bin/python'), '--no-browser', '--no-tunnel'], {
-    env: { ...process.env, HOME, PATH: `${path.join(VENV, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, HOME, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${path.join(VENV, 'bin')}:${process.env.PATH}` },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });
@@ -66,6 +66,8 @@ export async function setup(context) {
     const url = new URL(route.request().url());
     if (url.port === '47331' || !companionUp) return route.abort();
     if (url.pathname === '/companion/show-code') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"shown":true}' });
+    // A Mac with VS Code, the Koios extension in it.
+    if (url.pathname === '/companion/vscode' && route.request().method() === 'GET') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ editors: [{ name: 'Visual Studio Code', installed: true }] }) });
     if (url.pathname === '/companion/info' || url.pathname === '/companion/pair') {
       const response = await route.fetch();
       const body = await response.json().catch(() => null);
@@ -73,6 +75,13 @@ export async function setup(context) {
       return route.fulfill({ response, body: JSON.stringify(body) });
     }
     return route.fallback();
+  });
+  // The lab's A100 box: a Jupyter server that answers (nothing is run on it in this take).
+  await context.route('https://a100.lab.example.org/**', (route) => {
+    const at = new URL(route.request().url()).pathname;
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*' } });
+    const body = at === '/api' || at === '/api/' ? { version: '2.14.2' } : at.startsWith('/api/status') ? { started: new Date().toISOString(), kernels: 0, connections: 0 } : [];
+    return route.fulfill({ ...json(body), headers: { 'Access-Control-Allow-Origin': '*' } });
   });
   // The Koios app's newest release, as GitHub lists it: a signed .dmg for this Mac, and the others.
   const asset = (name) => ({ name, browser_download_url: `https://github.com/saurav717/reader/releases/download/v0.20.0/${name}` });
@@ -110,6 +119,7 @@ export default async function ({ page, pointer, mark }) {
 
   mark('download-app');
   await pointer.moveTo(card.locator('.pg-companion-way').first());
+  await page.mouse.wheel(0, 260);
   await hold(page, 900);
   await pointer.moveTo(card.locator('.pg-companion-download').first());
   await hold(page, 2600);
@@ -126,6 +136,7 @@ export default async function ({ page, pointer, mark }) {
 
   mark('found');
   companionUp = true;
+  await page.mouse.wheel(0, -400);
   await card.locator('.pg-companion-found').waitFor({ timeout: 10_000 });
   await pointer.moveTo(card.locator('.pg-companion-found'));
   await hold(page, 2800);
@@ -171,6 +182,35 @@ export default async function ({ page, pointer, mark }) {
 
   mark('project');
   await page.locator('.vs-activity').waitFor({ timeout: 20_000 });
-  await hold(page, 3500);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-project.png') });
+  await hold(page, 3000);
+
+  mark('terminal');
+  const term = page.locator('.xterm').first();
+  await term.waitFor({ timeout: 15_000 });
+  await pointer.click(term);
+  await pointer.type('ls');
+  await pointer.key('Enter', '⏎', 900);
+  await pointer.type('python -c "import numpy; print(numpy.__version__)"', { delay: 35 });
+  await pointer.key('Enter', '⏎', 600);
+  await hold(page, 2800);
+
+  mark('machine-menu');
+  await pointer.click(page.locator('.pg-chip').first());
+  await hold(page, 2800);
+  await pointer.click(page.getByText('Run on more machines…'));
+  await hold(page, 3000);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-chip.png') });
+
+  mark('settings-compute');
+  await pointer.click(page.getByRole('button', { name: 'Settings', exact: true }));
+  await pointer.click(page.getByRole('tab', { name: /Compute & playgrounds/ }));
+  await hold(page, 800);
+  await pointer.moveTo(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));
+  await hold(page, 3000);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-settings.png') });
+
+  mark('settings-updates');
+  await pointer.click(page.getByRole('tab', { name: /Updates/ }));
+  await hold(page, 3200);
+  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-updates.png') });
 }

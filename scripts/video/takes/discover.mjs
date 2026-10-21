@@ -44,7 +44,7 @@ const PAPERS = [
     versions: 7,
     cluster: '9412361002741835167',
     abstract:
-      'In deep learning, models typically reuse the same parameters for all inputs. Mixture of Experts (MoE) defies this and instead selects different parameters for each incoming example. The result is a sparsely-activated model — with outrageous numbers of parameters — but a constant computational cost. However, despite several notable successes of MoE, widespread adoption has been hindered by complexity, communication costs and training instability. We address these with the Switch Transformer: we simplify the MoE routing algorithm and design intuitive improved models with reduced communication and computational costs.',
+      'In deep learning, models typically reuse the same parameters for all inputs. Mixture of Experts (MoE) defies this and instead selects different parameters for each incoming example.',
   },
   {
     key: 'expert-choice',
@@ -254,7 +254,7 @@ const SCHOLAR_PERSON = {
   citedBy: 262418,
 };
 const OPENALEX_PEOPLE = [
-  { id: 'https://openalex.org/A5014829317', display_name: 'Noam Shazeer', orcid: null, works_count: 96, cited_by_count: 241377, summary_stats: { h_index: 47 }, last_known_institutions: [{ display_name: 'Google (United States)' }] },
+  { id: 'https://openalex.org/A5014829317', display_name: 'Noam Shazeer', orcid: null, works_count: 96, cited_by_count: 241377, summary_stats: { h_index: 47 }, last_known_institutions: [{ display_name: 'Google DeepMind' }] },
   { id: 'https://openalex.org/A5090377012', display_name: 'N. Shazeer', orcid: null, works_count: 4, cited_by_count: 212, summary_stats: { h_index: 3 }, last_known_institutions: [] },
 ];
 const SHAZEER_WORKS = [
@@ -347,7 +347,7 @@ export async function setup(context) {
         return delay(300, {
           results: [
             { title: by.switch.title, authors: by.switch.short, snippet: '', url: 'https://research.google/pubs/switch-transformers-scaling-to-trillion-parameter-models-with-simple-and-efficient-sparsity/' },
-            { title: by.switch.title, authors: by.switch.short, snippet: '', url: 'https://dl.acm.org/doi/abs/10.5555/3586589.3586709', pdfUrl: 'https://jmlr.org/papers/volume23/21-0998/21-0998.pdf', pdfHost: 'jmlr.org' },
+            { title: by.switch.title, authors: by.switch.short, snippet: '', url: 'https://dl.acm.org/doi/abs/10.5555/3586589.3586709' },
           ],
         });
       if (cluster === by['expert-choice'].cluster)
@@ -379,7 +379,8 @@ export async function setup(context) {
       const paper = PAPERS.find((p) => p.title.toLowerCase().replace(/[,:|]+/g, ' ').startsWith(wanted.slice(0, 30)));
       return delay(250, { results: paper ? [openAlexWork(paper)] : [] });
     }
-    if (/shazeer/i.test(url.searchParams.get('search') || '')) return delay(400, { results: [] });
+    // Shazeer is a person here, not a topic; and Home's suggestions near the library's paper are left out.
+    if (/shazeer|gshard/i.test(url.searchParams.get('search') || '') || /raw_author_name/.test(filter)) return delay(400, { results: [] });
     if (url.searchParams.get('search')) return delay(500, { results: OPENALEX_ORDER.map((key) => openAlexWork(by[key])) });
     return route.fulfill(json({ results: [] }));
   });
@@ -511,7 +512,7 @@ export default async function ({ page, pointer, mark }) {
 
   // 3. A person: Discover lays a name out as their profile.
   mark('people');
-  await pointer.click(page.getByRole('button', { name: 'Discover papers' }), { pause: 900 });
+  await pointer.click(page.locator('.nav-panelbar-group button', { hasText: 'Discover' }), { pause: 900 });
   const panel = page.locator('.discover-panel');
   await panel.waitFor({ timeout: 10000 });
   const field = panel.getByLabel('Search papers and people');
