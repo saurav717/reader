@@ -1,1145 +1,197 @@
 {
  "name": "explainer",
- "take": "showcase",
- "crossfade": 0.45,
+ "crossfade": 0.4,
+ "fit": { "slack": 1.4, "maxSpeed": 1.5 },
  "voice": {
   "name": "ash",
   "instructions": "A calm, clear explainer narrator for researchers. Warm and unhurried, plain-spoken, with natural pauses between ideas. Friendly, never salesy.",
-  "gap": 0.5
+  "gap": 0.45
  },
  "shots": [
   {
-   "name": "welcome",
-   "take": "welcome",
-   "clips": [
-    {
-     "from": "start+0.4",
-     "to": "start+8.8",
-     "zoom": [
-      1.0,
-      1.04
-     ],
-     "at": [
-      0.3,
-      0.45
-     ]
-    },
-    {
-     "from": "next+0.2",
-     "to": "next+8.6",
-     "zoom": [
-      1.0,
-      1.04
-     ],
-     "at": [
-      0.3,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Research runs on papers: finding them, reading them, understanding them, and building on them.",
-    "Koios is a reader made for all of it. Here is how it works."
-   ],
+   "name": "welcome", "take": "welcome",
+   "clips": [{ "from": "start+0.4", "to": "next" }, { "from": "next+0.2", "to": "end" }],
+   "vo": ["Research runs on papers: finding them, reading them, understanding them, and building on them.", "Koios is one place for all of it. Here is how it works."],
    "voAt": 0.8
   },
+
+  { "name": "find-query", "take": "discover", "chapter": ["01", "Find"], "caption": "One search box, *every* index.",
+   "clips": [{ "from": "query-1", "to": "results" }],
+   "vo": "It starts with one search box. Type a topic, and choose where to look: arXiv, OpenAlex, Semantic Scholar, Crossref, Google Scholar, even books and PDFs." },
+  { "name": "find-results", "take": "discover", "chapter": ["01", "Find"], "caption": "Asked at once, merged into *one* list.",
+   "clips": [{ "from": "results", "to": "detail" }],
+   "vo": "Koios asks them all at once, and merges the answers: a paper several indexes know shows up once, with the best of what each knows." },
+  { "name": "find-copies", "take": "discover", "chapter": ["01", "Find"], "caption": "Every place a paper can be read.",
+   "clips": [{ "from": "detail", "to": "people" }],
+   "vo": "Open a result to see every place it can be read: the preprint, the published version, repository copies. One click saves it to a collection, with Undo." },
+  { "name": "find-people", "take": "discover", "chapter": ["01", "Find"], "caption": "Search for *people*, too.",
+   "clips": [{ "from": "people", "to": "poster" }],
+   "vo": ["Search for a person, and you get their profile:", "where they work, their citations and h-index, and everything they have written, newest first or most cited."] },
+  { "name": "find-poster", "take": "discover", "chapter": ["01", "Find"], "caption": "It reads the *paper*, not the poster.",
+   "clips": [{ "from": "poster", "to": "end" }],
+   "vo": ["When you open a paper, Koios tries each copy until one hands over the real thing.", "Here the first copy was the conference poster. It was passed over, and the list says why."] },
+
+  { "name": "home-views", "take": "home", "chapter": ["02", "Your library"], "caption": "Everything you keep, on *Home*.",
+   "clips": [{ "from": "home-find-papers+0.3", "to": "continue-reading" }],
+   "vo": "Everything you save lives on Home: your collections, what you are reading, and what to read next." },
+  { "name": "home-continue", "take": "home", "chapter": ["02", "Your library"], "caption": "Pick up *exactly* where you stopped.",
+   "clips": [{ "from": "continue-reading", "to": "today" }],
+   "vo": "Continue reading shows the very page where you stopped: what you have read is dimmed, with a line where you left off." },
+  { "name": "home-plan", "take": "home", "chapter": ["02", "Your library"], "caption": "A plan for *today*, and what's new.",
+   "clips": [{ "from": "today", "to": "collections" }],
+   "vo": "Today turns your library into a short plan. Inbox gathers the papers that arrived since your last visit." },
+  { "name": "home-collections", "take": "home", "chapter": ["02", "Your library"], "caption": "Collections: drag a paper where it belongs.",
+   "clips": [{ "from": "collections", "to": "resume" }],
+   "vo": "Collections lay your papers out in columns. Drag one across to move it." },
+  { "name": "home-desk", "take": "home", "chapter": ["02", "Your library"], "caption": "*R*: your desk. Every paper in progress.",
+   "clips": [{ "from": "resume", "to": "desk-switch+1.5" }, { "from": "go-home", "to": "end" }],
+   "vo": ["Resume, and you are back on the page.", "Press R for your desk: every paper in progress, side by side, each at the line you left it. G takes you home."] },
+
+  { "name": "read-modes", "take": "read", "chapter": ["03", "Read"], "caption": "As typeset, or *reflowed* to read.",
+   "clips": [{ "from": "start+0.3", "to": "book" }],
+   "vo": "Read a paper as it was typeset, or switch to Reflow: the same text, laid out to read comfortably at any width." },
+  { "name": "read-book", "take": "read", "chapter": ["03", "Read"], "caption": "Or as a *book*.",
+   "clips": [{ "from": "book", "to": "pdf-again" }],
+   "vo": "Or as a book, two pages side by side, turned with the arrow keys." },
+  { "name": "read-look", "take": "read", "chapter": ["03", "Read"], "caption": "Zoom, a *loupe*, and figures up close.",
+   "clips": [{ "from": "pdf-again", "to": "zen" }],
+   "vo": ["Zoom in, with a map to find your way.", "L brings out a loupe. C lifts a figure off the page, full screen, caption and all."] },
+  { "name": "read-zen", "take": "read", "chapter": ["03", "Read"], "caption": "*Z*: just you and the page.",
+   "clips": [{ "from": "zen", "to": "end" }],
+   "vo": "And Z is zen: everything else falls away." },
+
+  { "name": "highlight", "take": "annotate", "chapter": ["04", "Mark and keep"], "caption": "Highlight, in PDF *and* Reflow.",
+   "clips": [{ "from": "highlight", "to": "lookup" }],
+   "vo": "Select a passage to highlight it. The same marks show in the PDF and in Reflow." },
+  { "name": "lookup", "take": "annotate", "chapter": ["04", "Mark and keep"], "caption": "Right-click: what it *means*, where it *comes from*.",
+   "clips": [{ "from": "lookup", "to": "hover-author" }],
+   "vo": ["Right-click a term, and a card opens beside it, never over it.", "What the word means. Where the idea comes from, with the earliest papers to use it. And a comment, which highlights the passage as you type."] },
+  { "name": "hover", "take": "annotate", "chapter": ["04", "Mark and keep"], "caption": "Hover an author, or a *citation*.",
+   "clips": [{ "from": "hover-author", "to": "keep-figure" }],
+   "vo": "Rest the pointer on an author to see who they are, or on a citation for the paper it points to." },
+  { "name": "notes", "take": "annotate", "chapter": ["04", "Mark and keep"], "caption": "Your notes, by section, and a *board*.",
+   "clips": [{ "from": "keep-figure", "to": "sticky" }],
+   "vo": ["Keep a figure in your notes with one click.", "H opens your notes: every highlight and comment, by section. B spreads them on a board, to think with."] },
+  { "name": "sticky", "take": "annotate", "chapter": ["04", "Mark and keep"], "caption": "*M* pins a sticky to the page.",
+   "clips": [{ "from": "sticky", "to": "end" }],
+   "vo": "And M pins a sticky note right onto the page." },
+
+  { "name": "ask-open", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "Ask about *what's on your screen*.",
+   "clips": [{ "from": "open", "to": "passage-shown" }],
+   "vo": ["Press Control and backslash, and Ask AI floats over the page.", "It reads what is on your screen with every question, so there is nothing to paste."] },
+  { "name": "ask-passages", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "Every answer *points* at the paper.",
+   "clips": [{ "from": "passage-shown", "to": "figure" }],
+   "vo": "An answer that rests on the paper lists the passages it used. The paper scrolls to the first and marks it; click another, and it goes there." },
+  { "name": "ask-figure", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "Ask about a *figure*.",
+   "clips": [{ "from": "figure", "to": "models" }],
+   "vo": "Send a screenshot with your question, and ask about a figure. Answers can draw the paper's own figures inline." },
+  { "name": "ask-models", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "Claude, DeepSeek or Gemini: *your* pick.",
+   "clips": [{ "from": "models", "to": "web" }],
+   "vo": "Pick the model: Claude, DeepSeek or Gemini. Switch between questions; the conversation goes along." },
+  { "name": "ask-web", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "Search the *web*, with sources.",
+   "clips": [{ "from": "web", "to": "read-next" }],
+   "vo": "Turn on the globe, and it can search the web and read pages, listing each one, and linking its sources in the answer." },
+  { "name": "ask-papers", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "Papers it names, *one click* from your library.",
+   "clips": [{ "from": "read-next", "to": "history" }],
+   "vo": "Papers it mentions become cards you can find or save, all at once if you like." },
+  { "name": "ask-window", "take": "askai", "chapter": ["05", "Ask AI"], "caption": "History, looks, and *docking*.",
+   "clips": [{ "from": "history", "to": "end" }],
+   "vo": "Every chat is kept in your history. And the window is yours to arrange: drag it, restyle it, or dock it beside the page." },
+
+  { "name": "explain", "take": "showcase", "chapter": ["06", "Explain and build"], "caption": "Press *E*: the whole paper, explained.",
+   "clips": [{ "from": "scene:explain", "to": "scene:implement" }],
+   "vo": ["Press E, and the whole paper is explained, section by section.", "The claim, the mechanism, the maths worked through, and how it has held up since."] },
+  { "name": "implement", "take": "showcase", "chapter": ["06", "Explain and build"], "caption": "Plan the *implementation*.",
+   "clips": [{ "from": "scene:implement", "to": "scene:colab" }],
+   "vo": "The Implementation tab plans how to build it yourself: what to reproduce, which datasets, a repository layout, and what it will cost on your hardware." },
+  { "name": "colab", "take": "showcase", "chapter": ["06", "Explain and build"], "caption": "A notebook from the paper, *run* on Colab.",
+   "clips": [{ "from": "scene:colab", "to": "scene:toggle" }],
+   "vo": ["Then a notebook is written from the paper, and run on Google Colab:", "here on a T4 GPU, with the machine's load read live, beside the cells."] },
+
+  { "name": "project", "take": "workspace", "chapter": ["07", "A paper becomes a project"], "caption": "From a paper to a *project*.",
+   "clips": [{ "from": "from-a-paper", "to": "files" }],
+   "vo": ["Start a project from a paper.", "It opens like an editor you know: the paper's files in it, the abstract in the README, and the implementation written in one go if you want."] },
+  { "name": "agents", "take": "workspace", "chapter": ["07", "A paper becomes a project"], "caption": "Claude Code, Codex, or Koios AI: *your* agent.",
+   "clips": [{ "from": "files", "to": "thinking" }],
+   "vo": "Beside it, an agent that has read the paper. Choose Claude Code, Codex, the built-in Koios AI, or a plain terminal." },
+  { "name": "agent-work", "take": "workspace", "chapter": ["07", "A paper becomes a project"], "caption": "It reads, writes, and *runs* the tests.",
+   "clips": [{ "from": "thinking", "to": "vscode-open" }],
+   "vo": ["Ask for a piece of the paper, with a test.", "It reads the paper, writes the files, runs the tests on your machine, and reads the result. Every change can be undone at once."] },
+  { "name": "vscode", "take": "workspace", "chapter": ["07", "A paper becomes a project"], "caption": "Or open it in *VS Code*.",
+   "clips": [{ "from": "vscode-open", "to": "end" }],
+   "vo": ["Prefer VS Code? Open the project in it, or right here in the page.", "The Koios extension lists your projects and the papers they cite, and a citation in the code is a link back to the paper."] },
+
+  { "name": "sim-pick", "take": "simulators", "chapter": ["08", "Simulators"], "caption": "*31* simulators, one click away.",
+   "clips": [{ "from": "playground", "to": "environment" }],
+   "vo": ["For reinforcement learning, start from a simulation.", "Thirty-one simulators: classic control, MuJoCo locomotion, robot arms and hands, games, driving, 3D worlds. Each says what it needs, and whether it runs on Colab."] },
+  { "name": "sim-start", "take": "simulators", "chapter": ["08", "Simulators"], "caption": "PPO, SAC, a world model: *start* from one.",
+   "clips": [{ "from": "environment", "to": "sim-pane" }],
+   "vo": "Pick an environment and a starting point: PPO or SAC in one readable file, Stable-Baselines, or a world model. Choose where it runs, and the project is made." },
+  { "name": "sim-watch", "take": "simulators", "chapter": ["08", "Simulators"], "caption": "Watch it *learn*, live.",
+   "clips": [{ "from": "sim-pane", "to": "world-model" }],
+   "vo": ["The Sim pane reads the run as it goes:", "the agent live, the return climbing, recorded videos, and every number, with findings on what is going right or wrong."] },
+  { "name": "sim-dream", "take": "simulators", "chapter": ["08", "Simulators"], "caption": "A world model's *dreams*, against the real thing.",
+   "clips": [{ "from": "world-model", "to": "filed" }],
+   "vo": "A world model's dreams play beside reality, with how far they drift." },
+  { "name": "sim-filed", "take": "simulators", "chapter": ["08", "Simulators"], "caption": "Every run, *filed* in your logbook.",
+   "clips": [{ "from": "filed", "to": "end" }],
+   "vo": "And every finished run is filed by itself, in the project's logbook, with its results and notes written for you." },
+
+  { "name": "companion-get", "take": "companion", "chapter": ["09", "Your computers"], "caption": "The *Companion* connects your computer.",
+   "clips": [{ "from": "playground", "to": "found" }],
+   "vo": ["Your code can run on your own computers too, through the Companion.", "It is a small program: inside the desktop app for Mac, Windows or Linux, one terminal command, or with the VS Code extension."] },
+  { "name": "companion-pair", "take": "companion", "chapter": ["09", "Your computers"], "caption": "Paired *once*. No tokens to paste.",
+   "clips": [{ "from": "found", "to": "where" }],
+   "vo": "Once it runs, Koios finds it. Type the code it shows, and connect. That is the whole setup." },
   {
-   "name": "find-query",
-   "take": "discover",
-   "chapter": [
-    "01",
-    "Find"
-   ],
-   "caption": "One search box, *every* index.",
-   "clips": [
-    {
-     "from": "start+1.0",
-     "to": "start+11.4",
-     "zoom": [
-      1.3,
-      1.45
-     ],
-     "at": [
-      0.5,
-      0.12
-     ]
-    }
-   ],
-   "vo": "It starts with one search box. Type a topic, and choose where to look: arXiv, OpenAlex, Semantic Scholar, Crossref, Google Scholar, even books and PDFs."
+   "name": "anywhere-you", "take": "anywhere", "fadeIn": true,
+   "clips": [{ "from": "you-1.2", "to": "code" }],
+   "vo": "Here is what that makes possible. You can work from anywhere: any browser, a café, the library, the lab."
   },
-  {
-   "name": "find-results",
-   "take": "discover",
-   "chapter": [
-    "01",
-    "Find"
-   ],
-   "caption": "Asked at once, merged into *one* list.",
-   "clips": [
-    {
-     "from": "results+0.0",
-     "to": "results+8.4",
-     "zoom": [
-      1.2,
-      1.3
-     ],
-     "at": [
-      0.42,
-      0.3
-     ]
-    }
-   ],
-   "vo": "Koios asks them all at once, and merges the answers, so a paper that several indexes know shows up once, with the best of what each one knows."
-  },
-  {
-   "name": "find-copies",
-   "take": "discover",
-   "chapter": [
-    "01",
-    "Find"
-   ],
-   "caption": "Every place a paper can be read.",
-   "clips": [
-    {
-     "from": "detail+0.0",
-     "to": "detail+12.3",
-     "zoom": [
-      1.3,
-      1.4
-     ],
-     "at": [
-      0.42,
-      0.35
-     ]
-    }
-   ],
-   "vo": "Open a result to see every place it can be read: the preprint, the published version, repository copies. One click saves it to a collection."
-  },
-  {
-   "name": "find-people",
-   "take": "discover",
-   "chapter": [
-    "01",
-    "Find"
-   ],
-   "caption": "Search for *people*, too.",
-   "clips": [
-    {
-     "from": "people+0.0",
-     "to": "people+10.2",
-     "zoom": [
-      1.0,
-      1.08
-     ],
-     "at": [
-      0.7,
-      0.3
-     ]
-    },
-    {
-     "from": "profile+0.0",
-     "to": "profile+9.7",
-     "zoom": [
-      1.9,
-      2.0
-     ],
-     "at": [
-      0.93,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Search for a person, and you get their profile.",
-    "Where they work, their citations and h-index, and everything they have written, newest first, or most cited."
-   ]
-  },
-  {
-   "name": "find-poster",
-   "take": "discover",
-   "chapter": [
-    "01",
-    "Find"
-   ],
-   "caption": "It reads the *paper*, not the poster.",
-   "clips": [
-    {
-     "from": "poster+0.0",
-     "to": "poster+6.7",
-     "zoom": [
-      1.0,
-      1.06
-     ],
-     "at": [
-      0.4,
-      0.4
-     ]
-    },
-    {
-     "from": "copy-picker+0.0",
-     "to": "copy-picker+8.6",
-     "zoom": [
-      1.7,
-      1.8
-     ],
-     "at": [
-      0.22,
-      0.12
-     ]
-    }
-   ],
-   "vo": [
-    "When you open a paper, Koios tries each copy until one hands over the real thing.",
-    "Here, the first copy was the conference poster. It was passed over, and the list says why. Any copy is one click away."
-   ]
-  },
-  {
-   "name": "home-continue",
-   "take": "home",
-   "chapter": [
-    "02",
-    "Your library"
-   ],
-   "caption": "Pick up *exactly* where you stopped.",
-   "clips": [
-    {
-     "from": "start+0.5",
-     "to": "start+10.0",
-     "zoom": [
-      1.0,
-      1.05
-     ],
-     "at": [
-      0.5,
-      0.3
-     ]
-    },
-    {
-     "from": "continue-reading+0.0",
-     "to": "continue-reading+12.8",
-     "zoom": [
-      1.15,
-      1.25
-     ],
-     "at": [
-      0.4,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Everything you save lives on Home.",
-    "Continue reading shows the very page where you stopped: what you have read is dimmed, with a line where you left off."
-   ]
-  },
-  {
-   "name": "home-plan",
-   "take": "home",
-   "chapter": [
-    "02",
-    "Your library"
-   ],
-   "caption": "A plan for *today*, and what's new.",
-   "clips": [
-    {
-     "from": "today+0.0",
-     "to": "today+9.6",
-     "zoom": [
-      1.15,
-      1.2
-     ],
-     "at": [
-      0.45,
-      0.3
-     ]
-    }
-   ],
-   "vo": "Today turns your library into a short plan: carry on, pick back up, start something new. Inbox gathers the papers that arrived since your last visit."
-  },
-  {
-   "name": "home-collections",
-   "take": "home",
-   "chapter": [
-    "02",
-    "Your library"
-   ],
-   "caption": "Collections: drag a paper where it belongs.",
-   "clips": [
-    {
-     "from": "collections+0.0",
-     "to": "collections+8.8",
-     "zoom": [
-      1.15,
-      1.2
-     ],
-     "at": [
-      0.5,
-      0.35
-     ]
-    }
-   ],
-   "vo": "Collections lay your papers out in columns. Drag one across to move it."
-  },
-  {
-   "name": "home-desk",
-   "take": "home",
-   "chapter": [
-    "02",
-    "Your library"
-   ],
-   "caption": "R: your *desk*. Every paper in progress.",
-   "clips": [
-    {
-     "from": "resume+0.0",
-     "to": "resume+5.5",
-     "zoom": [
-      1.0,
-      1.04
-     ],
-     "at": [
-      0.4,
-      0.4
-     ]
-    },
-    {
-     "from": "desk+0.0",
-     "to": "desk+6.8",
-     "zoom": [
-      1.0,
-      1.08
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    },
-    {
-     "from": "desk-switch+1.4",
-     "to": "desk-switch+13.8",
-     "zoom": [
-      1.0,
-      1.04
-     ],
-     "at": [
-      0.45,
-      0.4
-     ]
-    }
-   ],
-   "vo": [
-    "Resume, and you are back on the page.",
-    "While you read, press R for your desk: every paper in progress, side by side, each at the line you left it.",
-    "A number opens one. G takes you home."
-   ]
-  },
-  {
-   "name": "read-modes",
-   "take": "read",
-   "chapter": [
-    "03",
-    "Read"
-   ],
-   "caption": "As typeset, or *reflowed* to read.",
-   "clips": [
-    {
-     "from": "start+0.3",
-     "to": "start+5.3",
-     "zoom": [
-      1.0,
-      1.05
-     ],
-     "at": [
-      0.45,
-      0.4
-     ]
-    },
-    {
-     "from": "reflow+0.0",
-     "to": "reflow+7.8",
-     "zoom": [
-      1.1,
-      1.2
-     ],
-     "at": [
-      0.45,
-      0.35
-     ]
-    }
-   ],
-   "vo": "Open a paper and read it as it was typeset, or switch to Reflow: the same text, laid out to read comfortably at any width."
-  },
-  {
-   "name": "read-book",
-   "take": "read",
-   "chapter": [
-    "03",
-    "Read"
-   ],
-   "caption": "Or as a *book*.",
-   "clips": [
-    {
-     "from": "book+0.0",
-     "to": "book+12.1",
-     "zoom": [
-      1.0,
-      1.06
-     ],
-     "at": [
-      0.45,
-      0.45
-     ]
-    }
-   ],
-   "vo": "Or as a book, two pages side by side, turned with the arrow keys."
-  },
-  {
-   "name": "read-look",
-   "take": "read",
-   "chapter": [
-    "03",
-    "Read"
-   ],
-   "caption": "Zoom, a *loupe*, and figures up close.",
-   "clips": [
-    {
-     "from": "pdf-again+0.0",
-     "to": "pdf-again+14.8",
-     "speed": 1.25,
-     "zoom": [
-      1.0,
-      1.05
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    },
-    {
-     "from": "loupe+0.0",
-     "to": "loupe+8.2",
-     "zoom": [
-      1.15,
-      1.2
-     ],
-     "at": [
-      0.45,
-      0.45
-     ]
-    },
-    {
-     "from": "closeup+0.0",
-     "to": "closeup+6.3",
-     "zoom": [
-      1.0,
-      1.04
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Zoom in, with a map to find your way back.",
-    "L brings out a loupe. C lifts a figure off the page, full screen, caption and all."
-   ]
-  },
-  {
-   "name": "read-zen",
-   "take": "read",
-   "chapter": [
-    "03",
-    "Read"
-   ],
-   "caption": "*Z*: just you and the page.",
-   "clips": [
-    {
-     "from": "zen+0.0",
-     "to": "zen+10.4",
-     "zoom": [
-      1.0,
-      1.04
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    }
-   ],
-   "vo": "And Z is zen. Everything else falls away, and the page takes the screen."
-  },
-  {
-   "name": "highlight",
-   "take": "annotate",
-   "chapter": [
-    "04",
-    "Mark and keep"
-   ],
-   "caption": "Highlight, in PDF *and* Reflow.",
-   "clips": [
-    {
-     "from": "highlight+0.0",
-     "to": "highlight+9.3",
-     "zoom": [
-      1.3,
-      1.4
-     ],
-     "at": [
-      0.45,
-      0.4
-     ]
-    }
-   ],
-   "vo": "Select a passage to highlight it. The same marks show in the PDF and in Reflow."
-  },
-  {
-   "name": "lookup",
-   "take": "annotate",
-   "chapter": [
-    "04",
-    "Mark and keep"
-   ],
-   "caption": "Right-click: what it *means*, where it *comes from*.",
-   "clips": [
-    {
-     "from": "lookup+0.0",
-     "to": "lookup+3.9",
-     "zoom": [
-      1.1,
-      1.2
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    },
-    {
-     "from": "lookup+3.9",
-     "to": "lookup+22.7",
-     "zoom": [
-      1.55,
-      1.6
-     ],
-     "at": [
-      0.86,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Right-click a term, and a card opens beside it, never over it.",
-    "What the word means. Where the idea comes from, with the earliest papers to use it. And a comment, which highlights the passage as you type."
-   ]
-  },
-  {
-   "name": "hover",
-   "take": "annotate",
-   "chapter": [
-    "04",
-    "Mark and keep"
-   ],
-   "caption": "Hover an author, or a *citation*.",
-   "clips": [
-    {
-     "from": "hover-author+0.0",
-     "to": "hover-author+7.0",
-     "zoom": [
-      1.4,
-      1.5
-     ],
-     "at": [
-      0.32,
-      0.55
-     ]
-    },
-    {
-     "from": "hover-citation+0.0",
-     "to": "hover-citation+5.9",
-     "zoom": [
-      1.4,
-      1.5
-     ],
-     "at": [
-      0.52,
-      0.55
-     ]
-    }
-   ],
-   "vo": "Rest the pointer on an author to see who they are, or on a citation for the paper it points to."
-  },
-  {
-   "name": "notes",
-   "take": "annotate",
-   "chapter": [
-    "04",
-    "Mark and keep"
-   ],
-   "caption": "Your notes, by section, and a *board*.",
-   "clips": [
-    {
-     "from": "keep-figure+0.0",
-     "to": "keep-figure+8.9",
-     "zoom": [
-      1.0,
-      1.06
-     ],
-     "at": [
-      0.45,
-      0.4
-     ]
-    },
-    {
-     "from": "notes+0.0",
-     "to": "notes+8.9",
-     "zoom": [
-      1.5,
-      1.55
-     ],
-     "at": [
-      0.86,
-      0.4
-     ]
-    },
-    {
-     "from": "board+0.0",
-     "to": "board+9.9",
-     "zoom": [
-      1.0,
-      1.08
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Keep a figure in your notes with one click.",
-    "H opens your notes: every highlight and comment, by section. B spreads them out on a board, to think with."
-   ]
-  },
-  {
-   "name": "sticky",
-   "take": "annotate",
-   "chapter": [
-    "04",
-    "Mark and keep"
-   ],
-   "caption": "*M* pins a sticky to the page.",
-   "clips": [
-    {
-     "from": "sticky+0.0",
-     "to": "sticky+14.6",
-     "zoom": [
-      1.15,
-      1.25
-     ],
-     "at": [
-      0.55,
-      0.45
-     ]
-    }
-   ],
-   "vo": "And M pins a sticky note right onto the page."
-  },
-  {
-   "name": "ask",
-   "chapter": [
-    "05",
-    "Understand"
-   ],
-   "caption": "Ask, and land on the *exact passage*.",
-   "clips": [
-    {
-     "from": "scene:ask+0.2",
-     "to": "scene:ask+4.4",
-     "speed": 1.4,
-     "zoom": [
-      1.0,
-      1.15
-     ],
-     "at": [
-      0.85,
-      0.7
-     ]
-    },
-    {
-     "from": "scene:ask+4.4",
-     "to": "scene:ask+8.4",
-     "zoom": [
-      1.55,
-      1.6
-     ],
-     "at": [
-      0.87,
-      0.4
-     ]
-    },
-    {
-     "from": "scene:ask+8.4",
-     "to": "scene:ask+13.0",
-     "zoom": [
-      1.0,
-      1.08
-     ],
-     "at": [
-      0.45,
-      0.4
-     ]
-    }
-   ],
-   "vo": [
-    "Stuck on something? Press Control and backslash, and ask.",
-    "The answer comes with the passages it rests on. Click one, and the paper scrolls right to it."
-   ]
-  },
-  {
-   "name": "explain",
-   "chapter": [
-    "05",
-    "Understand"
-   ],
-   "caption": "Press *E*: the whole paper, explained.",
-   "clips": [
-    {
-     "from": "scene:explain+0.1",
-     "to": "scene:explain+4.7",
-     "speed": 1.5,
-     "zoom": [
-      1.0,
-      1.0
-     ],
-     "at": [
-      0.5,
-      0.5
-     ]
-    },
-    {
-     "from": "scene:explain+4.7",
-     "to": "scene:explain+12.1",
-     "zoom": [
-      1.15,
-      1.3
-     ],
-     "at": [
-      0.35,
-      0.35
-     ]
-    }
-   ],
-   "vo": [
-    "Press E, and the whole paper is explained, section by section.",
-    "The claim, the mechanism, the maths worked through, and how it has held up since. Claude, DeepSeek or Gemini writes it: you choose."
-   ]
-  },
-  {
-   "name": "implement",
-   "chapter": [
-    "06",
-    "Build"
-   ],
-   "caption": "Plan the *implementation*.",
-   "clips": [
-    {
-     "from": "scene:implement+0.1",
-     "to": "scene:implement+6.6",
-     "zoom": [
-      1.1,
-      1.25
-     ],
-     "at": [
-      0.4,
-      0.35
-     ]
-    }
-   ],
-   "vo": "The Implementation tab plans how to build it yourself: what to reproduce, which datasets, a repository layout, and what it will cost on your hardware."
-  },
-  {
-   "name": "colab",
-   "chapter": [
-    "06",
-    "Build"
-   ],
-   "caption": "A notebook from the paper, *run* on Colab.",
-   "clips": [
-    {
-     "from": "scene:colab+0.1",
-     "to": "scene:colab+5.6",
-     "speed": 1.3,
-     "zoom": [
-      1.0,
-      1.0
-     ],
-     "at": [
-      0.5,
-      0.5
-     ]
-    },
-    {
-     "from": "scene:colab+5.6",
-     "to": "scene:colab+17.1",
-     "zoom": [
-      1.0,
-      1.25
-     ],
-     "at": [
-      0.6,
-      0.4
-     ]
-    }
-   ],
-   "vo": [
-    "Then a notebook is written from the paper, and run on Google Colab.",
-    "Here on a T4 GPU, with the machine's load read live, beside the cells."
-   ]
-  },
-  {
-   "name": "playground",
-   "take": "companion",
-   "chapter": [
-    "07",
-    "Your computer"
-   ],
-   "caption": "The *Companion* connects your computer.",
-   "clips": [
-    {
-     "from": "start+1.0",
-     "to": "start+5.8",
-     "zoom": [
-      1.0,
-      1.05
-     ],
-     "at": [
-      0.5,
-      0.4
-     ]
-    },
-    {
-     "from": "download-app+0.0",
-     "to": "download-app+14.0",
-     "zoom": [
-      1.6,
-      1.65
-     ],
-     "at": [
-      0.79,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "For code of your own, there is the Playground, and the Companion.",
-    "The Companion is a small program that connects your computer to Koios. Get it inside the desktop app for Mac, Windows or Linux, with one terminal command, or through the VS Code extension."
-   ]
-  },
-  {
-   "name": "pair",
-   "take": "companion",
-   "chapter": [
-    "07",
-    "Your computer"
-   ],
-   "caption": "Paired *once*. No tokens to paste.",
-   "clips": [
-    {
-     "from": "found+0.0",
-     "to": "found+16.6",
-     "zoom": [
-      1.6,
-      1.65
-     ],
-     "at": [
-      0.8,
-      0.6
-     ]
-    }
-   ],
-   "vo": "Once it runs, Koios finds it. Show the code on your computer, type it in, and connect. That is the whole setup: paired once, no tokens to copy."
-  },
-  {
-   "name": "where",
-   "take": "companion",
-   "chapter": [
-    "07",
-    "Your computer"
-   ],
-   "caption": "Files *here*, compute *there*.",
-   "clips": [
-    {
-     "from": "where+0.0",
-     "to": "where+20.2",
-     "zoom": [
-      1.1,
-      1.15
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Now a project can live on your own machine.",
-    "Choose where it runs: this computer, a GPU box, or Colab. Or keep the code here, and send the heavy compute somewhere bigger."
-   ]
-  },
-  {
-   "name": "workspace",
-   "take": "companion",
-   "chapter": [
-    "07",
-    "Your computer"
-   ],
-   "caption": "A real workspace, on *your* laptop.",
-   "clips": [
-    {
-     "from": "project+0.0",
-     "to": "project+11.3",
-     "zoom": [
-      1.35,
-      1.45
-     ],
-     "at": [
-      0.4,
-      0.68
-     ]
-    }
-   ],
-   "vo": "This is a real workspace on your laptop: your files, a terminal, and an agent beside them."
-  },
-  {
-   "name": "machines",
-   "take": "companion",
-   "chapter": [
-    "07",
-    "Your computer"
-   ],
-   "caption": "Many machines, *one* project.",
-   "clips": [
-    {
-     "from": "machine-menu+0.0",
-     "to": "machine-menu+9.7",
-     "zoom": [
-      1.3,
-      1.35
-     ],
-     "at": [
-      0.75,
-      0.3
-     ]
-    },
-    {
-     "from": "settings-compute+0.0",
-     "to": "settings-compute+14.5",
-     "zoom": [
-      1.2,
-      1.25
-     ],
-     "at": [
-      0.55,
-      0.3
-     ]
-    }
-   ],
-   "vo": [
-    "Add more machines to the same project: Colab GPUs, a lab server, your laptop.",
-    "Settings shows every one of them, which are running, and keeps the Companion up to date."
-   ]
-  },
-  {
-   "name": "fits",
-   "diagram": "companion",
-   "stepsOnLines": [
-    0,
-    2,
-    3,
-    4
-   ],
-   "vo": [
-    "Here is how it all fits together.",
-    "Koios runs in your browser, or as the desktop app.",
-    "The Companion pairs with it once, and looks after your project folder, with a Jupyter kernel and a terminal, right on your computer.",
-    "When you need a GPU, Colab or your own server mounts that folder over a secure tunnel, and runs your code there: files here, compute there.",
-    "And everything stays yours: your PDFs and library in your own Google Drive; your notes, code and bibliography in Git."
-   ],
-   "after": 1.2
-  },
-  {
-   "name": "projects",
-   "take": "projects",
-   "chapter": [
-    "08",
-    "Together"
-   ],
-   "caption": "See who's here, and *follow* along.",
-   "clips": [
-    {
-     "from": "start+1.0",
-     "to": "start+5.6",
-     "zoom": [
-      1.15,
-      1.2
-     ],
-     "at": [
-      0.3,
-      0.3
-     ]
-    },
-    {
-     "from": "overview+0.0",
-     "to": "overview+13.2",
-     "zoom": [
-      1.2,
-      1.25
-     ],
-     "at": [
-      0.62,
-      0.3
-     ]
-    }
-   ],
-   "vo": [
-    "Research is rarely solo.",
-    "Projects gather the papers, the people and the work. You can see who is here, what they are looking at, and follow along, live."
-   ]
-  },
-  {
-   "name": "bibliography",
-   "take": "projects",
-   "chapter": [
-    "08",
-    "Together"
-   ],
-   "caption": "A bibliography you can *trust*.",
-   "clips": [
-    {
-     "from": "papers+0.0",
-     "to": "papers+9.4",
-     "zoom": [
-      1.0,
-      1.06
-     ],
-     "at": [
-      0.5,
-      0.35
-     ]
-    }
-   ],
-   "vo": "Each project keeps its papers by role, and a bibliography where the published version's BibTeX is one click away."
-  },
-  {
-   "name": "write",
-   "take": "projects",
-   "chapter": [
-    "08",
-    "Together"
-   ],
-   "caption": "Write, and *cite* as you go.",
-   "clips": [
-    {
-     "from": "write+0.0",
-     "to": "write+11.6",
-     "zoom": [
-      1.0,
-      1.06
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    },
-    {
-     "from": "cite+0.0",
-     "to": "cite+10.4",
-     "zoom": [
-      1.35,
-      1.4
-     ],
-     "at": [
-      0.32,
-      0.5
-     ]
-    },
-    {
-     "from": "recompile+0.0",
-     "to": "recompile+8.3",
-     "zoom": [
-      1.45,
-      1.5
-     ],
-     "at": [
-      0.85,
-      0.45
-     ]
-    }
-   ],
-   "vo": [
-    "Write the paper beside your reading: LaTeX that compiles as you go, kept in sync with Overleaf.",
-    "Put the cursor after a claim, and Koios suggests what to cite. One click adds the citation, and the reference appears in the PDF."
-   ]
-  },
-  {
-   "name": "logbook",
-   "take": "projects",
-   "chapter": [
-    "08",
-    "Together"
-   ],
-   "caption": "A logbook, a whiteboard, your calendar.",
-   "clips": [
-    {
-     "from": "logbook+1.2",
-     "to": "logbook+7.9",
-     "zoom": [
-      1.1,
-      1.15
-     ],
-     "at": [
-      0.5,
-      0.45
-     ]
-    },
-    {
-     "from": "calendar+0.7",
-     "to": "calendar+10.1",
-     "zoom": [
-      1.05,
-      1.1
-     ],
-     "at": [
-      0.5,
-      0.4
-     ]
-    }
-   ],
-   "vo": "A logbook keeps the meetings, the links and a shared whiteboard, and your calendar is right there beside them."
-  },
+  { "name": "anywhere-code", "take": "anywhere", "clips": [{ "from": "code", "to": "compute" }],
+   "vo": "Your code lives on a computer of yours. The Companion keeps the project folder, its Python, and a terminal." },
+  { "name": "anywhere-compute", "take": "anywhere", "clips": [{ "from": "compute", "to": "data" }],
+   "vo": "The compute can be somewhere bigger: a Colab GPU, or your lab's server. It reads your folder live, over a secure tunnel; nothing is copied first." },
+  { "name": "anywhere-data", "take": "anywhere", "clips": [{ "from": "data", "to": "watch" }],
+   "vo": "The data has a place of its own, Google Drive by default: datasets come in, checkpoints and logs go out, never back over the wire." },
+  { "name": "anywhere-watch", "take": "anywhere", "clips": [{ "from": "watch", "to": "other" }, { "from": "other", "to": "all" }],
+   "vo": ["And you watch the output live, wherever you are,", "and can pick the run up later, from another computer."] },
+  { "name": "anywhere-all", "take": "anywhere", "clips": [{ "from": "all", "to": "end" }],
+   "vo": "Code here. Compute there. Data in Drive. You, anywhere." },
+  { "name": "split", "take": "companion", "chapter": ["09", "Your computers"], "caption": "Code on your laptop, *compute* on a GPU.",
+   "clips": [{ "from": "where", "to": "koios-run" }],
+   "vo": ["Here it is for real.", "A new project: its code kept on the laptop, its compute on the lab's A100."] },
+  { "name": "koios-run", "take": "companion", "chapter": ["09", "Your computers"], "caption": "*koios run*: your files, the GPU's power.",
+   "clips": [{ "from": "koios-run", "to": "mount" }],
+   "vo": ["In the terminal, by your files, koios run sends the script to the GPU, and its output comes straight back.", "A second tab is a shell on the GPU itself."] },
+  { "name": "mount", "take": "companion", "chapter": ["09", "Your computers"], "caption": "Your folder, *mounted* live on the GPU.",
+   "clips": [{ "from": "mount", "to": "data-place" }],
+   "vo": "Switch on the mount, and the GPU reads your folder live, as if it were its own disk." },
+  { "name": "data-place", "take": "companion", "chapter": ["09", "Your computers"], "caption": "Choose where *data and results* go.",
+   "clips": [{ "from": "data-place", "to": "machine-menu" }],
+   "vo": "Storage and compute say where everything is: the files on your laptop, and where data and results are kept." },
+  { "name": "machines", "take": "companion", "chapter": ["09", "Your computers"], "caption": "Many machines, *one* project.",
+   "clips": [{ "from": "machine-menu", "to": "end" }],
+   "vo": ["Add more machines to the same project: Colab GPUs, a lab server, your laptop.", "Settings shows them all, which are running, and keeps the Companion up to date."] },
+
+  { "name": "together", "take": "projects", "chapter": ["10", "Together"], "caption": "See who's here, and *follow* along.",
+   "clips": [{ "from": "board", "to": "papers" }],
+   "vo": ["Research is rarely solo.", "Projects gather the papers, the people and the work. See who is here, what they are looking at, and follow along, live."] },
+  { "name": "bibliography", "take": "projects", "chapter": ["10", "Together"], "caption": "A bibliography you can *trust*.",
+   "clips": [{ "from": "papers", "to": "write" }],
+   "vo": "Each project keeps its papers by role, and a bibliography where the published version's BibTeX is one click away." },
+  { "name": "write", "take": "projects", "chapter": ["10", "Together"], "caption": "Write, and *cite* as you go.",
+   "clips": [{ "from": "write", "to": "logbook" }],
+   "vo": ["Write the paper beside your reading: LaTeX that compiles as you go, in sync with Overleaf.", "Put the cursor after a claim, and Koios suggests what to cite. One click adds it, and the reference appears in the PDF."] },
+  { "name": "logbook", "take": "projects", "chapter": ["10", "Together"], "caption": "A logbook, a whiteboard, your calendar.",
+   "clips": [{ "from": "logbook", "to": "end" }],
+   "vo": "A logbook keeps the meetings, the links and a shared whiteboard, and your calendar is right beside them." },
+
   {
    "name": "end",
-   "card": {
-    "scene": "scene-03.jpg",
-    "focus": [
-     0.85,
-     0.5
-    ],
-    "mark": true,
-    "lines": [
-     "Find it. Read it.",
-     "Understand it. Then *run* it."
-    ],
-    "size": 80,
-    "sub": "koios.dev  ·  in your browser, or download the app",
-    "subColor": "#d8b46a"
-   },
+   "card": { "scene": "scene-03.jpg", "focus": [0.85, 0.5], "mark": true, "lines": ["Find it. Read it.", "Understand it. Then *run* it."], "size": 80, "sub": "koios.dev  ·  in your browser, or download the app", "subColor": "#d8b46a" },
    "vo": "Koios. Find it, read it, understand it, then run it. At koios dot dev.",
-   "voAt": 0.9,
-   "after": 2.2,
-   "length": 6
+   "voAt": 0.9, "after": 2.2, "length": 6
   }
- ],
- "fit": {
-  "slack": 1.4,
-  "maxSpeed": 1.6
- }
+ ]
 }
