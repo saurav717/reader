@@ -118,8 +118,11 @@ function startCompanion() {
   killOnExit(child);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('the Companion did not start in 60 s')), 60_000);
+    const log = path.join(ROOT, '.video/work/companion.log');
+    writeFileSync(log, '');
     const read = (chunk) => {
       const text = String(chunk);
+      writeFileSync(log, text, { flag: 'a' });
       // The first code, then each new one after a pairing.
       for (const match of text.matchAll(/code (?:\u001b\[[0-9;]*m)*([A-Z0-9]{3}-[A-Z0-9]{3})/g)) code = match[1];
       if (code) {

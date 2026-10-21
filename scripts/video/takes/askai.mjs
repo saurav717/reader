@@ -347,7 +347,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(500);
   await spot([page.locator('.passage-band').first(), page.locator('.passage-tag'), page.locator('.chat-passage-row').nth(1)]);
   await hold(3000);
-  await page.keyboard.press('Escape').catch(() => undefined);
 
   mark('figure');
   unspot();

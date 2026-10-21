@@ -33,6 +33,7 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { ROOT, BASE, json, attentionPdf } from '../lib.mjs';
 
@@ -43,6 +44,8 @@ const PORT = 47521;
 const URL_BASE = `http://127.0.0.1:${PORT}/`;
 const NAME = 'Saurav’s MacBook Pro';
 const HARDWARE = 'Apple M3 Pro · 12 cores · 36 GB';
+// Kernels talk over Unix sockets, whose paths must stay under 107 characters: not under HOME here.
+const RUNTIME = path.join(os.tmpdir(), 'koios-workspace-rt');
 const SHOTS = path.join(ROOT, '.video/work/workspace');
 
 // ------------------------------------------------------------- the paper ---
@@ -198,6 +201,7 @@ function startCompanion() {
   // A fresh folder each take: the project is made on camera.
   rmSync(path.join(HOME, 'Reader/playgrounds'), { recursive: true, force: true });
   mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
+  mkdirSync(RUNTIME, { recursive: true });
   // VS Code in the page: no welcome, no trust prompt, no chat; the site's look, from the Koios extension.
   const user = path.join(HOME, '.reader-companion/vscode/data/User');
   mkdirSync(user, { recursive: true });
@@ -224,7 +228,7 @@ function startCompanion() {
     ),
   );
   child = spawn(path.join(VENV, 'bin/reader-companion'), ['--site', BASE, '--name', NAME, '--port', String(PORT), '--root', path.join(HOME, 'Reader'), '--python', path.join(VENV, 'bin/python'), '--no-browser', '--no-tunnel'], {
-    env: { ...process.env, HOME, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${CODE_BIN}:${path.join(VENV, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, HOME, JUPYTER_RUNTIME_DIR: RUNTIME, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${CODE_BIN}:${path.join(VENV, 'bin')}:${process.env.PATH}` },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });
@@ -297,7 +301,7 @@ export async function setup(context) {
         }
         const last = JSON.stringify(body.messages?.at(-1)?.content ?? '');
         const events = /<command/.test(last) ? replies[2] : /<file/.test(last) ? replies[1] : replies[0];
-        const pace = /<command/.test(last) ? 16 : 14;
+        const pace = /<command/.test(last) ? 45 : /<file/.test(last) ? 38 : 40;
         const stream = new ReadableStream({
           async start(controller) {
             await new Promise((resolve) => setTimeout(resolve, 700));
@@ -399,9 +403,15 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
 
   mark('files');
   await pointer.click(write.getByRole('button', { name: 'write the files yourself' }), { pause: 900 });
-  await spot(['.vs-side', '.vs-editor, .pg-editor']);
-  await hold(2800);
+  await spot('.vs-groups');
+  await pointer.moveTo({ x: 760, y: 330 });
+  await hold(2600);
   await shot(page, '5-readme');
+  const paperDir = page.locator('.vs-sidebar').getByText(/^paper$/).first();
+  console.log('    debug sidebar', await page.locator('.vs-sidebar').count(), await paperDir.count(), (await page.locator('.vs-explorer').innerText().catch(() => '?')).slice(0, 200).replace(/\n/g, ' | '));
+  await spot('.vs-sidebar');
+  await pointer.click(paperDir, { pause: 600 });
+  await hold(2400);
   await spot('.vs-agent');
   await pointer.moveTo('.vs-agent-hello');
   await hold(2800);
@@ -462,7 +472,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
 
   mark('code');
   await pointer.click(turn.locator('.vs-change').first(), { pause: 800 });
-  await spot('.vs-editor, .pg-editor');
+  await spot('.vs-groups');
   await hold(2800);
   await shot(page, '12-code');
   unspot();
