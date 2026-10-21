@@ -119,6 +119,8 @@ interface Watched {
   /** What the Companion or the kernel shell says it runs; undefined when there is no one to ask. */
   exact?: { busy: boolean; command?: string };
   since?: number;
+  /** Since when a kernel shell's runtime hasn't answered (0 while it does). */
+  unanswered?: number;
   closed: boolean;
 }
 
@@ -139,6 +141,9 @@ const save = () => {
 function stateOf(w: Watched): { busy: boolean; command?: string; tail: string } {
   const tail = lastLine(w.screen);
   if (w.exact) return { busy: w.exact.busy, command: w.exact.command || w.typed?.text || commandAtPrompt(w.screen), tail };
+  // Nothing to read it through (the machine stopped, or asleep): nothing can be said to run there, and a command
+  // typed before used to count as running for as long as the machine was away.
+  if (w.unanswered || (w.kind === 'server' && w.socket?.readyState !== WebSocket.OPEN)) return { busy: false, command: w.typed?.text, tail };
   // No one to ask: a command entered runs until the shell's prompt comes back.
   return { busy: Boolean(w.typed && !w.typed.done), command: w.typed?.text, tail };
 }
@@ -162,17 +167,29 @@ function report(w: Watched) {
   });
 }
 
-function interruptTerminal(w: Watched) {
+/**
+ * Ctrl-C to the shell. Whether it got there or not, a command only the page's own guess said was running (no
+ * Companion or runtime to ask) is taken as ended: the guess waits for a prompt it may never recognise, and with the
+ * machine gone no Ctrl-C reaches it — Stop used to do nothing then, however often it was pressed.
+ */
+async function interruptTerminal(w: Watched) {
   if (w.kind === 'server') {
     if (w.socket?.readyState === WebSocket.OPEN) w.socket.send(JSON.stringify(['stdin', '\u0003']));
   } else {
-    void shellCall(`_rt_write(${JSON.stringify(w.name)}, ${JSON.stringify(b64('\u0003'))}, 0)`, w.scope ?? w.playgroundId).catch(() => undefined);
+    await shellCall(`_rt_write(${JSON.stringify(w.name)}, ${JSON.stringify(b64('\u0003'))}, 0)`, w.scope ?? w.playgroundId).catch(() => {
+      w.unanswered ||= Date.now();
+      w.exact = undefined;
+    });
   }
+  if (!w.exact && w.typed) w.typed.done = true;
+  report(w);
 }
 
 function openSocket(w: Watched) {
+  if (w.closed) return;
   const server = w.serverId ? serverById(w.serverId) : undefined;
-  if (!server || w.closed) return;
+  // The server is no longer one of yours: nothing left to follow.
+  if (!server) return unwatch(w.key);
   const url = new URL(`terminals/websocket/${encodeURIComponent(w.name)}`, serverBase(server.url));
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   if (server.token) url.searchParams.set('token', server.token);
@@ -208,6 +225,7 @@ function openSocket(w: Watched) {
   socket.onclose = () => {
     if (w.closed || w.socket !== socket) return;
     w.socket = null;
+    report(w);
     // A dropped socket (the machine asleep, a tunnel restarting): tried again, a growing wait apart; then let go.
     if (w.tries >= 8) return unwatch(w.key);
     w.tries += 1;
@@ -341,7 +359,19 @@ async function poll() {
       } catch {
         status = null;
       }
+      if (!status) {
+        // The runtime doesn't answer (stopped, or Colab ended it): what it last said runs is no longer known, so it
+        // isn't shown as running; a minute of no answer and its shells are let go — opening one watches it again.
+        for (const w of terms) {
+          w.unanswered ||= Date.now();
+          w.exact = undefined;
+          if (Date.now() - w.unanswered > 60_000) unwatch(w.key);
+          else report(w);
+        }
+        return;
+      }
       for (const w of terms) {
+        w.unanswered = 0;
         const one = status?.[w.name];
         if (status && (!one || !one.alive)) {
           unwatch(w.key);
