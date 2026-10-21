@@ -18,7 +18,11 @@ ORIGIN = "https://saurav717.github.io"
 class FakePage(RequestHandler):
     def get(self, rest):
         self.set_header("X-Frame-Options", "DENY")
-        self.set_header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+        # As VS Code 1.143 sends it: ending in ";", and a second policy with only its framing rule.
+        self.set_header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none';")
+        self.add_header("Content-Security-Policy", "frame-ancestors 'self'")
+        self.add_header("Set-Cookie", "vscode-tkn=tkn; Max-Age=604800; SameSite=Lax")
+        self.add_header("Set-Cookie", "vscode-secret-key-path=/companion/vscode/s3cret/_vscode-cli/mint-key; SameSite=Strict; Path=/")
         self.write({"path": self.request.path, "query": self.request.query, "cookie": self.request.headers.get("Cookie", ""), "host": self.request.headers.get("Host")})
 
     def post(self, rest):
@@ -27,7 +31,8 @@ class FakePage(RequestHandler):
 
 class FakeSocket(websocket.WebSocketHandler):
     def check_origin(self, origin):
-        return origin.startswith("http://127.0.0.1:")
+        # VS Code's server takes a socket only from the page it served: the origin's host is the Host it was asked by.
+        return origin.partition("://")[2] == self.request.headers.get("Host")
 
     def open(self, rest):
         self.write_message("cookie:" + self.request.headers.get("Cookie", ""))
@@ -62,14 +67,33 @@ class ProxyTest(AsyncHTTPTestCase):
         self.assertEqual(body["path"], "/companion/vscode/s3cret/static/x.js")
         self.assertEqual(body["query"], "folder=/tmp/p")
         self.assertEqual(body["cookie"], "vscode-tkn=tkn")
-        self.assertTrue(body["host"].startswith("127.0.0.1:"))
+        # Asked by the address the browser used, which VS Code writes into its page as where its server is.
+        self.assertEqual(body["host"], f"127.0.0.1:{self.get_http_port()}")
         self.assertNotIn("X-Frame-Options", response.headers)
         policies = response.headers.get_list("Content-Security-Policy")
+        # A policy ending in ";" goes on trimmed (a trailing space was refused: the page was a 500).
         self.assertIn("default-src 'self'", policies)
         self.assertIn(f"frame-ancestors 'self' {ORIGIN}", policies)
         self.assertFalse(any("'none'" in policy for policy in policies))
+        self.assertEqual(len(policies), 2)
         posted = self.fetch("/companion/vscode/s3cret/api", method="POST", body="hello")
         self.assertEqual(json.loads(posted.body)["body"], "hello")
+
+    def test_its_cookies_reach_a_frame_on_another_site(self):
+        # VS Code's script reads its connection token from a cookie; framed by the site, only SameSite=None is kept.
+        response = self.fetch("/companion/vscode/s3cret/")
+        cookies = response.headers.get_list("Set-Cookie")
+        self.assertEqual(
+            cookies,
+            [
+                "vscode-tkn=tkn; Max-Age=604800; SameSite=None; Secure; Partitioned",
+                "vscode-secret-key-path=/companion/vscode/s3cret/_vscode-cli/mint-key; Path=/; SameSite=None; Secure; Partitioned",
+            ],
+        )
+
+    def test_the_browsers_own_cookies_go_on_with_the_token(self):
+        response = self.fetch("/companion/vscode/s3cret/x", headers={"Cookie": "vscode-cli-secret-half=abc; vscode-tkn=stale"})
+        self.assertEqual(json.loads(response.body)["cookie"], "vscode-cli-secret-half=abc; vscode-tkn=tkn")
 
     def test_an_error_here_is_said_in_the_frame_not_as_a_bare_500(self):
         original = extension.VsCodeProxy.upstream_headers

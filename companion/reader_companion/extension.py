@@ -454,11 +454,27 @@ class VsCodeProxy(websocket.WebSocketHandler):
     def upstream_headers(self) -> dict:
         web = tools.vscode_web
         headers = {name: value for name, value in self.request.headers.get_all() if name.lower() not in HOP and not name.lower().startswith("sec-websocket")}
-        headers["Host"] = f"127.0.0.1:{web.port}"
-        headers["Cookie"] = f"vscode-tkn={web.token}"
+        # The address the browser used, not serve-web's own: VS Code writes it into the page as where its server
+        # is, and the frame can reach only this one (here, or through the tunnel).
+        headers["Host"] = self.request.host
         if "Origin" in self.request.headers:
-            headers["Origin"] = f"http://127.0.0.1:{web.port}"
+            headers["Origin"] = self.request.headers["Origin"]
+        # The browser's own VS Code cookies go on (its secret storage reads them), with the connection token.
+        kept = [part.strip() for part in self.request.headers.get("Cookie", "").split(";") if part.strip() and not part.strip().startswith("vscode-tkn=")]
+        headers["Cookie"] = "; ".join([*kept, f"vscode-tkn={web.token}"])
         return headers
+
+    @staticmethod
+    def framed_cookie(value: str) -> str:
+        """A cookie VS Code sets, made to work in a frame on another site: SameSite=None, Secure, Partitioned.
+
+        The frame is the Companion's (127.0.0.1, which browsers count as secure, or the HTTPS tunnel) inside the
+        site's page, so a Lax or Strict cookie would never be stored there, and VS Code's script reads its
+        connection token from one: without it its server refuses the connection ("auth mismatch").
+        """
+        parts = [part.strip() for part in value.split(";") if part.strip()]
+        kept = [part for part in parts[1:] if part.split("=", 1)[0].strip().lower() not in ("samesite", "secure", "partitioned")]
+        return "; ".join([parts[0], *kept, "SameSite=None", "Secure", "Partitioned"])
 
     def write_error(self, status_code, **kwargs):
         """Anything that went wrong here, said in the frame — its kind and message — not Tornado's bare 500 page."""
@@ -514,12 +530,15 @@ class VsCodeProxy(websocket.WebSocketHandler):
         self._headers.clear()
         for name, value in response.headers.get_all():
             lower = name.lower()
-            if lower in HOP or lower in ("x-frame-options", "set-cookie"):
+            if lower in HOP or lower == "x-frame-options":
                 continue
+            if lower == "set-cookie":
+                value = self.framed_cookie(value)
             if lower == "content-security-policy":
-                # Its own framing rule is replaced by ours below; the rest of its policy stays.
-                value = "; ".join(part for part in value.split(";") if not part.strip().lower().startswith("frame-ancestors"))
-                if not value.strip():
+                # Its own framing rule is replaced by ours below; the rest of its policy stays. Each directive is
+                # trimmed: a policy ending in ";" would otherwise leave a trailing space, which Tornado refuses.
+                value = "; ".join(part.strip() for part in value.split(";") if part.strip() and not part.strip().lower().startswith("frame-ancestors"))
+                if not value:
                     continue
             self.add_header(name, value)
         self.add_header("Content-Security-Policy", f"frame-ancestors 'self' {state.current.origin}")
