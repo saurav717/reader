@@ -154,12 +154,11 @@ def serve(config: dict, args):
     app.initialize(argv=[])
     companion.port = app.port
 
-    running_tunnel = None
     if config.get("tunnel"):
         try:
             print("  Opening the HTTPS tunnel…", flush=True)
-            running_tunnel = tunnel.open_configured(companion.port, config)
-            companion.tunnel_url = running_tunnel.url
+            companion.tunnel = tunnel.open_configured(companion.port, config)
+            companion.tunnel_url = companion.tunnel.url
         except Exception as error:  # the direct address still works in Chrome, Edge and Firefox
             print(f"  {YELLOW}The tunnel didn't open ({error}). Carrying on without it: Safari won't reach this.{RESET}", flush=True)
 
@@ -212,8 +211,8 @@ def serve(config: dict, args):
     except KeyboardInterrupt:
         pass
     finally:
-        if running_tunnel:
-            running_tunnel.stop()
+        if companion.tunnel:  # the one open now: open_tunnel may have replaced the first
+            companion.tunnel.stop()
         try:
             if pid_file.read_text().strip() == str(os.getpid()):
                 pid_file.unlink()

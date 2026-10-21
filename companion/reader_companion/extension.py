@@ -252,19 +252,32 @@ class UpdateHandler(VsCodeHandler):
             IOLoop.current().call_later(0.5, lambda: os._exit(0))
 
 
+tunnel_lock = asyncio.Lock()
+
+
 async def open_tunnel(serverapp) -> None:
-    """The HTTPS tunnel, opened now if it isn't: how a browser on another computer reaches this one."""
-    companion = state.current
-    if companion.tunnel_url:
-        return
-    serverapp.web_app.settings["allow_remote_access"] = True  # read on every request
-    try:
-        running = await IOLoop.current().run_in_executor(None, lambda: tunnel.open_configured(companion.port, state.load_config(), say=lambda *_: None))
-    except Exception as error:  # this computer still reaches it; others don't, until it is started again
-        print(f"  The HTTPS tunnel didn't open ({error}): other computers won't reach this one until it starts again.", flush=True)
-        return
-    atexit.register(running.stop)
-    companion.tunnel_url = running.url
+    """The HTTPS tunnel, opened now if it isn't, or opened again if the one there has died: how a browser or a
+    machine elsewhere reaches this one. A quick tunnel's address outlives it here — cloudflared exits, or Cloudflare
+    drops the address while this computer sleeps — and a machine handed that address could never resolve it."""
+    async with tunnel_lock:
+        companion = state.current
+        loop = IOLoop.current()
+        if companion.tunnel_url:
+            running = companion.tunnel
+            if (running is None or running.alive()) and not await loop.run_in_executor(None, tunnel.gone, companion.tunnel_url):
+                return
+            print(f"  The HTTPS tunnel at {companion.tunnel_url} is gone: opening it again.", flush=True)
+            if running is not None:
+                running.stop()
+            companion.tunnel, companion.tunnel_url = None, ""
+        serverapp.web_app.settings["allow_remote_access"] = True  # read on every request
+        try:
+            running = await loop.run_in_executor(None, lambda: tunnel.open_configured(companion.port, state.load_config(), say=lambda *_: None))
+        except Exception as error:  # this computer still reaches it; others don't, until it is started again
+            print(f"  The HTTPS tunnel didn't open ({error}): other computers won't reach this one until it starts again.", flush=True)
+            return
+        atexit.register(running.stop)
+        companion.tunnel, companion.tunnel_url = running, running.url
 
 
 class ClaimHandler(VsCodeHandler):
@@ -937,6 +950,12 @@ class ComputeHandler(VsCodeHandler):
                 await remote.open()
                 status = await mount.start_remote(remote, url, key, mode)
                 if not (status.get("ready") and status.get("mounted")):
+                    # Not left half up: a mount that never reached this computer turns every write into the folder
+                    # there into an I/O error, the copies a run falls back to among them.
+                    try:
+                        await mount.stop_remote(remote)
+                    except (compute.ComputeError, asyncio.TimeoutError):
+                        pass
                     words = status.get("why") or (status.get("error") or "") or (status.get("log") or "")[-400:]
                     return self.reply(502, {"error": f"The mount didn't start on {link['label']}: {words or 'no word from it'}", **status})
                 compute.update_link(link, mount={"mode": status.get("mode"), "at": int(time.time() * 1000), "url": link["url"]})

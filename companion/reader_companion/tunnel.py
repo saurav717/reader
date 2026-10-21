@@ -17,10 +17,12 @@ import os
 import platform
 import re
 import shutil
+import socket
 import subprocess
 import tarfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -73,6 +75,9 @@ def cloudflared(say=print) -> str:
 class Tunnel:
     def __init__(self, process: subprocess.Popen, url: str):
         self.process, self.url = process, url
+
+    def alive(self) -> bool:
+        return self.process.poll() is None
 
     def stop(self):
         if self.process.poll() is None:
@@ -154,6 +159,21 @@ def open_configured(port: int, config: dict, say=print) -> Tunnel:
             say(f"  The tunnel sends to port {config.get('tunnel_port')}, but the Companion is on {port}: run reader-companion tunnel setup again.")
         return start_named(binary, config["tunnel_token"], config["tunnel_hostname"])
     return start(port, binary)
+
+
+def gone(url: str, timeout_s: float = 8) -> bool:
+    """True when the tunnel's address no longer leads here: its name doesn't resolve (a quick tunnel Cloudflare has
+    dropped, as after this computer slept a while) or Cloudflare answers that nothing is behind it (530, 502). Any
+    other answer, or none in time, counts as alive: an address is only given up on when it is known to be dead."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/", method="HEAD"), timeout=timeout_s):
+            return False
+    except urllib.error.HTTPError as error:
+        return error.code in (502, 530)
+    except urllib.error.URLError as error:
+        return isinstance(error.reason, socket.gaierror)
+    except OSError:
+        return False
 
 
 def via_tunnel(host: str | None) -> bool:
