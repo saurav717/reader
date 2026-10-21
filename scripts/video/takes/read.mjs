@@ -246,11 +246,11 @@ export async function eagerFigures(context) {
 
 /** The Discover / notes dock shut, so the page has the room. */
 export async function shutDock(page) {
-  for (let tries = 0; tries < 3 && (await page.locator('.dock').count()); tries += 1) {
-    const close = page.locator('.dock').getByRole('button', { name: /^Close/ }).first();
-    if (await close.isVisible().catch(() => false)) await close.click();
-    else await page.getByRole('button', { name: 'Discover papers' }).click();
-    await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
+  for (let tries = 0; tries < 4 && (await page.locator('.dock').count()); tries += 1) {
+    const close = page.locator('.dock').getByRole('button', { name: /^Close the (discover|highlights) panel/ }).first();
+    await close.click({ timeout: 5000 }).catch(() => undefined);
+    await page.waitForTimeout(600);
   }
 }
 
@@ -319,12 +319,15 @@ export default async function ({ page, pointer, mark }) {
   // On to page 3, where Figure 1 is.
   await pointer.moveTo({ x: 800, y: 500 });
   const slot = page.locator('.pdf-scroll-slot[data-slot="3"]');
-  for (let i = 0; i < 12; i += 1) {
-    const top = await slot.evaluate((el) => el.getBoundingClientRect().top);
-    if (top < 140) break;
-    await glideScroll(page, Math.min(900, top - 120), { steps: 18, ms: 700 });
-  }
-  await pdfReady(page);
+  const toPage3 = async () => {
+    for (let i = 0; i < 12; i += 1) {
+      const top = await slot.evaluate((el) => el.getBoundingClientRect().top);
+      if (Math.abs(top - 130) < 30) break;
+      await glideScroll(page, Math.max(-900, Math.min(900, top - 130)), { steps: 18, ms: 700 });
+    }
+    await pdfReady(page);
+  };
+  await toPage3();
   await hold(1500);
 
   mark('zoom');
@@ -337,18 +340,21 @@ export default async function ({ page, pointer, mark }) {
   await hold(2000);
   await pointer.key('0', '0', 900);
   await pdfReady(page);
+  await toPage3();
+  await hold(600);
   box = await fig.boundingBox();
+  const figY = (f) => Math.max(260, Math.min(box.y + box.height * f, 640));
 
   mark('loupe');
   await pointer.key('l', 'L', 400);
-  await pointer.moveTo({ x: box.x + box.width * 0.4, y: Math.min(box.y + box.height * 0.35, 640) }, { ms: 900 });
+  await pointer.moveTo({ x: box.x + box.width * 0.4, y: figY(0.35) }, { ms: 900 });
   await hold(1200);
-  await pointer.moveTo({ x: box.x + box.width * 0.6, y: Math.min(box.y + box.height * 0.25, 600) }, { ms: 1600 });
+  await pointer.moveTo({ x: box.x + box.width * 0.6, y: figY(0.25) }, { ms: 1600 });
   await hold(1400);
   await pointer.key('l', 'L', 800);
 
   mark('closeup');
-  await pointer.moveTo({ x: box.x + box.width * 0.5, y: Math.min(box.y + box.height * 0.3, 600) });
+  await pointer.moveTo({ x: box.x + box.width * 0.5, y: figY(0.3) });
   await pointer.key('c', 'C', 300);
   await page.waitForSelector('.pdf-closeup-card.is-drawn', { timeout: 30000 });
   await hold(4200);

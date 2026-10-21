@@ -101,7 +101,7 @@ async function bringTo(page, pointer, phrase, at = 0.45) {
   }, phrase);
   if (rect === null) throw new Error(`phrase not found: ${phrase}`);
   const dy = rect - 864 * at;
-  if (Math.abs(dy) > 30) await glideScroll(page, dy, { steps: Math.max(10, Math.min(36, Math.round(Math.abs(dy) / 40))), ms: Math.min(1800, 500 + Math.abs(dy)) });
+  if (Math.abs(dy) > 30) await glideScroll(page, dy, { steps: Math.max(10, Math.min(36, Math.round(Math.abs(dy) / 40))), ms: Math.min(1300, 400 + Math.abs(dy) * 0.6) });
   await page.waitForTimeout(400);
   return phraseEnds(page, phrase, { at });
 }
@@ -119,7 +119,7 @@ async function dragSelect(page, pointer, ends, ms = 1300) {
 export default async function ({ page, pointer, mark }) {
   const hold = (ms) => page.waitForTimeout(ms);
   await pointer.moveTo({ x: 900, y: 560 });
-  await hold(1500);
+  await hold(1000);
 
   // ---------------------------------------------------------- highlight ---
   mark('highlight');
@@ -128,35 +128,39 @@ export default async function ({ page, pointer, mark }) {
   await dragSelect(page, pointer, ends, 1600);
   await page.waitForSelector('.selection-toolbar');
   await hold(1600);
-  await pointer.key('1', '1', 400);
+  await pointer.key('2', '2', 400);
   await page.waitForSelector('mark.hl');
   await pointer.moveTo({ x: Math.min(ends.x1 + 120, 1300), y: ends.y1 + 90 });
-  await hold(2200);
+  await hold(1800);
 
   // ------------------------------------------------------------- lookup ---
   mark('lookup');
   ends = await bringTo(page, pointer, 'Self-attention, sometimes called intra-attention', 0.32);
   const word = await phraseEnds(page, 'Self-attention', { at: 0.32 });
   await dragSelect(page, pointer, word, 700);
-  await hold(500);
+  await hold(200);
   await pointer.moveTo({ x: (word.x0 + word.x1) / 2, y: word.y0 }, { ms: 300 });
   await pointer.click(null, { button: 'right', pause: 300 });
   await page.waitForSelector('.lookup');
   await page.waitForSelector('.lookup-word', { timeout: 10000 });
   await page.waitForFunction(() => !document.querySelector('.lookup .spinner'), null, { timeout: 10000 });
-  await hold(800);
+  await hold(500);
   // Meaning, then where it comes from, then a comment.
   const tab = (name) => page.locator('.lookup-tabs button', { hasText: name });
   await pointer.moveTo('.lookup-pane:not([hidden])', { dy: 0.4 });
-  await hold(2600);
+  await hold(2100);
   await pointer.click(tab('Origins'), { pause: 300 });
   await page.waitForFunction(() => !document.querySelector('.lookup .spinner'), null, { timeout: 10000 });
   await page.waitForSelector('#lookup-pane-origins .lookup-papers a', { timeout: 10000 });
-  await hold(3200);
+  await hold(2700);
   await pointer.click(tab('Comment'), { pause: 400 });
   await pointer.click('#lookup-comment', { pause: 300 });
-  await pointer.type('Same idea as intra-attention, Cheng et al. 2016. Why does it beat RNNs on long range?', { delay: 45 });
-  await hold(2400);
+  // The first letter makes the highlight; give it a moment before the rest.
+  await pointer.type('S');
+  await page.waitForSelector('mark.hl[data-has-note="true"]', { timeout: 5000 }).catch(() => undefined);
+  await hold(700);
+  await pointer.type('ame as intra-attention (Cheng et al., 2016)?', { delay: 40 });
+  await hold(1800);
   await pointer.key('Escape', 'Esc', 900);
   // Commenting brought the notes out beside the page; they go away again for now, and H brings them back later.
   if (await page.locator('.dock .notes-rail').count()) {
@@ -167,12 +171,12 @@ export default async function ({ page, pointer, mark }) {
   // ------------------------------------------------------- hover: author ---
   mark('hover-author');
   await pointer.moveTo({ x: 900, y: 450 });
-  await glideScroll(page, -3000, { steps: 24, ms: 1200 });
+  await glideScroll(page, -3000, { steps: 20, ms: 1000 });
   await hold(600);
   await pointer.moveTo(page.locator('.paper-authors .author-name', { hasText: 'Ashish Vaswani' }));
   await page.waitForSelector('.hover-card .hc-stats', { timeout: 10000 });
   await page.waitForFunction(() => !document.querySelector('.hover-card .spinner'), null, { timeout: 10000 }).catch(() => undefined);
-  await hold(3800);
+  await hold(3000);
   await pointer.moveTo({ x: 1380, y: 500 });
   await page.waitForSelector('.hover-card', { state: 'detached', timeout: 4000 }).catch(() => undefined);
 
@@ -182,7 +186,7 @@ export default async function ({ page, pointer, mark }) {
   await pointer.moveTo(page.locator('.paper-body .cite', { hasText: '[13]' }).first());
   await page.waitForSelector('.hover-card .hc-title', { timeout: 10000 });
   await page.waitForFunction(() => !document.querySelector('.hover-card .spinner'), null, { timeout: 10000 }).catch(() => undefined);
-  await hold(3500);
+  await hold(3000);
   await pointer.moveTo({ x: 1380, y: 500 });
   await page.waitForSelector('.hover-card', { state: 'detached', timeout: 4000 }).catch(() => undefined);
 
@@ -190,9 +194,10 @@ export default async function ({ page, pointer, mark }) {
   mark('keep-figure');
   const figure = page.locator('.paper-body figure.pdf-figure').first();
   const top = await figure.evaluate((el) => el.getBoundingClientRect().top);
-  await pointer.moveTo({ x: 900, y: 450 });
-  await glideScroll(page, top - 130, { steps: 30, ms: 1800 });
-  await hold(500);
+  // From the margin, so the pointer arrives on the figure after the scroll has stopped.
+  await pointer.moveTo({ x: 260, y: 450 });
+  await glideScroll(page, top - 130, { steps: 26, ms: 1300 });
+  await hold(700);
   const art = await figure.locator('img').first().boundingBox();
   await pointer.moveTo({ x: art.x + art.width * 0.45, y: art.y + art.height * 0.3 });
   await pointer.moveTo({ x: art.x + art.width * 0.55, y: art.y + art.height * 0.25 }, { ms: 500 });
@@ -200,43 +205,61 @@ export default async function ({ page, pointer, mark }) {
   await hold(900);
   await pointer.click('.note-clip-btn', { pause: 400 });
   await page.waitForSelector('.note-kept', { timeout: 5000 }).catch(() => undefined);
-  await hold(2200);
+  await hold(1700);
 
   // --------------------------------------------------------------- notes ---
   mark('notes');
   await pointer.moveTo({ x: 700, y: 480 });
   await pointer.key('h', 'H', 600);
   await page.waitForSelector('.dock .notes-rail, .notes-win', { timeout: 5000 });
-  await hold(3800);
+  await page.waitForTimeout(500);
+  const highlightsTab = page.locator('.notes-tabs [role="tab"]', { hasText: 'Highlights' }).first();
+  if ((await highlightsTab.getAttribute('aria-selected')) !== 'true') await pointer.click(highlightsTab, { pause: 300 });
+  await pointer.moveTo(page.locator('.notes-rail .eyebrow', { hasText: /Background/i }).first(), { dy: 3 });
+  await hold(2700);
+  await pointer.click(page.locator('.notes-tabs [role="tab"]', { hasText: 'Notes' }).first(), { pause: 300 });
+  await hold(2500);
 
   mark('board');
   await pointer.key('b', 'B', 600);
   await page.waitForSelector('.notes-board .board-card', { timeout: 5000 });
-  await hold(3600);
-  await pointer.key('Escape', 'Esc', 1000);
-  await hold(800);
+  await hold(1800);
+  // A double-click on the board writes a note beside the figure.
+  const card = await page.locator('.notes-board .board-card').first().boundingBox();
+  const spot = { x: Math.min(card.x + card.width + 90, 1200), y: card.y + 40 };
+  await pointer.moveTo(spot);
+  await page.mouse.dblclick(spot.x, spot.y);
+  await hold(400);
+  await pointer.type('Big picture: no recurrence at all.', { delay: 40 });
+  await hold(600);
+  await page.keyboard.press('Escape');
+  await pointer.moveTo({ x: spot.x + 60, y: spot.y + 260 });
+  await hold(2200);
+  await pointer.key('Escape', 'Esc', 900);
+  if (await page.locator('.notes-board').count()) await page.keyboard.press('Escape');
+  await hold(300);
 
   // ------------------------------------------------- a sticky on the PDF ---
   mark('sticky');
   if (await page.locator('.dock .notes-rail').count()) await pointer.key('h', 'H', 700);
   await pointer.click(page.locator('.reader-head .segmented button', { hasText: 'PDF' }).first(), { pause: 400 });
   await pdfReady(page);
-  await page.waitForSelector('.pdf-book-page[data-page="1"] .pdf-mark', { timeout: 15000 }).catch(() => undefined);
-  const mark1 = page.locator('.pdf-book-page[data-page="1"] .pdf-mark').first();
+  // The PDF opens where the reading got to: Figure 1's page. The sticky goes beside the figure.
+  const page3 = page.locator('.pdf-book-page[data-page="3"]');
   await pointer.moveTo({ x: 900, y: 500 });
-  const markTop = await mark1.evaluate((el) => el.getBoundingClientRect().top).catch(() => 500);
-  if (markTop > 560) await glideScroll(page, markTop - 420, { steps: 20, ms: 1200 });
-  await hold(2200);
+  const p3top = await page3.evaluate((el) => el.getBoundingClientRect().top);
+  if (Math.abs(p3top - 150) > 40) await glideScroll(page, p3top - 150, { steps: 18, ms: 900 });
+  await pdfReady(page);
+  await hold(1400);
   await pointer.key('m', 'M', 500);
   await page.waitForSelector('.pin-hint', { timeout: 5000 });
-  const p1 = await page.locator('.pdf-book-page[data-page="1"]').boundingBox();
-  const markBox = await mark1.boundingBox().catch(() => null);
-  const pinAt = { x: p1.x + p1.width * 0.88, y: markBox ? markBox.y + markBox.height / 2 : p1.y + p1.height * 0.5 };
+  const p3 = await page3.boundingBox();
+  const pinAt = { x: p3.x + p3.width * 0.93, y: Math.max(p3.y + p3.height * 0.2, 260) };
   await pointer.click(pinAt, { pause: 500 });
   await page.waitForSelector('.pdf-sticky textarea', { timeout: 5000 });
-  await pointer.type('The claim: no recurrence, no convolution. Check Table 2 for the cost.', { delay: 45 });
-  await hold(1200);
+  await pointer.type('Encoder left, decoder right: 6 layers each.', { delay: 40 });
+  await hold(700);
   await pointer.key('Escape', 'Esc', 600);
-  await pointer.moveTo({ x: p1.x + p1.width * 0.45, y: pinAt.y + 160 });
-  await hold(3000);
+  await pointer.moveTo({ x: p3.x + p3.width * 0.45, y: pinAt.y + 220 });
+  await hold(2200);
 }

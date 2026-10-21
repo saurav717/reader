@@ -134,13 +134,16 @@ const plan = { width: W, height: H, fps: FPS, crossfade: EDL.crossfade ?? 0.4, p
 const voices = [];
 let at = 0;
 for (const [i, shot] of EDL.shots.entries()) {
+  if (shot.placeholder) continue; // a chapter not recorded yet
   const id = `${String(i + 1).padStart(2, '0')}-${shot.name}`;
   // What is said over the shot, line after line.
   const lines = (Array.isArray(shot.vo) ? shot.vo : shot.vo ? [shot.vo] : []).map((text) => ({ text, file: speak(text) }));
   const lead = shot.voAt ?? 0.5;
   let said = lead;
+  const starts = [];
   for (const line of lines) {
     if (!line.file) continue;
+    starts.push(said);
     voices.push({ file: line.file, at: at + said });
     said += duration(line.file) + GAP;
   }
@@ -158,7 +161,7 @@ for (const [i, shot] of EDL.shots.entries()) {
     const steps = DIAGRAMS[shot.diagram];
     out.steps = [];
     for (const [j, step] of steps.entries()) {
-      out.steps.push({ file: await render(step.html, `${id}-step${j}`, { transparent: false }), at: shot.stepsAt?.[j] ?? step.at });
+      out.steps.push({ file: await render(step.html, `${id}-step${j}`, { transparent: false }), at: shot.stepsOnLines ? starts[shot.stepsOnLines[j]] ?? step.at : shot.stepsAt?.[j] ?? step.at });
     }
     out.length = frames(Math.max(shot.length || 0, needed, out.steps.at(-1).at + 2.5));
   } else {

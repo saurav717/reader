@@ -1,0 +1,1140 @@
+{
+ "name": "explainer",
+ "take": "showcase",
+ "crossfade": 0.45,
+ "voice": {
+  "name": "ash",
+  "instructions": "A calm, clear explainer narrator for researchers. Warm and unhurried, plain-spoken, with natural pauses between ideas. Friendly, never salesy.",
+  "gap": 0.5
+ },
+ "shots": [
+  {
+   "name": "welcome",
+   "take": "welcome",
+   "clips": [
+    {
+     "from": 0.4,
+     "to": 8.8,
+     "zoom": [
+      1.0,
+      1.04
+     ],
+     "at": [
+      0.3,
+      0.45
+     ]
+    },
+    {
+     "from": 9.2,
+     "to": 17.6,
+     "zoom": [
+      1.0,
+      1.04
+     ],
+     "at": [
+      0.3,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Research runs on papers: finding them, reading them, understanding them, and building on them.",
+    "Koios is a reader made for all of it. Here is how it works."
+   ],
+   "voAt": 0.8
+  },
+  {
+   "name": "find-query",
+   "take": "discover",
+   "chapter": [
+    "01",
+    "Find"
+   ],
+   "caption": "One search box, *every* index.",
+   "clips": [
+    {
+     "from": 1.0,
+     "to": 11.4,
+     "zoom": [
+      1.3,
+      1.45
+     ],
+     "at": [
+      0.5,
+      0.12
+     ]
+    }
+   ],
+   "vo": "It starts with one search box. Type a topic, and choose where to look: arXiv, OpenAlex, Semantic Scholar, Crossref, Google Scholar, even books and PDFs."
+  },
+  {
+   "name": "find-results",
+   "take": "discover",
+   "chapter": [
+    "01",
+    "Find"
+   ],
+   "caption": "Asked at once, merged into *one* list.",
+   "clips": [
+    {
+     "from": 11.4,
+     "to": 19.8,
+     "zoom": [
+      1.2,
+      1.3
+     ],
+     "at": [
+      0.42,
+      0.3
+     ]
+    }
+   ],
+   "vo": "Koios asks them all at once, and merges the answers, so a paper that several indexes know shows up once, with the best of what each one knows."
+  },
+  {
+   "name": "find-copies",
+   "take": "discover",
+   "chapter": [
+    "01",
+    "Find"
+   ],
+   "caption": "Every place a paper can be read.",
+   "clips": [
+    {
+     "from": 19.9,
+     "to": 32.2,
+     "zoom": [
+      1.3,
+      1.4
+     ],
+     "at": [
+      0.42,
+      0.35
+     ]
+    }
+   ],
+   "vo": "Open a result to see every place it can be read: the preprint, the published version, repository copies. One click saves it to a collection."
+  },
+  {
+   "name": "find-people",
+   "take": "discover",
+   "chapter": [
+    "01",
+    "Find"
+   ],
+   "caption": "Search for *people*, too.",
+   "clips": [
+    {
+     "from": 32.4,
+     "to": 42.6,
+     "zoom": [
+      1.0,
+      1.08
+     ],
+     "at": [
+      0.7,
+      0.3
+     ]
+    },
+    {
+     "from": 42.8,
+     "to": 52.5,
+     "zoom": [
+      1.9,
+      2.0
+     ],
+     "at": [
+      0.93,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Search for a person, and you get their profile.",
+    "Where they work, their citations and h-index, and everything they have written, newest first, or most cited."
+   ]
+  },
+  {
+   "name": "find-poster",
+   "take": "discover",
+   "chapter": [
+    "01",
+    "Find"
+   ],
+   "caption": "It reads the *paper*, not the poster.",
+   "clips": [
+    {
+     "from": 52.7,
+     "to": 59.4,
+     "zoom": [
+      1.0,
+      1.06
+     ],
+     "at": [
+      0.4,
+      0.4
+     ]
+    },
+    {
+     "from": 59.6,
+     "to": 68.2,
+     "zoom": [
+      1.7,
+      1.8
+     ],
+     "at": [
+      0.22,
+      0.12
+     ]
+    }
+   ],
+   "vo": [
+    "When you open a paper, Koios tries each copy until one hands over the real thing.",
+    "Here, the first copy was the conference poster. It was passed over, and the list says why. Any copy is one click away."
+   ]
+  },
+  {
+   "name": "home-continue",
+   "take": "home",
+   "chapter": [
+    "02",
+    "Your library"
+   ],
+   "caption": "Pick up *exactly* where you stopped.",
+   "clips": [
+    {
+     "from": 0.5,
+     "to": 10.0,
+     "zoom": [
+      1.0,
+      1.05
+     ],
+     "at": [
+      0.5,
+      0.3
+     ]
+    },
+    {
+     "from": 11.6,
+     "to": 24.4,
+     "zoom": [
+      1.15,
+      1.25
+     ],
+     "at": [
+      0.4,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Everything you save lives on Home.",
+    "Continue reading shows the very page where you stopped: what you have read is dimmed, with a line where you left off."
+   ]
+  },
+  {
+   "name": "home-plan",
+   "take": "home",
+   "chapter": [
+    "02",
+    "Your library"
+   ],
+   "caption": "A plan for *today*, and what's new.",
+   "clips": [
+    {
+     "from": 24.7,
+     "to": 34.3,
+     "zoom": [
+      1.15,
+      1.2
+     ],
+     "at": [
+      0.45,
+      0.3
+     ]
+    }
+   ],
+   "vo": "Today turns your library into a short plan: carry on, pick back up, start something new. Inbox gathers the papers that arrived since your last visit."
+  },
+  {
+   "name": "home-collections",
+   "take": "home",
+   "chapter": [
+    "02",
+    "Your library"
+   ],
+   "caption": "Collections: drag a paper where it belongs.",
+   "clips": [
+    {
+     "from": 34.5,
+     "to": 43.3,
+     "zoom": [
+      1.15,
+      1.2
+     ],
+     "at": [
+      0.5,
+      0.35
+     ]
+    }
+   ],
+   "vo": "Collections lay your papers out in columns. Drag one across to move it."
+  },
+  {
+   "name": "home-desk",
+   "take": "home",
+   "chapter": [
+    "02",
+    "Your library"
+   ],
+   "caption": "R: your *desk*. Every paper in progress.",
+   "clips": [
+    {
+     "from": 43.5,
+     "to": 49.0,
+     "zoom": [
+      1.0,
+      1.04
+     ],
+     "at": [
+      0.4,
+      0.4
+     ]
+    },
+    {
+     "from": 52.4,
+     "to": 59.2,
+     "zoom": [
+      1.0,
+      1.08
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    },
+    {
+     "from": 60.8,
+     "to": 73.2,
+     "zoom": [
+      1.0,
+      1.04
+     ],
+     "at": [
+      0.45,
+      0.4
+     ]
+    }
+   ],
+   "vo": [
+    "Resume, and you are back on the page.",
+    "While you read, press R for your desk: every paper in progress, side by side, each at the line you left it.",
+    "A number opens one. G takes you home."
+   ]
+  },
+  {
+   "name": "read-modes",
+   "take": "read",
+   "chapter": [
+    "03",
+    "Read"
+   ],
+   "caption": "As typeset, or *reflowed* to read.",
+   "clips": [
+    {
+     "from": 0.3,
+     "to": 5.3,
+     "zoom": [
+      1.0,
+      1.05
+     ],
+     "at": [
+      0.45,
+      0.4
+     ]
+    },
+    {
+     "from": 5.5,
+     "to": 13.3,
+     "zoom": [
+      1.1,
+      1.2
+     ],
+     "at": [
+      0.45,
+      0.35
+     ]
+    }
+   ],
+   "vo": "Open a paper and read it as it was typeset, or switch to Reflow: the same text, laid out to read comfortably at any width."
+  },
+  {
+   "name": "read-book",
+   "take": "read",
+   "chapter": [
+    "03",
+    "Read"
+   ],
+   "caption": "Or as a *book*.",
+   "clips": [
+    {
+     "from": 13.5,
+     "to": 25.6,
+     "zoom": [
+      1.0,
+      1.06
+     ],
+     "at": [
+      0.45,
+      0.45
+     ]
+    }
+   ],
+   "vo": "Or as a book, two pages side by side, turned with the arrow keys."
+  },
+  {
+   "name": "read-look",
+   "take": "read",
+   "chapter": [
+    "03",
+    "Read"
+   ],
+   "caption": "Zoom, a *loupe*, and figures up close.",
+   "clips": [
+    {
+     "from": 25.8,
+     "to": 40.6,
+     "speed": 1.25,
+     "zoom": [
+      1.0,
+      1.05
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    },
+    {
+     "from": 40.8,
+     "to": 49.0,
+     "zoom": [
+      1.15,
+      1.2
+     ],
+     "at": [
+      0.45,
+      0.45
+     ]
+    },
+    {
+     "from": 49.1,
+     "to": 55.4,
+     "zoom": [
+      1.0,
+      1.04
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Zoom in, with a map to find your way back.",
+    "L brings out a loupe. C lifts a figure off the page, full screen, caption and all."
+   ]
+  },
+  {
+   "name": "read-zen",
+   "take": "read",
+   "chapter": [
+    "03",
+    "Read"
+   ],
+   "caption": "*Z*: just you and the page.",
+   "clips": [
+    {
+     "from": 55.6,
+     "to": 66.0,
+     "zoom": [
+      1.0,
+      1.04
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    }
+   ],
+   "vo": "And Z is zen. Everything else falls away, and the page takes the screen."
+  },
+  {
+   "name": "highlight",
+   "take": "annotate",
+   "chapter": [
+    "04",
+    "Mark and keep"
+   ],
+   "caption": "Highlight, in PDF *and* Reflow.",
+   "clips": [
+    {
+     "from": 1.6,
+     "to": 10.9,
+     "zoom": [
+      1.3,
+      1.4
+     ],
+     "at": [
+      0.45,
+      0.4
+     ]
+    }
+   ],
+   "vo": "Select a passage to highlight it. The same marks show in the PDF and in Reflow."
+  },
+  {
+   "name": "lookup",
+   "take": "annotate",
+   "chapter": [
+    "04",
+    "Mark and keep"
+   ],
+   "caption": "Right-click: what it *means*, where it *comes from*.",
+   "clips": [
+    {
+     "from": 11.1,
+     "to": 15.0,
+     "zoom": [
+      1.1,
+      1.2
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    },
+    {
+     "from": 15.0,
+     "to": 33.8,
+     "zoom": [
+      1.55,
+      1.6
+     ],
+     "at": [
+      0.86,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Right-click a term, and a card opens beside it, never over it.",
+    "What the word means. Where the idea comes from, with the earliest papers to use it. And a comment, which highlights the passage as you type."
+   ]
+  },
+  {
+   "name": "hover",
+   "take": "annotate",
+   "chapter": [
+    "04",
+    "Mark and keep"
+   ],
+   "caption": "Hover an author, or a *citation*.",
+   "clips": [
+    {
+     "from": 34.0,
+     "to": 41.0,
+     "zoom": [
+      1.3,
+      1.4
+     ],
+     "at": [
+      0.3,
+      0.4
+     ]
+    },
+    {
+     "from": 41.1,
+     "to": 47.0,
+     "zoom": [
+      1.3,
+      1.4
+     ],
+     "at": [
+      0.4,
+      0.45
+     ]
+    }
+   ],
+   "vo": "Rest the pointer on an author to see who they are, or on a citation for the paper it points to."
+  },
+  {
+   "name": "notes",
+   "take": "annotate",
+   "chapter": [
+    "04",
+    "Mark and keep"
+   ],
+   "caption": "Your notes, by section, and a *board*.",
+   "clips": [
+    {
+     "from": 47.1,
+     "to": 56.0,
+     "zoom": [
+      1.0,
+      1.06
+     ],
+     "at": [
+      0.45,
+      0.4
+     ]
+    },
+    {
+     "from": 56.2,
+     "to": 65.1,
+     "zoom": [
+      1.5,
+      1.55
+     ],
+     "at": [
+      0.86,
+      0.4
+     ]
+    },
+    {
+     "from": 65.3,
+     "to": 75.2,
+     "zoom": [
+      1.0,
+      1.08
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Keep a figure in your notes with one click.",
+    "H opens your notes: every highlight and comment, by section. B spreads them out on a board, to think with."
+   ]
+  },
+  {
+   "name": "sticky",
+   "take": "annotate",
+   "chapter": [
+    "04",
+    "Mark and keep"
+   ],
+   "caption": "*M* pins a sticky to the page.",
+   "clips": [
+    {
+     "from": 75.4,
+     "to": 90.0,
+     "zoom": [
+      1.15,
+      1.25
+     ],
+     "at": [
+      0.55,
+      0.45
+     ]
+    }
+   ],
+   "vo": "And M pins a sticky note right onto the page."
+  },
+  {
+   "name": "ask",
+   "chapter": [
+    "05",
+    "Understand"
+   ],
+   "caption": "Ask, and land on the *exact passage*.",
+   "clips": [
+    {
+     "from": 21.8,
+     "to": 26.0,
+     "speed": 1.4,
+     "zoom": [
+      1.0,
+      1.15
+     ],
+     "at": [
+      0.85,
+      0.7
+     ]
+    },
+    {
+     "from": 26.0,
+     "to": 30.0,
+     "zoom": [
+      1.55,
+      1.6
+     ],
+     "at": [
+      0.87,
+      0.4
+     ]
+    },
+    {
+     "from": 30.0,
+     "to": 34.6,
+     "zoom": [
+      1.0,
+      1.08
+     ],
+     "at": [
+      0.45,
+      0.4
+     ]
+    }
+   ],
+   "vo": [
+    "Stuck on something? Press Control and backslash, and ask.",
+    "The answer comes with the passages it rests on. Click one, and the paper scrolls right to it."
+   ]
+  },
+  {
+   "name": "explain",
+   "chapter": [
+    "05",
+    "Understand"
+   ],
+   "caption": "Press *E*: the whole paper, explained.",
+   "clips": [
+    {
+     "from": 34.9,
+     "to": 39.5,
+     "speed": 1.5,
+     "zoom": [
+      1.0,
+      1.0
+     ],
+     "at": [
+      0.5,
+      0.5
+     ]
+    },
+    {
+     "from": 39.5,
+     "to": 46.9,
+     "zoom": [
+      1.15,
+      1.3
+     ],
+     "at": [
+      0.35,
+      0.35
+     ]
+    }
+   ],
+   "vo": [
+    "Press E, and the whole paper is explained, section by section.",
+    "The claim, the mechanism, the maths worked through, and how it has held up since. Claude, DeepSeek or Gemini writes it: you choose."
+   ]
+  },
+  {
+   "name": "implement",
+   "chapter": [
+    "06",
+    "Build"
+   ],
+   "caption": "Plan the *implementation*.",
+   "clips": [
+    {
+     "from": 47.2,
+     "to": 53.7,
+     "zoom": [
+      1.1,
+      1.25
+     ],
+     "at": [
+      0.4,
+      0.35
+     ]
+    }
+   ],
+   "vo": "The Implementation tab plans how to build it yourself: what to reproduce, which datasets, a repository layout, and what it will cost on your hardware."
+  },
+  {
+   "name": "colab",
+   "chapter": [
+    "06",
+    "Build"
+   ],
+   "caption": "A notebook from the paper, *run* on Colab.",
+   "clips": [
+    {
+     "from": 54.0,
+     "to": 59.5,
+     "speed": 1.3,
+     "zoom": [
+      1.0,
+      1.0
+     ],
+     "at": [
+      0.5,
+      0.5
+     ]
+    },
+    {
+     "from": 59.5,
+     "to": 71.0,
+     "zoom": [
+      1.0,
+      1.25
+     ],
+     "at": [
+      0.6,
+      0.4
+     ]
+    }
+   ],
+   "vo": [
+    "Then a notebook is written from the paper, and run on Google Colab.",
+    "Here on a T4 GPU, with the machine's load read live, beside the cells."
+   ]
+  },
+  {
+   "name": "playground",
+   "take": "companion",
+   "chapter": [
+    "07",
+    "Your computer"
+   ],
+   "caption": "The *Companion* connects your computer.",
+   "clips": [
+    {
+     "from": 1.0,
+     "to": 5.8,
+     "zoom": [
+      1.0,
+      1.05
+     ],
+     "at": [
+      0.5,
+      0.4
+     ]
+    },
+    {
+     "from": 6.0,
+     "to": 20.0,
+     "zoom": [
+      1.6,
+      1.65
+     ],
+     "at": [
+      0.79,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "For code of your own, there is the Playground, and the Companion.",
+    "The Companion is a small program that connects your computer to Koios. Get it inside the desktop app for Mac, Windows or Linux, with one terminal command, or through the VS Code extension."
+   ]
+  },
+  {
+   "name": "pair",
+   "take": "companion",
+   "chapter": [
+    "07",
+    "Your computer"
+   ],
+   "caption": "Paired *once*. No tokens to paste.",
+   "clips": [
+    {
+     "from": 20.2,
+     "to": 36.8,
+     "zoom": [
+      1.65,
+      1.7
+     ],
+     "at": [
+      0.79,
+      0.45
+     ]
+    }
+   ],
+   "vo": "Once it runs, Koios finds it. Show the code on your computer, type it in, and connect. That is the whole setup: paired once, no tokens to copy."
+  },
+  {
+   "name": "where",
+   "take": "companion",
+   "chapter": [
+    "07",
+    "Your computer"
+   ],
+   "caption": "Files *here*, compute *there*.",
+   "clips": [
+    {
+     "from": 37.2,
+     "to": 57.4,
+     "zoom": [
+      1.1,
+      1.15
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Now a project can live on your own machine.",
+    "Choose where it runs: this computer, a GPU box, or Colab. Or keep the code here, and send the heavy compute somewhere bigger."
+   ]
+  },
+  {
+   "name": "workspace",
+   "take": "companion",
+   "chapter": [
+    "07",
+    "Your computer"
+   ],
+   "caption": "A real workspace, on *your* laptop.",
+   "clips": [
+    {
+     "from": 57.7,
+     "to": 69.0,
+     "zoom": [
+      1.35,
+      1.45
+     ],
+     "at": [
+      0.4,
+      0.68
+     ]
+    }
+   ],
+   "vo": "This is a real workspace on your laptop: your files, a terminal, and an agent beside them."
+  },
+  {
+   "name": "machines",
+   "take": "companion",
+   "chapter": [
+    "07",
+    "Your computer"
+   ],
+   "caption": "Many machines, *one* project.",
+   "clips": [
+    {
+     "from": 69.3,
+     "to": 79.0,
+     "zoom": [
+      1.3,
+      1.35
+     ],
+     "at": [
+      0.75,
+      0.3
+     ]
+    },
+    {
+     "from": 79.3,
+     "to": 93.8,
+     "zoom": [
+      1.2,
+      1.25
+     ],
+     "at": [
+      0.55,
+      0.3
+     ]
+    }
+   ],
+   "vo": [
+    "Add more machines to the same project: Colab GPUs, a lab server, your laptop.",
+    "Settings shows every one of them, which are running, and keeps the Companion up to date."
+   ]
+  },
+  {
+   "name": "fits",
+   "diagram": "companion",
+   "stepsOnLines": [
+    0,
+    2,
+    3,
+    4
+   ],
+   "vo": [
+    "Here is how it all fits together.",
+    "Koios runs in your browser, or as the desktop app.",
+    "The Companion pairs with it once, and looks after your project folder, with a Jupyter kernel and a terminal, right on your computer.",
+    "When you need a GPU, Colab or your own server mounts that folder over a secure tunnel, and runs your code there: files here, compute there.",
+    "And everything stays yours: your PDFs and library in your own Google Drive; your notes, code and bibliography in Git."
+   ],
+   "after": 1.2
+  },
+  {
+   "name": "projects",
+   "take": "projects",
+   "chapter": [
+    "08",
+    "Together"
+   ],
+   "caption": "See who's here, and *follow* along.",
+   "clips": [
+    {
+     "from": 1.0,
+     "to": 5.6,
+     "zoom": [
+      1.15,
+      1.2
+     ],
+     "at": [
+      0.3,
+      0.3
+     ]
+    },
+    {
+     "from": 5.8,
+     "to": 19.0,
+     "zoom": [
+      1.2,
+      1.3
+     ],
+     "at": [
+      0.55,
+      0.3
+     ]
+    }
+   ],
+   "vo": [
+    "Research is rarely solo.",
+    "Projects gather the papers, the people and the work. You can see who is here, what they are looking at, and follow along, live."
+   ]
+  },
+  {
+   "name": "bibliography",
+   "take": "projects",
+   "chapter": [
+    "08",
+    "Together"
+   ],
+   "caption": "A bibliography you can *trust*.",
+   "clips": [
+    {
+     "from": 19.3,
+     "to": 28.7,
+     "zoom": [
+      1.0,
+      1.06
+     ],
+     "at": [
+      0.5,
+      0.35
+     ]
+    }
+   ],
+   "vo": "Each project keeps its papers by role, and a bibliography where the published version's BibTeX is one click away."
+  },
+  {
+   "name": "write",
+   "take": "projects",
+   "chapter": [
+    "08",
+    "Together"
+   ],
+   "caption": "Write, and *cite* as you go.",
+   "clips": [
+    {
+     "from": 28.9,
+     "to": 40.5,
+     "zoom": [
+      1.0,
+      1.06
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    },
+    {
+     "from": 40.7,
+     "to": 51.1,
+     "zoom": [
+      1.35,
+      1.4
+     ],
+     "at": [
+      0.32,
+      0.5
+     ]
+    },
+    {
+     "from": 51.3,
+     "to": 59.6,
+     "zoom": [
+      1.45,
+      1.5
+     ],
+     "at": [
+      0.85,
+      0.45
+     ]
+    }
+   ],
+   "vo": [
+    "Write the paper beside your reading: LaTeX that compiles as you go, kept in sync with Overleaf.",
+    "Put the cursor after a claim, and Koios suggests what to cite. One click adds the citation, and the reference appears in the PDF."
+   ]
+  },
+  {
+   "name": "logbook",
+   "take": "projects",
+   "chapter": [
+    "08",
+    "Together"
+   ],
+   "caption": "A logbook, a whiteboard, your calendar.",
+   "clips": [
+    {
+     "from": 61.0,
+     "to": 67.7,
+     "zoom": [
+      1.1,
+      1.15
+     ],
+     "at": [
+      0.5,
+      0.45
+     ]
+    },
+    {
+     "from": 68.6,
+     "to": 78.0,
+     "zoom": [
+      1.05,
+      1.1
+     ],
+     "at": [
+      0.5,
+      0.4
+     ]
+    }
+   ],
+   "vo": "A logbook keeps the meetings, the links and a shared whiteboard, and your calendar is right there beside them."
+  },
+  {
+   "name": "end",
+   "card": {
+    "scene": "scene-03.jpg",
+    "focus": [
+     0.85,
+     0.5
+    ],
+    "mark": true,
+    "lines": [
+     "Find it. Read it.",
+     "Understand it. Then *run* it."
+    ],
+    "size": 80,
+    "sub": "koios.dev  ·  in your browser, or download the app",
+    "subColor": "#d8b46a"
+   },
+   "vo": "Koios. Find it, read it, understand it, then run it. At koios dot dev.",
+   "voAt": 0.9,
+   "after": 2.2
+  }
+ ]
+}
