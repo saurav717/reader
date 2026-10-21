@@ -77,7 +77,7 @@ def warp(src, z, cx, cy):
 
 # ------------------------------------------------------------- the light ---
 
-DIM = 0.34  # how much of the light outside a spot is left
+DIM = 0.45  # how much of the light outside a spot is left
 RAMP = 0.35  # seconds for a spot to come up or go down
 GLIDE = 0.45  # seconds for the light to move from one spot to the next
 GOLD = (106, 180, 216)  # BGR

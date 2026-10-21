@@ -1,7 +1,10 @@
 {
  "name": "short",
  "crossfade": 0.25,
- "fit": { "slack": 0.5, "maxSpeed": 2.2 },
+ "fit": {
+  "slack": 0.5,
+  "maxSpeed": 2.2
+ },
  "voice": {
   "name": "ash",
   "instructions": "An upbeat, confident product-launch narrator. Brisk and energetic but clear, crisp consonants, short punchy delivery, a smile in the voice. Never shouty.",
@@ -10,60 +13,330 @@
  "shots": [
   {
    "name": "hook",
-   "card": { "scene": "scene-01.jpg", "focus": [0.9, 0.5], "lines": ["Forty tabs. Six PDFs.", "Still *lost*?"] },
+   "card": {
+    "scene": "scene-01.jpg",
+    "focus": [
+     0.9,
+     0.5
+    ],
+    "lines": [
+     "Forty tabs. Six PDFs.",
+     "Still *lost*?"
+    ]
+   },
    "vo": "Forty tabs. Six PDFs. And you still don't get the paper? Meet Koios.",
-   "voAt": 0.3, "after": 0.4
+   "voAt": 0.3,
+   "after": 0.4
   },
-  { "name": "find", "take": "discover", "caption": "Every index. *One* search.",
-   "clips": [{ "from": "query", "to": "detail" }],
-   "vo": "Search arXiv, Scholar, Semantic Scholar and more, all at once, in one clean list." },
-  { "name": "copies", "take": "discover", "caption": "Every copy. *Every* author.",
-   "clips": [{ "from": "copies", "to": "save+2" }, { "from": "profile", "to": "most-cited+2" }],
-   "vo": "Every place a paper lives, and every paper a person wrote." },
-  { "name": "desk", "take": "home", "caption": "Back to the *exact* line.",
-   "clips": [{ "from": "continue-reading", "to": "today" }, { "from": "desk", "to": "desk-switch" }],
-   "vo": "Your library remembers the exact line you stopped at." },
-  { "name": "read", "take": "read", "caption": "PDF. Reflow. *Book*.",
-   "clips": [{ "from": "reflow", "to": "one-page" }],
-   "vo": "Read it as typeset, reflowed, or as a book." },
-  { "name": "lookup", "take": "annotate", "caption": "Right-click to *understand*.",
-   "clips": [{ "from": "lookup", "to": "hover-author" }],
-   "vo": "Right-click any term: what it means, and where the idea came from." },
-  { "name": "ask", "take": "askai", "caption": "Answers that *point* at the paper.",
-   "clips": [{ "from": "ask-where", "to": "figure" }],
-   "vo": "Ask AI sees your screen, and every answer points to the exact passage." },
-  { "name": "models", "take": "askai", "caption": "Claude. DeepSeek. Gemini. *The web*.",
-   "clips": [{ "from": "models", "to": "read-next" }],
-   "vo": "Claude, DeepSeek or Gemini, with web search when you want it." },
-  { "name": "explain", "take": "showcase", "caption": "Press *E*. Get it.",
-   "clips": [{ "from": "scene:explain", "to": "scene:implement" }],
-   "vo": "Press E, and the whole paper is explained, maths and all." },
-  { "name": "colab", "take": "showcase", "caption": "From paper to *running code*.",
-   "clips": [{ "from": "scene:implement", "to": "scene:implement+4" }, { "from": "scene:colab", "to": "scene:toggle" }],
-   "vo": "Then it plans the build, writes a notebook, and runs it on a GPU." },
-  { "name": "agents", "take": "workspace", "caption": "An agent that's *read the paper*.",
-   "clips": [{ "from": "agents", "to": "vscode-open" }],
-   "vo": "Turn the paper into a project, and let Claude Code, Codex or Koios AI build it, tests and all." },
-  { "name": "vscode", "take": "workspace", "caption": "Right in *VS Code*.",
-   "clips": [{ "from": "vscode-page", "to": "end" }],
-   "vo": "In the page, or in VS Code." },
-  { "name": "sims", "take": "simulators", "caption": "*31* simulators. Watch it learn.",
-   "clips": [{ "from": "picker", "to": "mujoco" }, { "from": "live", "to": "world-model+4" }],
-   "vo": "Thirty-one simulators. Watch your agent learn, live." },
-  { "name": "anywhere", "take": "anywhere", "caption": "Code here. Compute there. *You, anywhere.*",
-   "clips": [{ "from": "watch", "to": "all+5" }],
-   "vo": "Code on your laptop. Compute on a GPU. Data in Drive. And you, anywhere." },
-  { "name": "run", "take": "companion", "caption": "One command. *A100* power.",
-   "clips": [{ "from": "koios-run", "to": "gpu-shell" }],
-   "vo": "One command sends it to the GPU." },
-  { "name": "together", "take": "projects", "caption": "Write together. *Cite* as you go.",
-   "clips": [{ "from": "presence", "to": "papers" }, { "from": "cite", "to": "logbook" }],
-   "vo": "Work with your team, write in LaTeX, and cite as you go." },
+  {
+   "name": "find",
+   "take": "discover",
+   "caption": "Every index. *One* search.",
+   "clips": [
+    {
+     "from": "query",
+     "to": "query+5.5"
+    },
+    {
+     "from": "results",
+     "to": "results+5"
+    }
+   ],
+   "vo": "Search arXiv, Scholar, Semantic Scholar and more, all at once, in one clean list."
+  },
+  {
+   "name": "copies",
+   "take": "discover",
+   "caption": "Every copy. *Every* author.",
+   "clips": [
+    {
+     "from": "copies",
+     "to": "copies+4"
+    },
+    {
+     "from": "profile+3",
+     "to": "profile+8"
+    }
+   ],
+   "vo": "Every place a paper lives, and every paper a person wrote."
+  },
+  {
+   "name": "desk",
+   "take": "home",
+   "caption": "Back to the *exact* line.",
+   "clips": [
+    {
+     "from": "continue-reading+3",
+     "to": "continue-reading+8"
+    },
+    {
+     "from": "desk",
+     "to": "desk+5"
+    }
+   ],
+   "vo": "Your library remembers the exact line you stopped at."
+  },
+  {
+   "name": "read",
+   "take": "read",
+   "caption": "PDF. Reflow. *Book*.",
+   "clips": [
+    {
+     "from": "reflow+1",
+     "to": "reflow+5"
+    },
+    {
+     "from": "book+1",
+     "to": "book+6"
+    }
+   ],
+   "vo": "Read it as typeset, reflowed, or as a book."
+  },
+  {
+   "name": "lookup",
+   "take": "annotate",
+   "caption": "Right-click to *understand*.",
+   "clips": [
+    {
+     "from": "lookup",
+     "to": "lookup+12"
+    }
+   ],
+   "vo": "Right-click any term: what it means, and where the idea came from."
+  },
+  {
+   "name": "notes",
+   "take": "annotate",
+   "caption": "Keep it all, in *your notes*.",
+   "clips": [
+    {
+     "from": "notes",
+     "to": "notes+5"
+    },
+    {
+     "from": "board",
+     "to": "board+4"
+    }
+   ],
+   "vo": "Highlights, comments and figures, kept in your notes: by section, or on a board."
+  },
+  {
+   "name": "ask",
+   "take": "askai",
+   "caption": "Answers that *point* at the paper.",
+   "clips": [
+    {
+     "from": "ask-where+2",
+     "to": "ask-where+7"
+    },
+    {
+     "from": "passage-shown",
+     "to": "passage-shown+6"
+    }
+   ],
+   "vo": "Ask AI sees your screen, and every answer points to the exact passage."
+  },
+  {
+   "name": "models",
+   "take": "askai",
+   "caption": "Claude. DeepSeek. Gemini. *The web*.",
+   "clips": [
+    {
+     "from": "models",
+     "to": "models+5"
+    },
+    {
+     "from": "web+6",
+     "to": "web+12"
+    }
+   ],
+   "vo": "Claude, DeepSeek or Gemini, with web search when you want it."
+  },
+  {
+   "name": "papers",
+   "take": "askai",
+   "caption": "Papers it names, *saved* in a click.",
+   "clips": [
+    {
+     "from": "read-next+2",
+     "to": "read-next+9"
+    }
+   ],
+   "vo": "Papers it mentions? Saved to your library in one click."
+  },
+  {
+   "name": "explain",
+   "take": "showcase",
+   "caption": "Press *E*. Get it.",
+   "clips": [
+    {
+     "from": "scene:explain",
+     "to": "scene:implement"
+    }
+   ],
+   "vo": "Press E, and the whole paper is explained, maths and all."
+  },
+  {
+   "name": "colab",
+   "take": "showcase",
+   "caption": "From paper to *running code*.",
+   "clips": [
+    {
+     "from": "scene:implement+1",
+     "to": "scene:implement+4"
+    },
+    {
+     "from": "scene:colab+3",
+     "to": "scene:colab+12"
+    }
+   ],
+   "vo": "Then it plans the build, writes a notebook, and runs it on a GPU."
+  },
+  {
+   "name": "agents",
+   "take": "workspace",
+   "caption": "An agent that's *read the paper*.",
+   "clips": [
+    {
+     "from": "agents",
+     "to": "agents+3"
+    },
+    {
+     "from": "test-run",
+     "to": "test-run+6"
+    },
+    {
+     "from": "answer",
+     "to": "answer+4"
+    }
+   ],
+   "vo": "Turn the paper into a project, and let Claude Code, Codex or Koios AI build it, tests and all."
+  },
+  {
+   "name": "vscode",
+   "take": "workspace",
+   "caption": "Right in *VS Code*.",
+   "clips": [
+    {
+     "from": "vscode-page+4",
+     "to": "vscode-page+10"
+    },
+    {
+     "from": "vscode-cite",
+     "to": "vscode-cite+5"
+    }
+   ],
+   "vo": "In the page, or in VS Code."
+  },
+  {
+   "name": "sims",
+   "take": "simulators",
+   "caption": "*31* simulators. Watch it learn.",
+   "clips": [
+    {
+     "from": "picker",
+     "to": "picker+4"
+    },
+    {
+     "from": "live",
+     "to": "live+5"
+    },
+    {
+     "from": "world-model",
+     "to": "world-model+4"
+    }
+   ],
+   "vo": "Thirty-one simulators. Watch your agent learn, live."
+  },
+  {
+   "name": "filed",
+   "take": "simulators",
+   "caption": "Every run, *filed* for you.",
+   "clips": [
+    {
+     "from": "filed",
+     "to": "logbook+5"
+    }
+   ],
+   "vo": "And every run is filed in your logbook, automatically."
+  },
+  {
+   "name": "anywhere",
+   "take": "anywhere",
+   "caption": "Code here. Compute there. *You, anywhere.*",
+   "clips": [
+    {
+     "from": "watch",
+     "to": "all+5"
+    }
+   ],
+   "vo": "Code on your laptop. Compute on a GPU. Data in Drive. And you, anywhere."
+  },
+  {
+   "name": "run",
+   "take": "companion",
+   "caption": "One command. *A100* power.",
+   "clips": [
+    {
+     "from": "koios-run+3",
+     "to": "koios-run+12"
+    }
+   ],
+   "vo": "One command sends it to the GPU."
+  },
+  {
+   "name": "mount",
+   "take": "companion",
+   "caption": "Your folder, *live* on the GPU.",
+   "clips": [
+    {
+     "from": "mount",
+     "to": "mount+8"
+    }
+   ],
+   "vo": "Or mount your folder on the GPU, live."
+  },
+  {
+   "name": "together",
+   "take": "projects",
+   "caption": "Write together. *Cite* as you go.",
+   "clips": [
+    {
+     "from": "presence",
+     "to": "presence+5"
+    },
+    {
+     "from": "cite+2",
+     "to": "cite+8"
+    },
+    {
+     "from": "recompile+1",
+     "to": "recompile+5"
+    }
+   ],
+   "vo": "Work with your team, write in LaTeX, and cite as you go."
+  },
   {
    "name": "end",
-   "card": { "scene": "scene-03.jpg", "focus": [0.85, 0.5], "mark": true, "lines": ["Read the paper.", "Then *run* it."], "size": 84, "sub": "koios.dev", "subColor": "#d8b46a" },
+   "card": {
+    "scene": "scene-03.jpg",
+    "focus": [
+     0.85,
+     0.5
+    ],
+    "mark": true,
+    "lines": [
+     "Read the paper.",
+     "Then *run* it."
+    ],
+    "size": 84,
+    "sub": "koios.dev",
+    "subColor": "#d8b46a"
+   },
    "vo": "Koios. Read the paper. Then run it.",
-   "voAt": 0.6, "after": 1.6, "length": 4.5
+   "voAt": 0.6,
+   "after": 1.6,
+   "length": 4.5
   }
  ]
 }
