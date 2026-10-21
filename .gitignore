@@ -17,3 +17,6 @@ __pycache__/
 
 # Compiled output: src/ holds TypeScript only. A .js beside a .ts would be what Vite bundles (it tries .js before .ts).
 src/**/*.js
+
+# Video footage and its fonts (scripts/video/)
+.video
