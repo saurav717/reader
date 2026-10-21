@@ -3,7 +3,10 @@ import stat
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest import mock
 
 from reader_companion import tunnel
 
@@ -43,6 +46,30 @@ class TunnelTest(unittest.TestCase):
             with self.assertRaises(RuntimeError) as caught:
                 tunnel.start(47321, binary, timeout_s=5)
             self.assertIn("no such host", str(caught.exception))
+
+    def test_knows_a_dead_address(self):
+        codes = {"/": 404}
+
+        class Answer(BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(codes["/"])
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Answer)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{server.server_port}"
+        no_proxy = {k: "" for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")}
+        try:
+            with mock.patch.dict(os.environ, no_proxy):
+                self.assertFalse(tunnel.gone(url))  # the Companion's own 404: it is there
+                codes["/"] = 530  # Cloudflare: nothing behind the address
+                self.assertTrue(tunnel.gone(url))
+                self.assertTrue(tunnel.gone("https://no-such-tunnel.invalid"))  # the name no longer resolves
+        finally:
+            server.shutdown()
 
     def test_asset_names(self):
         self.assertRegex(tunnel.asset(), r"^cloudflared-(darwin|linux|windows)-(amd64|arm64)(\.tgz|\.exe)?$")

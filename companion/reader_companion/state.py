@@ -119,6 +119,8 @@ class Companion:
     hardware: str = ""
     port: int = 0
     tunnel_url: str = ""
+    # The running tunnel.Tunnel behind tunnel_url, so a dead one can be noticed and replaced.
+    tunnel: object = None
     tls_port: int = 0
     code: str = field(default_factory=new_code)
     code_made: float = field(default_factory=time.time)
