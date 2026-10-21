@@ -189,7 +189,17 @@ function sse(thinking, text) {
 let child = null;
 let config = null;
 
+/** VS Code's servers from an earlier take: they outlive the CLI that started them. */
+function stray() {
+  try {
+    execFileSync('pkill', ['-f', `${HOME}/.vscode/cli/serve-web/`]);
+  } catch {
+    // none
+  }
+}
+
 function startCompanion() {
+  stray();
   for (const [what, at] of [
     ['the Companion’s venv (see companion.mjs)', path.join(VENV, 'bin/reader-companion')],
     ['pytest in that venv (.video/jvenv/bin/pip install pytest)', path.join(VENV, 'bin/pytest')],
@@ -204,31 +214,6 @@ function startCompanion() {
   rmSync(path.join(SHOTS, 'companion.log'), { force: true });
   mkdirSync(path.join(HOME, 'Reader'), { recursive: true });
   mkdirSync(RUNTIME, { recursive: true });
-  // VS Code in the page: no welcome, no trust prompt, no chat; the site's look, from the Koios extension.
-  const user = path.join(HOME, '.reader-companion/vscode/data/User');
-  mkdirSync(user, { recursive: true });
-  writeFileSync(
-    path.join(user, 'settings.json'),
-    JSON.stringify(
-      {
-        'workbench.colorTheme': 'Koios Dark',
-        'workbench.startupEditor': 'none',
-        'security.workspace.trust.enabled': false,
-        'chat.disableAIFeatures': true,
-        'workbench.secondarySideBar.defaultVisibility': 'hidden',
-        'workbench.tips.enabled': false,
-        'editor.minimap.enabled': false,
-        'window.commandCenter': false,
-        'workbench.layoutControl.enabled': false,
-        'update.mode': 'none',
-        'extensions.ignoreRecommendations': true,
-        'telemetry.telemetryLevel': 'off',
-        'editor.fontSize': 14,
-      },
-      null,
-      2,
-    ),
-  );
   child = spawn(path.join(VENV, 'bin/reader-companion'), ['--site', BASE, '--name', NAME, '--port', String(PORT), '--root', path.join(HOME, 'Reader'), '--python', path.join(VENV, 'bin/python'), '--no-browser', '--no-tunnel'], {
     env: { ...process.env, HOME, JUPYTER_RUNTIME_DIR: RUNTIME, SHELL: '/bin/bash', VIRTUAL_ENV_DISABLE_PROMPT: '1', PATH: `${CODE_BIN}:${path.join(VENV, 'bin')}:${process.env.PATH}` },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -240,6 +225,7 @@ function startCompanion() {
     } catch {
       // gone already
     }
+    stray();
   };
   process.on('exit', kill);
   return new Promise((resolve, reject) => {
@@ -263,11 +249,27 @@ function startCompanion() {
   });
 }
 
+/** The `code serve-web` the Companion started: its port and connection token, from its command line. */
+function serveWeb() {
+  const args = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' }).split('\n').find((line) => line.includes(' serve-web ') && line.includes(HOME));
+  const port = /--port (\d+)/.exec(args || '')?.[1];
+  const token = /--connection-token (\S+)/.exec(args || '')?.[1];
+  return port && token ? { port, token } : null;
+}
+
 export async function setup(context) {
   await startCompanion();
   config = JSON.parse(readFileSync(path.join(HOME, '.reader-companion/config.json'), 'utf8'));
   // VS Code's server, started now off camera, as it would be from an earlier day: the first start downloads it.
-  await fetch(`${URL_BASE}companion/vscode-web`, { method: 'POST', headers: { Authorization: `token ${config.token}`, 'Content-Type': 'application/json', Origin: BASE }, body: JSON.stringify({ folder: '' }) }).catch(() => undefined);
+  for (let i = 0; i < 60; i++) {
+    const answer = await fetch(`${URL_BASE}companion/vscode-web`, { method: 'POST', headers: { Authorization: `token ${config.token}`, 'Content-Type': 'application/json', Origin: BASE }, body: JSON.stringify({ folder: '' }) })
+      .then((r) => r.json())
+      .catch(() => ({}));
+    if (answer.state === 'ready') break;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  const web = serveWeb();
+  if (!web) throw new Error('VS Code (code serve-web) did not start under the Companion');
 
   const cors = { 'Access-Control-Allow-Origin': BASE, 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
   // Any other Companion on the usual ports (the companion take's) is not this one: unseen.
@@ -284,24 +286,71 @@ export async function setup(context) {
     return route.fallback();
   });
 
-  // VS Code's page itself, through the Companion. Its proxy (extension.VsCodeProxy) hands VS Code's own
-  // Content-Security-Policy on as it came, and VS Code 1.143 writes that header over several lines, which
-  // Tornado 6.6 refuses to send (a 500, "Invalid header value"). Only that one page is fetched here instead,
-  // from the same `code serve-web` the Companion started, and given the headers the Companion means to give
-  // it (the policy on one line, framed only by the site); everything after it goes through the Companion.
+  // VS Code's page itself, through the Companion. Three things stand in for the Companion's proxy here, all on
+  // that one page (everything after it goes through the Companion as it is):
+  //  - VS Code 1.143 sends its Content-Security-Policy in a form Tornado 6.6 won't relay (a 500, "Invalid header
+  //    value"), so the page is fetched here, from the same `code serve-web` the Companion started, and given the
+  //    headers the Companion means to give it (the policy without its own frame-ancestors, framed only by the site);
+  //  - the page names serve-web's own port as the address to reach VS Code's server at, which the frame can't
+  //    reach: it is pointed at the Companion's address instead, which relays to it;
+  //  - VS Code's preferences, as a person would have set them: the folder trusted (the Koios extension is off in
+  //    Restricted Mode), Koios Dark (the extension's theme), no welcome tab, no chat, no git prompt.
+  // And the frame's script reads VS Code's connection token from its cookie, which the Companion drops: given it.
+  await context.addInitScript(
+    ({ port, token }) => {
+      if (location.port !== port) return;
+      const own = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+      Object.defineProperty(Document.prototype, 'cookie', {
+        configurable: true,
+        get() {
+          const jar = own.get.call(this);
+          return jar ? `${jar}; vscode-tkn=${token}` : `vscode-tkn=${token}`;
+        },
+        set(value) {
+          own.set.call(this, value);
+        },
+      });
+    },
+    { port: String(PORT), token: web.token },
+  );
+  const here = `127.0.0.1:${PORT}`;
   await context.route(new RegExp(`^http://127\\.0\\.0\\.1:${PORT}/companion/vscode/[^/]+/(\\?.*)?$`), async (route) => {
-    const args = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' }).split('\n').find((line) => line.includes(' serve-web ') && line.includes(HOME));
-    const port = /--port (\d+)/.exec(args || '')?.[1];
-    const token = /--connection-token (\S+)/.exec(args || '')?.[1];
-    if (!port || !token) return route.fallback();
+    const now = serveWeb() ?? web;
     const asked = new URL(route.request().url());
-    const response = await fetch(`http://127.0.0.1:${port}${asked.pathname}${asked.search}`, { headers: { Cookie: `vscode-tkn=${token}` } });
+    const response = await fetch(`http://127.0.0.1:${now.port}${asked.pathname}${asked.search}`, { headers: { Cookie: `vscode-tkn=${now.token}` } });
+    const there = `127.0.0.1:${now.port}`;
     const headers = {};
     response.headers.forEach((value, name) => {
       if (['set-cookie', 'x-frame-options', 'content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(name)) return;
-      headers[name] = name === 'content-security-policy' ? value.replace(/\s+/g, ' ').split(';').filter((part) => !/^\s*frame-ancestors/i.test(part)).join(';') + `; frame-ancestors 'self' ${BASE}` : value;
+      const v =
+        name === 'content-security-policy'
+          ? value
+              .split(/[;,]/)
+              .map((part) => part.replace(/\s+/g, ' ').trim())
+              .filter((part) => part && !/^frame-ancestors/i.test(part))
+              .concat(`frame-ancestors 'self' ${BASE}`)
+              .join('; ')
+          : value;
+      headers[name] = v.replaceAll(there, here);
     });
-    return route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
+    let body = (await response.text()).replaceAll(there, here);
+    body = body.replace(/(id="vscode-workbench-web-configuration" data-settings=")([^"]*)"/, (all, head, raw) => {
+      const settings = JSON.parse(raw.replaceAll('&quot;', '"').replaceAll('&amp;', '&'));
+      settings.enableWorkspaceTrust = false;
+      settings.configurationDefaults = {
+        'workbench.colorTheme': 'Koios Dark',
+        'workbench.startupEditor': 'none',
+        'chat.disableAIFeatures': true,
+        'workbench.secondarySideBar.defaultVisibility': 'hidden',
+        'editor.minimap.enabled': false,
+        'workbench.tips.enabled': false,
+        'git.openRepositoryInParentFolders': 'never',
+        'git.enabled': false,
+        'editor.fontSize': 14,
+      };
+      return `${head}${JSON.stringify(settings).replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"`;
+    });
+    return route.fulfill({ status: response.status, headers, body });
   });
 
   // The paper, for the folder's paper/ files.
@@ -330,11 +379,11 @@ export async function setup(context) {
         const round = /Go on: fix what failed/.test(last) ? 2 : /Now answer the request/.test(last) ? 1 : 0;
         const events = replies[round];
         // How long each round takes on screen, as a person would see it think and write.
-        const pace = [3200, 9000, 4200][round] / events.length;
+        const pace = [2600, 7000, 3200][round] / events.length;
         (window.__wsLog ??= []).push(`round ${round} asked at ${Math.round(performance.now())}`);
         const stream = new ReadableStream({
           async start(controller) {
-            await new Promise((resolve) => setTimeout(resolve, 800));
+            await new Promise((resolve) => setTimeout(resolve, 500));
             for (const event of events) {
               controller.enqueue(new TextEncoder().encode(event));
               await new Promise((resolve) => setTimeout(resolve, pace));
@@ -385,145 +434,150 @@ const shot = (page, name) => page.screenshot({ path: path.join(SHOTS, `${name}.p
 
 export default async function ({ page, pointer, mark, spot, unspot }) {
   const hold = (ms) => page.waitForTimeout(ms);
-  await hold(1200);
+  await hold(800);
 
   // 1. Project mode: a paper from the library, as a project on this computer.
   mark('from-a-paper');
   const start = page.locator('.pg-start', { hasText: 'From a paper' });
   await spot(start);
   await pointer.moveTo(start);
-  await hold(2200);
-  await pointer.click(start, { pause: 400 });
-  await pointer.type('attention', { delay: 70 });
+  await hold(2000);
+  await pointer.click(start, { pause: 300 });
+  await pointer.type('attention', { delay: 60 });
   const pick = page.locator('.pg-papers li button').first();
   await pick.waitFor();
   await spot(page.locator('.pg-ask'));
-  await hold(1200);
-  await pointer.click(pick, { pause: 600 });
+  await pointer.moveTo(pick);
+  await hold(1400);
+  await pointer.click(pick, { pause: 500 });
   await page.locator('.pg-sheet').waitFor();
-  await shot(page, '1-sheet');
 
   mark('where');
-  const pc = page.locator('.pg-mode-top', { has: page.locator('b', { hasText: /^This PC$/ }) });
-  await pointer.click(pc, { pause: 400 });
-  await spot(page.locator('.pg-sheet'));
-  await hold(2200);
+  const pc = page.locator('.pg-mode', { has: page.locator('b', { hasText: /^This PC$/ }) });
+  await pointer.click(pc.locator('.pg-mode-top'), { pause: 300 });
+  await spot(pc);
+  await hold(2400);
   await shot(page, '2-sheet-pc');
-  await pointer.click(page.locator('.pg-sheet-foot .btn.primary'));
+  await spot(page.locator('.pg-sheet-foot .btn.primary'));
+  await pointer.click(page.locator('.pg-sheet-foot .btn.primary'), { pause: 200 });
 
   mark('project');
   await page.locator('.vs-activity').waitFor({ timeout: 20_000 });
-  unspot();
   const write = page.locator('section.pg-write');
   await write.waitFor({ timeout: 15_000 });
-  await hold(1200);
-  await spot(write.locator('.nb-start-head'));
-  await pointer.moveTo(write.locator('h2'));
-  await hold(2600);
-  await spot([write.locator('.model-pick'), write.locator('.btn.primary.cta')]);
+  await spot([write.locator('.nb-start-head'), write.locator('.model-pick'), write.locator('.btn.primary.cta')]);
   await pointer.moveTo(write.locator('.btn.primary.cta'));
-  await hold(2600);
+  await hold(2800);
   const cli = write.locator('.pg-write-cli');
-  if (await cli.count()) {
-    await cli.scrollIntoViewIfNeeded();
-    await spot(cli);
-    await pointer.moveTo(cli.locator('.btn').first());
-    await hold(2600);
-  }
+  await cli.scrollIntoViewIfNeeded();
+  await spot(cli);
+  await pointer.moveTo(cli.locator('.btn').first());
+  await hold(2600);
   await shot(page, '4-start');
 
   mark('files');
-  await pointer.click(write.getByRole('button', { name: 'write the files yourself' }), { pause: 900 });
-  await spot('.vs-groups');
+  await pointer.click(write.getByRole('button', { name: 'write the files yourself' }), { pause: 600 });
+  await spot(['.vs-sidebar', '.vs-groups']);
   await pointer.moveTo({ x: 760, y: 330 });
-  await hold(2600);
-  await shot(page, '5-readme');
+  await hold(1200);
   const paperDir = page.locator('.vs-explorer .pg-entry').filter({ hasText: /paper\s*$/ }).first();
-  await spot('.vs-sidebar');
-  await pointer.click(paperDir, { pause: 600 });
-  await hold(2400);
-  await spot('.vs-agent');
-  await pointer.moveTo('.vs-agent-hello');
-  await hold(2800);
-  await spot('.pg-console');
-  await pointer.moveTo('.pg-console .xterm');
-  await hold(2400);
+  await pointer.click(paperDir, { pause: 400 });
+  await hold(2000);
+  await shot(page, '5-readme');
+  await spot(['.vs-agent-hello', page.locator('.vs-chip', { hasText: 'the paper' })]);
+  await pointer.moveTo('.vs-agent-hello b');
+  await hold(2600);
   await shot(page, '6-agent');
 
   // 2. The agents: which, then the page's own one, asked for §3.2.1.
   mark('agents');
   await spot('.vs-agent-pick');
   await pointer.moveTo(page.locator('.vs-agent-pick [role=radio]').first());
-  await hold(1400);
+  await hold(900);
   await pointer.moveTo(page.locator('.vs-agent-pick [role=radio]').nth(1));
-  await hold(1200);
+  await hold(800);
   await pointer.moveTo(page.locator('.vs-agent-pick [role=radio]', { hasText: 'Koios AI' }));
   await hold(1000);
 
   mark('ask');
   const box = page.getByLabel('Ask the agent');
   await spot('.vs-agent-box');
-  await pointer.click(box, { pause: 300 });
-  await pointer.type(TASK, { delay: 32 });
-  await hold(600);
-  await pointer.key('Enter', '⏎', 300);
+  await pointer.click(box, { pause: 200 });
+  await pointer.type(TASK, { delay: 20 });
+  await hold(500);
+  await pointer.key('Enter', '⏎', 200);
 
   mark('thinking');
   await spot('.vs-agent-log');
   await page.locator('.vs-turn.is-live').waitFor();
-  await hold(2400);
+  await hold(2000);
   await shot(page, '7-thinking');
   // The paper read, then its second thought, then the files as they stream.
   await page.locator('.vs-turn-stream', { hasText: 'file=attention.py' }).waitFor({ timeout: 60_000 });
 
   mark('writing');
-  await hold(2600);
+  await hold(2200);
   await shot(page, '9-writing');
 
   mark('test-run');
   await page.locator('.vs-turn-step', { hasText: /Running/ }).waitFor({ timeout: 60_000 });
-  await spot(['.pg-console', '.vs-turn.is-live']);
+  await spot(['.pg-console', page.locator('.vs-turn-step')]);
   await page.locator('.pg-console', { hasText: /passed/ }).waitFor({ timeout: 60_000 });
-  await hold(2600);
+  await hold(2400);
   await shot(page, '10-ran');
-  console.log('    ', await page.evaluate(() => (window.__wsLog || []).join(' · ')));
 
   mark('answer');
   await page.locator('.vs-turn.is-live').waitFor({ state: 'detached', timeout: 60_000 });
   const turn = page.locator('.vs-turn.is-agent').last();
-  await spot(turn);
-  await hold(2800);
+  await spot([turn.locator('.vs-turn-text'), turn.locator('.vs-run')]);
+  await hold(2600);
   await spot(turn.locator('.vs-changes'));
   await pointer.moveTo(turn.locator('.vs-change').first());
-  await hold(2200);
+  await hold(2000);
   await shot(page, '11-answer');
 
   mark('code');
-  await pointer.click(turn.locator('.vs-change').first(), { pause: 800 });
+  await pointer.click(turn.locator('.vs-change').first(), { pause: 300 });
   await spot('.vs-groups');
-  await hold(2800);
+  await hold(2600);
   await shot(page, '12-code');
-  unspot();
 
-  // 3. VS Code: a link to open it, or VS Code itself in the page, with the Koios extension.
+  // 3. VS Code: a link to open it on this computer, or VS Code itself in the page, with the Koios extension.
   mark('vscode-open');
   const openIn = page.getByRole('link', { name: /Open in VS Code/ });
   await spot(openIn);
   await pointer.moveTo(openIn);
-  await hold(2600);
+  await hold(2400);
 
   mark('vscode-page');
   const sw = page.locator('.pg-editor-switch').first();
   await spot(sw);
-  await pointer.click(sw.getByRole('radio', { name: 'VS Code' }), { pause: 600 });
+  await pointer.click(sw.getByRole('radio', { name: 'VS Code' }), { pause: 300 });
   const frame = page.frameLocator('iframe.pg-vscode-frame');
-  await frame.locator('.monaco-workbench').waitFor({ timeout: 60_000 });
-  await hold(4000);
-  unspot();
+  await frame.locator('.part.activitybar').waitFor({ timeout: 60_000 });
+  await spot(page.locator('.pg-vscode-frame'));
+  await hold(2600);
   await shot(page, '13-vscode');
   const koios = frame.locator('.activitybar [aria-label^="Koios"]').first();
-  await pointer.click(koios, { pause: 1500 });
-  await spot(frame.locator('.sidebar'));
-  await hold(3000);
+  await pointer.click(koios, { pause: 600 });
+  await spot(frame.locator('.part.sidebar'));
+  await hold(2800);
   await shot(page, '14-koios');
+
+  mark('vscode-cite');
+  await pointer.click(frame.locator('.activitybar [aria-label^="Explorer"]').first(), { pause: 500 });
+  await pointer.click(frame.locator('.monaco-list-row[aria-label="attention.py"]').first(), { pause: 600 });
+  const link = frame.locator('.view-line .detected-link', { hasText: '¶' }).first();
+  await link.waitFor({ timeout: 20_000 });
+  await spot(frame.locator('.editor-group-container').first());
+  await hold(1200);
+  await page.keyboard.down('Control');
+  await pointer.moveTo(link, { dx: 0.5 });
+  await hold(600);
+  await spot([link, frame.locator('.monaco-hover').first()]);
+  await hold(2600);
+  await page.keyboard.up('Control');
+  await shot(page, '15-cite');
+  unspot();
+  await hold(1200);
 }

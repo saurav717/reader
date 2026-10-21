@@ -33,12 +33,13 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
-import { ROOT } from '../lib.mjs';
+import { ROOT, BASE } from '../lib.mjs';
 
 const WORK = path.join(ROOT, '.video/simwork');
 const VENV = path.join(ROOT, '.video/jvenv');
 const HOME = path.join(ROOT, '.video/shome'); // short: the kernel's ipc socket paths must fit
-const RECORDED = path.join(WORK, 'cheetah/runs');
+// The recorded runs: PPO from cheetah2 (env.py rendering through the model's tracking camera), the world model from cheetah.
+const RECORDED = { ppo: path.join(WORK, 'cheetah2/runs'), wm: path.join(WORK, 'cheetah/runs') };
 const PORT = 47341;
 // The kernels' sockets: a path under the repository is longer than a Unix socket's name may be.
 const RUNTIME = '/tmp/koios-sim-video';
@@ -91,15 +92,25 @@ function startCompanion() {
 // ------------------------------------------------------------ the replays ---
 
 const now = () => Date.now() / 1000;
-const runDir = (prefix) => readdirSync(RECORDED).filter((d) => d.startsWith(prefix)).sort().at(-1);
+const runDir = (root, prefix) => readdirSync(root).filter((d) => d.startsWith(prefix)).sort().at(-1);
+
+/** A recorded video as WebM (VP9): this Chromium plays no H.264, which is what the run wrote. */
+function webmOf(file) {
+  const out = path.join(WORK, 'webm', path.basename(file).replace(/\.mp4$/, '.webm'));
+  if (!existsSync(out)) {
+    mkdirSync(path.dirname(out), { recursive: true });
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', file, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '32', '-row-mt', '1', '-an', out]);
+  }
+  return out;
+}
 
 /** A recorded run, written into the project's runs/ as if it were going now. */
 class Replay {
-  constructor(prefix, { leave = [] } = {}) {
-    this.id = runDir(prefix);
-    this.src = path.join(RECORDED, this.id);
+  constructor(root, prefix, { leave = () => false } = {}) {
+    this.id = runDir(root, prefix);
+    this.src = path.join(root, this.id);
     this.dst = path.join(FOLDER, 'runs', this.id);
-    this.lines = readFileSync(path.join(this.src, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((text) => ({ text, e: JSON.parse(text) })).filter((l) => !leave.includes(l.e.kind));
+    this.lines = readFileSync(path.join(this.src, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((text) => ({ text, e: JSON.parse(text) })).filter((l) => !leave(l.e));
     this.meta = JSON.parse(readFileSync(path.join(this.src, 'run.json'), 'utf8'));
     this.at = 0;
     this.lastStep = 0;
@@ -134,8 +145,13 @@ class Replay {
   write(lines, time) {
     let text = '';
     for (const { e } of lines) {
-      for (const key of ['path']) if (typeof e[key] === 'string' && existsSync(path.join(this.src, e[key]))) copyFileSync(path.join(this.src, e[key]), path.join(this.dst, e[key]));
       const out = { ...e, t: +time(e).toFixed(3) };
+      if (typeof e.path === 'string' && /\.mp4$/.test(e.path) && existsSync(path.join(this.src, e.path))) {
+        const webm = webmOf(path.join(this.src, e.path));
+        out.path = e.path.replace(/\.mp4$/, '.webm');
+        copyFileSync(webm, path.join(this.dst, out.path));
+        if (typeof e.bytes === 'number') out.bytes = readFileSync(webm).length;
+      } else if (typeof e.path === 'string' && existsSync(path.join(this.src, e.path))) copyFileSync(path.join(this.src, e.path), path.join(this.dst, e.path));
       if (typeof e.step === 'number') this.lastStep = e.step;
       text += `${JSON.stringify(out)}\n`;
     }
@@ -184,7 +200,7 @@ class Replay {
         n++;
         index = (index + 1) % frames.length;
         writeFileSync(path.join(this.dst, 'live.jpg'), frames[index]);
-        writeFileSync(path.join(this.dst, 'live.json'), JSON.stringify({ t: now(), step: this.lastStep, frame: n, episode: this.lines.slice(0, this.at).filter((l) => l.e.kind === 'episode').length, info: { ret: +(index * 2.9).toFixed(1), length: index * 2 } }));
+        writeFileSync(path.join(this.dst, 'live.json'), JSON.stringify({ t: now(), step: this.lastStep, frame: n, episode: this.lines.slice(0, this.at).filter((l) => l.e.kind === 'episode').length }));
       } catch {
         // next frame
       }
@@ -199,7 +215,7 @@ class Replay {
 
 /** The frames of the PPO run's last video, as JPEGs, for its live view. */
 function liveFrames(replay) {
-  const videos = replay.lines.filter((l) => l.e.kind === 'media').map((l) => l.e.path);
+  const videos = replay.lines.filter((l) => l.e.kind === 'media' && l.e.name !== 'eval-episode').map((l) => l.e.path);
   const last = path.join(replay.src, videos.at(-1));
   const out = path.join(WORK, 'live');
   rmSync(out, { recursive: true, force: true });
@@ -210,13 +226,23 @@ function liveFrames(replay) {
 
 // ------------------------------------------------------------- the notes ---
 
-const NOTES = `**What was tried.** PPO from \`ppo.py\` as it comes — 8 environments, 256 steps each per update, lr 3e-4 — on MuJoCo's HalfCheetah-v5, 400k environment steps on this computer's CPU.
+/** The notes, from the recorded run's own numbers (the returns are filled in from the record the app sends). */
+function notesText() {
+  const dir = path.join(RECORDED.ppo, runDir(RECORDED.ppo, 'ppo-'));
+  const events = readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const series = (key) => events.filter((e) => e.kind === 'scalars' && typeof e.values?.[key] === 'number').map((e) => e.values[key]);
+  const entropy = series('entropy');
+  const kl = series('loss/approx_kl');
+  const ev = series('explained_var').slice(Math.floor(series('explained_var').length / 4));
+  const f = (x, d = 1) => x.toFixed(d);
+  return `**What was tried.** PPO from \`ppo.py\` as it comes — 8 environments, 256 steps each per update, lr 3e-4 annealed to 0 — on MuJoCo's HalfCheetah-v5, 400k environment steps on this computer's CPU.
 
-**What happened.** __RETURNS__ The policy's entropy fell slowly (8.5 → 7.6 nats) and approx_kl stayed far under 0.05, so the updates were steady. The critic's explained variance swings between 0.2 and 0.97: the value function is the weak part.
+**What happened.** __RETURNS__ The policy's entropy fell slowly (${f(entropy[0])} → ${f(entropy.at(-1))} nats) and approx_kl peaked at ${f(Math.max(...kl), 3)}, far under 0.05: the updates were steady. The critic's explained variance swings between ${f(Math.min(...ev))} and ${f(Math.max(...ev))} after the first quarter: the value function is the weak part.
 
-**Trust it?** One seed, so treat the shape as real and the exact number as rough.
+**Trust it?** One seed, so trust the shape and treat the exact number as rough.
 
-**Next.** Run three seeds to see the spread, then go to 1M steps: published PPO numbers for HalfCheetah are at 1M, and the curve is still climbing here.`;
+**Next.** Three seeds to see the spread, then 1M steps: published PPO numbers for HalfCheetah are at 1M, and the curve is still climbing here.`;
+}
 
 function standIns({ notes }) {
   try {
@@ -285,7 +311,7 @@ export async function setup(context) {
     if (!existsSync(file)) return route.fulfill({ status: 404, body: '' });
     return route.fulfill({ status: 200, contentType: 'image/gif', body: readFileSync(file) });
   });
-  await context.addInitScript(standIns, { notes: NOTES });
+  await context.addInitScript(standIns, { notes: notesText() });
 }
 
 const SERVER = { id: 's-mac', name: NAME, url: `http://127.0.0.1:${PORT}/`, token: TOKEN, where: 'pc', companionId: CID };
@@ -310,7 +336,13 @@ export async function prepare({ page, arrive }) {
     },
     { PROJECT_ID, PROJECT_NAME, PG_ID },
   );
-  await page.reload({ waitUntil: 'networkidle' });
+  // The library and Discover panels, closed as one would have long ago (they open beside a project's page).
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' });
+  for (const label of ['Close the library panel', 'Close the discover panel']) {
+    const button = page.getByRole('button', { name: label });
+    if (await button.isVisible().catch(() => false)) await button.click();
+  }
+  await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const skip = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
   if (await skip.isVisible().catch(() => false)) await skip.click();
   await page.evaluate(() => document.fonts.ready);
@@ -325,151 +357,157 @@ const SHOTS = path.join(WORK, 'shots');
 const shot = (page, name) => (process.env.SHOTS ? (mkdirSync(SHOTS, { recursive: true }), page.screenshot({ path: path.join(SHOTS, `${name}.png`) })) : undefined);
 
 export default async function ({ page, pointer, mark, spot, unspot }) {
-  // Its final evaluation is left out: ppo.py evaluates without the observation normalisation it trained with (see the report).
-  const ppo = new Replay('ppo-', { leave: ['evaluation'] });
-  const wm = new Replay('world-model-');
+  // The final evaluation and its video are left out: ppo.py evaluates without the observation normalisation it
+  // trained with, so its "eval" return is wrong (see the report).
+  const ppo = new Replay(RECORDED.ppo, 'ppo-', { leave: (e) => e.kind === 'evaluation' || (e.kind === 'media' && /eval/.test(e.name ?? '')) });
+  const wm = new Replay(RECORDED.wm, 'world-model-');
   const frames = liveFrames(ppo);
   try {
-    await hold(page, 1200);
+    await hold(page, 1000);
 
     mark('playground');
     await pointer.key('p', 'P');
     await page.locator('.pg-hero').waitFor();
     const card = page.locator('.pg-start', { hasText: 'A simulation' });
     await card.scrollIntoViewIfNeeded();
-    await hold(page, 1200);
+    await hold(page, 900);
 
     mark('sim-card');
     await spot(card);
     await pointer.moveTo(card);
-    await hold(page, 2800);
+    await hold(page, 2400);
 
     mark('picker');
-    await pointer.click(card);
+    await pointer.click(card, { pause: 300 });
     const picker = page.locator('.sim-picker');
     await picker.waitFor();
-    await spot(page.locator('.sim-picker-grid'));
+    await spot(page.locator('.sim-picker-body'));
     await pointer.moveTo(page.getByRole('radio', { name: /^All · / }));
-    await hold(page, 2800);
+    await hold(page, 2200);
 
     for (const [beat, label] of [
       ['family-locomotion', 'Physics & locomotion'],
       ['family-hands', 'Arms & hands'],
       ['family-games', 'Games & open worlds'],
-      ['family-driving', 'Driving'],
     ]) {
       mark(beat);
-      await pointer.click(picker.getByRole('radio', { name: label, exact: true }), { pause: 300 });
-      await spot([picker.getByRole('radio', { name: label, exact: true }), page.locator('.sim-picker-grid')]);
-      await hold(page, 2300);
+      const chip = picker.getByRole('radio', { name: label, exact: true });
+      await pointer.click(chip, { pause: 200 });
+      await spot([chip, page.locator('.sim-picker-grid')]);
+      await hold(page, 1900);
     }
 
     mark('mujoco');
-    await pointer.click(picker.getByRole('radio', { name: /^All · / }), { pause: 400 });
+    await pointer.click(picker.getByRole('radio', { name: 'Physics & locomotion', exact: true }), { pause: 300 });
     const mujoco = page.locator('.sim-card', { hasText: 'MuJoCo (Gymnasium)' });
-    await pointer.click(mujoco);
+    await pointer.click(mujoco, { pause: 300 });
     await page.locator('.sim-preview img').waitFor();
     await spot([mujoco, page.locator('.sim-picker-side')]);
-    await hold(page, 3000);
+    await hold(page, 2600);
 
     mark('environment');
-    const cheetah = page.locator('.sim-picker-list label', { hasText: 'HalfCheetah' });
     await spot([page.locator('.sim-preview'), page.getByRole('radiogroup', { name: 'Environment' })]);
-    await pointer.click(cheetah);
-    await hold(page, 2400);
+    await pointer.click(page.locator('.sim-picker-list label', { hasText: 'HalfCheetah' }));
+    await hold(page, 1700);
 
     mark('template');
     const templates = page.getByRole('radiogroup', { name: 'Template' });
     await templates.scrollIntoViewIfNeeded();
     await spot(templates);
     await pointer.click(templates.locator('label', { hasText: 'PPO (one file)' }));
-    await hold(page, 2800);
+    await hold(page, 2000);
 
     mark('where');
-    await pointer.click(page.getByRole('button', { name: 'Next: where it runs' }));
-    const sheet = page.locator('.pg-sheet');
-    await sheet.waitFor();
+    await pointer.click(page.getByRole('button', { name: 'Next: where it runs' }), { pause: 300 });
+    await page.locator('.pg-sheet').waitFor();
     const pc = page.locator('.pg-mode', { has: page.locator('.pg-mode-top b', { hasText: /^This PC$/ }) });
-    await pointer.click(pc.locator('.pg-mode-top'));
+    await pointer.click(pc.locator('.pg-mode-top'), { pause: 200 });
     await spot([page.locator('.pg-title-field'), pc]);
-    await hold(page, 2600);
+    await hold(page, 2000);
 
     mark('create');
     await page.evaluate((id) => (window.__forceUuid = `${id}-0000-4000-8000-000000000000`), PG_ID);
-    await pointer.click(page.locator('.pg-sheet-foot .btn.primary'));
+    await pointer.click(page.locator('.pg-sheet-foot .btn.primary'), { pause: 200 });
     await page.locator('.vs-activity').waitFor({ timeout: 20_000 });
     unspot();
-    const pgFile = path.join(FOLDER, '.reader/playground.json');
-    for (let i = 0; i < 40 && !existsSync(pgFile); i++) await hold(page, 250);
-    if (!existsSync(pgFile) || !readFileSync(pgFile, 'utf8').includes(PG_ID)) console.log('  ! the playground did not get the fixed id: the logbook beat will fail');
-    // The runs: the world model's already along, PPO's at a third.
-    wm.prime(Number(process.env.WM_FRAC || 0.45), 20);
-    ppo.prime(0.3, 1);
-    ppo.feedLive(frames);
-    await hold(page, 900);
-    // The kernel on this computer, started: the pane and the filing read the runs through it.
-    await pointer.click(page.locator('.pg-chip').first(), { pause: 500 });
-    await pointer.click(page.getByRole('menuitem', { name: 'Connect now' }), { pause: 300 });
-    await page.locator('.pg-chip', { hasText: 'idle' }).first().waitFor({ timeout: 30_000 });
+    await page.locator('.pg-tree.vs-sidebar').waitFor();
     await spot(page.locator('.pg-tree.vs-sidebar'));
-    await hold(page, 1600);
+    await hold(page, 1400);
+    const pgFile = path.join(FOLDER, '.reader/playground.json');
+    for (let i = 0; i < 40 && !(existsSync(pgFile) && readFileSync(pgFile, 'utf8').includes(PG_ID)); i++) await hold(page, 100);
+    if (!existsSync(pgFile) || !readFileSync(pgFile, 'utf8').includes(PG_ID)) console.log('  ! the playground did not get the fixed id: the logbook beat will fail');
 
     mark('console');
-    await pointer.click(page.getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name: /console/i }));
-    await hold(page, 600);
-    await spot(page.locator('.pg-console, .vs-panel').first());
-    await hold(page, 2600);
-    await shot(page, 'console');
+    await pointer.click(page.getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name: /console/i }), { pause: 300 });
+    await spot(page.locator('.pg-console'));
+    await hold(page, 1800);
+
+    // The kernel on this computer, connected: the pane and the filing read the runs through it.
+    mark('connect');
+    await pointer.click(page.locator('.pg-chip').first(), { pause: 400 });
+    await pointer.click(page.getByRole('menuitem', { name: 'Connect now' }), { pause: 200 });
+    // The runs: the world model's already along, PPO's at a third, the rest of it over the next ~36 s.
+    wm.prime(Number(process.env.WM_FRAC || 0.8), 25);
+    ppo.prime(0.3, 1);
+    ppo.feedLive(frames);
+    const playing = ppo.play(Number(process.env.PPO_S || 34), { onEnd: () => mark('ppo-ended') });
+    await page.locator('.pg-chip', { hasText: 'idle' }).first().waitFor({ timeout: 30_000 });
 
     mark('sim-pane');
     await pointer.click(page.getByRole('button', { name: 'Simulation' }));
     const pane = page.locator('.sim-pane');
     await pane.locator('.sim-status').waitFor({ timeout: 20_000 });
-    const playing = ppo.play(42, { onEnd: () => mark('ppo-ended') });
-    await spot(page.locator('.sim-status'));
-    await hold(page, 1500);
+    await spot(page.locator('.sim-bar, .sim-status'));
+    await spot([page.locator('.sim-bar'), page.locator('.sim-status')]);
+    await hold(page, 2000);
     await shot(page, 'sim');
 
     mark('returns');
-    const returns = pane.locator('.chart, figure, section').filter({ hasText: 'Episode return' }).first();
-    await spot(returns);
-    await pointer.moveTo(returns);
-    await hold(page, 4000);
+    const returns = pane.locator('.sim-findings, .chart').first();
+    await spot([pane.locator('.sim-findings'), pane.locator(':scope > *', { hasText: 'Episode return' }).first()]);
+    await pointer.moveTo(pane.locator(':scope > *', { hasText: 'Episode return' }).first());
+    await hold(page, 3600);
     await shot(page, 'returns');
+    void returns;
 
-    mark('findings');
-    await spot(pane.locator('.sim-findings'));
-    await hold(page, 2800);
+    mark('live');
+    await pointer.click(page.locator('.sim-live-start'));
+    await page.locator('.sim-live-frame img').waitFor({ timeout: 15_000 });
+    await spot(page.locator('.sim-live'));
+    await hold(page, 3200);
+    await shot(page, 'live');
+    await pointer.click(page.locator('.sim-live-stop'), { pause: 300 });
 
     mark('videos');
     const videos = pane.locator('.sim-section-open', { hasText: 'Videos' });
     await videos.scrollIntoViewIfNeeded();
     await videos.locator('video').waitFor({ timeout: 15_000 });
     await spot(videos);
-    await hold(page, 3200);
+    await pointer.moveTo(videos.locator('video'));
+    await hold(page, 3000);
     await shot(page, 'videos');
 
-    mark('live');
-    await pane.evaluate((el) => el.closest('[class*="scroll"], .pg-right, aside')?.scrollTo?.({ top: 0, behavior: 'smooth' }));
-    await page.locator('.sim-live-start').scrollIntoViewIfNeeded();
-    await pointer.click(page.locator('.sim-live-start'));
-    await page.locator('.sim-live-frame img').waitFor({ timeout: 15_000 });
-    await spot(page.locator('.sim-live'));
-    await hold(page, 3500);
-    await shot(page, 'live');
+    mark('numbers');
+    const numbers = pane.locator('.sim-section-open', { hasText: 'Numbers' });
+    await numbers.evaluate((el) => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    await hold(page, 700);
+    await spot(numbers);
+    await hold(page, 2800);
 
     mark('world-model');
-    await pointer.click(page.locator('.sim-live-stop'), { pause: 300 });
     const select = pane.getByRole('combobox', { name: 'Run' });
+    await pane.evaluate((el) => el.parentElement?.scrollTo?.({ top: 0 }));
     await pointer.moveTo(select);
+    await spot(select);
     await select.selectOption(`runs/${wm.id}`);
-    void wm.play(60, { until: 0.4 });
+    void wm.play(80);
     const dream = pane.locator('.sim-section-open', { hasText: 'World model' });
     await dream.waitFor({ timeout: 20_000 });
     await dream.scrollIntoViewIfNeeded();
     await dream.locator('video').waitFor({ timeout: 15_000 });
     await spot(dream);
-    await hold(page, 4500);
+    await pointer.moveTo(dream.locator('video'));
+    await hold(page, 4000);
     await shot(page, 'dream');
 
     mark('filed');
@@ -479,7 +517,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await spot(toast);
     await pointer.moveTo(toast);
     await toast.getByText(/notes written/).waitFor({ timeout: 20_000 }).catch(() => undefined);
-    await hold(page, 2600);
+    await hold(page, 2400);
     await shot(page, 'toast');
 
     mark('logbook');
@@ -487,20 +525,19 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     const row = page.locator('.xp-item').first();
     await row.waitFor({ timeout: 20_000 });
     unspot();
-    await hold(page, 1000);
-    await spot(row);
-    await hold(page, 2400);
+    await hold(page, 600);
+    await spot([page.locator('.lb-tabs'), row]);
+    await hold(page, 2200);
 
     mark('experiment');
     await pointer.click(row.locator('.xp-row'));
     await row.locator('.xp-body').waitFor();
-    await spot(row);
-    await hold(page, 3500);
+    await spot(row.locator('.xp-row'));
+    await spot([row.locator('.xp-row'), row.locator('.xp-facts'), row.locator('.xp-notes')]);
+    await hold(page, 3800);
     await shot(page, 'experiment');
-    await page.mouse.wheel(0, 300);
-    await hold(page, 2500);
     unspot();
-    await hold(page, 1000);
+    await hold(page, 1200);
   } finally {
     ppo.stop();
     wm.stop();

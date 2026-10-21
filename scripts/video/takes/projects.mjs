@@ -477,7 +477,8 @@ export async function prepare({ page }) {
 }
 
 const hold = (page, ms) => page.waitForTimeout(ms);
-const shot = (page, name) => page.screenshot({ path: path.join(ROOT, `.video/work/projects-${name}.png`) });
+// A still of a beat, only when asked (SHOTS=1): a screenshot taken while the camera runs puts frames of another size in the footage.
+const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.join(ROOT, `.video/work/projects-${name}.png`) }) : undefined);
 
 export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(page, 1500);
@@ -497,10 +498,10 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   mark('presence');
   const avatars = page.locator('.pj-people-btn');
   await spot(avatars);
-  await pointer.moveTo(avatars, { dx: 0.05 });
-  await hold(page, 1500);
+  await hold(page, 1200);
   await pointer.moveTo(page.locator('.pj-avatars .pj-av[title^="Priya"]'));
-  await page.locator('.pj-person').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await page.locator('.pj-person').waitFor({ timeout: 8000 });
+  await hold(page, 300);
   await spot([avatars, page.locator('.pj-person')]);
   await hold(page, 2600);
   await shot(page, 'presence');

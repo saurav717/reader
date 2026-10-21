@@ -276,7 +276,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const mac = kept.getByRole('radio', { name: /MacBook/ });
   await pointer.moveTo(mac);
   await hold(page, 400);
-  await spot([kept.getByRole('radio').nth(0), kept.getByRole('radio').nth(1), kept.getByRole('radio').nth(2)]);
+  await spot(mac);
   await pointer.click(mac);
   await hold(page, 2000);
   const runs = page.getByRole('radiogroup', { name: 'Where it runs' });
@@ -328,7 +328,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.key('Enter', '⏎', 600);
   await page.waitForFunction(() => /saved checkpoints\/router\.pt/.test(document.querySelector('.xterm:not([hidden]) .xterm-rows')?.textContent ?? [...document.querySelectorAll('.xterm-rows')].map((el) => el.textContent).join('')), null, { timeout: 60_000 }).catch(() => undefined);
   await hold(page, 3000);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-koios-run.png') });
 
   mark('gpu-shell');
   await pointer.click(tabs.getByRole('tab').nth(1));
@@ -339,7 +338,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.type('nvidia-smi');
   await pointer.key('Enter', '⏎', 600);
   await hold(page, 3200);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-gpu-shell.png') });
 
   mark('mount');
   unspot();
@@ -354,7 +352,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await spot([mount.locator('.pg-mount-head'), page.locator('.vs-copy-chip').first()]);
   await pointer.moveTo(page.locator('.vs-copy-chip').first());
   await hold(page, 3200);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-mount.png') });
   unspot();
   await pointer.click(page.getByRole('button', { name: 'Restore the panel' }));
   await hold(page, 500);
@@ -369,7 +366,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await spot(sections.nth(1));
   await pointer.moveTo(sections.nth(1).locator('.mv-list').first());
   await hold(page, 3400);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-data-place.png') });
   unspot();
   await pointer.key('Escape', 'Esc', 700);
 
@@ -382,7 +378,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(page, 800);
   await spot([page.locator('.pg-pool'), page.locator('.pg-pool-add')]);
   await hold(page, 3000);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-chip.png') });
 
   mark('settings-compute');
   unspot();
@@ -394,7 +389,6 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await spot(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));
   await pointer.moveTo(page.locator('#settings-compute .cp-row', { hasText: 'MacBook' }));
   await hold(page, 2600);
-  await page.screenshot({ path: path.join(ROOT, '.video/work/companion-settings.png') });
 
   mark('settings-updates');
   unspot();

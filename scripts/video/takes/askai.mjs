@@ -297,13 +297,9 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const box = page.getByRole('textbox', { name: 'Ask AI' });
   const lastAnswer = page.locator('.chat-claude').last();
   const answered = async () => {
-    log('waiting');
     await page.waitForSelector('.chat-claude:not(.is-streaming)', { timeout: 30000 });
     await page.waitForFunction(() => !document.querySelector('.chat-claude.is-streaming'), null, { timeout: 60000 });
-    log('answered');
   };
-  const T0 = Date.now();
-  const log = (what) => console.log(`        ${((Date.now() - T0) / 1000).toFixed(1)} ${what}`);
   const ask = async (question) => {
     await pointer.click(box, { pause: 250 });
     // Typed a few letters at a time (one call each), so the box fills at a typist's pace even under load.
@@ -312,28 +308,18 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
       await hold(28);
     }
     await hold(300);
-    log('typed');
     await pointer.key('Enter', '↵', 200);
   };
 
   mark('paper');
   await pointer.moveTo({ x: 760, y: 470 });
-  await hold(1000);
+  await hold(700);
 
   mark('open');
   await pointer.key('Control+Backslash', 'Ctrl \\', 500);
   await win.waitFor();
   await spot(win);
   await hold(2000);
-
-  mark('models');
-  await pointer.click(page.locator('.assistant-win .model-chip'), { pause: 500 });
-  await spot(page.locator('.model-menu'));
-  await pointer.moveTo(page.locator('.rw-group.p-deepseek'), { ms: 600 });
-  await hold(300);
-  await pointer.moveTo(page.locator('.rw-group.p-gemini'), { ms: 500 });
-  await hold(700);
-  await pointer.click(page.locator('.rw-model.is-current'), { pause: 400 });
 
   mark('ask-where');
   await spot(page.locator('.chat-compose'));
@@ -376,24 +362,27 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(400);
   await lastAnswer.locator('img.chat-figure').first().scrollIntoViewIfNeeded().catch(() => undefined);
   await spot(lastAnswer);
-  await hold(3000);
+  await hold(2600);
 
-  mark('model-switch');
+  mark('models');
   await pointer.click(page.locator('.assistant-win .model-chip'), { pause: 400 });
   await spot(page.locator('.model-menu'));
-  const flash = page.locator('.rw-model:has(.rw-name:text-is("V4.1 Flash"))');
-  await pointer.moveTo(flash);
+  await hold(500);
+  await pointer.moveTo(page.locator('.rw-group.p-gemini'), { ms: 700 });
   await hold(700);
-  await pointer.click(flash, { pause: 400 });
+  const flash = page.locator('.rw-model:has(.rw-name:text-is("V4.1 Flash"))');
+  await pointer.moveTo(flash, { ms: 500 });
+  await hold(500);
+  await pointer.click(flash, { pause: 300 });
   await spot(page.locator('.assistant-win .model-chip'), { pad: 10 });
-  await hold(900);
+  await hold(1000);
 
   mark('web');
   await spot(page.locator('.chat-web-btn'), { pad: 12 });
   await pointer.click(page.locator('.chat-web-btn'), { pause: 700 });
   await ask(QUESTIONS.web);
+  await spot(win);
   await page.waitForSelector('.chat-steps', { timeout: 15000 });
-  await spot(page.locator('.chat-claude').last());
   await answered();
   await hold(400);
   await spot(lastAnswer);
@@ -427,21 +416,29 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await hold(700);
 
   mark('looks');
-  const style = page.locator('.win-style');
+  // Over the figure, where the glass shows: dragged by its title bar.
+  unspot();
+  const bar = page.locator('.assistant-win .win-name');
+  await pointer.moveTo(bar);
+  await page.mouse.down();
+  await pointer.moveTo({ x: pointer.x - 540, y: pointer.y + 40 }, { ms: 700 });
+  await page.mouse.up();
+  await hold(300);
   await spot(win);
-  for (let i = 0; i < 3; i += 1) {
-    await pointer.click(style, { pause: 950 });
+  await hold(500);
+  const style = page.locator('.win-style');
+  for (let i = 0; i < 4; i += 1) {
+    await pointer.click(style, { pause: 750 });
   }
 
   mark('dock');
-  unspot();
   await pointer.click(page.locator('.chat-body'), { dx: 0.5, dy: 0.05, pause: 200 });
-  await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 800);
   await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 900);
+  await pointer.key('Control+Shift+ArrowRight', 'Ctrl ⇧ →', 300);
   await spot(win);
-  await hold(1900);
+  await hold(1800);
   unspot();
-  await pointer.key('Control+Backslash', 'Ctrl \\', 600);
+  await pointer.key('Control+Backslash', 'Ctrl \\', 500);
   mark('closed');
-  await hold(1000);
+  await hold(800);
 }

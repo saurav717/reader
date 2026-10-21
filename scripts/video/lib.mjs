@@ -197,7 +197,10 @@ export class Pointer {
 
 // ------------------------------------------------------------ the camera ---
 
-/** Chrome's screencast into frames; stop() writes footage at a constant 30 fps and the marks beside it. */
+/**
+ * Chrome's screencast into frames; stop() writes footage at a constant 30 fps and the marks beside it.
+ * No page.screenshot() while it runs: a screenshot resizes what the screencast sees, and those frames land in the take.
+ */
 export async function startCamera(context, page, out) {
   await rm(out, { recursive: true, force: true });
   await mkdir(path.join(out, 'frames'), { recursive: true });
@@ -205,7 +208,10 @@ export async function startCamera(context, page, out) {
   const marks = [];
   const cdp = await context.newCDPSession(page);
   const pending = [];
+  let stopped = false;
   cdp.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
+    // A frame can still arrive after the camera stops: it is not part of the take.
+    if (stopped) return;
     const file = `f${String(frames.length).padStart(6, '0')}.jpg`;
     frames.push({ file, t: metadata.timestamp });
     pending.push(writeFile(path.join(out, 'frames', file), Buffer.from(data, 'base64')));
@@ -262,6 +268,7 @@ export async function startCamera(context, page, out) {
       // A last frame of what is on screen, so the footage runs to the end of the take.
       await page.waitForTimeout(400);
       await cdp.send('Page.stopScreencast');
+      stopped = true;
       await Promise.all(pending);
       if (!frames.length) throw new Error('the camera saw nothing');
       // Frames can arrive out of order under load: the time Chrome painted them is what counts.
