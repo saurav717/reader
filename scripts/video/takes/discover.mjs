@@ -379,6 +379,7 @@ export async function setup(context) {
       const paper = PAPERS.find((p) => p.title.toLowerCase().replace(/[,:|]+/g, ' ').startsWith(wanted.slice(0, 30)));
       return delay(250, { results: paper ? [openAlexWork(paper)] : [] });
     }
+    if (/shazeer/i.test(url.searchParams.get('search') || '')) return delay(400, { results: [] });
     if (url.searchParams.get('search')) return delay(500, { results: OPENALEX_ORDER.map((key) => openAlexWork(by[key])) });
     return route.fulfill(json({ results: [] }));
   });
@@ -447,6 +448,8 @@ export async function prepare({ page, arrive }) {
     db.close();
   }, by.gshard);
   await page.reload({ waitUntil: 'networkidle' });
+  const skip = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
+  if (await skip.isVisible().catch(() => false)) await skip.click();
   await page.locator('.find').waitFor({ timeout: 15000 });
   await page.evaluate(() => document.fonts.ready);
 }

@@ -229,12 +229,124 @@ export async function pdfReady(page, timeout = 60000) {
   await page.waitForFunction(() => !document.querySelector('.pdf-book-page.drawing'), null, { timeout }).catch(() => undefined);
 }
 
+/** Reflowed figures are lazy images; drawn up front, they never pop in on camera. */
+export async function eagerFigures(context) {
+  await context.addInitScript(() => {
+    const eager = () => document.querySelectorAll('.paper-body img[loading="lazy"]').forEach((image) => (image.loading = 'eager'));
+    new MutationObserver(eager).observe(document, { childList: true, subtree: true });
+  });
+}
+
+/** The Discover / notes dock shut, so the page has the room. */
+export async function shutDock(page) {
+  for (let tries = 0; tries < 3 && (await page.locator('.dock').count()); tries += 1) {
+    const close = page.locator('.dock').getByRole('button', { name: /^Close/ }).first();
+    if (await close.isVisible().catch(() => false)) await close.click();
+    else await page.getByRole('button', { name: 'Discover papers' }).click();
+    await page.waitForTimeout(500);
+  }
+}
+
+/** Reflow made once off camera, then back to the PDF at its top. */
+export async function warmReflow(page) {
+  await pdfReady(page);
+  await page.locator('.segmented button', { hasText: 'Reflow' }).click();
+  await reflowReady(page);
+  await page.locator('.segmented button', { hasText: 'PDF' }).click();
+  await pdfReady(page);
+  await page.waitForTimeout(800);
+}
+
+/** A smooth scroll of whatever is under the pointer, in small wheel steps. */
+export async function glideScroll(page, dy, { steps = 24, ms = 1400 } = {}) {
+  for (let i = 0; i < steps; i += 1) {
+    await page.mouse.wheel(0, dy / steps);
+    await page.waitForTimeout(ms / steps);
+  }
+}
+
 // ------------------------------------------------------------- the take ---
 
 export async function prepare({ page, arrive }) {
+  await eagerFigures(page.context());
   await openPaper(page, arrive, { mode: 'pdf' });
+  await shutDock(page);
+  await warmReflow(page);
+  await page.mouse.move(768, 500);
 }
 
 export default async function ({ page, pointer, mark }) {
-  await page.waitForTimeout(2000);
+  const hold = (ms) => page.waitForTimeout(ms);
+  const segment = (name) => page.locator('.reader-head .segmented button', { hasText: name }).first();
+
+  mark('pdf');
+  await pointer.moveTo({ x: 820, y: 520 });
+  await hold(1500);
+  await glideScroll(page, 420);
+  await hold(1600);
+
+  mark('reflow');
+  await pointer.click(segment('Reflow'), { pause: 300 });
+  await reflowReady(page, 20000);
+  await hold(2200);
+  await pointer.moveTo({ x: 760, y: 560 });
+  await glideScroll(page, 520);
+  await hold(2500);
+
+  mark('book');
+  await pointer.click(page.getByRole('button', { name: /Read as a book/ }), { pause: 400 });
+  await page.waitForSelector('.book-pages');
+  await hold(2600);
+  await pointer.click(page.getByRole('button', { name: 'Next page' }), { pause: 1600 });
+  await pointer.key('ArrowRight', '→', 2200);
+
+  mark('one-page');
+  await pointer.click(page.getByRole('button', { name: /Read as one scrolling page/ }), { pause: 400 });
+  await page.waitForSelector('.reader-scroll');
+  await hold(2500);
+
+  mark('pdf-again');
+  await pointer.click(segment('PDF'), { pause: 400 });
+  await pdfReady(page);
+  await hold(1200);
+  // On to page 3, where Figure 1 is.
+  await pointer.moveTo({ x: 800, y: 500 });
+  const slot = page.locator('.pdf-scroll-slot[data-slot="3"]');
+  for (let i = 0; i < 12; i += 1) {
+    const top = await slot.evaluate((el) => el.getBoundingClientRect().top);
+    if (top < 140) break;
+    await glideScroll(page, Math.min(900, top - 120), { steps: 18, ms: 700 });
+  }
+  await pdfReady(page);
+  await hold(1500);
+
+  mark('loupe');
+  const fig = page.locator('.pdf-book-page[data-page="3"]');
+  const box = await fig.boundingBox();
+  await pointer.key('l', 'L', 400);
+  await pointer.moveTo({ x: box.x + box.width * 0.4, y: Math.min(box.y + box.height * 0.35, 640) }, { ms: 900 });
+  await hold(1200);
+  await pointer.moveTo({ x: box.x + box.width * 0.6, y: Math.min(box.y + box.height * 0.25, 600) }, { ms: 1600 });
+  await hold(1400);
+  await pointer.key('l', 'L', 800);
+
+  mark('closeup');
+  await pointer.moveTo({ x: box.x + box.width * 0.5, y: Math.min(box.y + box.height * 0.3, 600) });
+  await pointer.key('c', 'C', 300);
+  await page.waitForSelector('.pdf-closeup-card.is-drawn', { timeout: 30000 });
+  await hold(3000);
+  await pointer.key('Tab', 'Tab', 300);
+  await page.waitForSelector('.pdf-closeup-card.is-drawn', { timeout: 30000 });
+  await hold(2600);
+  await pointer.key('Escape', 'Esc', 1200);
+
+  mark('zen');
+  await pointer.moveTo({ x: 768, y: 480 });
+  await pointer.key('z', 'Z', 600);
+  await hold(2600);
+  await glideScroll(page, 500);
+  await hold(1800);
+  await pointer.key('z', 'Z', 600);
+  mark('zen-off');
+  await hold(2500);
 }

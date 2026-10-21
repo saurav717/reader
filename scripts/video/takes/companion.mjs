@@ -91,6 +91,8 @@ const GPU = { id: 's-a100', name: 'Lab A100', url: 'https://a100.lab.example.org
 export async function prepare({ page, arrive }) {
   await arrive({ settings: { googleClientId: 'video.apps.googleusercontent.com', proxyBase: 'http://localhost:9/' }, storage: { 'reader.playground.servers': [GPU] } });
   await page.waitForTimeout(800);
+  // Home's search box takes the focus; P is the Playground only outside a field.
+  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
 }
 
 const hold = (page, ms) => page.waitForTimeout(ms);
@@ -148,7 +150,7 @@ export default async function ({ page, pointer, mark }) {
   await hold(page, 2600);
 
   mark('where-pc');
-  await pointer.click(page.locator('.pg-mode', { hasText: 'This PC' }).locator('.pg-mode-top'));
+  await pointer.click(page.locator('.pg-mode-top', { has: page.locator('b', { hasText: /^This PC$/ }) }));
   await hold(page, 2600);
 
   mark('where-gpu');
@@ -158,7 +160,7 @@ export default async function ({ page, pointer, mark }) {
   await hold(page, 2400);
 
   mark('create-on-pc');
-  await pointer.click(page.locator('.pg-mode', { hasText: 'This PC' }).locator('.pg-mode-top'));
+  await pointer.click(page.locator('.pg-mode-top', { has: page.locator('b', { hasText: /^This PC$/ }) }));
   await hold(page, 600);
   const title = page.locator('.pg-title-field input');
   await pointer.click(title);
