@@ -43,7 +43,9 @@ export async function prepare({ page, arrive }) {
  * it is about. The showcase drives itself, so this watches for what appears.
  */
 async function follow(page, spot, unspot, done) {
-  const seen = async (selector) => (await page.locator(selector).count()) > 0 && page.locator(selector).first().isVisible().catch(() => false);
+  // A scene is the showcase's own attribute (its card is hidden, so never "visible"); anything else must be on screen.
+  const seen = async (selector) =>
+    selector.startsWith('.showcase[') ? (await page.locator(selector).count()) > 0 : (await page.locator(selector).count()) > 0 && page.locator(selector).first().isVisible().catch(() => false);
   const steps = [
     ['.find-box', '.find-box'],
     ['.find-list button.btn.sm', '.find-list'],

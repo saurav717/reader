@@ -258,8 +258,9 @@ export async function startCamera(context, page, out) {
       spots.push(spot);
       const state = { spot, timer: setInterval(async () => {
         if (current !== state) return;
+        // Gone from the page (closed, scrolled away): no light, rather than a box over whatever is there now.
         const rects = await padded();
-        if (current === state && rects.length) spot.samples.push({ t: Date.now() / 1000, rects });
+        if (current === state) spot.samples.push({ t: Date.now() / 1000, rects });
       }, 250) };
       current = state;
     },
