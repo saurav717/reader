@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('readerDesktop', {
   },
   companion: {
     release: (id) => ipcRenderer.invoke('companion:release', String(id)),
+    start: () => ipcRenderer.invoke('companion:start'),
   },
   updates: {
     state: () => ipcRenderer.invoke('updates:state'),
