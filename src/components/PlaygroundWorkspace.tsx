@@ -1442,7 +1442,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   // doesn't have it (a new Colab runtime has none); a machine that drops it is copied to again until it is back.
   const wantMount = Boolean(playground.sync.mount);
   const mountKnown = Boolean(linked && link?.mount);
-  const [mounting, setMounting] = useState<{ busy: boolean; words?: string; problem?: string }>({ busy: false });
+  const [mounting, setMounting] = useState<{ busy: boolean; stopping?: boolean; words?: string; problem?: string }>({ busy: false });
   const mounted = Boolean(linked && wantMount && (link?.mount?.connected ?? 0) > 0);
   const mountTried = useRef('');
   // One start at a time: the switch and the effect below both start it, and a second start used to stop the first's mount
@@ -1472,6 +1472,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (!linked || !wantMount || !link?.mount || link.mount.connected) return;
     void startMount();
   }, [linked, wantMount, link?.mount?.connected, linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A start that failed is tried again a minute later while the project still wants it: the cause is often passing
+  // (the laptop just woke, its tunnel was being opened again), and it used to stay down until the switch was flipped.
+  const retryMount = Boolean(linked && wantMount && !mounted && !mounting.busy && mounting.problem);
+  useEffect(() => {
+    if (!retryMount) return;
+    const timer = window.setTimeout(() => void startMount(true), 60_000);
+    return () => window.clearTimeout(timer);
+  }, [retryMount, mounting.problem]); // eslint-disable-line react-hooks/exhaustive-deps
   // While it is meant to be mounted: whether the machine still has it, every half minute.
   useEffect(() => {
     if (!linked || !wantMount || !filesHere) return;
@@ -1482,7 +1490,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     updatePlayground(playground.id, { sync: { ...playground.sync, mount: on } });
     if (on) return void startMount(true);
     if (!filesHere) return;
-    setMounting({ busy: true });
+    setMounting({ busy: true, stopping: true });
     try {
       await unmountThroughCompanion(filesHere, homeRoot);
       setMounting({ busy: false });
@@ -2703,7 +2711,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             ) : primary === 'outline' ? (
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
-              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), computer: filesHere.name, set: (on) => void setMount(on) } : undefined} filesComputer={homeServer && isCompanion(homeServer) ? homeServer : undefined} folder={homeServer?.root ? `${homeServer.root.replace(/\/+$/, '')}/${homeRoot}` : homeRoot} />
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} mount={filesHere ? { known: mountKnown, linked, on: wantMount, mounted, busy: mounting.busy, stopping: Boolean(mounting.stopping), retry: () => void startMount(true), words: mounting.words, problem: mounting.problem, awake: Boolean(link?.mount?.keepingAwake), computer: filesHere.name, set: (on) => void setMount(on) } : undefined} filesComputer={homeServer && isCompanion(homeServer) ? homeServer : undefined} folder={homeServer?.root ? `${homeServer.root.replace(/\/+$/, '')}/${homeRoot}` : homeRoot} />
             ) : null}
           </aside>
         ) : null}
@@ -3330,6 +3338,23 @@ function Folder({ host, path, depth, onOpen, activePath, version, onContext }: {
   );
 }
 
+/** The mount's state at a glance, as a light: live, starting, down, or off. */
+function MountBlip({ mount, machineName }: { mount: MountControl; machineName: string }) {
+  const [state, words] = mount.busy
+    ? (['busy', mount.stopping ? 'Stopping…' : 'Starting…'] as const)
+    : mount.mounted
+      ? (['live', 'Live'] as const)
+      : mount.on && mount.linked && mount.known
+        ? ([mount.problem ? 'down' : 'wait', mount.problem ? 'Failed' : 'Not mounted'] as const)
+        : (['off', 'Off'] as const);
+  return (
+    <span className={`pg-mount-blip is-${state}`} title={state === 'live' ? `Mounted on ${machineName}: live` : words} role="status">
+      <i aria-hidden="true" />
+      {words}
+    </span>
+  );
+}
+
 interface MountControl {
   /** The Companion knows mounts (0.19.0 on). */
   known: boolean;
@@ -3337,6 +3362,10 @@ interface MountControl {
   on: boolean;
   mounted: boolean;
   busy: boolean;
+  /** busy turning it off, not on. */
+  stopping: boolean;
+  /** Start it again now, after a start that failed. */
+  retry: () => void;
   words?: string;
   problem?: string;
   /** The Companion keeps this computer from sleeping while the folder is mounted. */
@@ -3472,18 +3501,34 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
       </div>
       {mount ? (
         <div className="pg-mount">
-          <label className="pg-mount-switch">
-            <input type="checkbox" checked={mount.on} disabled={mount.busy || !mount.linked || !mount.known} onChange={(event) => mount.set(event.target.checked)} />
-            <span>
+          <div className="pg-mount-head">
+            <MountBlip mount={mount} machineName={machineName} />
+            <span className="pg-mount-title">
               <b>Mount the folder on {machineName}</b> instead of copying it
             </span>
-          </label>
+            {/* Never held off while a start or stop is under way: one can take minutes when the machine is slow to
+                answer, and the switch is how to give up on it. The Companion runs them one after another. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={mount.on}
+              aria-label={`Mount the folder on ${machineName}: ${mount.on ? 'on' : 'off'}`}
+              className={`cp-switch${mount.on ? ' is-on' : ''}`}
+              disabled={!mount.linked || !mount.known}
+              title={!mount.linked ? `Connect ${machineName} first` : !mount.known ? `Needs Koios Companion ${MOUNT_VERSION} on ${mount.computer}` : mount.on ? 'Stop the mount: runs copy the folder again' : `Mount the folder on ${machineName}`}
+              onClick={() => mount.set(!mount.on)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </div>
           <p className="pg-note">
             {!mount.linked
               ? `Connect ${machineName} first: the Companion on ${mount.computer} mounts the folder through the link it keeps to it.`
               : !mount.known
                 ? `Mounting needs Koios Companion ${MOUNT_VERSION} on ${mount.computer}: update it in Settings → Updates.`
-                : mount.busy
+                : mount.busy && mount.stopping
+                  ? `Stopping the mount on ${machineName}…`
+                  : mount.busy
                   ? `Starting the mount on ${machineName}… (the first time on Colab it installs fusepy, a minute or so)`
                   : mount.mounted
                     ? `${mount.words ?? `The folder is mounted on ${machineName}: nothing is copied before a run.`} The rest of the files follow in the background, so a run keeps reading if ${mount.computer} goes to sleep${mount.awake ? ` — which it won’t while the folder is mounted` : ''}; what it writes meanwhile waits and comes over when ${mount.computer} is back. A terminal on ${machineName} opened before the mount: run cd "$PWD" there to see it.`
@@ -3491,7 +3536,13 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
                       ? `${machineName} doesn’t have the folder mounted now: runs copy the changed files until it does.`
                       : `${machineName} reads the folder where it is — on ${mount.computer} — through the Companion’s Cloudflare tunnel: a save here is there at once, what a run writes there is written here, and nothing is copied before a run. What the rules below leave out (checkpoints, data) stays on the machine and goes to the data place.`}
           </p>
-          {mount.problem ? <p className="pg-error">{mount.problem}</p> : null}
+          {mount.problem && mount.on && !mount.mounted && !mount.busy ? (
+            <p className="pg-error">
+              {mount.problem}{' '}
+              <button type="button" className="btn sm" onClick={mount.retry}>Try again</button>
+              <span className="pg-mount-retry"> or it is tried again in a minute</span>
+            </p>
+          ) : mount.problem && !mount.mounted ? <p className="pg-error">{mount.problem}</p> : null}
         </div>
       ) : null}
       {filesComputer && folder !== undefined ? <OnOtherComputers playground={playground} filesComputer={filesComputer} folder={folder} /> : null}

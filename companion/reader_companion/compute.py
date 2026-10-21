@@ -434,20 +434,27 @@ class Remote:
             url = "wss://" + url[8:] if url.startswith("https://") else "ws://" + url[7:]
         return url
 
-    def http(self, method: str, path: str, body=None):
+    def http(self, method: str, path: str, body=None, tries: int = 3):
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(self.address(path), data=data, method=method, headers={"Accept": "application/json", **({"Content-Type": "application/json"} if data else {}), **self.headers()})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                text = strip_xssi(response.read().decode()).strip()
-        except urllib.error.HTTPError as error:
-            if error.code in (401, 403):
-                raise ComputeError(self.expired_words() or f"{self.link['label']} refused the pass ({error.code}): open the project in Koios to renew it") from None
-            if error.code in (404, 410) and self.link["kind"] == "colab" and path == "api/kernels":
-                raise ComputeError(f"{self.link['label']} is gone — Colab ends idle runtimes. Connect it again from the project in Koios.") from None
-            raise ComputeError(f"{self.link['label']} answered {error.code} to {method} {path}") from None
-        except (urllib.error.URLError, OSError) as error:
-            raise ComputeError(f"{self.link['label']} can't be reached: {getattr(error, 'reason', error)}") from None
+        for attempt in range(tries):
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    text = strip_xssi(response.read().decode()).strip()
+                break
+            except urllib.error.HTTPError as error:
+                if error.code in (401, 403):
+                    raise ComputeError(self.expired_words() or f"{self.link['label']} refused the pass ({error.code}): open the project in Koios to renew it") from None
+                if error.code in (404, 410) and self.link["kind"] == "colab" and path == "api/kernels":
+                    raise ComputeError(f"{self.link['label']} is gone — Colab ends idle runtimes. Connect it again from the project in Koios.") from None
+                raise ComputeError(f"{self.link['label']} answered {error.code} to {method} {path}") from None
+            except (urllib.error.URLError, OSError) as error:
+                # Cut before any answer (a TLS handshake ended early, a reset — as just after this computer wakes or
+                # changes network): tried again a moment later. Both calls made here (list the kernels, start one)
+                # are safe to repeat; an answer, even a refusal, is final.
+                if attempt == tries - 1:
+                    raise ComputeError(f"{self.link['label']} can't be reached: {getattr(error, 'reason', error)}") from None
+                time.sleep(1.5 * (attempt + 1))
         return json.loads(text) if text else None
 
     def expired_words(self) -> str:
