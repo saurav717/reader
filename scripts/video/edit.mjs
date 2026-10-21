@@ -125,6 +125,17 @@ const cardWords = (card, name) =>
 
 // ------------------------------------------------------------- the plan ---
 
+/** A time in a take: seconds, or a beat it marked and an offset from it — "lookup+2.5" — so a re-recorded take keeps its cuts. */
+const timelines = {};
+async function when(take, value) {
+  if (typeof value === 'number') return value;
+  const [, beat, offset = '0'] = value.match(/^(.+?)([+-][\d.]+)?$/);
+  timelines[take] ??= JSON.parse(await readFile(path.join(ROOT, '.video/takes', take, 'timeline.json'), 'utf8'));
+  const mark = timelines[take].find((m) => m.name === beat);
+  if (!mark) throw new Error(`take ${take} has no beat "${beat}"`);
+  return Math.max(0, mark.at + Number(offset));
+}
+
 const probe = (file) => {
   const [w, h] = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', file]).toString().trim().split(',').map(Number);
   return { w, h };
@@ -169,7 +180,14 @@ for (const [i, shot] of EDL.shots.entries()) {
     const take = path.join(ROOT, '.video/takes', shot.take || EDL.take, 'raw.mp4');
     if (!existsSync(take)) throw new Error(`no take at ${take} — record it with take.mjs`);
     const { w, h } = probe(take);
-    out.clips = shot.clips.map((c) => ({ ...c, file: path.join(ROOT, '.video/takes', c.take || shot.take || EDL.take, 'raw.mp4'), srcW: w, srcH: h, srcFps: FPS, frames: frames((c.to - c.from) / (c.speed || 1)), holdFrames: frames(c.hold || 0) }));
+    out.clips = await Promise.all(
+      shot.clips.map(async (c) => {
+        const name = c.take || shot.take || EDL.take;
+        const from = await when(name, c.from);
+        const to = await when(name, c.to);
+        return { ...c, from, to, file: path.join(ROOT, '.video/takes', name, 'raw.mp4'), srcW: w, srcH: h, srcFps: FPS, frames: frames((to - from) / (c.speed || 1)), holdFrames: frames(c.hold || 0) };
+      }),
+    );
     const own = out.clips.reduce((sum, c) => sum + c.frames + c.holdFrames, 0);
     out.tailFrames = Math.max(0, frames(needed) - own);
     out.length = own + out.tailFrames;

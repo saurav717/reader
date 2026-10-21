@@ -13,8 +13,8 @@
    "take": "welcome",
    "clips": [
     {
-     "from": 0.4,
-     "to": 8.8,
+     "from": "start+0.4",
+     "to": "start+8.8",
      "zoom": [
       1.0,
       1.04
@@ -25,8 +25,8 @@
      ]
     },
     {
-     "from": 9.2,
-     "to": 17.6,
+     "from": "next+0.2",
+     "to": "next+8.6",
      "zoom": [
       1.0,
       1.04
@@ -53,8 +53,8 @@
    "caption": "One search box, *every* index.",
    "clips": [
     {
-     "from": 1.0,
-     "to": 11.4,
+     "from": "start+1.0",
+     "to": "start+11.4",
      "zoom": [
       1.3,
       1.45
@@ -77,8 +77,8 @@
    "caption": "Asked at once, merged into *one* list.",
    "clips": [
     {
-     "from": 11.4,
-     "to": 19.8,
+     "from": "results+0.0",
+     "to": "results+8.4",
      "zoom": [
       1.2,
       1.3
@@ -101,8 +101,8 @@
    "caption": "Every place a paper can be read.",
    "clips": [
     {
-     "from": 19.9,
-     "to": 32.2,
+     "from": "detail+0.0",
+     "to": "detail+12.3",
      "zoom": [
       1.3,
       1.4
@@ -125,8 +125,8 @@
    "caption": "Search for *people*, too.",
    "clips": [
     {
-     "from": 32.4,
-     "to": 42.6,
+     "from": "people+0.0",
+     "to": "people+10.2",
      "zoom": [
       1.0,
       1.08
@@ -137,8 +137,8 @@
      ]
     },
     {
-     "from": 42.8,
-     "to": 52.5,
+     "from": "profile+0.0",
+     "to": "profile+9.7",
      "zoom": [
       1.9,
       2.0
@@ -164,8 +164,8 @@
    "caption": "It reads the *paper*, not the poster.",
    "clips": [
     {
-     "from": 52.7,
-     "to": 59.4,
+     "from": "poster+0.0",
+     "to": "poster+6.7",
      "zoom": [
       1.0,
       1.06
@@ -176,8 +176,8 @@
      ]
     },
     {
-     "from": 59.6,
-     "to": 68.2,
+     "from": "copy-picker+0.0",
+     "to": "copy-picker+8.6",
      "zoom": [
       1.7,
       1.8
@@ -203,8 +203,8 @@
    "caption": "Pick up *exactly* where you stopped.",
    "clips": [
     {
-     "from": 0.5,
-     "to": 10.0,
+     "from": "start+0.5",
+     "to": "start+10.0",
      "zoom": [
       1.0,
       1.05
@@ -215,8 +215,8 @@
      ]
     },
     {
-     "from": 11.6,
-     "to": 24.4,
+     "from": "continue-reading+0.0",
+     "to": "continue-reading+12.8",
      "zoom": [
       1.15,
       1.25
@@ -242,8 +242,8 @@
    "caption": "A plan for *today*, and what's new.",
    "clips": [
     {
-     "from": 24.7,
-     "to": 34.3,
+     "from": "today+0.0",
+     "to": "today+9.6",
      "zoom": [
       1.15,
       1.2
@@ -266,8 +266,8 @@
    "caption": "Collections: drag a paper where it belongs.",
    "clips": [
     {
-     "from": 34.5,
-     "to": 43.3,
+     "from": "collections+0.0",
+     "to": "collections+8.8",
      "zoom": [
       1.15,
       1.2
@@ -290,8 +290,8 @@
    "caption": "R: your *desk*. Every paper in progress.",
    "clips": [
     {
-     "from": 43.5,
-     "to": 49.0,
+     "from": "resume+0.0",
+     "to": "resume+5.5",
      "zoom": [
       1.0,
       1.04
@@ -302,8 +302,8 @@
      ]
     },
     {
-     "from": 52.4,
-     "to": 59.2,
+     "from": "desk+0.0",
+     "to": "desk+6.8",
      "zoom": [
       1.0,
       1.08
@@ -314,8 +314,8 @@
      ]
     },
     {
-     "from": 60.8,
-     "to": 73.2,
+     "from": "desk-switch+1.4",
+     "to": "desk-switch+13.8",
      "zoom": [
       1.0,
       1.04
@@ -342,8 +342,8 @@
    "caption": "As typeset, or *reflowed* to read.",
    "clips": [
     {
-     "from": 0.3,
-     "to": 5.3,
+     "from": "start+0.3",
+     "to": "start+5.3",
      "zoom": [
       1.0,
       1.05
@@ -354,8 +354,8 @@
      ]
     },
     {
-     "from": 5.5,
-     "to": 13.3,
+     "from": "reflow+0.0",
+     "to": "reflow+7.8",
      "zoom": [
       1.1,
       1.2
@@ -378,8 +378,8 @@
    "caption": "Or as a *book*.",
    "clips": [
     {
-     "from": 13.5,
-     "to": 25.6,
+     "from": "book+0.0",
+     "to": "book+12.1",
      "zoom": [
       1.0,
       1.06
@@ -402,8 +402,8 @@
    "caption": "Zoom, a *loupe*, and figures up close.",
    "clips": [
     {
-     "from": 25.8,
-     "to": 40.6,
+     "from": "pdf-again+0.0",
+     "to": "pdf-again+14.8",
      "speed": 1.25,
      "zoom": [
       1.0,
@@ -415,8 +415,8 @@
      ]
     },
     {
-     "from": 40.8,
-     "to": 49.0,
+     "from": "loupe+0.0",
+     "to": "loupe+8.2",
      "zoom": [
       1.15,
       1.2
@@ -427,8 +427,8 @@
      ]
     },
     {
-     "from": 49.1,
-     "to": 55.4,
+     "from": "closeup+0.0",
+     "to": "closeup+6.3",
      "zoom": [
       1.0,
       1.04
@@ -454,8 +454,8 @@
    "caption": "*Z*: just you and the page.",
    "clips": [
     {
-     "from": 55.6,
-     "to": 66.0,
+     "from": "zen+0.0",
+     "to": "zen+10.4",
      "zoom": [
       1.0,
       1.04
@@ -478,8 +478,8 @@
    "caption": "Highlight, in PDF *and* Reflow.",
    "clips": [
     {
-     "from": 1.6,
-     "to": 10.9,
+     "from": "highlight+0.0",
+     "to": "highlight+9.3",
      "zoom": [
       1.3,
       1.4
@@ -502,8 +502,8 @@
    "caption": "Right-click: what it *means*, where it *comes from*.",
    "clips": [
     {
-     "from": 11.1,
-     "to": 15.0,
+     "from": "lookup+0.0",
+     "to": "lookup+3.9",
      "zoom": [
       1.1,
       1.2
@@ -514,8 +514,8 @@
      ]
     },
     {
-     "from": 15.0,
-     "to": 33.8,
+     "from": "lookup+3.9",
+     "to": "lookup+22.7",
      "zoom": [
       1.55,
       1.6
@@ -541,8 +541,8 @@
    "caption": "Hover an author, or a *citation*.",
    "clips": [
     {
-     "from": 34.0,
-     "to": 41.0,
+     "from": "hover-author+0.0",
+     "to": "hover-author+7.0",
      "zoom": [
       1.3,
       1.4
@@ -553,8 +553,8 @@
      ]
     },
     {
-     "from": 41.1,
-     "to": 47.0,
+     "from": "hover-citation+0.0",
+     "to": "hover-citation+5.9",
      "zoom": [
       1.3,
       1.4
@@ -577,8 +577,8 @@
    "caption": "Your notes, by section, and a *board*.",
    "clips": [
     {
-     "from": 47.1,
-     "to": 56.0,
+     "from": "keep-figure+0.0",
+     "to": "keep-figure+8.9",
      "zoom": [
       1.0,
       1.06
@@ -589,8 +589,8 @@
      ]
     },
     {
-     "from": 56.2,
-     "to": 65.1,
+     "from": "notes+0.0",
+     "to": "notes+8.9",
      "zoom": [
       1.5,
       1.55
@@ -601,8 +601,8 @@
      ]
     },
     {
-     "from": 65.3,
-     "to": 75.2,
+     "from": "board+0.0",
+     "to": "board+9.9",
      "zoom": [
       1.0,
       1.08
@@ -628,8 +628,8 @@
    "caption": "*M* pins a sticky to the page.",
    "clips": [
     {
-     "from": 75.4,
-     "to": 90.0,
+     "from": "sticky+0.0",
+     "to": "sticky+14.6",
      "zoom": [
       1.15,
       1.25
@@ -651,8 +651,8 @@
    "caption": "Ask, and land on the *exact passage*.",
    "clips": [
     {
-     "from": 21.8,
-     "to": 26.0,
+     "from": "scene:ask+0.2",
+     "to": "scene:ask+4.4",
      "speed": 1.4,
      "zoom": [
       1.0,
@@ -664,8 +664,8 @@
      ]
     },
     {
-     "from": 26.0,
-     "to": 30.0,
+     "from": "scene:ask+4.4",
+     "to": "scene:ask+8.4",
      "zoom": [
       1.55,
       1.6
@@ -676,8 +676,8 @@
      ]
     },
     {
-     "from": 30.0,
-     "to": 34.6,
+     "from": "scene:ask+8.4",
+     "to": "scene:ask+13.0",
      "zoom": [
       1.0,
       1.08
@@ -702,8 +702,8 @@
    "caption": "Press *E*: the whole paper, explained.",
    "clips": [
     {
-     "from": 34.9,
-     "to": 39.5,
+     "from": "scene:explain+0.1",
+     "to": "scene:explain+4.7",
      "speed": 1.5,
      "zoom": [
       1.0,
@@ -715,8 +715,8 @@
      ]
     },
     {
-     "from": 39.5,
-     "to": 46.9,
+     "from": "scene:explain+4.7",
+     "to": "scene:explain+12.1",
      "zoom": [
       1.15,
       1.3
@@ -741,8 +741,8 @@
    "caption": "Plan the *implementation*.",
    "clips": [
     {
-     "from": 47.2,
-     "to": 53.7,
+     "from": "scene:implement+0.1",
+     "to": "scene:implement+6.6",
      "zoom": [
       1.1,
       1.25
@@ -764,8 +764,8 @@
    "caption": "A notebook from the paper, *run* on Colab.",
    "clips": [
     {
-     "from": 54.0,
-     "to": 59.5,
+     "from": "scene:colab+0.1",
+     "to": "scene:colab+5.6",
      "speed": 1.3,
      "zoom": [
       1.0,
@@ -777,8 +777,8 @@
      ]
     },
     {
-     "from": 59.5,
-     "to": 71.0,
+     "from": "scene:colab+5.6",
+     "to": "scene:colab+17.1",
      "zoom": [
       1.0,
       1.25
@@ -804,8 +804,8 @@
    "caption": "The *Companion* connects your computer.",
    "clips": [
     {
-     "from": 1.0,
-     "to": 5.8,
+     "from": "start+1.0",
+     "to": "start+5.8",
      "zoom": [
       1.0,
       1.05
@@ -816,8 +816,8 @@
      ]
     },
     {
-     "from": 6.0,
-     "to": 20.0,
+     "from": "download-app+0.0",
+     "to": "download-app+14.0",
      "zoom": [
       1.6,
       1.65
@@ -843,8 +843,8 @@
    "caption": "Paired *once*. No tokens to paste.",
    "clips": [
     {
-     "from": 20.2,
-     "to": 36.8,
+     "from": "found+0.0",
+     "to": "found+16.6",
      "zoom": [
       1.65,
       1.7
@@ -867,8 +867,8 @@
    "caption": "Files *here*, compute *there*.",
    "clips": [
     {
-     "from": 37.2,
-     "to": 57.4,
+     "from": "where+0.0",
+     "to": "where+20.2",
      "zoom": [
       1.1,
       1.15
@@ -894,8 +894,8 @@
    "caption": "A real workspace, on *your* laptop.",
    "clips": [
     {
-     "from": 57.7,
-     "to": 69.0,
+     "from": "project+0.0",
+     "to": "project+11.3",
      "zoom": [
       1.35,
       1.45
@@ -918,8 +918,8 @@
    "caption": "Many machines, *one* project.",
    "clips": [
     {
-     "from": 69.3,
-     "to": 79.0,
+     "from": "machine-menu+0.0",
+     "to": "machine-menu+9.7",
      "zoom": [
       1.3,
       1.35
@@ -930,8 +930,8 @@
      ]
     },
     {
-     "from": 79.3,
-     "to": 93.8,
+     "from": "settings-compute+0.0",
+     "to": "settings-compute+14.5",
      "zoom": [
       1.2,
       1.25
@@ -975,8 +975,8 @@
    "caption": "See who's here, and *follow* along.",
    "clips": [
     {
-     "from": 1.0,
-     "to": 5.6,
+     "from": "start+1.0",
+     "to": "start+5.6",
      "zoom": [
       1.15,
       1.2
@@ -987,8 +987,8 @@
      ]
     },
     {
-     "from": 5.8,
-     "to": 19.0,
+     "from": "overview+0.0",
+     "to": "overview+13.2",
      "zoom": [
       1.2,
       1.3
@@ -1014,8 +1014,8 @@
    "caption": "A bibliography you can *trust*.",
    "clips": [
     {
-     "from": 19.3,
-     "to": 28.7,
+     "from": "papers+0.0",
+     "to": "papers+9.4",
      "zoom": [
       1.0,
       1.06
@@ -1038,8 +1038,8 @@
    "caption": "Write, and *cite* as you go.",
    "clips": [
     {
-     "from": 28.9,
-     "to": 40.5,
+     "from": "write+0.0",
+     "to": "write+11.6",
      "zoom": [
       1.0,
       1.06
@@ -1050,8 +1050,8 @@
      ]
     },
     {
-     "from": 40.7,
-     "to": 51.1,
+     "from": "cite+0.0",
+     "to": "cite+10.4",
      "zoom": [
       1.35,
       1.4
@@ -1062,8 +1062,8 @@
      ]
     },
     {
-     "from": 51.3,
-     "to": 59.6,
+     "from": "recompile+0.0",
+     "to": "recompile+8.3",
      "zoom": [
       1.45,
       1.5
@@ -1089,8 +1089,8 @@
    "caption": "A logbook, a whiteboard, your calendar.",
    "clips": [
     {
-     "from": 61.0,
-     "to": 67.7,
+     "from": "logbook+1.2",
+     "to": "logbook+7.9",
      "zoom": [
       1.1,
       1.15
@@ -1101,8 +1101,8 @@
      ]
     },
     {
-     "from": 68.6,
-     "to": 78.0,
+     "from": "calendar+0.7",
+     "to": "calendar+10.1",
      "zoom": [
       1.05,
       1.1
