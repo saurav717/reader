@@ -22,7 +22,7 @@ function setup(t, { configured = true, google = {} } = {}) {
     if (!answer) return Response.json({ error: 'invalid_grant', error_description: 'Bad Request' }, { status: 400 });
     return Response.json(answer);
   });
-  const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, origins: ['https://saurav717.github.io'] };
+  const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, origins: ['https://koios.dev'] };
   const ask = (path, init = {}) => handleGoogleDesktop(new Request(`https://w.example${path}`, init), env, path.split('?')[0], tools);
   return { ask, sent, env };
 }

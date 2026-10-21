@@ -19,7 +19,7 @@ const SAFELISTED = new Set(['accept', 'accept-language', 'content-language']);
 
 describe('GitHub calls through Reader’s server', () => {
   it('carry only headers the Worker allows', async () => {
-    const preflight = await worker.fetch(new Request('https://w.dev/github/api/user/repos', { method: 'OPTIONS', headers: { Origin: 'https://saurav717.github.io' } }), {});
+    const preflight = await worker.fetch(new Request('https://w.dev/github/api/user/repos', { method: 'OPTIONS', headers: { Origin: 'https://koios.dev' } }), {});
     const allowed = new Set(preflight.headers.get('Access-Control-Allow-Headers').toLowerCase().split(/\s*,\s*/));
     const sent = [];
     globalThis.fetch = async (url, init = {}) => {

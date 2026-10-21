@@ -24,7 +24,7 @@ const SCHOLAR = await readFile(join(here, 'fixtures', 'serply-scholar.json'), 'u
 
 const CLIENT = 'client-123.apps.googleusercontent.com';
 const SECRET = 'the-readers-token';
-const SITE = 'https://saurav717.github.io';
+const SITE = 'https://koios.dev';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 
 /** Google's tokeninfo, as it answers for a token of `email` made for `aud`. */

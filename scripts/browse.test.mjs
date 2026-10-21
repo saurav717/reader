@@ -454,7 +454,7 @@ describe('the Worker entry', () => {
     const got = [];
     const stub = { fetch: async (url, init) => (got.push({ url: String(url), init }), new Response('upgraded', { status: 200 })) };
     const env = { BROWSER_SESSION: { idFromName: (name) => ({ name }), get: (id, options) => (got.push({ id, options }), stub) } };
-    const from = { Origin: 'https://saurav717.github.io' };
+    const from = { Origin: 'https://koios.dev' };
     const stream = 'https://proxy.example/browse/stream?session=tok&client=client-aaaaaaaaaaaaaaaa';
     const elsewhere = await entry.fetch(new Request(stream, { headers: { Origin: 'https://evil.example', Upgrade: 'websocket' } }), env);
     assert.equal(elsewhere.status, 403);
@@ -480,7 +480,7 @@ describe('the Worker entry', () => {
       READER_TOKEN: 'the-token',
       BROWSER_SESSION: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => new Response(JSON.stringify(status)) }) },
     };
-    const from = { Origin: 'https://saurav717.github.io', 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' };
+    const from = { Origin: 'https://koios.dev', 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' };
     const anonymous = await entry.fetch(new Request('https://proxy.example/browse/open?url=https%3A%2F%2Fexample.com%2F', { method: 'POST', headers: from }), env);
     assert.equal(anonymous.status, 401);
     assert.equal((await anonymous.json()).token, true);

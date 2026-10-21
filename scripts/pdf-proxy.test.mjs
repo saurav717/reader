@@ -206,15 +206,15 @@ describe('signing in with an institution', () => {
 
 describe('a proxy on this machine, called from the site', () => {
   it('answers the site on GitHub Pages with CORS headers', async () => {
-    const response = await realFetch(`${base}/health`, { headers: { Origin: 'https://saurav717.github.io' } });
-    assert.equal(response.headers.get('access-control-allow-origin'), 'https://saurav717.github.io');
+    const response = await realFetch(`${base}/health`, { headers: { Origin: 'https://koios.dev' } });
+    assert.equal(response.headers.get('access-control-allow-origin'), 'https://koios.dev');
     assert.equal(response.headers.get('vary'), 'Origin');
   });
 
   it('answers a preflight for the same', async () => {
     const response = await realFetch(`${base}/access/close`, {
       method: 'OPTIONS',
-      headers: { Origin: 'https://saurav717.github.io', 'Access-Control-Request-Method': 'POST' },
+      headers: { Origin: 'https://koios.dev', 'Access-Control-Request-Method': 'POST' },
     });
     assert.equal(response.status, 204);
     assert.match(response.headers.get('access-control-allow-methods'), /POST/);
@@ -253,7 +253,7 @@ describe("a site's check for a person, met by the PDF proxy", () => {
     upstream = CHALLENGE;
     const response = await worker.fetch(
       new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
-        headers: { Origin: 'https://saurav717.github.io' },
+        headers: { Origin: 'https://koios.dev' },
       }),
       {},
     );
@@ -286,7 +286,7 @@ describe("a site's check for a person, met by the PDF proxy", () => {
     // to be Cloudflare's, refusing the Worker.
     const anonymous = await worker.fetch(
       new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
-        headers: { Origin: 'https://saurav717.github.io' },
+        headers: { Origin: 'https://koios.dev' },
       }),
       env,
     );
@@ -295,7 +295,7 @@ describe("a site's check for a person, met by the PDF proxy", () => {
     assert.equal(asked.filter((url) => url.startsWith('https://production-sfo.browserless.io/')).length, 0);
     const response = await worker.fetch(
       new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
-        headers: { Origin: 'https://saurav717.github.io', Authorization: 'Bearer the-token', 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' },
+        headers: { Origin: 'https://koios.dev', Authorization: 'Bearer the-token', 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' },
       }),
       env,
     );
@@ -398,7 +398,7 @@ describe('a paper in PubMed Central, fetched the way PubMed Central means progra
       return CHALLENGE();
     };
     const response = await worker.fetch(
-      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://europepmc.org/article/MED/34241106'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://europepmc.org/article/MED/34241106'), { headers: { Origin: 'https://koios.dev' } }),
       {},
     );
     assert.equal(response.status, 200);
@@ -464,7 +464,7 @@ describe('a paper on OpenReview, fetched from its API rather than past its check
     const { default: worker } = await import('../worker/index.js');
     upstream = (url) => (url.startsWith('https://api2.openreview.net/') ? pdfResponse() : new Response('forbidden', { status: 403 }));
     const response = await worker.fetch(
-      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://koios.dev' } }),
       {},
     );
     assert.equal(response.status, 200);
@@ -476,7 +476,7 @@ describe("OpenReview's API refusing the Worker too", () => {
   const ask = async (env = {}) => {
     const { default: worker } = await import('../worker/index.js');
     return worker.fetch(
-      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://koios.dev' } }),
       env,
     );
   };
@@ -735,7 +735,7 @@ describe('a proxy with a token', () => {
   it('allows the token and the client id through CORS', async () => {
     const response = await realFetch(`${base}/browse/open`, {
       method: 'OPTIONS',
-      headers: { Origin: 'https://saurav717.github.io', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization' },
+      headers: { Origin: 'https://koios.dev', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization' },
     });
     assert.equal(response.status, 204);
     assert.match(response.headers.get('access-control-allow-headers'), /Authorization/);
