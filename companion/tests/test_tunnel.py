@@ -71,6 +71,31 @@ class TunnelTest(unittest.TestCase):
         finally:
             server.shutdown()
 
+    def test_waits_for_a_new_address_to_lead_here(self):
+        codes = {"/": 530}  # Cloudflare's "nothing behind it yet", then the Companion's own 404
+
+        class Answer(BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(codes["/"])
+                self.end_headers()
+                codes["/"] = 404
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Answer)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{server.server_port}"
+        no_proxy = {k: "" for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")}
+        try:
+            with mock.patch.dict(os.environ, no_proxy):
+                self.assertTrue(tunnel.live(url, timeout_s=10))
+                codes["/"] = 530
+                Answer.do_HEAD = lambda self: (self.send_response(530), self.end_headers())
+                self.assertFalse(tunnel.live(url, timeout_s=1.5))
+        finally:
+            server.shutdown()
+
     def test_asset_names(self):
         self.assertRegex(tunnel.asset(), r"^cloudflared-(darwin|linux|windows)-(amd64|arm64)(\.tgz|\.exe)?$")
 

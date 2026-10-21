@@ -75,15 +75,23 @@ neither machine accepts a connection from the internet.*
 - **Writes go back on close.** A file written on the machine is sent when it is closed (or `fsync`'d), in pieces. The
   Companion writes it beside the original and swaps it in, so a reader on your computer never sees half a file.
 - **The key opens one folder.** The machine holds a key made for this project's folder, kept in
-  `~/.reader-companion/mounts/` (0600). It never gets the Companion's token. The socket refuses paths outside the
-  folder, links that lead out of it, and paths the rules say are the machine's own. **Unmount** forgets the key, which
-  closes every socket that used it.
+  `~/.reader-companion/mounts/` (0600). It never gets the Companion's token. The key travels in a header
+  (`X-Koios-Mount-Key`), never in the address, so it isn't written to Cloudflare's or the Companion's request logs,
+  and the daemon gets it through its environment, so it isn't on its command line for `ps` to show. The socket refuses paths outside the folder, links that lead
+  out of it, and paths the rules say are the machine's own. **Unmount** forgets the key, which closes every socket
+  that used it.
+- **A new tunnel is checked before it is handed out.** A quick tunnel's `trycloudflare.com` name can take some seconds
+  to resolve after `cloudflared` opens it. A machine that dials it too early is told the name doesn't exist, may cache
+  that answer, and the mount ran out its 90 s and failed (the "works on the second try" case). The Companion now waits
+  until the new address answers before giving it to the machine, and the daemon redials every few seconds, not up to
+  30 s apart, until it first connects. A named tunnel (section 6) has a fixed name and skips this wait.
 
 ## 4. Two modes
 
 - **fuse** (Colab and most servers: `/dev/fuse` and libfuse 2). This is a real mount, and it is lazy: only what is
-  opened is fetched. The first mount on Colab runs `pip install fusepy` and, as root, `apt-get install fuse libfuse2`.
-  Allow about a minute for that.
+  opened is fetched. The first mount on Colab runs `pip install fusepy==3.0.1` and, as root, `apt-get install fuse
+  libfuse2` (only when libfuse isn't there already), the two side by side. Allow up to a minute for that; later
+  mounts on the same runtime skip it.
 - **mirror** (containers that don't allow FUSE). The folder is a real directory that the daemon keeps current both
   ways over the same socket. Every file is on the machine, but your saves still arrive as you make them, and edits made
   on the machine go back within a second.

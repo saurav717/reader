@@ -13,6 +13,7 @@ import { COLAB, isOn, serversOn } from '../lib/compute';
 import type { Compute, Playground, ProjectMachine } from '../lib/playground';
 import { addMachine, machinesOf, removeMachine, serverById, useServers } from '../lib/playground';
 import { useStore } from '../lib/store';
+import { machineWorking, useText } from '../lib/telemetry';
 import { ColabMark, attachUrl } from './Colab';
 import { CloseIcon, PlusIcon } from './icons';
 
@@ -29,10 +30,11 @@ export const isConnected = (s: ColabState | undefined) => s?.status === 'idle' |
 export function stateOf(s: ColabState | undefined, compute: Compute): { dot: 'busy' | 'on' | 'lost' | 'off'; text: string } {
   if (!s) return { dot: 'off', text: compute.kind === 'server' ? 'kernel not started' : 'not connected' };
   const connected = isConnected(s);
-  const sample = s.sample;
-  const busy = sample ? [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean).join(' · ') : '';
-  const dot = s.status === 'busy' || s.status === 'connecting' ? 'busy' : connected ? 'on' : s.status === 'lost' || s.status === 'error' ? 'lost' : 'off';
-  const text = s.status === 'connecting' ? 'connecting…' : s.reconnecting ? 'reconnecting…' : s.status === 'busy' ? busy || 'running' : connected ? busy || 'idle' : s.status === 'lost' ? 'ended' : compute.kind === 'server' ? 'kernel not started' : 'not connected';
+  const busy = useText(s.sample);
+  // The kernel idle but the machine at work (a training in a terminal, an agent): busy, by the GPU and CPUs.
+  const working = connected && machineWorking(s.sample);
+  const dot = s.status === 'busy' || s.status === 'connecting' || working ? 'busy' : connected ? 'on' : s.status === 'lost' || s.status === 'error' ? 'lost' : 'off';
+  const text = s.status === 'connecting' ? 'connecting…' : s.reconnecting ? 'reconnecting…' : s.status === 'busy' ? busy || 'running' : connected ? (working ? busy : 'idle') : s.status === 'lost' ? 'ended' : compute.kind === 'server' ? 'kernel not started' : 'not connected';
   return { dot, text };
 }
 

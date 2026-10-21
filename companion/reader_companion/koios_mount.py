@@ -62,6 +62,8 @@ import urllib.parse
 from pathlib import Path
 
 VERSION = 1
+# The header the mount's key goes in.
+KEY_HEADER = "X-Koios-Mount-Key"
 # A file this small comes over in the first archives; bigger ones when they are first opened.
 WARM_MAX = 2 * 1024 * 1024
 # One archive at most this much (before compression), so the first files are usable while the rest come.
@@ -158,7 +160,12 @@ class Wire:
     the Companion pushes (the tree, a change) handed to on_push, in order, on a thread of its own."""
 
     def __init__(self, url: str, key: str, on_push, on_state=lambda up: None):
-        self.url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode({"key": key, "v": VERSION})
+        # The key goes in a header, not the address: an address is written into logs on the way (Cloudflare's, the
+        # Companion's), a header isn't. A Companion before 0.20.2 reads only ?key=: on its 403, the address carries it.
+        self.url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode({"v": VERSION})
+        self.key = key
+        self.key_in_url = False
+        self.ever_up = False
         self.on_push, self.on_state = on_push, on_state
         self.loop = asyncio.new_event_loop()
         self.pending: dict[int, concurrent.futures.Future] = {}
@@ -185,19 +192,28 @@ class Wire:
                 traceback.print_exc()
 
     async def _run(self) -> None:
+        from tornado.httpclient import HTTPRequest
         from tornado.websocket import websocket_connect
 
         wait = 1.0
         while not self.stopped:
             try:
-                self.socket = await websocket_connect(self.url, max_message_size=256 * 1024 * 1024, ping_interval=20, ping_timeout=20, connect_timeout=30)
+                request = HTTPRequest(self.url, headers={KEY_HEADER: self.key}, connect_timeout=30)
+                self.socket = await websocket_connect(request, max_message_size=256 * 1024 * 1024, ping_interval=20, ping_timeout=20)
             except Exception as error:
+                if getattr(error, "code", None) == 403 and not self.key_in_url:
+                    self.key_in_url = True
+                    self.url += "&" + urllib.parse.urlencode({"key": self.key})
+                    continue
                 self.error = f"the Companion can't be reached: {getattr(error, 'code', '')} {error}".strip()
                 await asyncio.sleep(wait)
-                wait = min(wait * 2, 30)
+                # Before the first connection the mount is being started and someone is waiting on it: dialled every
+                # few seconds, so a tunnel that comes up a moment late is found at once, not after a 30 s pause.
+                wait = min(wait * 2, 30 if self.ever_up else 4)
                 continue
             wait = 1.0
             self.error = ""
+            self.ever_up = True
             self.up.set()
             self.on_state(True)
             while True:
@@ -1518,8 +1534,9 @@ def start(url: str, key: str, at: Path, mode: str, wait_s: float = 90) -> dict:
     (state / "status.json").unlink(missing_ok=True)
     with open(state / "mount.log", "ab") as out:
         daemon = subprocess.Popen(
-            [sys.executable, os.path.abspath(__file__), "serve", f"--url={url}", f"--key={key}", f"--at={at}", f"--mode={chosen}"],
-            stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(state), env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            # The key in the environment, not the arguments: any user there can read a process's arguments (ps).
+            [sys.executable, os.path.abspath(__file__), "serve", f"--url={url}", f"--at={at}", f"--mode={chosen}"],
+            stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(state), env={**os.environ, "PYTHONUNBUFFERED": "1", "KOIOS_MOUNT_KEY": key},
         )
     # Reaped when it ends, so it doesn't linger as a zombie of the kernel that started it.
     threading.Thread(target=daemon.wait, daemon=True, name="koios-reap").start()
@@ -1546,13 +1563,16 @@ def main(argv=None) -> int:
     for name in ("start", "serve"):
         p = sub.add_parser(name)
         p.add_argument("--url", required=True)
-        p.add_argument("--key", required=True)
+        p.add_argument("--key", default=os.environ.get("KOIOS_MOUNT_KEY", ""), help="or KOIOS_MOUNT_KEY in the environment")
         p.add_argument("--at", required=True)
         p.add_argument("--mode", default="auto", choices=("auto", "fuse", "mirror"))
     for name in ("status", "stop"):
         p = sub.add_parser(name)
         p.add_argument("--at", required=True)
     args = parser.parse_args(argv)
+    os.environ.pop("KOIOS_MOUNT_KEY", None)  # not handed down to anything this starts
+    if args.command in ("start", "serve") and not args.key:
+        parser.error("the mount's key: --key, or KOIOS_MOUNT_KEY in the environment")
     if args.command == "serve":
         serve(args.url, args.key, Path(args.at), args.mode)
         return 0

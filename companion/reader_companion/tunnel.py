@@ -73,8 +73,17 @@ def cloudflared(say=print) -> str:
 
 
 class Tunnel:
-    def __init__(self, process: subprocess.Popen, url: str):
+    def __init__(self, process: subprocess.Popen, url: str, live: bool = False):
         self.process, self.url = process, url
+        # Whether the address has been seen to lead here. A quick tunnel's name is new: Cloudflare's DNS can take a
+        # while to answer for it after cloudflared registers, and a machine that asks too early may be told it doesn't
+        # exist and keep that answer cached (wait_live).
+        self.live = live
+
+    def wait_live(self, timeout_s: float = 30) -> bool:
+        if not self.live:
+            self.live = live(self.url, timeout_s)
+        return self.live
 
     def alive(self) -> bool:
         return self.process.poll() is None
@@ -147,7 +156,7 @@ def start_named(binary: str, token: str, hostname: str, timeout_s: float = 45) -
     if not ready.is_set():
         process.kill()
         raise RuntimeError("the tunnel didn't connect to Cloudflare: " + " | ".join(tail[-3:]))
-    return Tunnel(process, f"https://{hostname}")
+    return Tunnel(process, f"https://{hostname}", live=True)  # a fixed name, in DNS long before this start
 
 
 def open_configured(port: int, config: dict, say=print) -> Tunnel:
@@ -174,6 +183,26 @@ def gone(url: str, timeout_s: float = 8) -> bool:
         return isinstance(error.reason, socket.gaierror)
     except OSError:
         return False
+
+
+def live(url: str, timeout_s: float = 30) -> bool:
+    """Waits until the address answers through Cloudflare: its name resolves and something is behind it (not 502 or
+    530). Asked once a second at first, then less often, so a resolver here isn't made to cache "no such name"."""
+    deadline = time.monotonic() + timeout_s
+    pause = 1.0
+    while True:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/", method="HEAD"), timeout=5):
+                return True
+        except urllib.error.HTTPError as error:
+            if error.code not in (502, 530):
+                return True  # the Companion's own answer (404 for HEAD /): it is there
+        except OSError:
+            pass
+        if time.monotonic() + pause > deadline:
+            return False
+        time.sleep(pause)
+        pause = min(pause * 1.5, 4)
 
 
 def via_tunnel(host: str | None) -> bool:

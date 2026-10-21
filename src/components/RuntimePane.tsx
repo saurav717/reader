@@ -25,7 +25,7 @@ import { bins, nearFull, needMarkers, peakOf, peaksByCell, recent, rulerSegments
 import type { RulerSegment } from '../lib/runtime';
 import type { Compute } from '../lib/hardware';
 import type { MachineSample } from '../lib/telemetry';
-import { gigabytes } from '../lib/telemetry';
+import { gigabytes, machineWorking } from '../lib/telemetry';
 import { LineChart } from './Charts';
 import { attachUrl, MachinePicker, useColab } from './Colab';
 
@@ -328,8 +328,8 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked, 
           {[specs?.vramMb ? gigabytes(specs.vramMb) : '', specs?.cpus ? `${specs.cpus} CPUs` : '', specs?.ramTotalMb ? `${gigabytes(specs.ramTotalMb)} RAM` : '', specs?.diskTotalGb !== undefined ? `${specs.diskTotalGb} GB disk` : ''].filter(Boolean).join(' · ') || machineLabel(runtime)}
         </span>
         <span className="rt-state">
-          <span className={`colab-dot is-${colab.status === 'busy' ? 'busy' : 'on'}`} aria-hidden="true" />
-          {colab.status === 'busy' ? `running ${labelOf(colab.running ?? '')}` : 'idle'} · up {clock(colab.startedAt, now)}
+          <span className={`colab-dot is-${colab.status === 'busy' || machineWorking(colab.sample) ? 'busy' : 'on'}`} aria-hidden="true" />
+          {colab.status === 'busy' ? `running ${labelOf(colab.running ?? '')}` : machineWorking(colab.sample) ? 'working outside the notebook' : 'idle'} · up {clock(colab.startedAt, now)}
         </span>
       </div>
       <div className="rt-run" role="group" aria-label="Runs">

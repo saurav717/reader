@@ -963,6 +963,10 @@ class ComputeHandler(VsCodeHandler):
                     await open_tunnel(self.serverapp)
                 if not state.current.tunnel_url:
                     return self.reply(503, {"error": "The Companion's HTTPS tunnel isn't open, and the machine reaches this computer through it. Restart the Companion with --tunnel, or check that cloudflared can run here."})
+                if state.current.tunnel is not None:
+                    # A tunnel opened just now: its address handed out only once it leads here. A machine that dials
+                    # it earlier can be told the name doesn't exist, cache that, and miss the mount's 90 s to start.
+                    await IOLoop.current().run_in_executor(None, state.current.tunnel.wait_live)
                 key = mount.key_for(folder)
                 url = mount.socket_url(state.current.tunnel_url, self.serverapp.base_url if self.serverapp else "/")
                 mode = body.get("mode") if body.get("mode") in ("auto", "fuse", "mirror") else "auto"
