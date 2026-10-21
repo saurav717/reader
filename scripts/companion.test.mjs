@@ -124,22 +124,22 @@ describe('the page’s side', () => {
     assert.equal(companion.companionPort('https://pod-8888.proxy.runpod.net/'), null);
   });
   it('gives the commands for the site it is served from', () => {
-    const commands = companion.companionCommands('https://saurav717.github.io/reader');
-    assert.equal(commands.unix, 'curl -LsSf https://saurav717.github.io/reader/companion.sh | sh');
-    assert.equal(companion.companionCommands('https://saurav717.github.io/reader/', { tunnel: true }).unix, 'curl -LsSf https://saurav717.github.io/reader/companion.sh | sh -s -- --tunnel');
-    assert.match(commands.windows, /irm https:\/\/saurav717\.github\.io\/reader\/companion\.ps1 \| iex/);
-    assert.match(commands.uv, new RegExp(`reader_companion-${companion.COMPANION_VERSION.replace(/\./g, '\\.')}-py3-none-any\\.whl reader-companion --site https://saurav717\\.github\\.io/reader/$`));
+    const commands = companion.companionCommands('https://koios.dev/reader');
+    assert.equal(commands.unix, 'curl -LsSf https://koios.dev/reader/companion.sh | sh');
+    assert.equal(companion.companionCommands('https://koios.dev/reader/', { tunnel: true }).unix, 'curl -LsSf https://koios.dev/reader/companion.sh | sh -s -- --tunnel');
+    assert.match(commands.windows, /irm https:\/\/koios\.dev\/reader\/companion\.ps1 \| iex/);
+    assert.match(commands.uv, new RegExp(`reader_companion-${companion.COMPANION_VERSION.replace(/\./g, '\\.')}-py3-none-any\\.whl reader-companion --site https://koios\\.dev/reader/$`));
   });
   it('offers the installer for this computer’s system', () => {
     assert.equal(companion.desktopSystem('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'), 'mac');
     assert.equal(companion.desktopSystem('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'), 'windows');
     assert.equal(companion.desktopSystem('Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0'), 'linux');
-    const downloads = companion.companionDownloads('https://saurav717.github.io/reader');
-    assert.equal(downloads.mac.href, 'https://saurav717.github.io/reader/download/Koios-Companion-mac.zip');
+    const downloads = companion.companionDownloads('https://koios.dev/reader');
+    assert.equal(downloads.mac.href, 'https://koios.dev/reader/download/Koios-Companion-mac.zip');
     assert.equal(downloads.mac.file, 'Koios Companion.command');
-    assert.equal(downloads.windows.href, 'https://saurav717.github.io/reader/download/Koios-Companion-Setup.cmd');
-    assert.equal(downloads.linux.href, 'https://saurav717.github.io/reader/download/koios-companion-setup.sh');
-    assert.equal(downloads.linux.command, 'curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh');
+    assert.equal(downloads.windows.href, 'https://koios.dev/reader/download/Koios-Companion-Setup.cmd');
+    assert.equal(downloads.linux.href, 'https://koios.dev/reader/download/koios-companion-setup.sh');
+    assert.equal(downloads.linux.command, 'curl -LsSf https://koios.dev/reader/companion-setup.sh | sh');
   });
   it('offers the newest Reader desktop app for each system, signed before unsigned, and nothing while there is none', async () => {
     const realFetch = globalThis.fetch;

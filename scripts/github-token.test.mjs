@@ -117,13 +117,13 @@ describe('GitHub token kept by the Worker', () => {
       if (String(url).endsWith('/user')) return Response.json({ login: 'saurav' });
       return new Response(null, { status: 204 });
     });
-    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'me@uni.edu' }), origins: ['https://saurav717.github.io'] };
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'me@uni.edu' }), origins: ['https://koios.dev'] };
     const ask = (path, init = {}) => handleGithub(new Request(`https://w.dev${path}`, init), env, path.split('?')[0], tools);
     const methods = (await (await ask('/github/token')).json()).methods;
     assert.deepEqual([methods.oauth, methods.app], [true, false]);
     assert.equal((await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://evil.example' }, body: JSON.stringify({ via: 'oauth' }) })).status, 403);
-    assert.equal((await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://saurav717.github.io' }, body: JSON.stringify({ via: 'app' }) })).status, 501, 'no GitHub App set up');
-    const { url } = await (await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://saurav717.github.io' }, body: JSON.stringify({ via: 'oauth' }) })).json();
+    assert.equal((await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://koios.dev' }, body: JSON.stringify({ via: 'app' }) })).status, 501, 'no GitHub App set up');
+    const { url } = await (await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://koios.dev' }, body: JSON.stringify({ via: 'oauth' }) })).json();
     const go = new URL(url);
     assert.equal(go.origin + go.pathname, 'https://github.com/login/oauth/authorize');
     assert.deepEqual([go.searchParams.get('client_id'), go.searchParams.get('scope'), go.searchParams.get('code_challenge_method'), go.searchParams.get('redirect_uri')], ['oauth-id', 'repo', 'S256', 'https://w.dev/github/callback']);
@@ -132,7 +132,7 @@ describe('GitHub token kept by the Worker', () => {
     const back = await ask(`/github/callback?code=abc&state=${state}`);
     assert.equal(back.status, 200);
     const page = await back.text();
-    assert.match(page, /postMessage\(\{"type":"reader-github","ok":true,"login":"saurav","via":"oauth"\},"https:\/\/saurav717\.github\.io"\)/);
+    assert.match(page, /postMessage\(\{"type":"reader-github","ok":true,"login":"saurav","via":"oauth"\},"https:\/\/koios\.dev"\)/);
     const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     assert.equal(challenge, go.searchParams.get('code_challenge'), 'PKCE: the verifier sent matches the challenge');
     assert.equal((await ask(`/github/callback?code=abc&state=${state}`)).status, 400, 'a state is used once');
@@ -163,9 +163,9 @@ describe('GitHub token kept by the Worker', () => {
       if (String(url).endsWith('/user')) return Response.json({ login: 'saurav' });
       return Response.json({ ok: true });
     });
-    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'me@uni.edu' }), origins: ['https://saurav717.github.io'] };
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'me@uni.edu' }), origins: ['https://koios.dev'] };
     const ask = (path, init = {}) => handleGithub(new Request(`https://w.dev${path}`, init), env, path.split('?')[0], tools);
-    const { url } = await (await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://saurav717.github.io' }, body: JSON.stringify({ via: 'app' }) })).json();
+    const { url } = await (await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://koios.dev' }, body: JSON.stringify({ via: 'app' }) })).json();
     assert.equal(new URL(url).searchParams.get('scope'), null, 'a GitHub App asks for no scopes: its permissions are its own');
     await ask(`/github/callback?code=abc&state=${new URL(url).searchParams.get('state')}`);
     const status = await (await ask('/github/token')).json();
@@ -182,7 +182,7 @@ describe('GitHub token kept by the Worker', () => {
     const { default: worker } = await import('../worker/index.js');
     const env = { READER_TOKEN: 'r'.repeat(32), SECRETS_KEY: 's'.repeat(44), SESSIONS: { get: async () => null, put: async () => {}, delete: async () => {} } };
     for (const [method, path] of [['POST', '/github/oauth/start'], ['PUT', '/github/token'], ['DELETE', '/github/token'], ['POST', '/github/api/repos/me/paper/git/blobs'], ['PATCH', '/github/api/repos/me/paper/git/refs/heads/main']]) {
-      const answer = await worker.fetch(new Request(`https://w.dev${path}`, { method, headers: { Origin: 'https://saurav717.github.io', 'Content-Type': 'application/json' }, ...(method === 'DELETE' ? {} : { body: '{}' }) }), env);
+      const answer = await worker.fetch(new Request(`https://w.dev${path}`, { method, headers: { Origin: 'https://koios.dev', 'Content-Type': 'application/json' }, ...(method === 'DELETE' ? {} : { body: '{}' }) }), env);
       assert.equal(answer.status, 401, `${method} ${path}`);
     }
   });

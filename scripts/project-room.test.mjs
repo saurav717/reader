@@ -121,7 +121,7 @@ describe('sharing a project', () => {
       const e = { ...env(), MAIL_API_KEY: 're_test', MAIL_FROM: 'Reader <noreply@reader.example>' };
       const owner = await issuePass('owner@x.org', SECRET);
       const { room } = await (await call(e, '/rooms', { pass: owner, body: { project, name: 'Owner One' } })).json();
-      const link = `https://saurav717.github.io/reader/project/?id=proj-1&room=${room}`;
+      const link = `https://koios.dev/reader/project/?id=proj-1&room=${room}`;
       const invited = await (await call(e, `/rooms/${room}/invite`, { pass: owner, body: { email: 'Dana@ethz.ch', role: 'viewer', link } })).json();
       assert.equal(invited.mailed, true);
       assert.deepEqual(invited.invitations.map((i) => i.email), ['dana@ethz.ch']);
@@ -286,7 +286,7 @@ describe('inviting someone to try Koios', () => {
     try {
       const e = withMail();
       const pass = await issuePass('owner@x.org', SECRET);
-      const ok = await (await call(e, '/invite', { pass, body: { email: 'Colleague@Uni.edu', name: 'Owner One', note: 'Have a look?', link: 'https://saurav717.github.io/reader/' } })).json();
+      const ok = await (await call(e, '/invite', { pass, body: { email: 'Colleague@Uni.edu', name: 'Owner One', note: 'Have a look?', link: 'https://koios.dev/reader/' } })).json();
       assert.deepEqual(ok, { ok: true, to: 'colleague@uni.edu' });
       assert.equal(sent.length, 1);
       assert.deepEqual(sent[0].body.to, ['colleague@uni.edu']);
@@ -294,8 +294,8 @@ describe('inviting someone to try Koios', () => {
       assert.equal(sent[0].body.subject, "Owner One thinks you'd like Koios");
       assert.match(sent[0].body.text, /Have a look\?/);
       assert.equal((await call(e, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://evil.example/' } })).status, 400);
-      assert.equal((await call(e, '/invite', { pass, body: { email: 'not-an-address', link: 'https://saurav717.github.io/reader/' } })).status, 400);
-      assert.equal((await call(e, '/invite', { body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } })).status, 401);
+      assert.equal((await call(e, '/invite', { pass, body: { email: 'not-an-address', link: 'https://koios.dev/reader/' } })).status, 400);
+      assert.equal((await call(e, '/invite', { body: { email: 'c@uni.edu', link: 'https://koios.dev/reader/' } })).status, 401);
       assert.equal(sent.length, 1);
     } finally {
       restore();
@@ -306,9 +306,9 @@ describe('inviting someone to try Koios', () => {
     const { sent, restore } = stub();
     try {
       const pass = await issuePass('owner@x.org', SECRET);
-      const none = await call(env(), '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } });
+      const none = await call(env(), '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://koios.dev/reader/' } });
       assert.equal(none.status, 501);
-      const limited = await call({ ...withMail(), READER_EMAILS: '@x.org' }, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://saurav717.github.io/reader/' } });
+      const limited = await call({ ...withMail(), READER_EMAILS: '@x.org' }, '/invite', { pass, body: { email: 'c@uni.edu', link: 'https://koios.dev/reader/' } });
       assert.equal(limited.status, 403);
       assert.match((await limited.json()).error, /READER_EMAILS/);
       assert.equal(sent.length, 0);

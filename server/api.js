@@ -50,7 +50,6 @@ const UA = 'reader/0.1 (personal research reading tool)';
 const ALLOWED_ORIGINS = new Set(
   [
     'https://koios.dev',
-    'https://saurav717.github.io',
     'http://localhost:5173',
     'http://localhost:8080',
     ...(process.env.ALLOWED_ORIGINS || '').split(','),

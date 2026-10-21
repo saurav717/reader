@@ -142,7 +142,7 @@ describe('the tally', () => {
 describe('the Worker, tallying', () => {
   const realFetch = globalThis.fetch;
   const CLIENT = 'client.apps.googleusercontent.com';
-  const SITE = 'https://saurav717.github.io';
+  const SITE = 'https://koios.dev';
   const pending = [];
   const ctx = { waitUntil: (promise) => pending.push(promise) };
   const settle = () => Promise.all(pending.splice(0));
@@ -532,7 +532,7 @@ describe('the DeepSeek balance', () => {
 
 describe('the Worker, with DEEPSEEK_KEY', () => {
   const realFetch = globalThis.fetch;
-  const SITE = 'https://saurav717.github.io';
+  const SITE = 'https://koios.dev';
   afterEach(() => {
     globalThis.fetch = realFetch;
   });
@@ -654,7 +654,7 @@ describe('the Tavily usage', () => {
 
 describe('the Worker, with TAVILY_KEY', () => {
   const realFetch = globalThis.fetch;
-  const SITE = 'https://saurav717.github.io';
+  const SITE = 'https://koios.dev';
   afterEach(() => {
     globalThis.fetch = realFetch;
   });

@@ -74,7 +74,7 @@ const ASSET_HOSTS = new Set(['arxiv.org', 'ar5iv.labs.arxiv.org', 'ar5iv.org', '
 
 // Which origins may call this worker. Narrow it to your own site: a wide-open
 // proxy is one anybody can point at arXiv on your account's quota.
-const ALLOWED_ORIGINS = ['https://koios.dev', 'https://saurav717.github.io', 'http://localhost:5173', 'http://localhost:8080'];
+const ALLOWED_ORIGINS = ['https://koios.dev', 'http://localhost:5173', 'http://localhost:8080'];
 
 function cors(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];

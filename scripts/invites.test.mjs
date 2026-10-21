@@ -40,7 +40,7 @@ const binding = (Class) => {
 };
 
 const SECRET = 'owner-token';
-const SITE = 'https://saurav717.github.io/reader/';
+const SITE = 'https://koios.dev/reader/';
 const env = (more = {}) => ({ READER_TOKEN: SECRET, READER_OWNERS: 'owner@x.org', ROOMS: binding(ProjectRoom), INVITES: binding(Invites), ...more });
 const call = (e, path, { pass, body, method, origin } = {}) =>
   worker.fetch(
