@@ -52,10 +52,16 @@ function speak(text) {
   // curl rather than fetch: it goes through HTTPS_PROXY when the machine has one.
   const raw = path.join(WORK, `${path.basename(file, '.wav')}-raw.wav`);
   const body = JSON.stringify({ model: 'gpt-4o-mini-tts', voice: EDL.voice.name, input: text, instructions: EDL.voice.instructions, response_format: 'wav' });
-  const status = execFileSync('curl', [
+  const ask = () => execFileSync('curl', [
     '-sS', '-o', raw, '-w', '%{http_code}', 'https://api.openai.com/v1/audio/speech', '-H', 'Content-Type: application/json',
     ...(process.env.OPENAI_API_KEY ? ['-H', `Authorization: Bearer ${process.env.OPENAI_API_KEY}`] : []), '-d', body,
   ]).toString();
+  // The speech API answers 502 now and then: a few tries, further apart each time.
+  let status = ask();
+  for (let wait = 2; status !== '200' && wait <= 16; wait *= 2) {
+    execFileSync('sleep', [String(wait)]);
+    status = ask();
+  }
   if (status !== '200') {
     console.log(`  (no voice for "${text.slice(0, 50)}…" — ${status})`);
     return null;
@@ -188,7 +194,16 @@ for (const [i, shot] of EDL.shots.entries()) {
         return { ...c, from, to, file: path.join(ROOT, '.video/takes', name, 'raw.mp4'), srcW: w, srcH: h, srcFps: FPS, frames: frames((to - from) / (c.speed || 1)), holdFrames: frames(c.hold || 0) };
       }),
     );
-    const own = out.clips.reduce((sum, c) => sum + c.frames + c.holdFrames, 0);
+    let own = out.clips.reduce((sum, c) => sum + c.frames + c.holdFrames, 0);
+    // Footage that runs well past what is said over it is played a little faster, up to a limit.
+    if (EDL.fit && needed && own > frames(needed + EDL.fit.slack)) {
+      const factor = Math.min(EDL.fit.maxSpeed, own / frames(needed + EDL.fit.slack));
+      for (const c of out.clips) {
+        c.speed = (c.speed || 1) * factor;
+        c.frames = frames((c.to - c.from) / c.speed);
+      }
+      own = out.clips.reduce((sum, c) => sum + c.frames + c.holdFrames, 0);
+    }
     out.tailFrames = Math.max(0, frames(needed) - own);
     out.length = own + out.tailFrames;
     if (shot.chapter) out.overlays.push({ file: await chapter(shot.chapter, `${id}-chapter`), from: 0.2 });
