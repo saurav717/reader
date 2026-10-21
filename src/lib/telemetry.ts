@@ -199,6 +199,17 @@ export interface MachineSample {
   diskTotalGb?: number;
 }
 
+/**
+ * Whether the machine is at work by its last sample, whatever the notebook's kernel is doing: a training started in a
+ * terminal, or by an agent, leaves the kernel idle while the GPU and CPUs are busy. The GPU's threshold is the idle
+ * stop's (idleWork.ts); the CPUs' is a quarter of the machine, well above what Jupyter itself uses.
+ */
+export const machineWorking = (sample: MachineSample | undefined): boolean => !!sample && ((sample.gpu?.util ?? 0) > 5 || (sample.cpu ?? 0) >= 25);
+
+/** The machine's use from a sample, in a line: "GPU 88% · CPU 100%", or '' with nothing read. */
+export const useText = (sample: MachineSample | undefined): string =>
+  sample ? [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean).join(' · ') : '';
+
 /** What the machine is, read off a sample: the parts that do not change while it is up. */
 export interface MachineSpecs {
   gpuName?: string;

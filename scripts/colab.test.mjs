@@ -854,3 +854,14 @@ describe('the Runtime pane’s strips, sparklines and peaks', () => {
     assert.deepEqual(peaks.map((p) => [p.key, p.gpu, p.vramMb, p.cpu, p.ramMb]), [['nb:a', 70, 9000, 30, undefined], ['nb:b', undefined, undefined, 55, 4096]]);
   });
 });
+
+describe('the machine at work with the kernel idle', () => {
+  it('counts the GPU or the CPUs busy as work, so the chip does not say idle under a training run from a terminal', () => {
+    assert.equal(telemetry.machineWorking(undefined), false);
+    assert.equal(telemetry.machineWorking({ t: 0, gpu: { t: 0, util: 2, memUsedMb: 500, memTotalMb: 15000 }, cpu: 4 }), false);
+    assert.equal(telemetry.machineWorking({ t: 0, gpu: { t: 0, util: 88, memUsedMb: 11000, memTotalMb: 15000 }, cpu: 10 }), true);
+    assert.equal(telemetry.machineWorking({ t: 0, gpu: { t: 0, util: 4, memUsedMb: 500, memTotalMb: 15000 }, cpu: 100 }), true);
+    assert.equal(telemetry.useText({ t: 0, gpu: { t: 0, util: 4, memUsedMb: 500, memTotalMb: 15000 }, cpu: 100 }), 'GPU 4% · CPU 100%');
+    assert.equal(telemetry.useText(undefined), '');
+  });
+});

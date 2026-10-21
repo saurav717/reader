@@ -9,7 +9,7 @@ import type { CellRun, Machine, Output } from '../lib/colab';
 import { backendLabel, colabAvailable, colabNow, compareOutput, connect, differingLines, disconnect, MACHINES, machineLabel, outputText, restartKernel, runAll, setGpuWatch, setMachine, stopRuntime, subscribeColab } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { MachineSample, MachineSpecs } from '../lib/telemetry';
-import { checkpointsOf, gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
+import { checkpointsOf, gigabytes, hasCurve, lossSeries, MACHINE_PROBE, machineWorking, useText } from '../lib/telemetry';
 import { LossChart } from './Charts';
 import CopyBlock from './CopyBlock';
 
@@ -31,11 +31,7 @@ const clock = (since: number | undefined, now: number) => {
 };
 
 /** The chip while a cell runs: the machine's use from the last sample, or just that it runs. */
-const busyText = (sample: MachineSample | undefined) => {
-  if (!sample) return 'running';
-  const parts = [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'running';
-};
+const busyText = (sample: MachineSample | undefined) => useText(sample) || 'running';
 
 /** The runtime's machine in a line: the card, the CPUs, the memory, the disk — what the probe read. */
 export function specsText(specs: MachineSpecs | undefined): string {
@@ -218,12 +214,12 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
   if (!available && colab.status === 'off') return null;
   const connected = colab.status === 'idle' || colab.status === 'busy';
   const ran = cells.filter((cell) => colab.runs[cell.key]?.state === 'ran').length;
-  const dot = colab.status === 'busy' ? 'busy' : colab.status === 'connecting' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
+  const dot = colab.status === 'busy' || colab.status === 'connecting' || (connected && machineWorking(colab.sample)) ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
   const text =
     colab.status === 'connecting'
       ? 'Colab · connecting…'
       : connected && colab.runtime
-        ? `${colab.backend.kind === 'jupyter' ? colab.backend.server.name : machineLabel(colab.runtime)} · ${colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
+        ? `${colab.backend.kind === 'jupyter' ? colab.backend.server.name : machineLabel(colab.runtime)} · ${colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' || machineWorking(colab.sample) ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
         : colab.status === 'lost'
           ? `${colab.runtime ? backendLabel(colab.backend, colab.runtime) : 'Colab'} · runtime ended`
           : colab.status === 'error'

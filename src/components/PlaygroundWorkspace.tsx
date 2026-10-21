@@ -11,7 +11,7 @@ import { renewRuntimeProxy } from '../lib/colab';
 import { COMPUTE_SHELL, MOUNT_VERSION, colabTarget, linkCompute, linkState, mountThroughCompanion, mountWords, pushThroughCompanion, remoteLine, renewAt, serverTarget, unmountThroughCompanion, type LinkState } from '../lib/computeLink';
 import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, connectIn, forgetRun, interrupt, joinIfRunning, interruptIn, lastActivityAt, lastActivityIn, machineLabel, outputText, prepareNotebook, restartKernel, runCell, runCellFor, runQuietly, sessionsNow, setMachine, stopRuntime, stopRuntimeIn } from '../lib/colab';
 import { KOIOS_HELPER_PATH, KOIOS_PY, KOIOS_PYLIB } from '../lib/koiosHelper';
-import { latestCheckpoint } from '../lib/telemetry';
+import { latestCheckpoint, machineWorking, useText } from '../lib/telemetry';
 import type { Checkpoint } from '../lib/telemetry';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
@@ -552,11 +552,12 @@ function MachineChip({ playground, name, usable, onChange, onPool, onNote }: { p
   useEffect(() => {
     if (connected) setPower('up');
   }, [connected]);
-  const dot = colab.status === 'busy' || colab.status === 'connecting' || power === 'starting' || power === 'stopping' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
-  const sample = colab.sample;
-  const busy = sample ? [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean).join(' · ') : '';
+  // The kernel idle but the machine at work (a training in a terminal, an agent): busy, by the GPU and CPUs.
+  const working = connected && machineWorking(colab.sample);
+  const dot = colab.status === 'busy' || colab.status === 'connecting' || power === 'starting' || power === 'stopping' || working ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
+  const busy = useText(colab.sample);
   const state =
-    power === 'stopping' ? 'shutting down…' : power === 'starting' ? 'starting…' : colab.status === 'connecting' ? 'connecting…' : colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busy || 'running' : connected ? 'idle' : power === 'down' ? 'shut down' : colab.status === 'lost' ? 'ended' : playground.compute.kind === 'server' ? 'kernel not started' : 'not connected';
+    power === 'stopping' ? 'shutting down…' : power === 'starting' ? 'starting…' : colab.status === 'connecting' ? 'connecting…' : colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busy || 'running' : working ? busy : connected ? 'idle' : power === 'down' ? 'shut down' : colab.status === 'lost' ? 'ended' : playground.compute.kind === 'server' ? 'kernel not started' : 'not connected';
 
   const shutDown = async () => {
     if (!companion) return;
