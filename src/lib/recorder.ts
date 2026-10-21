@@ -66,8 +66,8 @@ declare global {
       notes?: RecorderBridge;
       /** The app's own version, and its updates (desktop/app/updates.js). */
       updates?: AppUpdates;
-      /** This computer's own Companion handed from the account it is connected to, to whoever pairs next (desktop/app/main.js). */
-      companion?: { release(id: string): Promise<{ ok: boolean; error?: string }> };
+      /** This computer's own Companion handed from the account it is connected to, to whoever pairs next, and started again after a shutdown (desktop/app/main.js). */
+      companion?: { release(id: string): Promise<{ ok: boolean; error?: string }>; start?(): Promise<{ ok: boolean; error?: string }> };
       /** Google sign-in in the browser, for an app Google won't sign in inside (src/lib/google.ts). */
       google?: {
         token(request: { clientId: string; scope: string; prompt: string; hint: string; proxy: string }): Promise<{

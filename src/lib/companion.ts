@@ -486,12 +486,17 @@ export const START_LINK = 'reader-companion://start';
 
 /**
  * Asks this computer to start its Companion, by opening START_LINK (the
- * browser asks once whether to open it), then waits for it to answer at
+ * browser asks once whether to open it; in the Koios app, the app runs it), then waits for it to answer at
  * `base`. Null when it doesn't within `forMs`: nothing here takes the link (a
  * Companion from before STARTABLE, or not installed for good), or it didn't start.
  */
 export async function startCompanion(base: string, forMs = 90_000): Promise<CompanionInfo | null> {
-  if (typeof window !== 'undefined') window.location.href = START_LINK;
+  // The Koios app's windows don't open reader-companion:// links: the app runs `reader-companion start` itself.
+  const app = typeof window !== 'undefined' ? window.readerDesktop?.companion?.start : undefined;
+  if (app) {
+    const started = await app().catch(() => ({ ok: false }));
+    if (!started.ok) return null;
+  } else if (typeof window !== 'undefined') window.location.href = START_LINK;
   const until = Date.now() + forMs;
   while (Date.now() < until) {
     await new Promise((resolve) => setTimeout(resolve, 2000));

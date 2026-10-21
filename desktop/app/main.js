@@ -267,7 +267,8 @@ function guard(win, { popup = false } = {}) {
   contents.on('will-navigate', (event, url) => {
     if (isLocal(contents.getURL()) || staysInApp(url) || (popup && url.startsWith('https:'))) return;
     event.preventDefault();
-    if (/^(https?|mailto):/.test(url)) void shell.openExternal(url);
+    if (url.startsWith(START_LINK)) void startCompanion();
+    else if (/^(https?|mailto):/.test(url)) void shell.openExternal(url);
   });
   contents.on('did-create-window', (child) => guard(child, { popup: true }));
   // No connection: a page that says so, with Try again, rather than an empty window.
@@ -357,6 +358,26 @@ ipcMain.handle('companion:release', async (event, id) => {
   const said = [];
   const code = await run(companionPath(), ['release'], (line) => said.push(line), { timeout: 60_000 });
   return code === 0 ? { ok: true } : { ok: false, error: said.filter(Boolean).pop() || 'The Companion didn’t let go of the account.' };
+});
+
+// The page's Start, for a Companion it shut down: in a browser it opens reader-companion://start, which
+// `reader-companion setup` hands to `reader-companion start`. This app's windows go nowhere but http(s), so
+// the page asks the app instead (and an older page's link is caught in guard, above): the same command, run here.
+const START_LINK = 'reader-companion://start';
+
+async function startCompanion() {
+  const exe = companionPath();
+  if (!fs.existsSync(exe)) return { ok: false, error: 'The Koios Companion isn’t installed here.' };
+  const said = [];
+  // --quiet: it kicks the Companion off and returns; the page waits for it to answer.
+  const code = await run(exe, ['start', '--quiet'], (line) => said.push(line), { timeout: 60_000 });
+  return code === 0 ? { ok: true } : { ok: false, error: said.filter(Boolean).pop() || 'The Koios Companion didn’t start.' };
+}
+
+ipcMain.handle('companion:start', (event) => {
+  const from = event.senderFrame?.url || '';
+  if (!from.startsWith(SITE_ORIGIN + '/')) return { ok: false, error: 'Not the Koios site.' };
+  return startCompanion();
 });
 
 /** A reader-app:// link the browser opened: a sign-in's answer (desktop/app/google.js), and the app back in front. */
