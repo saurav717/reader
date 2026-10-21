@@ -23,8 +23,11 @@
  * .video/whome/.vscode/extensions.
  * Stood in for: Claude's answers to the agent (api.anthropic.com, as the
  * SSE stream the SDK reads, in the page — scripts/implement-smoke.mjs does
- * the same), and the Companion's name and hardware, put as a Mac would say
- * them, as the companion take does.
+ * the same); the Companion's name and hardware, put as a Mac would say
+ * them, as the companion take does; and, for VS Code's first page only,
+ * the Companion's proxy (see setup: VS Code 1.143 and Tornado 6.6 don't get
+ * on through it), with VS Code's own preferences set as a person would have
+ * them (folder trusted, Koios Dark, no welcome tab or chat).
  *
  * Needs, once:  .video/jvenv (see companion.mjs) with pytest in it;
  *   curl -sSL -o .video/wscode/cli.tgz https://update.code.visualstudio.com/latest/cli-linux-x64/stable && tar xzf .video/wscode/cli.tgz -C .video/wscode/bin
@@ -379,7 +382,7 @@ export async function setup(context) {
         const round = /Go on: fix what failed/.test(last) ? 2 : /Now answer the request/.test(last) ? 1 : 0;
         const events = replies[round];
         // How long each round takes on screen, as a person would see it think and write.
-        const pace = [2600, 7000, 3200][round] / events.length;
+        const pace = [2600, 6000, 3000][round] / events.length;
         (window.__wsLog ??= []).push(`round ${round} asked at ${Math.round(performance.now())}`);
         const stream = new ReadableStream({
           async start(controller) {
@@ -426,6 +429,19 @@ export async function prepare({ page, arrive }) {
     storage: { 'reader.playground.servers': [server], 'reader.anthropic-key': 'sk-ant-video', 'reader.pgAgentMode': '"reader"' },
   });
   await page.waitForSelector('.pg-hero', { timeout: 20_000 });
+  // VS Code opened once before, off camera, as on any day after the first: its look is kept by the browser,
+  // so it comes up in Koios Dark and not in VS Code's light loading screen.
+  const web = await fetch(`${URL_BASE}companion/vscode-web`, { headers: { Authorization: `token ${config.token}`, Origin: BASE } }).then((r) => r.json());
+  await page.evaluate((src) => {
+    const frame = document.createElement('iframe');
+    frame.id = 'video-warm';
+    frame.src = src;
+    Object.assign(frame.style, { position: 'fixed', left: '0', top: '0', width: '1400px', height: '800px', opacity: '0.01', pointerEvents: 'none', zIndex: '-1' });
+    document.body.append(frame);
+  }, `${URL_BASE}${web.path.replace(/^\//, '')}?folder=${encodeURIComponent(config.root)}`);
+  await page.frameLocator('#video-warm').locator('.part.statusbar').waitFor({ timeout: 90_000 });
+  await page.waitForTimeout(6000);
+  await page.evaluate(() => document.getElementById('video-warm')?.remove());
   await page.waitForTimeout(1200);
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
 }
@@ -441,7 +457,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const start = page.locator('.pg-start', { hasText: 'From a paper' });
   await spot(start);
   await pointer.moveTo(start);
-  await hold(2000);
+  await hold(1800);
   await pointer.click(start, { pause: 300 });
   await pointer.type('attention', { delay: 60 });
   const pick = page.locator('.pg-papers li button').first();
@@ -454,9 +470,9 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
 
   mark('where');
   const pc = page.locator('.pg-mode', { has: page.locator('b', { hasText: /^This PC$/ }) });
-  await pointer.click(pc.locator('.pg-mode-top'), { pause: 300 });
   await spot(pc);
-  await hold(2400);
+  await pointer.click(pc.locator('.pg-mode-top'), { pause: 300 });
+  await hold(2000);
   await shot(page, '2-sheet-pc');
   await spot(page.locator('.pg-sheet-foot .btn.primary'));
   await pointer.click(page.locator('.pg-sheet-foot .btn.primary'), { pause: 200 });
@@ -479,31 +495,31 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   await pointer.click(write.getByRole('button', { name: 'write the files yourself' }), { pause: 600 });
   await spot(['.vs-sidebar', '.vs-groups']);
   await pointer.moveTo({ x: 760, y: 330 });
-  await hold(1200);
+  await hold(900);
   const paperDir = page.locator('.vs-explorer .pg-entry').filter({ hasText: /paper\s*$/ }).first();
   await pointer.click(paperDir, { pause: 400 });
-  await hold(2000);
+  await hold(1500);
   await shot(page, '5-readme');
   await spot(['.vs-agent-hello', page.locator('.vs-chip', { hasText: 'the paper' })]);
   await pointer.moveTo('.vs-agent-hello b');
-  await hold(2600);
+  await hold(2200);
   await shot(page, '6-agent');
 
   // 2. The agents: which, then the page's own one, asked for §3.2.1.
   mark('agents');
   await spot('.vs-agent-pick');
   await pointer.moveTo(page.locator('.vs-agent-pick [role=radio]').first());
-  await hold(900);
+  await hold(700);
   await pointer.moveTo(page.locator('.vs-agent-pick [role=radio]').nth(1));
-  await hold(800);
+  await hold(600);
   await pointer.moveTo(page.locator('.vs-agent-pick [role=radio]', { hasText: 'Koios AI' }));
-  await hold(1000);
+  await hold(800);
 
   mark('ask');
   const box = page.getByLabel('Ask the agent');
   await spot('.vs-agent-box');
   await pointer.click(box, { pause: 200 });
-  await pointer.type(TASK, { delay: 20 });
+  await pointer.type(TASK, { delay: 14 });
   await hold(500);
   await pointer.key('Enter', '⏎', 200);
 
@@ -529,11 +545,13 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   mark('answer');
   await page.locator('.vs-turn.is-live').waitFor({ state: 'detached', timeout: 60_000 });
   const turn = page.locator('.vs-turn.is-agent').last();
+  await turn.locator('.vs-changes').waitFor();
+  await hold(300);
   await spot([turn.locator('.vs-turn-text'), turn.locator('.vs-run')]);
-  await hold(2600);
+  await hold(2400);
   await spot(turn.locator('.vs-changes'));
   await pointer.moveTo(turn.locator('.vs-change').first());
-  await hold(2000);
+  await hold(1800);
   await shot(page, '11-answer');
 
   mark('code');
@@ -556,28 +574,32 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const frame = page.frameLocator('iframe.pg-vscode-frame');
   await frame.locator('.part.activitybar').waitFor({ timeout: 60_000 });
   await spot(page.locator('.pg-vscode-frame'));
-  await hold(2600);
+  await hold(1600);
   await shot(page, '13-vscode');
   const koios = frame.locator('.activitybar [aria-label^="Koios"]').first();
   await pointer.click(koios, { pause: 600 });
   await spot(frame.locator('.part.sidebar'));
-  await hold(2800);
+  await hold(2600);
   await shot(page, '14-koios');
 
   mark('vscode-cite');
-  await pointer.click(frame.locator('.activitybar [aria-label^="Explorer"]').first(), { pause: 500 });
-  await pointer.click(frame.locator('.monaco-list-row[aria-label="attention.py"]').first(), { pause: 600 });
+  const explorer = frame.locator('.activitybar [aria-label^="Explorer"]').first();
+  const row = frame.locator('.explorer-folders-view .monaco-list-row[aria-label="attention.py"]').first();
+  await pointer.click(explorer, { pause: 500 });
+  if (!(await row.isVisible().catch(() => false))) await pointer.click(explorer, { pause: 700 });
+  await row.waitFor({ timeout: 10_000 });
+  await pointer.click(row, { pause: 600 });
   const link = frame.locator('.view-line .detected-link', { hasText: '¶' }).first();
   await link.waitFor({ timeout: 20_000 });
   await spot(frame.locator('.editor-group-container').first());
-  await hold(1200);
+  await hold(500);
   await page.keyboard.down('Control');
   await pointer.moveTo(link, { dx: 0.5 });
   await hold(600);
   await spot([link, frame.locator('.monaco-hover').first()]);
-  await hold(2600);
+  await hold(2400);
   await page.keyboard.up('Control');
   await shot(page, '15-cite');
   unspot();
-  await hold(1200);
+  await hold(400);
 }

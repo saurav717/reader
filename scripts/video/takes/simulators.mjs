@@ -282,7 +282,7 @@ function standIns({ notes }) {
           ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } });
           for (const piece of text.match(/\S+\s*|\s+/g) || []) {
             ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: piece } });
-            await wait(18);
+            await wait(8);
           }
           ev('content_block_stop', { index: 0 });
           ev('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 200 } });
@@ -338,15 +338,22 @@ export async function prepare({ page, arrive }) {
     },
     { PROJECT_ID, PROJECT_NAME, PG_ID },
   );
-  // The library and Discover panels, closed as one would have long ago (they open beside a project's page).
+  const skip = async () => {
+    const button = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
+    if (await button.isVisible().catch(() => false)) await button.click();
+  };
+  // The library read again, the Project in it; the library and Discover panels closed, as one would have long ago
+  // (they open beside a project's page); then Home.
   await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' });
+  await skip();
+  await page.locator('text=Learning to run').first().waitFor({ timeout: 10_000 });
   for (const label of ['Close the library panel', 'Close the discover panel']) {
     const button = page.getByRole('button', { name: label });
     if (await button.isVisible().catch(() => false)) await button.click();
   }
-  await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
-  const skip = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
-  if (await skip.isVisible().catch(() => false)) await skip.click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: /^Home/ }).first().click().catch(() => undefined);
+  await page.locator('text=Find your next paper').waitFor({ timeout: 10_000 }).catch(() => undefined);
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(800);
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
@@ -364,20 +371,21 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
   const ppo = new Replay(RECORDED.ppo, 'ppo-', { leave: (e) => e.kind === 'evaluation' || (e.kind === 'media' && /eval/.test(e.name ?? '')) });
   const wm = new Replay(RECORDED.wm, 'world-model-');
   const frames = liveFrames(ppo);
+  if (process.env.UNTIL === 'prepare') return void (await shot(page, 'prepared'));
   try {
-    await hold(page, 1000);
+    await hold(page, 800);
 
     mark('playground');
     await pointer.key('p', 'P');
     await page.locator('.pg-hero').waitFor();
     const card = page.locator('.pg-start', { hasText: 'A simulation' });
     await card.scrollIntoViewIfNeeded();
-    await hold(page, 900);
+    await hold(page, 600);
 
     mark('sim-card');
     await spot(card);
     await pointer.moveTo(card);
-    await hold(page, 2400);
+    await hold(page, 2200);
 
     mark('picker');
     await pointer.click(card, { pause: 300 });
@@ -385,7 +393,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await picker.waitFor();
     await spot(page.locator('.sim-picker-body'));
     await pointer.moveTo(page.getByRole('radio', { name: /^All · / }));
-    await hold(page, 2200);
+    await hold(page, 1800);
 
     for (const [beat, label] of [
       ['family-locomotion', 'Physics & locomotion'],
@@ -396,7 +404,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
       const chip = picker.getByRole('radio', { name: label, exact: true });
       await pointer.click(chip, { pause: 200 });
       await spot([chip, page.locator('.sim-picker-grid')]);
-      await hold(page, 1900);
+      await hold(page, 1500);
     }
 
     mark('mujoco');
@@ -405,7 +413,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await pointer.click(mujoco, { pause: 300 });
     await page.locator('.sim-preview img').waitFor();
     await spot([mujoco, page.locator('.sim-picker-side')]);
-    await hold(page, 2600);
+    await hold(page, 2300);
 
     mark('environment');
     await spot([page.locator('.sim-preview'), page.getByRole('radiogroup', { name: 'Environment' })]);
@@ -425,7 +433,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     const pc = page.locator('.pg-mode', { has: page.locator('.pg-mode-top b', { hasText: /^This PC$/ }) });
     await pointer.click(pc.locator('.pg-mode-top'), { pause: 200 });
     await spot([page.locator('.pg-title-field'), pc]);
-    await hold(page, 2000);
+    await hold(page, 1700);
 
     mark('create');
     await page.evaluate((id) => (window.__forceUuid = `${id}-0000-4000-8000-000000000000`), PG_ID);
@@ -439,20 +447,21 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     for (let i = 0; i < 40 && !(existsSync(pgFile) && readFileSync(pgFile, 'utf8').includes(PG_ID)); i++) await hold(page, 100);
     if (!existsSync(pgFile) || !readFileSync(pgFile, 'utf8').includes(PG_ID)) console.log('  ! the playground did not get the fixed id: the logbook beat will fail');
 
-    mark('console');
-    await pointer.click(page.getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name: /console/i }), { pause: 300 });
-    await spot(page.locator('.pg-console'));
-    await hold(page, 1800);
-
     // The kernel on this computer, connected: the pane and the filing read the runs through it.
     mark('connect');
     await pointer.click(page.locator('.pg-chip').first(), { pause: 400 });
     await pointer.click(page.getByRole('menuitem', { name: 'Connect now' }), { pause: 200 });
-    // The runs: the world model's already along, PPO's at a third, the rest of it over the next ~36 s.
+    // The runs: the world model's already along, PPO's at a third, the rest of it over the next ~16 s, so that it
+    // has ended by the filing's second look (twenty seconds after the machine connects).
     wm.prime(Number(process.env.WM_FRAC || 0.8), 25);
     ppo.prime(0.3, 1);
     ppo.feedLive(frames);
-    const playing = ppo.play(Number(process.env.PPO_S || 34), { onEnd: () => mark('ppo-ended') });
+    const playing = ppo.play(Number(process.env.PPO_S || 19), { onEnd: () => mark('ppo-ended') });
+
+    mark('console');
+    await pointer.click(page.getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name: /console/i }), { pause: 300 });
+    await spot(page.locator('.pg-console'));
+    await hold(page, 1800);
     await page.locator('.pg-chip', { hasText: 'idle' }).first().waitFor({ timeout: 30_000 });
 
     mark('sim-pane');
@@ -461,32 +470,32 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await pane.locator('.sim-status').waitFor({ timeout: 20_000 });
     await spot(page.locator('.sim-bar, .sim-status'));
     await spot([page.locator('.sim-bar'), page.locator('.sim-status')]);
-    await hold(page, 2000);
+    await hold(page, 1600);
     await shot(page, 'sim');
-
-    mark('returns');
-    const returns = pane.locator('.sim-findings, .chart').first();
-    await spot([pane.locator('.sim-findings'), pane.locator(':scope > *', { hasText: 'Episode return' }).first()]);
-    await pointer.moveTo(pane.locator(':scope > *', { hasText: 'Episode return' }).first());
-    await hold(page, 3600);
-    await shot(page, 'returns');
-    void returns;
 
     mark('live');
     await pointer.click(page.locator('.sim-live-start'));
     await page.locator('.sim-live-frame img').waitFor({ timeout: 15_000 });
     await spot(page.locator('.sim-live'));
-    await hold(page, 3200);
+    await hold(page, 2800);
     await shot(page, 'live');
-    await pointer.click(page.locator('.sim-live-stop'), { pause: 300 });
+    if (await page.locator('.sim-live-stop').isVisible()) await pointer.click(page.locator('.sim-live-stop'), { pause: 300 });
+
+    mark('returns');
+    const returns = pane.locator('.sim-findings, .chart').first();
+    await spot([pane.locator('.sim-findings'), pane.locator(':scope > *', { hasText: 'Episode return' }).first()]);
+    await pointer.moveTo(pane.locator(':scope > *', { hasText: 'Episode return' }).first());
+    await hold(page, 3000);
+    await shot(page, 'returns');
+    void returns;
 
     mark('videos');
     const videos = pane.locator('.sim-section-open', { hasText: 'Videos' });
     await videos.scrollIntoViewIfNeeded();
     await videos.locator('video').waitFor({ timeout: 15_000 });
     await spot(videos);
-    await pointer.moveTo(videos.locator('video'));
-    await hold(page, 3000);
+    await pointer.moveTo(videos.locator('figcaption'));
+    await hold(page, 2700);
     await shot(page, 'videos');
 
     mark('numbers');
@@ -494,7 +503,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await numbers.evaluate((el) => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     await hold(page, 700);
     await spot(numbers);
-    await hold(page, 2800);
+    await hold(page, 2500);
 
     mark('world-model');
     const select = pane.getByRole('combobox', { name: 'Run' });
@@ -508,8 +517,8 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await dream.scrollIntoViewIfNeeded();
     await dream.locator('video').waitFor({ timeout: 15_000 });
     await spot(dream);
-    await pointer.moveTo(dream.locator('video'));
-    await hold(page, 4000);
+    await pointer.moveTo(dream.locator('figcaption'));
+    await hold(page, 3600);
     await shot(page, 'dream');
 
     mark('filed');
@@ -518,8 +527,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     await toast.waitFor({ timeout: 40_000 });
     await spot(toast);
     await pointer.moveTo(toast);
-    await toast.getByText(/notes written/).waitFor({ timeout: 20_000 }).catch(() => undefined);
-    await hold(page, 2400);
+    await hold(page, 2600);
     await shot(page, 'toast');
 
     mark('logbook');
@@ -529,7 +537,7 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     unspot();
     await hold(page, 600);
     await spot([page.locator('.lb-tabs'), row]);
-    await hold(page, 2200);
+    await hold(page, 1600);
 
     mark('experiment');
     await pointer.click(row.locator('.xp-row'));
@@ -541,6 +549,12 @@ export default async function ({ page, pointer, mark, spot, unspot }) {
     unspot();
     await hold(page, 1200);
   } finally {
+    if (process.env.DEBUG) console.log('  end collections:', await page.evaluate(async () => {
+      const db = await new Promise((resolve) => { const r = indexedDB.open('reader', 1); r.onsuccess = () => resolve(r.result); });
+      const all = await new Promise((resolve) => { const r = db.transaction('collections').objectStore('collections').getAll(); r.onsuccess = () => resolve(r.result); });
+      db.close();
+      return JSON.stringify(all.map((c) => [c.id, c.project?.playgroundId]));
+    }));
     ppo.stop();
     wm.stop();
   }
