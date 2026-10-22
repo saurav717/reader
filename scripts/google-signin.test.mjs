@@ -295,7 +295,7 @@ describe('staying signed in across a reload', () => {
     const accessToken = await module.ensureDriveToken('client-id');
     const profile = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => 'Invalid Credentials' });
-    await assert.rejects(module.findFile(accessToken, 'paper.pdf', 'folder'), /401/);
+    await assert.rejects(module.findFile(accessToken, 'paper.pdf', 'folder'), (error) => error.status === 401 && /Reconnect Drive/.test(error.message));
     assert.equal(module.hasDriveAccess(), false);
     assert.equal(stored.has(SESSION_KEY), false);
     // The token went; whose sign-in this is did not, and the next ask is for them.

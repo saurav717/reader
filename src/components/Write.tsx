@@ -67,7 +67,7 @@ export default function WritePage({ project, onView }: { project: Project; onVie
  * later if ever.
  */
 function WriteStart({ project }: { project: Project }) {
-  const { driveConnected, connectDrive, settings, updateCollection } = useStore();
+  const { driveConnected, driveTrouble, connectDrive, settings, updateCollection } = useStore();
   const setLink = useSetLink(project);
   const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
   // Written here unless the paper card asked for Overleaf: Overleaf is a sync, never the only way in.
@@ -113,6 +113,14 @@ function WriteStart({ project }: { project: Project }) {
               Sign in with Google, with Drive
             </button>
             <span className="wr-quiet">Needed either way: Drive is where the paper is kept.</span>
+          </div>
+        ) : driveTrouble ? (
+          // Drive refused the sign-in's token (google.ts, driveFetch): the paper has nowhere to go until Drive answers again.
+          <div className="wr-row">
+            <button type="button" className="btn primary" onClick={() => void connectDrive(true)}>
+              Reconnect Drive
+            </button>
+            <span className="wr-quiet">Drive needs reconnecting. {driveTrouble}</span>
           </div>
         ) : null}
         <div className="wr-ways" role="radiogroup" aria-label="How to start the paper">

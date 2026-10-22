@@ -448,6 +448,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
     updateSettings,
     user,
     driveConnected,
+    driveTrouble,
     authError,
     signIn,
     connectDrive,
@@ -686,10 +687,12 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
     <>
       <Card title="Your library in Drive">
         <div className="set-status">
-          <CloudCheckIcon size={20} style={{ color: driveConnected ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
+          <CloudCheckIcon size={20} style={{ color: driveConnected && !driveTrouble ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
           <div className="set-status-text">
             <b>
-              {driveConnected
+              {driveTrouble
+                ? 'Drive needs reconnecting'
+                : driveConnected
                 ? librarySync.state === 'loading'
                   ? 'Reading your library from Drive…'
                   : librarySync.state === 'saving'
@@ -700,7 +703,9 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
                   : 'Signed out'}
             </b>
             <small>
-              {driveConnected ? (
+              {driveTrouble ? (
+                driveTrouble
+              ) : driveConnected ? (
                 <>
                   <span className="mono">{settings.driveFolderName || 'Papers_collection'}/library.json</span> ·{' '}
                   {`${synced} of ${papers.length} papers saved${pending ? ` · ${pending} in progress` : ''}`}
@@ -712,7 +717,11 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
               )}
             </small>
           </div>
-          {driveConnected ? (
+          {driveTrouble ? (
+            <button type="button" className="btn primary sm" onClick={() => void connectDrive(true)} title="Ask Google for Drive again, from the consent screen">
+              Reconnect
+            </button>
+          ) : driveConnected ? (
             <button type="button" className="btn sm" onClick={syncAll}>
               Sync all
             </button>

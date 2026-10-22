@@ -13,7 +13,7 @@ import { initials } from '../lib/presence';
 import { openSettings } from '../lib/openSettings';
 
 export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
-  const { user, driveConnected, driveRemembered, signingInSilently, connectDrive, settings, authError } = useStore();
+  const { user, driveConnected, driveTrouble, driveRemembered, signingInSilently, connectDrive, settings, authError } = useStore();
   const configured = Boolean(settings.googleClientId);
   // A visit that has connected before is reconnecting, not being introduced.
   const returning = driveRemembered && !driveConnected;
@@ -179,8 +179,8 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
               {returning ? 'Sign in with Google again' : 'Sign in with Google'}
             </button>
           ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--accent)' }}>
-              <CheckIcon size={16} /> Drive connected{user ? ` as ${user.email}` : ''}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: driveTrouble ? '#a05a1e' : 'var(--accent)' }}>
+              <CheckIcon size={16} /> {driveTrouble ? 'Drive needs reconnecting' : 'Drive connected'}{user ? ` as ${user.email}` : ''}
             </span>
           )}
 

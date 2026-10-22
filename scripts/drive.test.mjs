@@ -490,7 +490,7 @@ describe('removing a paper moves its copy in Drive to Junk', () => {
       if ((init?.method || 'GET') === 'PATCH') return new Response('quota', { status: 403 });
       return failing(url, init);
     };
-    await assert.rejects(junkPaperInDrive(removed, settings), /Drive request failed \(403\)/);
+    await assert.rejects(junkPaperInDrive(removed, settings), /Drive would not allow it: quota/);
   });
 });
 
@@ -633,6 +633,6 @@ describe('telling another account’s papers from this one’s', () => {
     const theirs = paper({ drive: { folderId: 'in-someone-elses-drive' } });
     const failing = globalThis.fetch;
     globalThis.fetch = async (url, init) => (String(url).includes('in-someone-elses-drive') ? new Response('slow down', { status: 429 }) : failing(url, init));
-    await assert.rejects(provablyNotHere(settings.googleClientId, [theirs]), /Drive request failed \(429\)/);
+    await assert.rejects(provablyNotHere(settings.googleClientId, [theirs]), /Drive did not answer \(429\)/);
   });
 });

@@ -325,6 +325,8 @@ function setToken(next: StoredToken | null): void {
   token = next;
   if (next?.user) whose = next.user;
   writeSession(next);
+  // A new token with Drive on it is a second chance: Drive is asked again before it is called refused.
+  if (next?.scopes.includes(DRIVE_SCOPE) && !refused.has(next.accessToken)) clearDriveTrouble();
   // A new or renewed sign-in reaches the other tabs too; a token dropped here (refused, expired) does not.
   if (next?.user && tabs) tabs.postMessage({ type: 'token', token: next } satisfies TabMessage);
 }
@@ -885,34 +887,143 @@ export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 /**
  * A refusal from Drive, with the status kept where a caller can read it: a
  * 404 on a file the app remembers means someone deleted it in Drive by hand,
- * which is not the same thing as Drive being unreachable.
+ * which is not the same thing as Drive being unreachable. The message is a
+ * sentence for the person; Google's own words are kept in `detail`.
  */
 export class DriveRequestError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly reason: DriveRefusal = 'refused',
+    public readonly detail = '',
   ) {
     super(message);
     this.name = 'DriveRequestError';
   }
 }
 
-export async function driveFetch(accessToken: string, url: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * Why Drive refused: `no-drive` — the account has no Drive (a Workspace admin
+ * switched it off: school, alumni and work accounts); `reconnect` — the token
+ * is no longer accepted and a fresh consent is the way on; `scope` — granted
+ * without Drive; `missing` — no such file; `refused` — Drive said no to this
+ * one thing; `unreachable` — no useful answer at all.
+ */
+export type DriveRefusal = 'no-drive' | 'reconnect' | 'scope' | 'missing' | 'refused' | 'unreachable';
+
+/** Google's error body, whichever of its two shapes it came in; nothing when it is not JSON. */
+function googleError(detail: string): { text: string; reasons: string[] } {
+  try {
+    const parsed = JSON.parse(detail) as { error?: string | { message?: string; status?: string; errors?: { reason?: string }[] }; error_description?: string };
+    if (typeof parsed.error === 'string') return { text: parsed.error_description || parsed.error, reasons: [parsed.error] };
+    return { text: parsed.error?.message ?? '', reasons: (parsed.error?.errors ?? []).map((e) => e.reason ?? '').filter(Boolean) };
+  } catch {
+    // Not JSON: a proxy's page, or nothing. A line of plain text is worth repeating; markup is not.
+    return { text: detail.includes('<') ? '' : detail.trim().slice(0, 120), reasons: [] };
+  }
+}
+
+/**
+ * A refusal from Drive as a sentence. "Active session is invalid. Error code: 4"
+ * is what Google answers a token for an account whose Drive is switched off by
+ * its Workspace admin — the token is good, and the account has nowhere to put
+ * a file — so that one is named, rather than taken for a lapsed sign-in.
+ */
+export function describeDriveRefusal(status: number, detail: string, email?: string): { reason: DriveRefusal; message: string } {
+  const { text, reasons } = googleError(detail);
+  const who = email || 'this Google account';
+  if (status === 401 && /active session is invalid/i.test(text)) {
+    return {
+      reason: 'no-drive',
+      message: `Google says Drive is switched off for ${who}. On a school, alumni or work account that is the Workspace admin’s setting, and only they can turn it on; until then nothing can be kept in this account’s Drive. Sign in with a Google account that has Drive, or ask the admin.`,
+    };
+  }
+  if (status === 401) return { reason: 'reconnect', message: 'Google no longer accepts this sign-in for Drive. Reconnect Drive to carry on.' };
+  if (status === 403 && (reasons.includes('insufficientPermissions') || /insufficient.*scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(text))) {
+    return { reason: 'scope', message: 'This sign-in was granted without Drive. Reconnect Drive and leave Drive ticked.' };
+  }
+  if (status === 403) return { reason: 'refused', message: `Drive would not allow it${text ? `: ${text}` : ''}.` };
+  if (status === 404) return { reason: 'missing', message: `Drive no longer has that file${text ? ` (${text.replace(/\.$/, '')})` : ''}.` };
+  return { reason: 'unreachable', message: `Drive did not answer (${status})${text ? `: ${text}` : ''}.` };
+}
+
+// A token Drive refused twice (once renewed, once more) is not sent a third
+// time: every call on it fails at once with the same sentence, which the page
+// shows beside a Reconnect button. A fresh consent — `connectDrive`, or an
+// hourly renewal — brings a new token and clears this, so a Drive an admin
+// has since turned on is found the next time something is saved.
+const refused = new Set<string>();
+let trouble: string | null = null;
+const troubleListeners = new Set<() => void>();
+
+/** What is wrong with Drive for this sign-in, as a sentence; null while Drive answers. */
+export const driveTrouble = (): string | null => trouble;
+
+function setTrouble(next: string | null): void {
+  if (trouble === next) return;
+  trouble = next;
+  troubleListeners.forEach((listener) => listener());
+}
+
+/** Forget that Drive refused: for a fresh token, and for the tests. */
+export function clearDriveTrouble(): void {
+  refused.clear();
+  setTrouble(null);
+}
+
+/** Hear when Drive starts, or stops, refusing the sign-in. */
+export function onDriveTrouble(listener: () => void): () => void {
+  troubleListeners.add(listener);
+  return () => troubleListeners.delete(listener);
+}
+
+/**
+ * A Drive token other than the one Drive just refused: the newer one already
+ * held (another tab renewed), or one renewed now on the grant — only where
+ * that opens no window, or this is a click. Null when there is no quiet way
+ * to one; then, for anything but an account with no Drive, the refused token
+ * is forgotten so that the page's own prompt renews it on the next click.
+ */
+async function freshDriveToken(failed: string, reason: DriveRefusal): Promise<string | null> {
+  if (live(token) && token.accessToken !== failed && token.scopes.includes(DRIVE_SCOPE)) return token.accessToken;
+  const scopes = [IDENTITY_SCOPES, DRIVE_SCOPES, ...extraScopes()];
+  const quietly = Boolean(lastClientId && (renewing || keptGrantFor(lastClientId, whose?.email, scopes) || appSignIn() || inGesture()));
+  if (token?.accessToken === failed && (quietly || reason !== 'no-drive')) forgetToken();
+  if (!quietly) return null;
+  try {
+    const granted = await renewQuietly(lastClientId!, scopes);
+    return granted.scopes.includes(DRIVE_SCOPE) && granted.accessToken !== failed ? granted.accessToken : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A request to Drive with the token. A 401 is tried once more on a renewed
+ * token — the hour was up, or Google let the first one go — and a second
+ * refusal is final for that token: told in a sentence, and remembered, so
+ * the page shows "Drive needs reconnecting" once rather than asking Google
+ * on every save.
+ */
+export async function driveFetch(accessToken: string, url: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  if (refused.has(accessToken) && trouble) throw new DriveRequestError(401, trouble, 'reconnect');
   const response = await fetch(url, {
     ...init,
     headers: { Authorization: `Bearer ${accessToken}`, ...(init.headers || {}) },
   });
-  if (!response.ok) {
-    // A token Drive no longer accepts is not worth keeping: forgotten, the
-    // next call asks Google for another on the grant that still stands.
-    if (response.status === 401 && token?.accessToken === accessToken) forgetToken();
-    const detail = await response.text().catch(() => '');
-    throw new DriveRequestError(
-      response.status,
-      `Drive request failed (${response.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
-    );
+  if (response.ok) return response;
+  const detail = await response.text().catch(() => '');
+  const refusal = describeDriveRefusal(response.status, detail, whose?.email ?? token?.user?.email);
+  if (response.status !== 401) throw new DriveRequestError(response.status, refusal.message, refusal.reason, detail);
+  if (!retried) {
+    const fresh = await freshDriveToken(accessToken, refusal.reason);
+    if (fresh) return driveFetch(fresh, url, init, true);
+    // No quiet way to another token, and not an account without Drive: the token is forgotten, and the prompt's click renews it.
+    if (refusal.reason !== 'no-drive') throw new DriveRequestError(401, refusal.message, refusal.reason, detail);
   }
-  return response;
+  refused.add(accessToken);
+  setTrouble(refusal.message);
+  throw new DriveRequestError(401, refusal.message, refusal.reason, detail);
 }
 
 export function escapeQuery(value: string): string {

@@ -227,7 +227,7 @@ function readLayout(): Layout {
 }
 
 export default function App() {
-  const { ready, papers, collections, highlights, user, driveConnected, settings, askingTabs } = useStore();
+  const { ready, papers, collections, highlights, user, driveConnected, driveTrouble, settings, askingTabs } = useStore();
   // A GitHub token still in this browser goes to Reader's server, sealed there, and leaves here.
   useMoveGitHubToken();
   const draftDock = useDraftDock();
@@ -1411,7 +1411,7 @@ export default function App() {
     compute: chipInRail(settings) && !showWelcome ? (labelled: boolean) => <RailCompute labelled={labelled} /> : undefined,
     onSettings: () => setSettingsOpen(true),
     settingsIcon: <SettingsIcon size={19} />,
-    settingsTitle: driveConnected ? 'Settings — Drive connected' : 'Settings',
+    settingsTitle: driveTrouble ? 'Settings — Drive needs reconnecting' : driveConnected ? 'Settings — Drive connected' : 'Settings',
   };
   const pageName = onUsage
     ? 'Usage'
@@ -1619,7 +1619,7 @@ export default function App() {
           className="icon-btn"
           onClick={() => setSettingsOpen(true)}
           aria-label="Settings"
-          title={driveConnected ? 'Settings — Drive connected' : 'Settings'}
+          title={driveTrouble ? 'Settings — Drive needs reconnecting' : driveConnected ? 'Settings — Drive connected' : 'Settings'}
         >
           <SettingsIcon size={19} />
         </button>

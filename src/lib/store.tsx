@@ -208,6 +208,8 @@ interface StoreValue {
   settings: Settings;
   user: GoogleUser | null;
   driveConnected: boolean;
+  /** What is wrong with Drive for this sign-in, in a sentence — an account with Drive switched off, a token Google let go of — while `driveConnected` says the grant was given; null while Drive answers. */
+  driveTrouble: string | null;
   authError: string | null;
   syncLog: SyncEntry[];
   /** How the library itself — library.json in the account's Drive — stands. */
@@ -298,7 +300,8 @@ interface StoreValue {
   updateSettings: (patch: Partial<Settings>) => void;
 
   signIn: () => Promise<void>;
-  connectDrive: () => Promise<void>;
+  /** Drive asked for again. `fresh` goes to Google's consent screen however the grant stands — the Reconnect button, after Drive refused the token. */
+  connectDrive: (fresh?: boolean) => Promise<void>;
   /** Drive was connected on an earlier visit, so reconnecting is one click. */
   driveRemembered: boolean;
   /** The Reader app signing in by itself, from the sign-in it keeps: the welcome waits rather than asks. */
@@ -364,6 +367,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<GoogleUser | null>(google.restoredUser);
   const [driveConnected, setDriveConnected] = useState(google.hasDriveAccess);
   const [driveRemembered, setDriveRemembered] = useState(() => localStorage.getItem(DRIVE_KEY) === 'true');
+  // Drive refusing the sign-in's token twice over (google.ts, driveFetch): shown beside a Reconnect button instead of Google's JSON.
+  const [driveTrouble, setDriveTrouble] = useState<string | null>(google.driveTrouble);
+  useEffect(() => google.onDriveTrouble(() => setDriveTrouble(google.driveTrouble())), []);
   const [signingInSilently, setSigningInSilently] = useState(false);
   // A tab opened beside a signed-in one takes its sign-in rather than asking the person again (google.ts).
   const [askingTabs, setAskingTabs] = useState(() => !google.restoredUser() && typeof BroadcastChannel !== 'undefined');
@@ -1574,14 +1580,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [enterAccount]);
 
-  const connectDrive = useCallback(async () => {
+  const connectDrive = useCallback(async (fresh = false) => {
     setAuthError(null);
     const clientId = latest.current.settings.googleClientId.trim();
     if (!clientId) {
       setAuthError('Add your Google OAuth client ID in Settings first.');
       return;
     }
-    const quiet = localStorage.getItem(DRIVE_KEY) === 'true';
+    const quiet = !fresh && localStorage.getItem(DRIVE_KEY) === 'true';
     try {
       const signedIn = await google.connectDrive(clientId, quiet);
       setUser(signedIn);
@@ -1653,6 +1659,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       settings,
       user,
       driveConnected,
+      driveTrouble,
       driveRemembered,
       signingInSilently,
       askingTabs,
@@ -1702,7 +1709,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pushToGitHub,
     }),
     [
-      ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
+      ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, driveTrouble, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors, setPaperCitation, lookupPaperCitations, askAiForCitation, citationsLooking,
       createCollection, renameCollection, updateCollection, adoptCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signingInSilently, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
