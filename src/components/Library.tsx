@@ -5,7 +5,7 @@ import { coverFor } from '../lib/libraryLook';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
 import { hoverPaper, useNoteCounts } from '../lib/notes';
-import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, GridIcon, InboxIcon, NoteIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, NoteIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
 import { plainCollections, projectsOf } from '../lib/projects';
 import RemovePaperDialog from './RemovePaperDialog';
 import { PAPERS_MIME, ProgressRing, carriesPapers, draggedPapers } from './LibraryBits';
@@ -166,8 +166,9 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
         <>
           <div className="library-section-head">
             <span className="eyebrow">Projects</span>
-            <button type="button" className="icon-btn sm" onClick={() => select({ kind: 'projects' })} aria-label="Every project" title="Every project, side by side">
-              <GridIcon size={14} />
+            {/* By name, not the grid icon again: the rail's Projects button, the same icon, sits a few pixels to the left. */}
+            <button type="button" className="link-btn library-section-all" onClick={() => select({ kind: 'projects' })} title="Every project, side by side">
+              See all
             </button>
           </div>
           <div className="library-nav">

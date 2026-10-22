@@ -693,6 +693,8 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .library-section-head { display: flex; align-items: center; padding: 16px 12px 4px 20px; }
 .library-section-head .eyebrow { flex-grow: 1; }
 .library-section-head .icon-btn { width: 24px; height: 24px; }
+.library-section-all { font-size: 11px; color: var(--muted); }
+.library-section-all:hover { color: var(--accent); }
 .collection-name-input {
   width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px;
   background: var(--surface); color: var(--ink); outline: 0; font-size: 13px;
