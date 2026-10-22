@@ -4,7 +4,7 @@
 // /playground/<id> (PlaygroundWorkspace). The store is src/lib/playground.ts;
 // the kernel client, Colab's and a Jupyter server's alike, src/lib/colab.ts.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, ReactNode } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import { COLAB, isOn, serversOn, switched } from '../lib/compute';
@@ -50,7 +50,7 @@ import { useStore } from '../lib/store';
 import { useProjectForImplementation } from '../lib/implementationProject';
 import type { Paper } from '../types';
 import { ColabMark } from './Colab';
-import { CloseIcon, CodeIcon, DriveMark, TrashIcon } from './icons';
+import { ChevronRightIcon, CloseIcon, CodeIcon, DriveMark, ForkIcon, TargetIcon, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
 import { RunRowAction, RunRowState, RunningChooser, RunningShelf } from './PlaygroundRuns';
@@ -330,13 +330,13 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
       .slice(0, 8);
   }, [answer, papers]);
 
-  const starts: { key: string; mark: string; title: string; text: string; go: () => void }[] = [
+  const starts: { key: string; mark: ReactNode; title: string; text: string; go: () => void }[] = [
     { key: 'blank', mark: '[ ]', title: 'Blank notebook', text: 'Cells, Markdown, maths, a kernel. The quickest way to try an idea.', go: () => begin({ title: 'Untitled notebook', kind: 'notebook', start: 'blank' }) },
     { key: 'project', mark: '{ }', title: 'Blank project', text: 'Files, an editor and a console — for code that outgrows cells.', go: () => begin({ title: 'Untitled project', kind: 'project', start: 'blank', files: { 'main.py': 'import torch\n\nprint("torch", torch.__version__, "· cuda", torch.cuda.is_available())\n', 'README.md': '# Untitled project\n' } }) },
     { key: 'paper', mark: '¶', title: 'From a paper', text: 'A paper from your library, as a project: files, an editor, a console, and an agent that has read its abstract.', go: () => (setAsking('paper'), setAnswer(''), setProblem(null)) },
-    { key: 'repo', mark: '⑂', title: 'From a repository', text: 'A GitHub address — the paper’s own code, cloned onto the machine you pick.', go: () => (setAsking('repo'), setAnswer(''), setProblem(null)) },
+    { key: 'repo', mark: <ForkIcon size={16} />, title: 'From a repository', text: 'A GitHub address — the paper’s own code, cloned onto the machine you pick.', go: () => (setAsking('repo'), setAnswer(''), setProblem(null)) },
     { key: 'model', mark: 'HF', title: 'From a model card', text: 'A Hugging Face model or dataset id: loaded, run once, ready to change.', go: () => (setAsking('model'), setAnswer(''), setProblem(null)) },
-    { key: 'sim', mark: '◎', title: 'A simulation', text: 'Gymnasium, MuJoCo, robot arms and hands, Atari, driving, Isaac Lab… with PPO, SAC, a world model, and a Sim pane that shows the runs.', go: () => (setSimPicking(true), setProblem(null)) },
+    { key: 'sim', mark: <TargetIcon size={16} />, title: 'A simulation', text: 'Gymnasium, MuJoCo, robot arms and hands, Atari, driving, Isaac Lab… with PPO, SAC, a world model, and a Sim pane that shows the runs.', go: () => (setSimPicking(true), setProblem(null)) },
     { key: 'open', mark: '.nb', title: 'Open a file or folder', text: 'An .ipynb or a .py — or a whole folder of code, as a project. Then pick where the code lives and where it runs.', go: () => (setOpening(true), setProblem(null)) },
   ];
 
@@ -635,7 +635,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                 <div className="pg-offline">
                   <button type="button" className="pg-offline-toggle" aria-expanded={showOffline} onClick={() => setShowOffline(!showOffline)}>
                     <span className={`pg-offline-chevron${showOffline ? ' is-open' : ''}`} aria-hidden="true">
-                      ›
+                      <ChevronRightIcon size={12} />
                     </span>
                     Offline · {offline.length}
                     <span className="pg-offline-names">{showOffline ? '' : offline.map((server) => server.name).join(', ')}</span>

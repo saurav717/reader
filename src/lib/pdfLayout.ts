@@ -419,7 +419,10 @@ function glyphsOf(run: TextRun): string {
   // reads as "ǫ", an o with an ogonek, which no formula has.
   if (/cmmi/i.test(run.font)) return run.str.replace(/ǫ/g, 'ϵ');
   for (const [font, map] of SPRINGER) if (font.test(run.font)) return Array.from(run.str, (glyph) => map[glyph] ?? glyph).join('');
-  return run.str;
+  // The footnote mark TeX sets as the asterisk operator (U+2217, from the
+  // symbol font) is an asterisk to a reader, and the text fonts have no
+  // glyph for the operator: on a machine with no symbol font it was a box.
+  return run.str.replace(/∗/g, '*');
 }
 
 function buildLines(page: PageInput): Line[] {

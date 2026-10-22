@@ -445,3 +445,75 @@ export const PeopleIcon = (props: IconProps) => (
     <path d="M3.5 19a5.5 5.5 0 0 1 11 0M15.5 5.5a3.2 3.2 0 0 1 0 5.5M17 14.5a5 5 0 0 1 3.5 4.5" />
   </Icon>
 );
+
+// The marks that were Unicode text (✂ 📌 🔍 ⤢ ▶ ■ ⑂ ◎ ✳ ↰ ⇄ ○): the page's
+// fonts have none of them, so they came from whatever the system had — on a
+// bare Linux or Windows, boxes. Drawn here instead, like every other icon.
+export const ScissorsIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="6" cy="6" r="2.6" />
+    <circle cx="6" cy="18" r="2.6" />
+    <path d="M8.2 7.6 20 18M8.2 16.4 20 6M12 12l2 0" />
+  </Icon>
+);
+export const PushpinIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M14.5 3.5l6 6-2.2.8-3.6 3.6.3 3.8-1.6 1.6-4.2-4.2L4 20l-.8-.8 4.9-5.2-4.2-4.2 1.6-1.6 3.8.3 3.6-3.6z" />
+  </Icon>
+);
+export const LoupeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="M15.5 15.5 21 21M7.5 10.5a3 3 0 0 1 3-3" />
+  </Icon>
+);
+export const FillIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+  </Icon>
+);
+export const PlayIcon = (props: IconProps) => (
+  <Icon {...props} fill="currentColor" stroke="none">
+    <path d="M7 4.5v15l12-7.5z" />
+  </Icon>
+);
+export const StopIcon = (props: IconProps) => (
+  <Icon {...props} fill="currentColor" stroke="none">
+    <rect x="5.5" y="5.5" width="13" height="13" rx="2" />
+  </Icon>
+);
+export const ForkIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="6" cy="5" r="2.2" />
+    <circle cx="18" cy="5" r="2.2" />
+    <circle cx="12" cy="19" r="2.2" />
+    <path d="M6 7.2v1.3a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7.2M12 12.5v4.3" />
+  </Icon>
+);
+export const TargetIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="4" />
+    <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+  </Icon>
+);
+export const AsteriskIcon = (props: IconProps) => (
+  <Icon {...props} strokeWidth={2.2}>
+    <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />
+  </Icon>
+);
+export const UpLevelIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M19 19V9a4 4 0 0 0-4-4H5M9 1 5 5l4 4" />
+  </Icon>
+);
+export const SwapIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4" />
+  </Icon>
+);
+export const DotIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="6.5" />
+  </Icon>
+);

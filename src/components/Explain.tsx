@@ -49,7 +49,7 @@ import { currentDbName, subscribeDb } from '../lib/db';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
 import { typesetMath } from '../lib/typesetMath';
-import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, PlayIcon, ScissorsIcon, SparkleIcon, StopIcon, SunIcon } from './icons';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
 import { usePlaygrounds } from '../lib/playground';
 import { ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
@@ -310,17 +310,17 @@ function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block
           <>
             {shell && project ? (
               <button type="button" className="btn sm local-run" disabled={local.running || block.open} onClick={() => void runLocally(block.code.trim())} title={`Run in ${project.dir}`}>
-                ▶ Run locally
+                <PlayIcon size={11} /> Run locally
               </button>
             ) : null}
             {python && live ? (
               <button type="button" className="btn sm colab-stop" onClick={() => void interruptColab()} title="Interrupt the kernel">
-                ■ Stop
+                <StopIcon size={11} /> Stop
               </button>
             ) : python ? (
               <button type="button" className={`btn sm colab${canRun && !run ? ' is-go' : ''}`} disabled={!canRun || colab.status === 'connecting' || Boolean(colab.running)} onClick={runIt} title={runTitle}>
                 <ColabMark />
-                {run ? '▶ Run again' : '▶ Run in Colab'}
+                <PlayIcon size={11} /> {run ? 'Run again' : 'Run in Colab'}
               </button>
             ) : null}
           </>
@@ -375,7 +375,7 @@ function Figure({ block, onAnimate, writer }: { block: Extract<Block, { kind: 'f
       {onAnimate && block.animate && !block.open ? (
         <div className="figure-animate">
           <button type="button" className="btn sm" onClick={() => onAnimate(block.caption)} title="Ask for this figure as a scene: the same drawing with a step for each paragraph, kept in view while you read the section">
-            ▶ Animate this figure
+            <PlayIcon size={11} /> Animate this figure
           </button>
           <span>Motion would help here, {writer ?? 'the model'} thinks: the scene follows the paragraphs as you read.</span>
         </div>
@@ -861,7 +861,7 @@ function RewriteMenu({
         onClick={() => setOpen((now) => !now)}
         title={forNotebook ? 'Write the notebook again — the whole notebook from scratch, or every code cell in turn, in place — with the model you choose' : implementing ? 'Plan it again from scratch, for the machine picked now — with the model you choose' : 'Write it again from scratch — with the model you choose'}
       >
-        Rewrite <span className="caret" aria-hidden="true">▾</span>
+        Rewrite <span className="caret" aria-hidden="true"><ChevronDownIcon size={11} /></span>
       </button>
       {open ? (
         <div className={`menu right rewrite-menu is-${view}`} role="menu" aria-label="Rewrite with">
@@ -1558,7 +1558,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           onClick={() => setStage(!stage)}
           title={stage ? `Scenes are on: a figure ${asker} animated plays beside its section as you read. Off, the page is its figures and nothing moves.` : `Scenes are off: the page is its figures, as always. On, a figure ${asker} animated plays beside its section as you read.`}
         >
-          ▶ Stage
+          <PlayIcon size={11} /> Stage
         </button>
         {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
         <ColabChip cells={runnable} />
@@ -1623,7 +1623,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           onClick={() => setSnipping(!snipping)}
           title="Snip: drag a box over anything here — prose, a diagram, a code cell, a table — to add it to your notes (S)"
         >
-          ✂ Snip
+          <ScissorsIcon size={13} /> Snip
         </button>
         <OpacityControl value={opacity} fallback={defaultOpacity} onChange={(value) => updateSettings({ explainOpacity: value })} />
         <button
@@ -1755,7 +1755,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </div>
           ) : lastRevision ? (
             <div className="ask-status is-done">
-              <span className="check">✓</span>
+              <span className="check"><CheckIcon size={12} /></span>
               <span className="ask-note">{lastRevision.note || `Done: ${lastRevision.request}`}</span>
               <button type="button" className="btn sm ghost" onClick={() => store.undo(paperId)} title={`Put the page back as it was before “${lastRevision.request}”`}>
                 Undo

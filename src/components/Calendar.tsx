@@ -69,7 +69,7 @@ import { isHost, joinMeeting, knowEvents } from '../lib/notetaker';
 
 /** Where the Reader app for Mac, Windows and Linux is published (docs/desktop-app.md). */
 const DESKTOP_RELEASES = 'https://github.com/saurav717/reader/releases/latest';
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, PlusIcon, RestoreIcon, TrashIcon, VideoIcon } from './icons';
+import { CalendarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotIcon, ExternalIcon, PeopleIcon, PinIcon, PlusIcon, RestoreIcon, TrashIcon, VideoIcon } from './icons';
 
 const VIEW_KEY = 'reader.calendar.view';
 /** The calendars an account has hidden on the page: its own, as each account's calendars are (see accountKey). */
@@ -1097,10 +1097,10 @@ function EventCard({
               {initialsOf(project.name)}
             </span>
           ) : (
-            <span className="pj-mark sm cal-tag-none">＋</span>
+            <span className="pj-mark sm cal-tag-none"><PlusIcon size={13} /></span>
           )}
           <span className="cal-card-tag-name">{project ? project.name : 'Add to a project'}</span>
-          <span className="cal-card-tag-chev">⌄</span>
+          <span className="cal-card-tag-chev"><ChevronDownIcon size={10} /></span>
         </button>
         {project && onOpenProject ? (
           <button type="button" className="link-btn cal-card-open" onClick={() => onOpenProject(project.id)}>
@@ -1148,7 +1148,7 @@ function EventCard({
                 setMenu(false);
               }}
             >
-              ○ No project
+              <DotIcon size={13} /> No project
             </button>
           </div>
         ) : null}

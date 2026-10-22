@@ -48,28 +48,7 @@ import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import { addressPieces, fullerAuthors, onPaper, placeOnly } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
-import {
-  ArrowLeftIcon,
-  BookIcon,
-  ChevronDownIcon,
-  CloudCheckIcon,
-  CopyIcon,
-  DownloadIcon,
-  ExternalIcon,
-  MoonIcon,
-  NoteIcon,
-  PanelLeftIcon,
-  PanelRightIcon,
-  SunIcon,
-  OpenBookIcon,
-  PlusIcon,
-  ScrollPageIcon,
-  SparkleIcon,
-  ZenIcon,
-  ExplainIcon,
-  FullscreenIcon,
-  ExitFullscreenIcon,
-} from './icons';
+import { ArrowLeftIcon, BookIcon, ChevronDownIcon, CloudCheckIcon, CopyIcon, DownloadIcon, ExitFullscreenIcon, ExplainIcon, ExternalIcon, FullscreenIcon, MoonIcon, NoteIcon, OpenBookIcon, PanelLeftIcon, PanelRightIcon, PlusIcon, ScissorsIcon, ScrollPageIcon, SparkleIcon, SunIcon, ZenIcon } from './icons';
 
 interface Props {
   paperId: string;
@@ -1682,7 +1661,7 @@ export default function Reader({
               title="Snip: drag a box over anything on the page — text, a figure, a table — to add it to your notes (S)"
               onClick={toggleSnip}
             >
-              ✂ Snip
+              <ScissorsIcon size={13} /> Snip
             </button>
           ) : null}
           {onToggleExplain ? (

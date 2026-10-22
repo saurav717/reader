@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { NavStyle, ProjectNav } from '../types';
 import { initialsOf } from '../lib/projects';
-import { PanelLeftIcon } from './icons';
+import { ChevronDownIcon, DotIcon, GridIcon, PanelLeftIcon, PlusIcon } from './icons';
 
 export interface NavPage {
   key: string;
@@ -209,7 +209,7 @@ function ProjectFolder({ model, wide }: { model: NavModel; wide: boolean }) {
         </button>
       ))}
       <button type="button" className="nav-folder-all" onClick={model.onBoard} title="Every project side by side">
-        {wide ? 'All projects' : '⊞'}
+        {wide ? 'All projects' : <GridIcon size={13} />}
       </button>
     </div>
   );
@@ -284,14 +284,14 @@ function ProjectMenu({
       ))}
       <span className="nav-pmenu-line" />
       <button type="button" role="menuitem" className="is-quiet" onClick={pick(model.onBoard)}>
-        ⊞ All projects
+        <GridIcon size={13} /> All projects
       </button>
       <button type="button" role="menuitem" className="is-quiet" onClick={pick(model.onNewProject)}>
-        ＋ New project…
+        <PlusIcon size={13} /> New project…
       </button>
       {withNone ? (
         <button type="button" role="menuitem" className="is-quiet" onClick={pick(model.onNoProject)}>
-          ○ No project — the whole library
+          <DotIcon size={13} /> No project — the whole library
         </button>
       ) : null}
     </div>
@@ -320,10 +320,10 @@ function ProjectSwitcher({ model, wide }: { model: NavModel; wide: boolean }) {
             {initialsOf(project.name)}
           </span>
         ) : (
-          <span className="pj-mark nav-switcher-none">＋</span>
+          <span className="pj-mark nav-switcher-none"><PlusIcon size={14} /></span>
         )}
         {wide ? <span className="nav-switcher-name">{project ? project.name : 'No project'}</span> : null}
-        <span className="nav-switcher-chev">⌄{wide ? ' switch' : ''}</span>
+        <span className="nav-switcher-chev"><ChevronDownIcon size={10} />{wide ? ' switch' : ''}</span>
       </button>
       {open && button.current ? <ProjectMenu model={model} anchor={button.current} heading="Switch project" withNone onClose={() => setOpen(false)} /> : null}
     </>

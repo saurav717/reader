@@ -12,7 +12,7 @@ import type { CliAgentId } from '../lib/cliAgent';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 import { agentChatFor, askAgent, dismissAgentError, filesInReply, isAgentRunning, PROJECT_MAX_TOKENS, stopAgent, subscribeAgent, WRITE_PROJECT } from '../lib/projectAgent';
 import FileIcon from './FileIcon';
-import { SparkleIcon } from './icons';
+import { AsteriskIcon, SparkleIcon, TargetIcon } from './icons';
 
 const elapsed = (since: number, now: number) => {
   const s = Math.max(0, Math.round((now - since) / 1000));
@@ -182,10 +182,10 @@ export default function ProjectStart({
               </p>
               <div className="cli-buttons">
                 <button type="button" className="btn" onClick={() => onCli('claude')}>
-                  <span className="cli-badge is-claude is-sm">✳</span> Write it with Claude Code
+                  <span className="cli-badge is-claude is-sm"><AsteriskIcon size={13} /></span> Write it with Claude Code
                 </button>
                 <button type="button" className="btn" onClick={() => onCli('codex')}>
-                  <span className="cli-badge is-codex is-sm">◎</span> Write it with Codex
+                  <span className="cli-badge is-codex is-sm"><TargetIcon size={13} /></span> Write it with Codex
                 </button>
               </div>
             </div>

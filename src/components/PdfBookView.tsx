@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { TWO_PAGE_MIN_WIDTH, usePageTurns } from './BookView';
-import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from './icons';
+import { ChevronLeftIcon, ChevronRightIcon, FillIcon, LoupeIcon, PlusIcon, PushpinIcon, ScissorsIcon } from './icons';
 import { useKept } from './Keep';
 import PdfSnip, { findRegions, type Region } from './PdfSnip';
 import { PdfCloseUp, PdfLoupe, PdfMinimap, ZOOM_MAX, clampMagnify, clampZoom, zoomByWheel, type CloseUpItem } from './PdfZoom';
@@ -726,7 +726,7 @@ export default function PdfBookView({
       <span className="spinner" /> Opening the PDF…
     </p>
   ) : null;
-  const pinHint = pinning ? <div className="pin-hint">📌 Click anywhere on a page to pin a note there · double-click works any time · Esc to stop</div> : null;
+  const pinHint = pinning ? <div className="pin-hint"><PushpinIcon size={13} /> Click anywhere on a page to pin a note there · double-click works any time · Esc to stop</div> : null;
   const firstInView = shown[0] ?? 1;
   if (scrolling) spreadNow.current = firstInView - 1;
 
@@ -759,7 +759,7 @@ export default function PdfBookView({
           </div>
           {pinHint}
           {zoomHintShown}
-          {snipping ? <div className="snip-hint">✂ Drag a box, or click a figure or table outlined · Esc or S to stop</div> : null}
+          {snipping ? <div className="snip-hint"><ScissorsIcon size={13} /> Drag a box, or click a figure or table outlined · Esc or S to stop</div> : null}
         </div>
       ) : (
         <div
@@ -836,7 +836,7 @@ export default function PdfBookView({
           onClick={() => onSnipping(!snipping)}
           title="Snip figures, tables and equations into your notes — or drag any box (S)"
         >
-          ✂ Snip
+          <ScissorsIcon size={13} /> Snip
         </button>
         <button
           type="button"
@@ -848,10 +848,10 @@ export default function PdfBookView({
           }}
           title="Pin a sticky note to a place on the page — or double-click the page (M)"
         >
-          📌 Pin
+          <PushpinIcon size={13} /> Pin
         </button>
         <button type="button" className="btn sm ghost loupe-btn" aria-pressed={loupe} onClick={() => setLoupe(!loupe)} title="A reading glass that follows the pointer over the page (L)">
-          🔍 Loupe
+          <LoupeIcon size={13} /> Loupe
         </button>
         <button type="button" className="btn sm ghost closeup-btn" onClick={() => void openCloseUp()} title="A figure, table or equation blown up to fill the screen — or ⌥-click one (C)">
           Close-up
@@ -863,7 +863,7 @@ export default function PdfBookView({
           onClick={() => chooseFill(!fill)}
           title={fill ? 'Give the pages their margins back' : 'Fill the screen with the pages, corner to corner — this bar floats over their foot while the pointer moves'}
         >
-          ⤢ Fill
+          <FillIcon size={13} /> Fill
         </button>
         <span className="book-sep" aria-hidden="true" />
         <span className="pdf-zoom-ctl" role="group" aria-label="Zoom">

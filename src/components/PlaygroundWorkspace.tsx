@@ -39,7 +39,7 @@ import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { attachFolder, attachedWords, detach, listAttached } from '../lib/shares';
 import type { Attachment, Backends } from '../lib/shares';
-import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
+import { ArrowLeftIcon, ChartIcon, ChevronRightIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon, SwapIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
 import CliAgent, { queueCliRequest } from './CliAgent';
@@ -2885,14 +2885,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               {view === 'terminal' && filesHere && shellOn(activeShell).here ? (
                 <span className="vs-panel-where" title={`${filesHere.name}:${homeRoot}${linked ? ` — koios run, koios shell and koios pull reach ${machineName} from here` : ''}`}>
                   <span className="vs-panel-machine">{filesHere.name}</span>
-                  <span className="vs-panel-sep" aria-hidden="true">›</span>
+                  <span className="vs-panel-sep" aria-hidden="true"><ChevronRightIcon size={11} /></span>
                   <span className="vs-panel-folder">{homeRoot.split('/').filter(Boolean).pop()}</span>
-                  {linked ? <span className="vs-panel-link">⇄ {machineName}</span> : null}
+                  {linked ? <span className="vs-panel-link"><SwapIcon size={11} /> {machineName}</span> : null}
                 </span>
               ) : (
                 <span className="vs-panel-where" title={`${machineName}:${base ?? machineRoot(playground)}`}>
                   <span className="vs-panel-machine">{machineName}</span>
-                  <span className="vs-panel-sep" aria-hidden="true">›</span>
+                  <span className="vs-panel-sep" aria-hidden="true"><ChevronRightIcon size={11} /></span>
                   <span className="vs-panel-folder">{(base ?? machineRoot(playground)).split('/').filter(Boolean).pop()}</span>
                 </span>
               )}
@@ -3198,7 +3198,7 @@ function Tree({ host, label, icon, note, action, disabled, onOpen, activePath, v
   return (
     <div className="pg-tree-part">
       <button type="button" className={`pg-tree-head vs-section${open ? ' is-open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="vs-chev" aria-hidden="true">›</span>
+        <span className="vs-chev" aria-hidden="true"><ChevronRightIcon size={11} /></span>
         {icon}
         <span>{label}</span>
       </button>
@@ -3344,7 +3344,7 @@ function Folder({ host, path, depth, onOpen, activePath, version, onContext }: {
                   })
                 }
               >
-                <span className="vs-chev" aria-hidden="true">›</span>
+                <span className="vs-chev" aria-hidden="true"><ChevronRightIcon size={11} /></span>
                 <FileIcon path={entry.path} folder open={openDirs.has(entry.path)} />
                 {entry.name}
               </button>

@@ -39,7 +39,7 @@ import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { highlightPython, lastThought } from './Explain';
 import ModelChip from './ModelChip';
-import { CloseIcon, SparkleIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PlayIcon, SparkleIcon, StopIcon, UpLevelIcon } from './icons';
 import MetricsPane from './MetricsPane';
 import PassageFlash from './PassageFlash';
 import type { Flash } from './PassageFlash';
@@ -223,11 +223,11 @@ function Cell({
         {python ? (
           live ? (
             <button type="button" className="nb-run is-busy" onClick={() => void interruptColab()} title="Interrupt the kernel" aria-label="Stop">
-              ■
+              <StopIcon size={11} />
             </button>
           ) : (
             <button type="button" className="nb-run" disabled={!canRun || busy} onClick={() => onRun('stay')} title={canRun ? 'Run this cell in your Colab runtime (Shift-Enter runs and moves on)' : 'Running cells needs a Google client ID and the reader’s proxy'} aria-label="Run">
-              ▶
+              <PlayIcon size={11} />
             </button>
           )
         ) : (
@@ -361,7 +361,7 @@ export function FilesPane() {
           {path ? (
             <li>
               <button type="button" onClick={() => void load(path.split('/').slice(0, -1).join('/'))}>
-                <span className="nb-file-icon">↰</span> ..
+                <span className="nb-file-icon"><UpLevelIcon size={12} /></span> ..
               </button>
             </li>
           ) : null}
@@ -369,7 +369,7 @@ export function FilesPane() {
             <li key={entry.path} className={`is-${entry.type}`}>
               {entry.type === 'directory' ? (
                 <button type="button" onClick={() => void load(entry.path)}>
-                  <span className="nb-file-icon">▸</span> {entry.name}/
+                  <span className="nb-file-icon"><ChevronRightIcon size={12} /></span> {entry.name}/
                 </button>
               ) : (
                 <span>
@@ -824,11 +824,11 @@ export default function NotebookPage({
         </button>
         {colab.running ? (
           <button type="button" className="btn sm colab-stop" onClick={() => void interruptColab()}>
-            ■ Stop
+            <StopIcon size={11} /> Stop
           </button>
         ) : (
           <button type="button" className="btn sm colab" disabled={!available || busy || !cells.some((cell) => cell.type === 'code')} onClick={() => (colab.status === 'off' && !colabGranted() ? setCard({ then: runEverything }) : runEverything())} title="Every code cell in order, at once; stops at the first error">
-            ▶ Run all
+            <PlayIcon size={11} /> Run all
           </button>
         )}
         {menu(
@@ -870,7 +870,7 @@ export default function NotebookPage({
             </button>
             {colab.runtime && colab.backend.kind === 'colab' ? (
               <a role="menuitem" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener">
-                Open this runtime in Colab's own page ↗
+                Open this runtime in Colab's own page <ExternalIcon size={11} />
               </a>
             ) : null}
             {(playground ? [] : outs).map((item) => (
@@ -1004,7 +1004,7 @@ export default function NotebookPage({
             </div>
           ) : nbAsk.last ? (
             <div className="ask-status is-done">
-              <span className="check">✓</span>
+              <span className="check"><CheckIcon size={12} /></span>
               <span className="ask-note">
                 {nbAsk.last.note || `Done: ${nbAsk.last.request}`}
                 {nbAsk.last.touched.length ? ` · ${nbAsk.last.touched.length} ${nbAsk.last.touched.length === 1 ? 'cell' : 'cells'}` : ''}
@@ -1031,7 +1031,7 @@ export default function NotebookPage({
               <>
                 Committed.{' '}
                 <a href={push.url} target="_blank" rel="noreferrer noopener">
-                  Open it in Colab ↗
+                  Open it in Colab <ExternalIcon size={11} />
                 </a>
               </>
             ) : push.state === 'error' ? (
@@ -1273,7 +1273,7 @@ function NbMenu({ label, right, children }: { label: string; /** Opened against 
   return (
     <div className="menu-wrap" ref={box}>
       <button type="button" className="btn sm" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {label} ▾
+        {label} <ChevronDownIcon size={11} />
       </button>
       {open ? (
         <div className={`menu nb-menu${right ? ' right' : ''}`} role="menu" onClick={() => setOpen(false)}>
