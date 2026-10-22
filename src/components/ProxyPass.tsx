@@ -71,7 +71,7 @@ export default function ProxyPass() {
       const googleToken = google.liveAccessToken();
       if (!googleToken) throw new Error('Google didn’t hand over a sign-in. Try Sign out, then sign in again.');
       const fresh = await passForGoogle(googleToken, pass && !expired ? held : undefined);
-      if (!fresh) throw new Error('The proxy didn’t give a pass. Check that this account is on its READER_EMAILS list, if it has one.');
+      if (!fresh) throw new Error('The proxy didn’t give a pass. If it lets only certain accounts in, ask whoever runs it to add yours.');
       updateSettings({ proxyToken: fresh });
       setAsking(false);
     } catch (error) {
@@ -102,7 +102,7 @@ export default function ProxyPass() {
             : expired
               ? `The pass for ${email ?? 'you'} ran out on ${date}.`
               : `A pass for ${email ?? 'you'}, good until ${date}.`}{' '}
-        {owner.state === 'checking' ? 'Asking the proxy…' : owner.state === 'owner' ? `The proxy knows ${user?.email ?? 'you'} as its owner: Usage is on the rail.` : owner.state === 'not-owner' ? `The proxy doesn’t treat it as the owner’s: “${owner.why}”` : null}
+        {owner.state === 'checking' ? 'Asking the proxy…' : owner.state === 'owner' ? `The proxy knows ${user?.email ?? 'you'} as its owner: Usage is on the rail.` : owner.state === 'not-owner' ? 'The proxy doesn’t know this account as its owner, so there is no Usage page for it — only whoever runs the proxy sees that.' : null}
       </div>
       {asking ? (
         <div className="proxy-pass-ask">

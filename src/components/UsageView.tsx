@@ -357,7 +357,7 @@ export default function UsageView() {
         ) : report === undefined ? (
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>
         ) : report === null ? (
-          <p className="banner error">The proxy did not answer with the tally. Sign in again, or check that your email is in READER_OWNERS.</p>
+          <p className="banner error">The proxy did not answer with the tally. Sign in again, or check that the proxy names your email as an owner.</p>
         ) : tab === 'ai' ? (
           aiReport ? <AiUsage report={aiReport} period={aiPeriod} range={aiRange} onPeriod={setAiPeriod} /> : null
         ) : tab === 'search' ? (

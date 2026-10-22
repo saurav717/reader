@@ -93,7 +93,7 @@ export default function UsageOverview({ report, days, refreshedAt, onOpen }: { r
     report === undefined
       ? { tone: 'unknown', figure: '…', note: 'asking the proxy' }
       : report === null
-      ? { tone: 'danger', figure: '—', note: 'the proxy did not answer', attention: 'The tally did not load: sign in again, or check your email is in READER_OWNERS.' }
+      ? { tone: 'danger', figure: '—', note: 'the proxy did not answer', attention: 'The tally did not load: sign in again, or check that the proxy names your email as an owner.' }
       : { tone: 'ok', figure: whole(report.people.length), note: `${report.people.length === 1 ? 'person' : 'people'} used the paid features ${period} · ${whole(num(totals.signin))} sign-ins` };
 
   // Invitations: sent, and how many took.
@@ -266,7 +266,7 @@ export default function UsageOverview({ report, days, refreshedAt, onOpen }: { r
             Counts by person come from your Worker’s own tally, kept 90 days. A provider’s own numbers (Tavily, DeepSeek, Cloudflare, Brevo, Google Cloud) cover the
             whole account, including anything used outside Koios with the same key.
           </li>
-          <li>Only you see this page: the Worker answers it to READER_TOKEN or a Google sign-in named in READER_OWNERS. It refreshes every 30 seconds while open.</li>
+          <li>Only you see this page: the proxy answers it to its own token, or to a Google sign-in it names as an owner. It refreshes every 30 seconds while open.</li>
           <li>Each tab opens with an “About” panel: what the service is for, its limits, what happens past them, and how to set it up. Close it once you know it.</li>
         </ul>
       </div>
