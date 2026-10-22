@@ -516,10 +516,21 @@ export default function Discover({ onClose, onOpen, ask, here, focus, embedded }
     );
   };
 
+  // Where the last paper went, said for a moment: the reader opens on the paper at once, so the panel's own line is not seen.
+  const [went, setWent] = useState<{ title: string; where: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!went) return;
+    const timer = window.setTimeout(() => setWent(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [went]);
   const add = async (ref: PaperRef, options: { sync?: boolean } = {}) => {
     let collectionId = target;
+    // Nothing picked under "Add to": a Reading list is made and named, rather than the paper going somewhere unsaid.
     if (!collectionId) collectionId = (await createCollection('Reading list')).id;
-    return addPaper(ref, collectionId, options);
+    const added = await addPaper(ref, collectionId, options);
+    const place = collections.find((collection) => collection.id === collectionId);
+    setWent({ title: ref.title, where: place ? `${place.name}${isProject(place) ? ' (project)' : ''}` : 'Reading list', at: Date.now() });
+    return added;
   };
 
   // Adding a paper does not put its file in Drive on its own: that takes the
@@ -718,15 +729,25 @@ export default function Discover({ onClose, onOpen, ask, here, focus, embedded }
       </div>
 
       {sources.includes('scholar') ? (
-        <p style={{ padding: '0 16px 10px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.55 }}>
-          Google Scholar publishes no API, so the proxy opens its pages the way you would. It finds what the
-          other indexes have no record of — theses, reports, a person's own copy — and lists every version of a
-          paper. It also refuses a server far more readily than a person: if it answers with a captcha, that is
-          what has happened, the other sources carry on, and — when the proxy runs on your own machine — you can
-          be shown the captcha to solve.
-        </p>
+        <details className="discover-note">
+          <summary>About Google Scholar results</summary>
+          <p>
+            Google Scholar publishes no API, so the proxy opens its pages the way you would. It finds what the
+            other indexes have no record of — theses, reports, a person's own copy — and lists every version of a
+            paper. It also refuses a server far more readily than a person: if it answers with a captcha, that is
+            what has happened, the other sources carry on, and — when the proxy runs on your own machine — you can
+            be shown the captcha to solve.
+          </p>
+        </details>
       ) : null}
 
+      {went ? (
+        <div className="note-kept discover-went" role="status" key={went.at}>
+          <span>
+            <b>{went.title.length > 60 ? `${went.title.slice(0, 57)}…` : went.title}</b> added to {went.where}
+          </span>
+        </div>
+      ) : null}
       {noSources ? (
         <p className="banner warn" style={{ margin: '0 16px 12px' }}>
           No sources are selected, so there is nothing to search. Turn at least one on above.

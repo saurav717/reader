@@ -69,8 +69,13 @@ export function authorSources(): { id: SourceId; label: string; authors: boolean
  * instead. Without a proxy Scholar cannot be reached at all, and the search
  * falls back to the indexes a browser can ask directly.
  */
+/**
+ * The indexes with an API answer at once and without a captcha, so a search
+ * starts on them; Google Scholar, which the proxy has to browse, is a switch
+ * beside them for the things only it lists.
+ */
 export function defaultSources(): SourceId[] {
-  return hasProxy() ? ['scholar'] : ['openalex', 'crossref'];
+  return ['arxiv', 'openalex', 'semanticscholar', 'crossref'];
 }
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
