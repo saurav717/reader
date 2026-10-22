@@ -287,3 +287,20 @@ describe('Reader’s own notes (src/lib/recorder.ts)', async () => {
     assert.match(bare.markdown, /too little said/);
   });
 });
+
+describe('the writer’s template and empty boxes', () => {
+  it('offers no empty box as an action item, however it sits', () => {
+    const template = '## Notes\n\n\n## Action items\n- [ ] ';
+    assert.deepEqual(log.actionItems(template), []);
+    assert.deepEqual(log.actionItems('## Action items\n- [ ]\n-  \n- [x] done already\n- [ ] **Priya**: send the slides'), ['Priya: send the slides']);
+  });
+
+  it('draws a checklist line as a box to tick, not a bullet reading "[ ]"', async () => {
+    const { drawnNote, toggleCheck } = await load('src/lib/noteMarkdown.ts');
+    const html = drawnNote('## Action items\n- [ ] Book the GPU slot\n- [x] Rerun with z-loss');
+    assert.doesNotMatch(html, /<li>\[ \]/);
+    assert.match(html, /<li class="doc-check"><span class="doc-box" data-check="0" role="checkbox" aria-checked="false"><\/span>Book the GPU slot/);
+    assert.match(html, /<li class="doc-check is-done"><span class="doc-box" data-check="1" role="checkbox" aria-checked="true"><\/span>Rerun with z-loss/);
+    assert.equal(toggleCheck('- [ ] a\n- [ ] b', 1), '- [ ] a\n- [x] b');
+  });
+});

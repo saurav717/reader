@@ -132,15 +132,18 @@ export function actionItems(markdown: string): string[] {
       under = /\b(action items?|next steps?|to-?dos?|follow[- ]?ups?|tasks)\b/i.test(heading[2]);
       continue;
     }
-    const box = /^[-*+]\s+\[ \]\s+(.+)$/.exec(line);
+    // A box: unticked with words after it is an item; ticked, or empty (the writer's template leaves one), is not.
+    const box = /^[-*+]\s+\[( |x|X)\]\s*(.*)$/.exec(line);
     if (box) {
-      items.push(clean(box[1]));
+      const text = box[1] === ' ' ? clean(box[2]) : '';
+      if (text) items.push(text);
       continue;
     }
-    if (/^[-*+]\s+\[x\]/i.test(line)) continue;
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
-    if (under && bullet) items.push(clean(bullet[1]));
-    else if (under && line && !bullet) under = false;
+    if (under && bullet) {
+      const text = clean(bullet[1]);
+      if (text) items.push(text);
+    } else if (under && line && !bullet) under = false;
   }
   return [...new Set(items.filter(Boolean))];
 }

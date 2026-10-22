@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import DOMPurify from 'dompurify';
 import { useStore } from '../lib/store';
-import { markdown } from '../lib/markdown';
+import { drawnNote, toggleCheck } from '../lib/noteMarkdown';
 import { useLive, reportPlace } from '../lib/liveRoom';
 import { initials } from '../lib/presence';
 import { CALL_NAMES, type CalendarEvent } from '../lib/calendar';
@@ -141,7 +141,8 @@ function TabIcon({ tab }: { tab: LogbookTab }) {
   );
 }
 
-const rendered = (text: string) => DOMPurify.sanitize(markdown(text).replace(/<a /g, '<a target="_blank" rel="noreferrer" '), { ADD_ATTR: ['target'] });
+/** Meeting notes as drawn: a `- [ ]` line is a box to tick (noteMarkdown.ts), not a bullet reading "[ ]". */
+const drawn = (text: string) => DOMPurify.sanitize(drawnNote(text).replace(/<a /g, '<a target="_blank" rel="noreferrer" '), { ADD_ATTR: ['target', 'role', 'aria-checked'] });
 
 const dayLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: new Date(iso).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -313,7 +314,16 @@ function Meetings({ project, book, onLinks }: { project: Project; book: LogbookV
                 {expanded ? (
                   <div className="lb-note-body">
                     <div className="lb-note-text">
-                      <div className="md" dangerouslySetInnerHTML={{ __html: rendered(note.markdown) }} />
+                      <div
+                        className="md doc-shown"
+                        dangerouslySetInnerHTML={{ __html: drawn(note.markdown) }}
+                        onClick={(event) => {
+                          // A box clicked is ticked in the Markdown itself, so the note and its action items agree.
+                          const box = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('[data-check]') : null;
+                          if (!box || !book.writable) return;
+                          void saveNote(project, { ...note, markdown: toggleCheck(note.markdown, Number(box.dataset.check)) });
+                        }}
+                      />
                       {note.transcript ? <Transcript text={note.transcript} /> : null}
                     </div>
                     <aside className="lb-note-aside">
@@ -502,11 +512,12 @@ function NoteWriter({ note, onClose, onSave }: { note: MeetingNote | null; onClo
           submit.preventDefault();
           const [y, m, d] = day.split('-').map(Number);
           const [hh, mm] = time.split(':').map(Number);
-          onSave({ id: note?.id ?? newId('m'), title: title.trim() || 'Meeting', start: new Date(y, m - 1, d, hh || 0, mm || 0).toISOString(), source: 'manual', attendees: note?.attendees ?? [], markdown: text, by: '', at: new Date().toISOString() });
+          if (!title.trim()) return;
+          onSave({ id: note?.id ?? newId('m'), title: title.trim(), start: new Date(y, m - 1, d, hh || 0, mm || 0).toISOString(), source: 'manual', attendees: note?.attendees ?? [], markdown: text, by: '', at: new Date().toISOString() });
         }}
       >
         <h3>{note ? 'Edit the notes' : 'A meeting’s notes'}</h3>
-        <input className="cal-editor-title" placeholder="Which meeting" value={title} onChange={(change) => setTitle(change.target.value)} autoFocus aria-label="Meeting" />
+        <input className="cal-editor-title" placeholder="Which meeting — e.g. Weekly sync, Supervisor 1:1" value={title} onChange={(change) => setTitle(change.target.value)} autoFocus required aria-label="Which meeting" />
         <div className="cal-editor-when">
           <input type="date" value={day} onChange={(change) => setDay(change.target.value)} aria-label="Date" />
           <input type="time" value={time} onChange={(change) => setTime(change.target.value)} aria-label="Time" />
@@ -518,7 +529,7 @@ function NoteWriter({ note, onClose, onSave }: { note: MeetingNote | null; onClo
           <button type="button" className="btn sm" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn primary sm">
+          <button type="submit" className="btn primary sm" disabled={!title.trim()} title={title.trim() ? undefined : 'Name the meeting first'}>
             Save
           </button>
         </div>
@@ -842,7 +853,7 @@ function NotepadTab({ project, book }: { project: Project; book: LogbookView }) 
             spellCheck
           />
         ) : null}
-        {view !== 'write' ? <div className="lb-pad-preview md" dangerouslySetInnerHTML={{ __html: rendered(text || '_Nothing written yet._') }} /> : null}
+        {view !== 'write' ? <div className="lb-pad-preview md doc-shown" dangerouslySetInnerHTML={{ __html: drawn(text || '_Nothing written yet._') }} /> : null}
       </div>
     </div>
   );
