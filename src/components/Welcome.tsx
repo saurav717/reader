@@ -135,9 +135,13 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
           </div>
         ) : null}
         <p className="night-why">
-          {returning
-            ? 'Your sign-in has run out, as Google’s do after about an hour. One click reconnects your Drive, and Google will not ask again what you have already agreed to.'
-            : 'Sign in with Google and your library lives in your own Drive: every paper, its highlights and your collections, the same from any browser.'}
+          {user && driveConnected
+            ? `Signed in as ${user.email}. Your library is in that account’s Drive: every paper, its highlights and your collections, the same from any browser you sign in from.`
+            : returning
+              ? 'Your sign-in has run out, as Google’s do after about an hour. One click reconnects your Drive, and Google will not ask again what you have already agreed to.'
+              : mustSignIn
+                ? 'Sign in with Google to open your library. It lives in your own Drive: every paper, its highlights and your collections, the same from any browser.'
+                : 'Sign in with Google and your library lives in your own Drive: every paper, its highlights and your collections, the same from any browser. Or carry on without an account, with a library kept in this browser alone.'}
         </p>
 
         {authError ? (
@@ -203,11 +207,10 @@ export default function Welcome({ onDismiss }: { onDismiss: () => void }) {
         ) : null}
 
         <p style={{ margin: '20px 0 0', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-          One consent covers everything: your name and address; the <code>drive.file</code> scope, which reaches
-          only the files this app creates, never the rest of your Drive; and your calendar, for the Calendar page.{' '}
-          {mustSignIn
-            ? 'Signing in with Google is the way in.'
-            : "Without signing in the app works the same, with a library in this browser that belongs to no account; signing in opens your own, from your Drive."}{' '}
+          {user && driveConnected
+            ? 'Google granted this app your name and address, and Drive access that reaches only the files the app creates, never the rest of your Drive. '
+            : 'Google will ask for your name and address, and for Drive access that reaches only the files this app creates, never the rest of your Drive. '}
+          Calendar access is optional: leave it unticked and everything but the Calendar page works the same, and the Calendar page offers it again when you want it.{' '}
           What the app does with your data, and what it never sees, is on its{' '}
           <a href={`${basePath()}privacy/`} style={{ color: 'inherit' }}>
             privacy policy
