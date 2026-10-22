@@ -1,0 +1,19 @@
+# koios.dev — the app itself is behind a Google sign-in; the front page and the policies are what there is to read.
+User-agent: *
+Allow: /
+Disallow: /paper/
+Disallow: /collection/
+Disallow: /project/
+Disallow: /projects/
+Disallow: /playground/
+Disallow: /library/
+Disallow: /reading/
+Disallow: /unread/
+Disallow: /finished/
+Disallow: /unsorted/
+Disallow: /junk/
+Disallow: /usage/
+Disallow: /calendar/
+Disallow: /app-sign-in/
+
+Sitemap: https://koios.dev/sitemap.xml

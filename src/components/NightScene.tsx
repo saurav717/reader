@@ -165,16 +165,19 @@ export function useSlides(first: Scene): { scene: Scene; previous: Scene | null;
  * the right, so the crop is taken from the right edge. Given the scene
  * before, that one stays underneath while the new one fades in over it.
  */
+/** What the plate shows, for a reader who cannot see it: the scene's own words. */
+const plateAlt = (scene: Scene) => `Koios: ${scene.headline.join(' ')}`;
+
 export function ScenePlate({ scene, previous }: { scene: Scene; previous?: Scene | null }) {
   const [arrived, setArrived] = useState<string | null>(null);
   return (
     <figure className="night-plate">
-      {previous ? <img key={previous.file} src={sceneUrl(previous)} alt="" className="is-in is-under" style={{ objectPosition: '100% 50%' }} /> : null}
+      {previous ? <img key={previous.file} src={sceneUrl(previous)} alt={plateAlt(previous)} className="is-in is-under" style={{ objectPosition: '100% 50%' }} /> : null}
       <img
         key={scene.file}
         className={arrived === scene.file ? 'is-in' : undefined}
         src={sceneUrl(scene)}
-        alt=""
+        alt={plateAlt(scene)}
         decoding="async"
         onLoad={() => setArrived(scene.file)}
         style={{ objectPosition: '100% 50%' }}
