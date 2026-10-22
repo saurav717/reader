@@ -1348,8 +1348,8 @@ export default function App() {
       type="button"
       className="icon-btn"
       onClick={() => setSettingsOpen(true)}
-      aria-label={user ? `Settings — signed in as ${user.email}` : 'Sign in and settings'}
-      title={user ? user.email : 'Sign in with Google'}
+      aria-label={user ? `Account — ${user.email}` : 'Sign in'}
+      title={user ? `Account — ${user.email}` : 'Sign in with Google'}
     >
       {user ? (
         user.picture ? (
@@ -1599,8 +1599,8 @@ export default function App() {
           type="button"
           className="icon-btn"
           onClick={() => setSettingsOpen(true)}
-          aria-label={user ? `Settings — signed in as ${user.email}` : 'Sign in and settings'}
-          title={user ? user.email : 'Sign in with Google'}
+          aria-label={user ? `Account — ${user.email}` : 'Sign in'}
+          title={user ? `Account — ${user.email}` : 'Sign in with Google'}
         >
           {user ? (
             user.picture ? (

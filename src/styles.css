@@ -7179,6 +7179,21 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
    them, told apart. The classic rail keeps the rules above. */
 .nav-rail { overflow-y: auto; scrollbar-width: none; }
 .nav-rail::-webkit-scrollbar { display: none; }
+/* A short window: the pages scroll between the brand and the foot, so the account and Settings are never pushed off the bottom. */
+.rail { min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.rail::-webkit-scrollbar { display: none; }
+.nav-pages { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.nav-pages::-webkit-scrollbar { display: none; }
+.rail.is-labelled .nav-pages { gap: 2px; }
+.rail.nav-sidebar .nav-pages { align-items: stretch; gap: 1px; }
+@media (max-height: 800px) {
+  .rail { padding: 10px 0 8px; }
+  .rail.is-labelled .brand { margin-bottom: 4px; }
+  .nav-lab { padding: 4px 0 3px; gap: 2px; }
+  .nav-switcher { margin-bottom: 4px; padding: 4px 0 3px; }
+  .nav-marks.is-small .pj-mark { width: 22px; height: 22px; font-size: 8.5px; }
+  .nav-marks { gap: 3px; }
+}
 .nav-marks { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 3px 0; }
 .nav-marks.is-small .pj-mark { width: 26px; height: 26px; border-radius: 7px; font-size: 9.5px; }
 .nav-cap { font: 600 8.5px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 2px 0; }

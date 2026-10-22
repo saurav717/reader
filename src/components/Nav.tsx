@@ -396,9 +396,12 @@ function IconRail({ model, tray, onUnfold }: { model: NavModel; tray: boolean; o
           <PanelLeftIcon size={15} />
         </button>
       ) : null}
-      {model.projectNav === 'switcher' ? <ProjectSwitcher model={model} wide={false} /> : null}
-      {tray ? <span className="nav-cap">Go to</span> : null}
-      {model.pages.flatMap((item) => (item.key === model.projectsAfter ? [page(item), <ProjectsPart key="projects" model={model} wide={false} />] : [page(item)]))}
+      {/* The pages scroll when the window is short; the panels and the foot (account, Settings) stay in reach. */}
+      <div className="nav-pages">
+        {model.projectNav === 'switcher' ? <ProjectSwitcher model={model} wide={false} /> : null}
+        {tray ? <span className="nav-cap">Go to</span> : null}
+        {model.pages.flatMap((item) => (item.key === model.projectsAfter ? [page(item), <ProjectsPart key="projects" model={model} wide={false} />] : [page(item)]))}
+      </div>
       {tray ? (
         <>
           <div style={{ flexGrow: 1 }} />
@@ -438,13 +441,15 @@ function LabelledRail({ model }: { model: NavModel }) {
   return (
     <nav className="rail nav-rail is-labelled" aria-label="Primary">
       <Brand model={model} />
-      {model.projectNav === 'switcher' ? <ProjectSwitcher model={model} wide /> : null}
-      {model.pages.map((item) => (
-        <div key={item.key} className="nav-lab-item">
-          <PageButton model={model} item={item} labelled />
-          {item.key === model.projectsAfter ? <ProjectsPart model={model} wide /> : null}
-        </div>
-      ))}
+      <div className="nav-pages">
+        {model.projectNav === 'switcher' ? <ProjectSwitcher model={model} wide /> : null}
+        {model.pages.map((item) => (
+          <div key={item.key} className="nav-lab-item">
+            <PageButton model={model} item={item} labelled />
+            {item.key === model.projectsAfter ? <ProjectsPart model={model} wide /> : null}
+          </div>
+        ))}
+      </div>
       <Foot model={model} labelled />
     </nav>
   );
@@ -462,6 +467,7 @@ function Sidebar({ model, onFold }: { model: NavModel; onFold: () => void }) {
         </button>
       </div>
       <span className="nav-sb-cap">Go to</span>
+      <div className="nav-pages">
       {model.pages.map((item) => (
         <div key={item.key}>
           <button type="button" className={`nav-sb-row${item.active ? ' is-active' : ''}`} aria-current={item.active ? 'page' : undefined} title={item.title} onClick={item.onClick}>
@@ -486,6 +492,7 @@ function Sidebar({ model, onFold }: { model: NavModel; onFold: () => void }) {
             : null}
         </div>
       ))}
+      </div>
       <div style={{ flexGrow: 1 }} />
       <span className="nav-sb-cap">Show beside the page</span>
       {model.panels.map((panel) => (
