@@ -7045,8 +7045,9 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .pj-add-roles button { height: 20px; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink-2); font: 10.5px var(--sans); cursor: pointer; }
 .pj-add-roles button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
 
-/* The workspace: the project's papers, a paper, and the project's code */
-.pj-page.is-workspace .pj-bar { height: 46px; }
+/* The workspace: the project's papers, a paper, and the project's code. Its bar is the
+   same height as on the other tabs: a shorter one here moved the header a few pixels
+   on every switch between Overview and Read, Code or Write. */
 .pj-ws { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pj-ws-bar { flex: none; display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
 .pj-ws-bar .icon-btn { width: 28px; height: 28px; border-radius: 7px; }
