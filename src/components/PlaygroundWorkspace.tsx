@@ -235,6 +235,15 @@ function KeepView({ show, children }: { show: boolean; children: React.ReactNode
   );
 }
 
+/** Where a playground's files are kept, for a sentence: "in your Google Drive", "on <machine>", "in this browser". */
+function keptWhere(playground: Playground, machineName: string): string {
+  const home = playground.home;
+  if (home.kind === 'drive') return 'in your Google Drive';
+  if (home.kind === 'server') return `on ${serverById(home.serverId)?.name ?? home.name ?? 'your computer'}, in ${home.root}`;
+  if (home.kind === 'machine') return `on ${machineName}`;
+  return 'in this browser';
+}
+
 export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, backLabel }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void; backLabel?: string }) {
   const colab = useColab();
   const { papers, settings } = useStore();
@@ -464,7 +473,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, b
         </KeepView>
         <KeepView show={tab === 'notebook'}>
           <div className="pg-notebook">
-            <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed }} />
+            <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed, kept: keptWhere(playground, machineName) }} />
           </div>
         </KeepView>
         <KeepView show={tab === 'files'}>

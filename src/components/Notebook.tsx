@@ -406,7 +406,7 @@ export default function NotebookPage({
   playground,
 }: {
   /** In the Playground: no paper's pages to take cells from, and its own first cells. */
-  playground?: { hasPaper: boolean; seed: () => NbCell[] };
+  playground?: { hasPaper: boolean; seed: () => NbCell[]; /** Where its files are kept, as a phrase: "in your Google Drive", "on <machine>". */ kept?: string };
   paperId: string;
   title: string;
   screen: () => Promise<Screen>;
@@ -1107,7 +1107,7 @@ export default function NotebookPage({
           </button>
           <p className="nb-hint">
             Every cell is yours to edit: click into the code and type, or double-click a text cell. Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one. With a cell picked and nothing being typed: <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd> move.{' '}
-            {playground ? 'The cells run in this playground’s own kernel, on the machine in the bar' : 'The cells share the kernel with the Explanation and Implementation pages'}; the runtime's menu is the chip in the bar. Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ''}.
+            {playground ? 'The cells run in this playground’s own kernel, on the machine in the bar' : 'The cells share the kernel with the Explanation and Implementation pages'}; the runtime's menu is the chip in the bar. Kept {playground?.kept ?? 'in this browser'}{nb ? `, last changed ${time(nb.updated)}` : ''}.
           </p>
         </div>
         {side ? (
