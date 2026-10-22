@@ -200,6 +200,13 @@ function readView(): View {
 }
 
 const NARROW = 900;
+/**
+ * Under this width the side panels lie over the page (styles.css, 1080px) and
+ * two of them leave a sliver of it: only one is open at a time, the one asked
+ * for last, and a window narrowed with both open keeps the Library.
+ */
+const ONE_PANEL = 1080;
+const onePanelWide = (): boolean => typeof window !== 'undefined' && window.innerWidth <= ONE_PANEL;
 
 /** The pages that are the Library: its lists and its collections. */
 const LIBRARY_PAGES: View['kind'][] = ['all', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'collection'];
@@ -1127,6 +1134,16 @@ export default function App() {
   useEffect(() => {
     if (ready && !welcomeNow && view.kind === 'home' && !onUsage && !tourSeen()) setTourOpen(true);
   }, [ready, welcomeNow, view.kind, onUsage]);
+  // A window narrowed to where the panels lie over the page (styles.css, 1080px) keeps one of
+  // them out: the Library stays, the dock goes in. (Before the early return below too: a hook.)
+  useEffect(() => {
+    const settle = () => {
+      if (onePanelWide() && libraryOpen && dock) setDock(null);
+    };
+    settle();
+    window.addEventListener('resize', settle);
+    return () => window.removeEventListener('resize', settle);
+  }, [libraryOpen, dock, setDock]);
 
   // Nothing of the library shows until it is read: from this browser, and —
   // signed in — from Drive, whose file is the library (store.tsx, `opened`).
@@ -1309,6 +1326,9 @@ export default function App() {
   const toggleLibrary = () => {
     setUsageOpen(false);
     panelTouched();
+    const opening = onOwnPage || usageOpen || !libraryOpen;
+    // Narrow: the Library comes out and the dock goes in, or the page would be a sliver between them.
+    if (opening && onePanelWide()) setDock(null);
     if (onOwnPage) {
       leaveOwnPage();
       setLibraryOpen(true);
@@ -1319,6 +1339,8 @@ export default function App() {
   const toggleDiscover = () => {
     setUsageOpen(false);
     panelTouched();
+    const opening = onOwnPage || usageOpen || dockPane !== 'discover';
+    if (opening && onePanelWide()) setLibraryOpen(false);
     if (onOwnPage) {
       leaveOwnPage();
       setDock('discover');
@@ -1329,6 +1351,7 @@ export default function App() {
   const toggleNotesPanel = () => {
     setUsageOpen(false);
     panelTouched();
+    if (!notesShown && onePanelWide()) setLibraryOpen(false);
     if (onOwnPage) {
       leaveOwnPage();
       setDock('notes');

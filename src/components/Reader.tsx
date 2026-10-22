@@ -1661,7 +1661,7 @@ export default function Reader({
               title="Snip: drag a box over anything on the page — text, a figure, a table — to add it to your notes (S)"
               onClick={toggleSnip}
             >
-              <ScissorsIcon size={13} /> Snip
+              <ScissorsIcon size={13} /> <span className="bar-label">Snip</span>
             </button>
           ) : null}
           {onToggleExplain ? (
@@ -1672,7 +1672,7 @@ export default function Reader({
               title="The whole paper explained by AI — figures, runnable code and what has changed since (E)"
               onClick={onToggleExplain}
             >
-              <ExplainIcon size={15} /> Explain
+              <ExplainIcon size={15} /> <span className="bar-label">Explain</span>
             </button>
           ) : null}
           <CiteMenu paper={paper} onLookup={() => lookupPaperCitations([paper.id])} />

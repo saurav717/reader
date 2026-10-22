@@ -436,7 +436,12 @@ kbd {
   border-bottom: 1px solid var(--border-soft);
 }
 .topbar .title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topbar-heading { min-width: 0; flex: 1 1 auto; }
+.topbar-heading { min-width: 120px; flex: 1 1 auto; }
+/* A narrow window: the bar's buttons keep their icons and lose their words, so the title is never cut to a letter. */
+@media (max-width: 1000px) {
+  .topbar .bar-label { display: none; }
+  .topbar .btn:has(.bar-label) { padding: 0 8px; }
+}
 .topbar .sub { font-size: 10.5px; color: var(--muted); font-family: var(--mono); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .progress { height: 2px; background: var(--border-soft); flex-shrink: 0; }
@@ -5786,8 +5791,11 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 /* A paper's plan as a project, its editor opened in Explain's own place under the bar. */
 .explain-project { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .explain-project > .pg-work { flex: 1; min-height: 0; }
-.pg-bar { flex: none; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px 0 12px; border-bottom: 1px solid var(--border-soft); background: var(--paper); }
-.pg-name { min-width: 120px; width: 280px; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink); font: 600 14px var(--sans); outline: 0; }
+.pg-bar { flex: none; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px 0 12px; border-bottom: 1px solid var(--border-soft); background: var(--paper); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.pg-bar::-webkit-scrollbar { display: none; }
+/* Nothing in the bar wraps or is clipped: a window too narrow for it all scrolls the bar sideways instead. */
+.pg-bar > .btn, .pg-bar > .segmented, .pg-bar > button { flex: none; white-space: nowrap; }
+.pg-name { min-width: 120px; width: clamp(120px, 22vw, 280px); flex: 0 1 auto; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink); font: 600 14px var(--sans); outline: 0; }
 .pg-name:hover { border-color: var(--border); }
 .pg-name:focus { border-color: var(--accent); background: var(--surface); }
 .pg-cites { display: inline-flex; gap: 6px; min-width: 0; overflow: hidden; }
@@ -8473,6 +8481,7 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.danger-fill:disabled { opacity: 0.45; }
 .set-danger { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); font-size: 12.5px; color: var(--ink-2); }
+.set-danger > .btn { flex: none; white-space: nowrap; }
 .invite-ways { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; }
 .invite-way { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
 .invite-way b { font-size: 12.5px; font-weight: 600; }
