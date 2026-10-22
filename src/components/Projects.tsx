@@ -1785,16 +1785,19 @@ export function NewProjectDialog({ onClose, onCreated, from }: { onClose: () => 
   const [source, setSource] = useState<string>(from ?? '');
   const [busy, setBusy] = useState(false);
   const sourceName = plain.find((item) => item.id === source)?.name;
+  /** A name is needed: it is the project's Drive folder and what every page calls it. A collection turned into a project keeps its own. */
+  const named = Boolean(name.trim() || sourceName);
   const create = async () => {
+    if (!named) return;
     setBusy(true);
     try {
       const info = newProjectInfo(question);
       if (source) {
         // The collection becomes the project: its papers come with it, in Drive too.
-        await updateCollection(source, { name: name.trim() || sourceName || 'Untitled project', color, project: info });
+        await updateCollection(source, { name: name.trim() || sourceName || '', color, project: info });
         onCreated(source);
       } else {
-        const made = await createCollection(name.trim() || 'Untitled project');
+        const made = await createCollection(name.trim());
         await updateCollection(made.id, { color, project: info });
         onCreated(made.id);
       }
@@ -1816,7 +1819,7 @@ export function NewProjectDialog({ onClose, onCreated, from }: { onClose: () => 
         >
           <label className="pj-label">
             Name
-            <input autoFocus value={name} placeholder={sourceName ?? 'Diffusion quantization'} onChange={(event) => setName(event.target.value)} />
+            <input autoFocus value={name} placeholder={sourceName ?? 'Diffusion quantization'} required={!sourceName} aria-required={!sourceName} onChange={(event) => setName(event.target.value)} />
           </label>
           <label className="pj-label">
             Research question <span className="pj-hint">— optional; shown on the project, and handed to its agent</span>
@@ -1848,7 +1851,7 @@ export function NewProjectDialog({ onClose, onCreated, from }: { onClose: () => 
             <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="submit" className="btn primary" disabled={busy}>
+            <button type="submit" className="btn primary" disabled={busy || !named} title={named ? undefined : 'Give the project a name first'}>
               {busy ? <span className="spinner" /> : null} Create project
             </button>
           </div>
