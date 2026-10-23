@@ -2809,9 +2809,13 @@ off by default: off, `/health` reports `deepseek: false` and hides the key,
 `/ai/deepseek` and a DeepSeek agent job answer 403, the Scholar profile and
 contribution readers go without it, and the app takes every DeepSeek model out
 of its pickers — a person's own key included — falling back to the default
-model. The owner turns it on or off for everyone from **Usage → The site →
-DeepSeek** (`POST /site/deepseek {"enabled": true}` with the owner's token);
-mind Google's policy before doing so. Claude and Gemini are not affected.
+model. The owner's switch is on **Usage → The site → DeepSeek** (`GET`/`POST
+/site/deepseek`, the owner's token to set), but turning it on is locked
+(`deepseekAvailable`, 409 on `{"enabled": true}`) until the Worker can run
+DeepSeek somewhere Google's data never reaches DeepSeek the company: its open
+models as served by Google on Vertex AI, under Google Cloud's terms, which rule
+out training. That relay is the planned way to bring DeepSeek back; until it
+exists, DeepSeek is simply off. Claude and Gemini are not affected.
 
 **The site's keys, by default.** All three run on the paper proxy's own keys —
 `ANTHROPIC_KEY`, `DEEPSEEK_KEY` and `GEMINI_KEY` — which never reach the site.

@@ -11,8 +11,10 @@ import type { DeepseekSwitch as SwitchState } from '../lib/siteDeepseek';
  * agent's jobs, not the Scholar or contribution readers, and not a person's
  * own key; its models leave the pickers. DeepSeek's terms let it train on
  * what it is sent, and Google's data policy forbids passing it what came
- * through Google's APIs, so the switch is off while the app is verified with
- * Google. One choice for every visitor.
+ * through Google's APIs. It can be turned on only once DeepSeek runs
+ * Google-hosted (its open models on Vertex AI, under Google Cloud's terms),
+ * which the Worker does not do yet: until then the switch is locked off.
+ * One choice for every visitor.
  */
 export default function DeepSeekSwitch() {
   const [state, setState] = useState<SwitchState | null>(null);
@@ -42,7 +44,7 @@ export default function DeepSeekSwitch() {
   const option = (value: boolean, title: string, lines: string[]) => {
     const chosen = state !== null && on === value;
     return (
-      <button type="button" className={`look-option${chosen ? ' is-on' : ''}`} aria-pressed={chosen} onClick={() => void choose(value)} disabled={saving !== null || state === null || !hasProxy()}>
+      <button type="button" className={`look-option${chosen ? ' is-on' : ''}`} aria-pressed={chosen} onClick={() => void choose(value)} disabled={saving !== null || state === null || !hasProxy() || (value && !state.available)}>
         <span className="look-option-text">
           <b>{title}</b>
           {lines.map((line) => (
@@ -58,15 +60,17 @@ export default function DeepSeekSwitch() {
     <div className="look-switch">
       <h3 style={{ margin: '12px 0 0', fontSize: 15 }}>DeepSeek</h3>
       <p className="look-lead">
-        Whether anything on the site may go to DeepSeek at all. DeepSeek’s terms let it train on what it is sent, and Google’s policy for the data its APIs hand over (Drive, Calendar, a signed-in account) does not allow passing that to a service which may; so it is off unless you turn it on here. Off, its models leave every picker, the relay and the agent’s jobs refuse it, the Scholar and contribution readers go without it, and a key of a person’s own is not used either. Claude and Gemini are not affected.
+        Whether anything on the site may go to DeepSeek at all. DeepSeek’s terms let it train on what it is sent, and Google’s policy for the data its APIs hand over (Drive, Calendar, a signed-in account) does not allow passing that to a service which may; so it is off. Off, its models leave every picker, the relay and the agent’s jobs refuse it, the Scholar and contribution readers go without it, and a key of a person’s own is not used either. It can come back once DeepSeek runs on Google Cloud (Vertex AI serves DeepSeek’s open models under Google Cloud’s terms, which rule out training): until the Worker has that, the switch is locked off. Claude and Gemini are not affected.
       </p>
       <div className="look-options">
-        {option(false, 'Off', ['Nothing is sent to DeepSeek, on the site’s key or on anyone’s own.', 'The choice while the app is verified with Google.'])}
-        {option(true, 'On', ['DeepSeek’s models are offered again, on the site’s key where there is one.', 'Mind Google’s Limited Use policy before turning it on.'])}
+        {option(false, 'Off', ['Nothing is sent to DeepSeek, on the site’s key or on anyone’s own.', 'What Google’s Limited Use policy requires of DeepSeek’s own API.'])}
+        {option(true, 'On', ['DeepSeek’s models are offered again, served by Google Cloud.', 'Locked until the Worker runs DeepSeek through Vertex AI.'])}
       </div>
       {problem ? <p className="banner error">{problem}</p> : null}
       {!hasProxy() ? (
         <p className="banner warn">No proxy is set, so there is nothing to switch: without one, DeepSeek is off.</p>
+      ) : state && !state.available ? (
+        <p className="banner warn">Locked off: no backend yet keeps Google’s data away from DeepSeek the company. It unlocks when the Worker serves DeepSeek through Vertex AI.</p>
       ) : state && !state.stored ? (
         <p className="banner warn">The Worker has no SESSIONS namespace bound, so the switch can’t be kept: it stays off.</p>
       ) : null}

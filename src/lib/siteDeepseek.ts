@@ -13,24 +13,26 @@ import { ownerFetch } from './owner';
 
 export interface DeepseekSwitch {
   enabled: boolean;
+  /** Whether it can be turned on at all: only once DeepSeek runs Google-hosted (Vertex AI), which it does not yet. */
+  available: boolean;
   /** Whether the Worker can keep the choice (a SESSIONS namespace bound). */
   stored: boolean;
 }
 
 /** The switch as the proxy last told it, for a minute. */
-let known: { at: number } & DeepseekSwitch = { at: 0, enabled: false, stored: false };
+let known: { at: number } & DeepseekSwitch = { at: 0, enabled: false, available: false, stored: false };
 
 export async function siteDeepseek(fresh = false): Promise<DeepseekSwitch> {
-  if (!hasProxy()) return { enabled: false, stored: false };
+  if (!hasProxy()) return { enabled: false, available: false, stored: false };
   if (!fresh && known.at && Date.now() - known.at < 60_000) return known;
   try {
     const response = await apiFetch('/site/deepseek', fresh ? { cache: 'no-store' } : {});
     if (!response.ok) throw new Error(String(response.status));
-    const body = (await response.json()) as { enabled?: boolean; stored?: boolean };
-    known = { at: Date.now(), enabled: body.enabled === true, stored: Boolean(body.stored) };
+    const body = (await response.json()) as { enabled?: boolean; available?: boolean; stored?: boolean };
+    known = { at: Date.now(), enabled: body.enabled === true, available: body.available === true, stored: Boolean(body.stored) };
   } catch {
     // Offline, or a proxy from before the switch: off, the safe reading.
-    known = { at: Date.now(), enabled: false, stored: false };
+    known = { at: Date.now(), enabled: false, available: false, stored: false };
   }
   return known;
 }
@@ -38,8 +40,8 @@ export async function siteDeepseek(fresh = false): Promise<DeepseekSwitch> {
 /** The owner's choice, kept on the Worker for every visitor. */
 export async function setSiteDeepseek(enabled: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
   const response = await ownerFetch('/site/deepseek', undefined, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
-  const body = (await response.json().catch(() => ({}))) as { error?: string; enabled?: boolean; stored?: boolean };
+  const body = (await response.json().catch(() => ({}))) as { error?: string; enabled?: boolean; available?: boolean; stored?: boolean };
   if (!response.ok) return { ok: false, error: body.error || `The proxy answered ${response.status}.` };
-  known = { at: Date.now(), enabled: body.enabled === true, stored: Boolean(body.stored) };
+  known = { at: Date.now(), enabled: body.enabled === true, available: body.available === true, stored: Boolean(body.stored) };
   return { ok: true };
 }

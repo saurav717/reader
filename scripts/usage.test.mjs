@@ -17,6 +17,7 @@ const { Usage, addTo, aiCounts, report } = await import('../worker/usage.js');
 const { default: worker } = await import('../worker/index.js');
 const { forgetSerply } = await import('../server/serply.js');
 const { forgetResting } = await import('../server/scholarServices.js');
+const { unlockDeepseekForTests } = await import('../worker/deepseekSwitch.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SCHOLAR = await readFile(join(here, 'fixtures', 'serply-scholar.json'), 'utf8');
@@ -167,6 +168,7 @@ describe('the Worker, tallying', () => {
     globalThis.fetch = realFetch;
     forgetSerply();
     forgetResting();
+    unlockDeepseekForTests(false);
   });
 
   it('tallies a sign-in and Scholar asks by email, with the credits they cost — and the owner as "owner"', async () => {
@@ -395,7 +397,8 @@ describe('the Worker, tallying', () => {
         }
         return before(input, init);
       };
-      // DeepSeek is off for the site unless its owner has turned it on (worker/deepseekSwitch.js): on, here.
+      // DeepSeek is off for the site, and locked off until it runs Google-hosted (worker/deepseekSwitch.js): lifted here, to a stand-in.
+      unlockDeepseekForTests(true);
       const SESSIONS = { get: async (key) => (key === 'site:deepseek' ? 'on' : null), put: async () => undefined };
       return { env: { ...env, ANTHROPIC_KEY: 'sk-ant-worker-secret', DEEPSEEK_KEY: 'sk-worker-secret', SESSIONS }, sent };
     };
@@ -476,10 +479,12 @@ describe('the Worker, tallying', () => {
     it('/health says which keys the Worker holds', async () => {
       const { env } = setup();
       assert.deepEqual((await (await ask(env, '/health')).json()).ai, { anthropic: false, deepseek: false, gemini: false });
-      // DeepSeek's key counts only while the site's switch is on (worker/deepseekSwitch.js), off by default.
+      // DeepSeek's key counts only while the site's switch is on (worker/deepseekSwitch.js), off by default and locked.
       const keyed = { ...env, ANTHROPIC_KEY: 'k', DEEPSEEK_KEY: 'k' };
       assert.deepEqual((await (await ask(keyed, '/health')).json()).ai, { anthropic: true, deepseek: false, gemini: false });
       const SESSIONS = { get: async (key) => (key === 'site:deepseek' ? 'on' : null), put: async () => undefined };
+      assert.deepEqual((await (await ask({ ...keyed, SESSIONS }, '/health')).json()).ai, { anthropic: true, deepseek: false, gemini: false });
+      unlockDeepseekForTests(true);
       assert.deepEqual((await (await ask({ ...keyed, SESSIONS }, '/health')).json()).ai, { anthropic: true, deepseek: true, gemini: false });
     });
   });
