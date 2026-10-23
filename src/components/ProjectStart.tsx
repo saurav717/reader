@@ -6,7 +6,7 @@
 // they are in, the editor opens on them and the conversation is the agent's.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
+import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, offeredModels, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { FileHost } from '../lib/playground';
 import type { CliAgentId } from '../lib/cliAgent';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
@@ -126,7 +126,7 @@ export default function ProjectStart({
         <>
           <div className="explain-start">
             <div className="model-pick" role="radiogroup" aria-label="Model">
-              {MODELS.map((m) => (
+              {offeredModels().map((m) => (
                 <button key={m.id} type="button" role="radio" aria-checked={chosen.id === m.id} onClick={() => setAskModel(m.id)}>
                   <b>{m.label}</b>
                   <span>

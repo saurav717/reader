@@ -630,7 +630,7 @@ export function refreshKeys(): void {
 const ownKeys = () => Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
 /** Whether each provider can answer from here: a key of this browser's own, or the site's, on a proxy ready to ask with it. */
 const usableKeys = (own: Record<Provider, boolean>, site: Record<Provider, SiteReadiness>) =>
-  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, own[provider] || site[provider] === 'ready'])) as Record<Provider, boolean>;
+  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, site[provider] !== 'off' && (own[provider] || site[provider] === 'ready')])) as Record<Provider, boolean>;
 /** Whether an answer from this provider goes through the proxy, on the site's key, rather than straight there on this browser's own. */
 export const onSiteKey = (provider: Provider) => !keyFor(provider);
 
@@ -639,7 +639,7 @@ export const onSiteKey = (provider: Provider) => !keyFor(provider);
  * at all; a proxy with no key for it; one that wants its token or a sign-in
  * first; one that keeps it for its owner; or not yet known.
  */
-export type SiteReadiness = 'ready' | 'no-proxy' | 'no-key' | 'sign-in' | 'owners' | 'checking';
+export type SiteReadiness = 'ready' | 'no-proxy' | 'no-key' | 'sign-in' | 'owners' | 'off' | 'checking';
 /** The name this had when Gemini was the only provider on the proxy's key. */
 export type GeminiReadiness = SiteReadiness;
 
@@ -652,7 +652,7 @@ function checkProxy() {
 }
 
 /** Ask the proxy's /health which keys it holds, and whether this browser may use them. */
-async function checkSite() {
+export async function checkSite() {
   const all = (readiness: SiteReadiness) => setSite(Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, readiness])) as Record<Provider, SiteReadiness>);
   if (!hasProxy()) return all('no-proxy');
   const health = await proxyHealth();
@@ -661,11 +661,19 @@ async function checkSite() {
     Object.fromEntries(
       PROVIDER_IDS.map((provider) => [
         provider,
-        !health.ai[provider] ? 'no-key' : health.auth && !hasProxyToken() ? 'sign-in' : 'ready',
+        // DeepSeek is off for the whole site unless its owner has turned it on (api.ts, ProxyHealth.deepseek):
+        // then a key of this browser's own counts for nothing either, and the pickers leave its models out.
+        provider === 'deepseek' && !health.deepseek ? 'off' : !health.ai[provider] ? 'no-key' : health.auth && !hasProxyToken() ? 'sign-in' : 'ready',
       ]),
     ) as Record<Provider, SiteReadiness>,
   );
 }
+
+/** Whether a provider is turned off for the whole site, whatever keys there are: DeepSeek, by the owner's switch. */
+export const providerOff = (provider: Provider) => state.site[provider] === 'off';
+
+/** The models a picker offers: every one, less those of a provider the site has turned off. */
+export const offeredModels = (): readonly ModelSpec[] => MODELS.filter((m) => !providerOff(m.provider));
 
 /** Where the site's key for a provider stands, in a few words for a picker and in a sentence for a card. */
 export function siteNote(provider: Provider, readiness: SiteReadiness): { short: string; long: string } {
@@ -686,6 +694,8 @@ export function siteNote(provider: Provider, readiness: SiteReadiness): { short:
       };
     case 'owners':
       return { short: 'the site’s key is the owner’s', long: `The site’s ${name} key is kept for its owner.${own || ' Pick a model from another provider.'}` };
+    case 'off':
+      return { short: 'turned off on this site', long: `${name} is turned off on this site: nothing is sent to it, on the site’s key or on one of your own. Its owner can turn it on from Usage → The site.` };
     case 'no-proxy':
       return { short: 'needs a paper proxy', long: `The site’s ${name} key lives on a paper proxy, and this site has no proxy set. Add one under Settings → Paper proxy.${own}` };
     default:
@@ -702,7 +712,14 @@ const SITE_KEY_NAMES: Record<Provider, string> = { anthropic: 'ANTHROPIC_KEY', d
 function setSite(site: Record<Provider, SiteReadiness>) {
   if (PROVIDER_IDS.every((provider) => site[provider] === state.site[provider])) return;
   const keys = usableKeys(state.own, site);
-  set({ site, gemini: site.gemini, keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
+  // A model of a provider the site has turned off is not a choice any more: the chat, Explain and the ask
+  // bars go back to the default, so nothing is sent to it from a preference kept before the switch.
+  const offered = (id: string | undefined) => (id && site[modelSpec(id).provider] !== 'off' ? id : undefined);
+  const { explainModel, askModel, ...rest } = state.prefs;
+  const prefs: Prefs = { ...rest, model: offered(state.prefs.model) ?? DEFAULT_MODEL, ...(offered(explainModel) ? { explainModel } : {}), ...(offered(askModel) ? { askModel } : {}) };
+  const changed = prefs.model !== state.prefs.model || prefs.explainModel !== explainModel || prefs.askModel !== askModel;
+  set({ site, gemini: site.gemini, keys, prefs, hasKey: keys[modelSpec(prefs.model).provider] });
+  if (changed) savePrefs();
 }
 
 /**
@@ -1158,6 +1175,9 @@ export async function streamModel(params: {
   const viaJob = (provider: JobProvider) => (params.background ? jobFetch({ id: params.background.id, provider, ownKey: keyFor(provider) || undefined, onLink: params.background.onLink }) : undefined);
   const web = Boolean(params.web) && webUsable(spec.id);
   const maxTokens = spec.maxOutput ? Math.min(params.maxTokens, spec.maxOutput) : params.maxTokens;
+  // The one gate every request to DeepSeek passes: nothing goes to it while the site's switch is off,
+  // on the site's key or on this browser's own (siteNote 'off').
+  if (providerOff(spec.provider)) throw new Error(siteNote(spec.provider, 'off').long);
   if (spec.provider === 'deepseek') {
     const site = onSiteKey('deepseek');
     const answer = new DeepSeekStream({

@@ -312,6 +312,13 @@ export interface ProxyHealth {
   gemini: boolean;
   /** Which providers it holds a key for, for anyone with none of their own: the site's keys. */
   ai: { anthropic: boolean; deepseek: boolean; gemini: boolean };
+  /**
+   * Whether anything may go to DeepSeek from this site at all — the owner's switch on Usage → The site
+   * (worker/deepseekSwitch.js), off unless turned on. Off, DeepSeek's models and key are hidden here, a key of
+   * this browser's own included: DeepSeek may train on what it is sent, and Google's data policy forbids
+   * passing it what came through Google's APIs.
+   */
+  deepseek: boolean;
   /** Whether it has a web search key, for Ask AI's Web button. */
   web: boolean;
   /** The Google OAuth client ID it checks sign-ins against (public, as client IDs are): the one this site signs in, and reaches Drive and Colab, with. */
@@ -343,6 +350,8 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
               gemini: Boolean(body.gemini),
               // A proxy from before it held more than Gemini's key says only that.
               ai: { anthropic: Boolean(body.ai?.anthropic), deepseek: Boolean(body.ai?.deepseek), gemini: Boolean(body.ai?.gemini ?? body.gemini) },
+              // A proxy from before the switch says nothing: off, the safe reading, until it is redeployed.
+              deepseek: body.deepseek === true,
               web: Boolean(body.web),
               googleClientId: typeof body.googleClientId === 'string' ? body.googleClientId.trim() : '',
               mail: Boolean(body.mail),

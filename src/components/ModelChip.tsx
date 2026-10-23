@@ -7,7 +7,7 @@
 // ===========================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { MODELS, modelSpec, PROVIDERS } from '../lib/assistant';
+import { MODELS, modelSpec, offeredModels, PROVIDERS } from '../lib/assistant';
 import type { Provider } from '../lib/assistant';
 
 /** A model's name without its maker: the mark on the pill already says who made it. */
@@ -106,7 +106,7 @@ export default function ModelChip({
           </div>
           {view === 'grid' ? (
             <div className="rw-grid">
-              {MODELS.map((m) => {
+              {offeredModels().map((m) => {
                 const isCurrent = m.id === chosen.id;
                 const can = Boolean(keys[m.provider]);
                 return (
@@ -134,7 +134,7 @@ export default function ModelChip({
             </div>
           ) : (
             (Object.keys(PROVIDERS) as Provider[]).map((provider) => {
-              const models = MODELS.filter((m) => m.provider === provider);
+              const models = offeredModels().filter((m) => m.provider === provider);
               if (!models.length) return null;
               const can = Boolean(keys[provider]);
               return (

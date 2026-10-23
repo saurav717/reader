@@ -50,7 +50,7 @@ import {
 } from './icons';
 import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
 import SharedFolders from './SharedFolders';
-import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
+import { getState as assistantState, offeredModels, PROVIDER_IDS, providerOff, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
 import { KeyRow } from './Assistant';
 import CompanionUpdates from './CompanionUpdate';
 import ProxyPass from './ProxyPass';
@@ -101,9 +101,9 @@ function OverleafTokenRow() {
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
   return (
     <>
-      {PROVIDER_IDS.map((id) => (
+      {PROVIDER_IDS.filter((id) => !providerOff(id)).map((id) => (
         <optgroup key={id} label={`${PROVIDERS[id].company}${keys[id] ? '' : PROVIDERS[id].viaProxy ? ' — not on your proxy yet' : ' — no key yet, the site’s or yours'}`}>
-          {MODELS.filter((m) => m.provider === id).map((m) => (
+          {offeredModels().filter((m) => m.provider === id).map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} — {m.note}
             </option>
@@ -1278,7 +1278,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
         title="Keys"
         note="Claude, DeepSeek and Gemini run on the site’s own keys by default — held by your paper proxy (ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY), which never reach this page. To spend your own account instead, press “Use my own key” on Claude or DeepSeek: your key is kept in this browser only and sent straight to api.anthropic.com or api.deepseek.com. Forget it to go back to the site’s."
       >
-        {PROVIDER_IDS.map((provider) => (
+        {PROVIDER_IDS.filter((provider) => !providerOff(provider)).map((provider) => (
           <KeyRow key={provider} provider={provider} />
         ))}
       </Card>

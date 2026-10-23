@@ -2,6 +2,7 @@ import InvitesReportView from './InvitesReport';
 import { ownerFetch } from '../lib/owner';
 import LookSwitch from './LookSwitch';
 import ServerJobsSwitch from './ServerJobsSwitch';
+import DeepSeekSwitch from './DeepSeekSwitch';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hasProxy } from '../lib/api';
 import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
@@ -353,6 +354,7 @@ export default function UsageView() {
           <>
             <LookSwitch />
             <ServerJobsSwitch />
+            <DeepSeekSwitch />
           </>
         ) : report === undefined ? (
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>

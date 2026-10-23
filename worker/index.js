@@ -62,6 +62,7 @@ export { AgentJob } from './agentJobs.js';
 export { ProjectMove } from './moves.js';
 import { handleMoves, isMovesPath } from './moves.js';
 import { isJobId, jobsEnabled, PROVIDERS as JOB_PROVIDERS } from './agentJobs.js';
+import { DEEPSEEK_OFF, deepseekEnabled, handleDeepseekSwitch } from './deepseekSwitch.js';
 export { LatexJob } from './latex.js';
 export { ProjectRoom } from './projectRoom.js';
 export { Invites } from './invites.js';
@@ -371,14 +372,16 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && path !== '/site/agent-jobs' && !path.startsWith('/agent-jobs/') && !isMovesPath(path) && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/account' && !path.startsWith('/devices/') && !path.startsWith('/kernels/') && !path.startsWith('/rooms') && path !== '/zoom/meetings' && path !== '/notes/upload' && path !== '/invite' && !path.startsWith('/invites') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !path.startsWith('/usage/mail/') && path !== '/site/look' && path !== '/site/agent-jobs' && path !== '/site/deepseek' && !path.startsWith('/agent-jobs/') && !isMovesPath(path) && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path) && !isGithubPath(path) && !isGoogleDesktopPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
+        // DeepSeek only while the owner's switch is on (worker/deepseekSwitch.js): off, the site holds no key for it as far as the app is concerned.
+        const deepseek = await deepseekEnabled(env);
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), googleDesktop: googleDesktopConfigured(env), notes: recallConfigured(env) ? { recall: recallApiUrl(env) } : false, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: { ...aiKeys(env), deepseek: deepseek && aiKeys(env).deepseek }, deepseek, web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), zoom: zoomConfigured(env), googleDesktop: googleDesktopConfigured(env), notes: recallConfigured(env) ? { recall: recallApiUrl(env) } : false, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST), mail: mailConfigured(env) },
           200,
           headers,
         );
@@ -739,6 +742,10 @@ export default {
         return json({ error: 'GET or POST' }, 405, headers);
       }
 
+      // Whether anything at all goes to DeepSeek from this site: off unless the
+      // owner turns it on, on Usage → The site (worker/deepseekSwitch.js).
+      if (path === '/site/deepseek') return await handleDeepseekSwitch(request, env, { json, headers, ownerAuthorized });
+
       // A job of the agent's, written on the Worker: started with the request
       // the page would have sent the provider, read as it comes from any page
       // of whoever started it, stopped. The site's key on the relay's terms,
@@ -767,6 +774,7 @@ export default {
         if (!(await jobsEnabled(env))) return json({ error: 'the owner has turned off answers written on the server', off: true }, 403, headers);
         const provider = body?.provider;
         if (!JOB_PROVIDERS.includes(provider)) return json({ error: 'anthropic, deepseek or gemini' }, 400, headers);
+        if (provider === 'deepseek' && !(await deepseekEnabled(env))) return json(DEEPSEEK_OFF, 403, headers);
         const own = (request.headers.get('X-Provider-Key') || '').trim();
         const name = AI_NAMES[provider];
         if (own && provider === 'gemini') return json({ error: 'Gemini runs on the site’s key alone' }, 400, headers);
@@ -949,6 +957,7 @@ export default {
         if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
+        if (provider === 'deepseek' && !(await deepseekEnabled(env))) return json(DEEPSEEK_OFF, 403, headers);
         const key = aiKey(env, provider);
         if (!key) return json({ error: `this proxy has no ${name} key: npx wrangler secret put ${KEY_NAMES[provider]}, then redeploy`, setup: true }, 501, headers);
         if (!who.owner && !aiForEveryone(env, provider)) {
@@ -1298,8 +1307,8 @@ export default {
             const { results, via, spent, ai } = await askServices(
               kind,
               params,
-              // DeepSeek reads Serply's profile snippets for where a person is now.
-              { serply: serplyKey, serpapi: serpKey, deepseek: String(env.DEEPSEEK_KEY || '').trim() },
+              // DeepSeek reads Serply's profile snippets for where a person is now — while the site's switch is on.
+              { serply: serplyKey, serpapi: serpKey, deepseek: (await deepseekEnabled(env)) ? String(env.DEEPSEEK_KEY || '').trim() : '' },
               { first: env.SCHOLAR_FIRST },
             );
             tally(env, ctx, who, { scholar: 1, ...spent });
@@ -1352,7 +1361,7 @@ export default {
       // author's part: server/contributionReader.js. On DEEPSEEK_KEY, which
       // is metered, so for whoever may use this Worker's paid accounts.
       if (path === '/contributions') {
-        const key = String(env.DEEPSEEK_KEY || '').trim();
+        const key = (await deepseekEnabled(env)) ? String(env.DEEPSEEK_KEY || '').trim() : '';
         if (!key) return json({ configured: false }, 200, { ...headers, 'Cache-Control': 'no-store' });
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
