@@ -86,6 +86,8 @@ function cors(origin) {
     // client id come as headers (see `authorized` and `clientOf` below).
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token, X-Granola-Key, X-Provider-Key',
     'Access-Control-Max-Age': '86400',
+    // Only ever https to this proxy, for a year, so a browser that has been here once never tries http.
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
   };
 }
 

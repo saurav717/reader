@@ -21,7 +21,7 @@
     "electron-updater": "6.8.10"
   },
   "devDependencies": {
-    "electron": "44.4.5",
+    "electron": "44.9.3",
     "electron-builder": "26.15.3"
   },
   "desktopName": "koios.desktop"

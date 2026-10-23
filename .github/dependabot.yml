@@ -1,0 +1,23 @@
+# Dependabot: a pull request when a dependency has a security fix, and the
+# third-party Actions' pinned commits moved on, weekly. The Actions are pinned to
+# a commit, not a tag (a tag can be moved to a bad commit; a commit can't), and
+# Dependabot keeps the "# vX.Y.Z" comment beside each one current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /desktop/app
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /companion
+    schedule:
+      interval: weekly
