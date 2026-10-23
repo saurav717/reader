@@ -4,7 +4,7 @@ import { typesetFigureMath } from '../lib/figureMath';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
-import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
+import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, offeredModels, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
 import ModelChip from './ModelChip';
 import type { Block, Section } from '../lib/explain';
 import {
@@ -898,7 +898,7 @@ function RewriteMenu({
           </div>
           {view === 'grid' ? (
             <div className="rw-grid">
-              {MODELS.map((m) => {
+              {offeredModels().map((m) => {
                 const isCurrent = m.id === current;
                 const ready = Boolean(keys[m.provider]);
                 return (
@@ -935,7 +935,7 @@ function RewriteMenu({
             </div>
           ) : (
             (Object.keys(PROVIDERS) as (keyof typeof PROVIDERS)[]).map((provider) => {
-              const models = MODELS.filter((m) => m.provider === provider);
+              const models = offeredModels().filter((m) => m.provider === provider);
               if (!models.length) return null;
               const ready = Boolean(keys[provider]);
               return (
@@ -1466,7 +1466,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     <>
               <div className="explain-start">
                 <div className="model-pick" role="radiogroup" aria-label="Model">
-                  {MODELS.map((m) => (
+                  {offeredModels().map((m) => (
                     <button key={m.id} type="button" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)}>
                       <b>{m.label}</b>
                       <span>

@@ -14,7 +14,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
+import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, offeredModels, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { GeminiReadiness, Screen } from '../lib/assistant';
 import { backendLabel, colabAvailable, colabNow, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
@@ -1191,7 +1191,7 @@ function NotebookStart({
       </div>
       <div className="explain-start">
         <div className="model-pick" role="radiogroup" aria-label="Model">
-          {MODELS.map((m) => (
+          {offeredModels().map((m) => (
             <button key={m.id} type="button" role="radio" aria-checked={chosen.id === m.id} onClick={() => onPick(m.id)}>
               <b>{m.label}</b>
               <span>

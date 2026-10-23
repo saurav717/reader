@@ -395,7 +395,9 @@ describe('the Worker, tallying', () => {
         }
         return before(input, init);
       };
-      return { env: { ...env, ANTHROPIC_KEY: 'sk-ant-worker-secret', DEEPSEEK_KEY: 'sk-worker-secret' }, sent };
+      // DeepSeek is off for the site unless its owner has turned it on (worker/deepseekSwitch.js): on, here.
+      const SESSIONS = { get: async (key) => (key === 'site:deepseek' ? 'on' : null), put: async () => undefined };
+      return { env: { ...env, ANTHROPIC_KEY: 'sk-ant-worker-secret', DEEPSEEK_KEY: 'sk-worker-secret', SESSIONS }, sent };
     };
     const askAi = (env, provider, token, body, origin = SITE) =>
       worker.fetch(
@@ -474,7 +476,11 @@ describe('the Worker, tallying', () => {
     it('/health says which keys the Worker holds', async () => {
       const { env } = setup();
       assert.deepEqual((await (await ask(env, '/health')).json()).ai, { anthropic: false, deepseek: false, gemini: false });
-      assert.deepEqual((await (await ask({ ...env, ANTHROPIC_KEY: 'k', DEEPSEEK_KEY: 'k' }, '/health')).json()).ai, { anthropic: true, deepseek: true, gemini: false });
+      // DeepSeek's key counts only while the site's switch is on (worker/deepseekSwitch.js), off by default.
+      const keyed = { ...env, ANTHROPIC_KEY: 'k', DEEPSEEK_KEY: 'k' };
+      assert.deepEqual((await (await ask(keyed, '/health')).json()).ai, { anthropic: true, deepseek: false, gemini: false });
+      const SESSIONS = { get: async (key) => (key === 'site:deepseek' ? 'on' : null), put: async () => undefined };
+      assert.deepEqual((await (await ask({ ...keyed, SESSIONS }, '/health')).json()).ai, { anthropic: true, deepseek: true, gemini: false });
     });
   });
 });

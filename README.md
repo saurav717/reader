@@ -2801,6 +2801,18 @@ picker of their own, on their start page, so the chat can run on one and the
 long pages on the other. **Settings → AI models** holds both choices and every
 key in one place.
 
+**DeepSeek is off until the owner turns it on.** DeepSeek's terms let it train
+on what it is sent, and Google's Limited Use policy forbids passing anything
+that came through Google's APIs to a service which may. So the Worker keeps a
+site-wide switch (`worker/deepseekSwitch.js`, `site:deepseek` in `SESSIONS`),
+off by default: off, `/health` reports `deepseek: false` and hides the key,
+`/ai/deepseek` and a DeepSeek agent job answer 403, the Scholar profile and
+contribution readers go without it, and the app takes every DeepSeek model out
+of its pickers — a person's own key included — falling back to the default
+model. The owner turns it on or off for everyone from **Usage → The site →
+DeepSeek** (`POST /site/deepseek {"enabled": true}` with the owner's token);
+mind Google's policy before doing so. Claude and Gemini are not affected.
+
 **The site's keys, by default.** All three run on the paper proxy's own keys —
 `ANTHROPIC_KEY`, `DEEPSEEK_KEY` and `GEMINI_KEY` — which never reach the site.
 Set whichever you have:
