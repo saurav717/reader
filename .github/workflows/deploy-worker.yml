@@ -1,7 +1,8 @@
 # Deploys the proxy: each merge into main that changes the Worker (worker/,
 # server/, wrangler.toml) runs `wrangler deploy`, as `npm run deploy:worker`
 # does by hand. A pull request that changes it builds it with --dry-run, to
-# check, and deploys nothing. The Worker's secrets (READER_TOKEN,
+# check, and deploys nothing. wrangler is the one pinned in package-lock.json (npm ci), never
+# whatever npm would fetch at deploy time: the Cloudflare token is in this job's environment. The Worker's secrets (READER_TOKEN,
 # READER_OWNERS, the keys) stay as they are: deploying never touches them.
 #
 # It needs two secrets (see docs/deploy.md):
@@ -29,9 +30,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -46,7 +46,7 @@ jobs:
 
       - name: Build it, deploying nothing
         if: github.event_name == 'pull_request'
-        run: npx --yes wrangler@4 deploy --dry-run --outdir "$RUNNER_TEMP/worker"
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker"
 
       - name: Without the Cloudflare token, nothing to deploy
         if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN == ''
@@ -57,14 +57,14 @@ jobs:
       # Cloudflare Workers template has.
       - name: The R2 bucket for moves, made once
         if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
-        run: npx --yes wrangler@4 r2 bucket list | grep -q 'reader-moves' || npx --yes wrangler@4 r2 bucket create reader-moves
+        run: npx wrangler r2 bucket list | grep -q 'reader-moves' || npx wrangler r2 bucket create reader-moves
 
       - name: Deploy it
         if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
         run: |
-          npx --yes wrangler@4 deploy
+          npx wrangler deploy
           echo "### Deployed the Worker (reader-arxiv-proxy) from saurav717/reader@${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
           # Its names only, never the values: without SECRETS_KEY the Worker keeps no one's tokens (docs/deploy.md).
-          if ! npx --yes wrangler@4 secret list | grep -q '"SECRETS_KEY"'; then
+          if ! npx wrangler secret list | grep -q '"SECRETS_KEY"'; then
             echo "::warning::The Worker has no SECRETS_KEY secret: connecting Overleaf or GitHub is refused until it has one. openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY"
           fi
