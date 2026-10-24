@@ -48,6 +48,7 @@ import { useEnsureProject } from '../lib/implementationProject';
 import { currentDbName, subscribeDb } from '../lib/db';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
+import { FormalBlock, ImageBlock } from './LearnBlocks';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
@@ -174,7 +175,7 @@ const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Dispu
 /** A code block in prose, with a Copy button on its corner; the page's own click handler does the copying (see `copyProseCode`). */
 const PROSE_PRE = /<pre(\s[^>]*)?>([\s\S]*?)<\/pre>/g;
 /** Prose, with a verdict alone in a table cell (the "Since then" table) drawn as its chip, and each code block copyable. */
-const html = (md: string) =>
+export const html = (md: string) =>
   DOMPurify.sanitize(
     markdown(md)
       .replace(VERDICT_CELL, (_, word: string) => {
@@ -515,7 +516,13 @@ function sectionText(section: Section): string {
                 ? `# ${block.path}\n\`\`\`\n${block.code}\n\`\`\``
                 : block.kind === 'compute'
                   ? `Compute budget:\n${block.text}`
-                  : `${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}: ${block.md}`,
+                  : block.kind === 'formal'
+                    ? `${block.title || 'Formally'}: ${block.md}`
+                    : block.kind === 'image'
+                      ? `[Picture${block.caption ? `: ${block.caption}` : ''}]`
+                      : block.kind === 'check' || block.kind === 'glossary'
+                        ? ''
+                        : `${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}: ${block.md}`,
     )
     .join('\n\n');
 }
@@ -525,7 +532,7 @@ function sectionText(section: Section): string {
  * caveats follow it. In the margin layout the two halves of a row sit side
  * by side, so a figure stands next to the paragraph it illustrates.
  */
-function SectionView({
+export function SectionView({
   section,
   number,
   cells,
@@ -559,12 +566,14 @@ function SectionView({
   const ref = useRef<HTMLElement>(null);
   const rows: { prose: Block[]; side: Block[]; wide?: boolean }[] = [];
   // A tree, a starter file or the budget is a table's width: it goes in the reading column, not the margin.
-  const wide = (block: Block) => block.kind === 'prose' || block.kind === 'tree' || block.kind === 'file' || block.kind === 'compute';
+  const wide = (block: Block) => block.kind === 'prose' || block.kind === 'tree' || block.kind === 'file' || block.kind === 'compute' || block.kind === 'formal';
   const motion = stage === 'off' ? undefined : motionOf(section);
   // The scene on the stage beside the whole section, not in a row of its own; with the stage off, not at all.
   const staged = stage === 'margin' && motion;
   for (const block of section.blocks) {
     if (block.kind === 'motion' && (staged || stage === 'off')) continue;
+    // The check and the glossary of a Learn page are read by the page itself, not drawn here.
+    if (block.kind === 'check' || block.kind === 'glossary') continue;
     const row = rows[rows.length - 1];
     if (wide(block)) {
       if (row && !row.side.length && block.kind === 'prose') row.prose.push(block);
@@ -589,7 +598,11 @@ function SectionView({
       <FileBlock key={key} block={block} />
     ) : block.kind === 'compute' ? (
       <ComputeBlock key={key} block={block} />
-    ) : (
+    ) : block.kind === 'formal' ? (
+      <FormalBlock key={key} block={block} />
+    ) : block.kind === 'image' ? (
+      <ImageBlock key={key} block={block} />
+    ) : block.kind === 'check' || block.kind === 'glossary' ? null : (
       <Caveat key={key} block={block} />
     );
   return (

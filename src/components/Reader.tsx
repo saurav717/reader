@@ -70,6 +70,7 @@ import {
   FullscreenIcon,
   ExitFullscreenIcon,
 } from './icons';
+import { askToLearn } from '../lib/learn';
 
 interface Props {
   paperId: string;
@@ -2084,6 +2085,17 @@ export default function Reader({
             title="Ask AI about this passage — ⌘\\ opens the window any time"
           >
             <SparkleIcon size={15} /> Ask
+          </button>
+          <button
+            type="button"
+            className="wide"
+            onClick={() => {
+              askToLearn(pending.selector.exact, `Selected in ${paper?.title ?? 'the paper'}: a track that teaches it from the ground up.`);
+              setPending(null);
+            }}
+            title="Learn this from the ground up: a map of pages on it, on Home's Learn tab"
+          >
+            <SparkleIcon size={15} /> Teach me
           </button>
           <button
             type="button"

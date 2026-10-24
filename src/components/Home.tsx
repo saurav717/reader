@@ -8,8 +8,9 @@ import { Continue, clip } from './HomeParts';
 import { InboxView, ProjectsView, ResumeStrip, STALLED_DAYS, TodayView, inboxOf } from './HomeViews';
 import { FindPapers } from './HomeSearch';
 import { CollectionsBoard } from './HomeBoard';
+import { LearnHome } from './LearnHome';
 import { HOME_TABS, TAB_ABOUT, TAB_LABEL, openingTab, readHomePrefs, writeHomePrefs, type HomePrefs, type HomeTab } from '../lib/homeViews';
-import { CheckIcon, ClockIcon, GridIcon, InboxIcon, OpenBookIcon, SearchIcon, StackIcon } from './icons';
+import { CheckIcon, ClockIcon, GridIcon, InboxIcon, OpenBookIcon, SearchIcon, SparkleIcon, StackIcon } from './icons';
 import InvitationsCard from './Invitations';
 
 interface Props {
@@ -23,6 +24,8 @@ interface Props {
   onDiscover: () => void;
   /** The highlights and notes of every paper, in the dock. */
   onShowNotes: () => void;
+  /** A topic asked for from elsewhere (“Teach me this” on a selection): Home opens on Learn with it. */
+  learnAsk?: { topic: string; context?: string; at: number } | null;
 }
 
 const TAB_ICON: Record<HomeTab, React.ReactNode> = {
@@ -32,6 +35,7 @@ const TAB_ICON: Record<HomeTab, React.ReactNode> = {
   today: <ClockIcon size={15} />,
   projects: <StackIcon size={15} />,
   inbox: <InboxIcon size={15} />,
+  learn: <SparkleIcon size={15} />,
 };
 
 const DAY = 24 * 3600 * 1000;
@@ -57,7 +61,7 @@ function greeting(now: Date, name?: string): string {
  * you were last reading fills it, shown at the page you left it on, with what
  * else is in progress, your latest highlights and what is next beside it.
  */
-export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes, onOpenProject }: Props & { onOpenProject?: (id: string) => void }) {
+export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes, onOpenProject, learnAsk }: Props & { onOpenProject?: (id: string) => void }) {
   const { papers, highlights, user } = useStore();
   const now = new Date();
   const [prefs, setPrefs] = useState<HomePrefs>(readHomePrefs);
@@ -74,6 +78,12 @@ export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpe
     changePrefs({ ...prefs, last: next });
   };
   const tabs = HOME_TABS.filter((item) => prefs.tabs.includes(item));
+  // A topic asked for from elsewhere opens Learn, shown as a tab if it was put away.
+  useEffect(() => {
+    if (!learnAsk) return;
+    setTab('learn');
+    changePrefs({ ...prefs, last: 'learn', tabs: prefs.tabs.includes('learn') ? prefs.tabs : HOME_TABS.filter((item) => item === 'learn' || prefs.tabs.includes(item)) });
+  }, [learnAsk?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The paper to carry on with: the last one opened that isn't finished; failing
   // that, the last one opened; failing that, the newest one not started.
@@ -217,6 +227,8 @@ export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpe
           <ProjectsView hero={hero} onOpenPaper={onOpenPaper} />
         ) : tab === 'inbox' ? (
           <InboxView onOpenPaper={onOpenPaper} />
+        ) : tab === 'learn' ? (
+          <LearnHome ask={learnAsk ?? undefined} onOpenPaper={onOpenPaper} />
         ) : !hero ? (
           <div className="home-empty">
             <h2>Your library is empty</h2>
