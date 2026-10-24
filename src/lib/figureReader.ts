@@ -88,7 +88,7 @@ async function figuresIn(root: ParentNode): Promise<PaperFigure[]> {
 }
 
 /** The PDF in PDF mode, reflowed once for the figures in it: the same crops the Reflow column shows. */
-async function figuresOfPdf(blob: Blob): Promise<PaperFigure[]> {
+export async function figuresOfPdf(blob: Blob): Promise<PaperFigure[]> {
   const { reflowPdf } = await import('./pdfReflow');
   const reflowed = await reflowPdf(blob);
   if (!reflowed) return [];

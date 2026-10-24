@@ -36,7 +36,8 @@ import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES, setNotesDrive } from './lib/notes';
 import Learn from './components/Learn';
-import { OPEN_LEARN, OPEN_LEARN_PAGE } from './lib/learn';
+import { OPEN_LEARN, OPEN_LEARN_PAGE, setLearnDrive } from './lib/learn';
+import { learnDrive } from './lib/learnDrive';
 import type { LearnNode } from './lib/learn';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
@@ -479,6 +480,8 @@ export default function App() {
     setExplainDrive(connected ? explainDrive(paperFor, settings) : null);
     // The paper's notes, the same way: kept in its folder, and read back from there.
     setNotesDrive(connected ? notesDrive(paperFor, settings) : null);
+    // Learn's tracks, under Learn/ in the same folder: read back from there, written there as they grow.
+    setLearnDrive(connected ? learnDrive(settings) : null);
   }, [driveConnected, settings]);
   // The side the haze is drawn from outlives the peek, so it fades out in place.
   const [hazeSide, setHazeSide] = useState<Exclude<Peek, null>>('left');

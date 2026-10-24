@@ -129,7 +129,7 @@ export type Block =
   // prose just said, a picture to be found on the web and captioned with its
   // source, the questions at the end of a page, and the terms it taught.
   | { kind: 'formal'; title: string; md: string; open: boolean }
-  | { kind: 'image'; query: string; must: string; caption: string; md: string; open: boolean }
+  | { kind: 'image'; query: string; must: string; caption: string; md: string; open: boolean; /** A paper's own figure, when the page names one: its arXiv id, and the figure as the paper names it. */ paper?: string; figure?: string }
   | { kind: 'check'; src: string; open: boolean }
   | { kind: 'glossary'; text: string; open: boolean };
 
@@ -250,7 +250,11 @@ export function parseExplanation(src: string): Section[] {
         current.blocks.push({ kind: 'formal', title: info.title ?? '', md: text.trim(), open });
       } else if (lang === 'image' || lang === 'photo') {
         flush();
-        current.blocks.push({ kind: 'image', query: info.query ?? info.search ?? '', must: info.must ?? info.shows ?? '', caption: info.caption ?? '', md: text.trim(), open });
+        const image: Block = { kind: 'image', query: info.query ?? info.search ?? '', must: info.must ?? info.shows ?? '', caption: info.caption ?? '', md: text.trim(), open };
+        const arxiv = (info.paper ?? info.arxiv ?? '').replace(/^(arxiv:|https?:\/\/arxiv\.org\/(abs|pdf)\/)/i, '').replace(/v\d+$/, '').trim();
+        if (arxiv) image.paper = arxiv;
+        if (info.figure) image.figure = info.figure;
+        current.blocks.push(image);
       } else if (lang === 'check' || lang === 'quiz') {
         flush();
         current.blocks.push({ kind: 'check', src: text, open });

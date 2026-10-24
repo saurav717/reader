@@ -23,6 +23,57 @@ const web = await import('../server/webSearch.js');
 
 const jsonResponse = (body, init = {}) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' }, ...init });
 
+describe('pictures', () => {
+  it('asks Google Images through SerpApi first, then Brave, then Tavily', () => {
+    assert.deepEqual(web.imageServices({ tavily: 't', brave: 'b', serpapi: 's', serply: 'x' }), ['serpapi', 'brave', 'tavily']);
+    assert.deepEqual(web.imageServices({ serply: 'x' }), []);
+    assert.match(web.serpApiImagesUrl('a cat', 'k'), /engine=google_images.*q=a\+cat/);
+    assert.match(web.braveImagesUrl('a cat'), /\/res\/v1\/images\/search\?q=a\+cat/);
+    assert.equal(web.tavilyImagesBody('a cat').include_images, true);
+  });
+  it('reads each service’s pictures: the picture, its page, a title, where from', () => {
+    assert.deepEqual(web.fromSerpApiImages({ images_results: [{ original: 'https://a.example/a.jpg', link: 'https://a.example/page', title: 'A', source: 'a.example', original_width: 800, original_height: 600, thumbnail: 'https://t.example/a.jpg' }, { original: 'data:x' }] }), [
+      { src: 'https://a.example/a.jpg', thumb: 'https://t.example/a.jpg', page: 'https://a.example/page', title: 'A', source: 'a.example', width: 800, height: 600 },
+    ]);
+    assert.deepEqual(web.fromBraveImages({ results: [{ url: 'https://b.example/page', title: 'B', source: 'b.example', thumbnail: { src: 'https://t.example/b.jpg' }, properties: { url: 'https://b.example/b.png', width: 10, height: 20 } }] }), [
+      { src: 'https://b.example/b.png', thumb: 'https://t.example/b.jpg', page: 'https://b.example/page', title: 'B', source: 'b.example', width: 10, height: 20 },
+    ]);
+    assert.deepEqual(web.fromTavilyImages({ images: ['https://c.example/c.jpg', { url: 'https://d.example/d.jpg', description: 'D' }, 'nope'] }), [
+      { src: 'https://c.example/c.jpg', page: '', title: '', source: 'c.example' },
+      { src: 'https://d.example/d.jpg', page: '', title: 'D', source: 'd.example' },
+    ]);
+  });
+  it('passes a picture on, and nothing that is not one, not too big, not inside the network', async () => {
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const fetchImpl = async (url) =>
+      String(url).includes('big')
+        ? new Response(png, { headers: { 'Content-Type': 'image/png', 'Content-Length': String(web.MAX_PICTURE_BYTES + 1) } })
+        : String(url).includes('page')
+          ? new Response('<html>', { headers: { 'Content-Type': 'text/html' } })
+          : new Response(png, { headers: { 'Content-Type': 'image/png; charset=binary' } });
+    const got = await web.fetchPicture('https://a.example/a.png', { fetchImpl });
+    assert.equal(got.type, 'image/png');
+    assert.deepEqual(Array.from(got.bytes), Array.from(png));
+    await assert.rejects(web.fetchPicture('https://a.example/page', { fetchImpl }), /not a picture/);
+    await assert.rejects(web.fetchPicture('https://a.example/big.png', { fetchImpl }), /too big/);
+    await assert.rejects(web.fetchPicture('http://127.0.0.1/x.png', { fetchImpl }), /not an address/);
+  });
+  it('refuses without a key, naming the keys', async () => {
+    await assert.rejects(web.searchImages('a cat', {}), /SERPAPI_KEY, BRAVE_KEY or TAVILY_KEY/);
+  });
+  it('searches with whichever key is set, and reads the answer', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse({ results: [{ url: 'https://b.example/page', title: 'B', properties: { url: 'https://b.example/b.png' } }] });
+    };
+    const found = await web.searchImages('a cat', { brave: 'bk' }, { fetchImpl });
+    assert.equal(found.via, 'brave');
+    assert.equal(found.images[0].src, 'https://b.example/b.png');
+    assert.equal(calls[0].init.headers['X-Subscription-Token'], 'bk');
+  });
+});
+
 describe('the query and the address', () => {
   it('trims a query to one line and a length, and refuses an empty one', () => {
     assert.equal(web.checkQuery('  attention \n is all   you need '), 'attention is all you need');
@@ -187,6 +238,10 @@ describe('the Node proxy’s /web routes', () => {
     assert.equal(body.results[0].url, 'https://a.example/');
     assert.equal(sent[0].key, 'bk');
     assert.equal((await get('/web/search')).status, 400);
+    // Pictures go to the same key, and read as Brave's picture search answers.
+    assert.equal((await get('/web/images?q=hello')).status, 200);
+    delete process.env.BRAVE_KEY;
+    assert.equal((await get('/web/images?q=hello')).status, 501);
   });
 
   it('reads a page as text, and not an address inside the network', async () => {

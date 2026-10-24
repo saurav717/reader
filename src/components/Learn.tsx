@@ -183,6 +183,8 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
 
   const states = nodeStates(track);
   const index = track.nodes.findIndex((n) => n.id === nodeId);
+  // The track's own papers, for pictures: a page's figure of one of them, when nothing else shows what is asked.
+  const trackPapers = track.nodes.filter((n) => n.kind === 'paper' && n.paper?.arxivId).map((n) => ({ arxivId: n.paper!.arxivId!, title: n.paper!.title }));
   const before = nodeBefore(track, nodeId);
   const after = nodeAfter(track, nodeId);
   const counts = countRead(track);
@@ -191,7 +193,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   const goAfter = after ? () => (after.kind === 'paper' ? onOpenPaper(after) : onOpen(after.id)) : undefined;
 
   return (
-    <LearnContext.Provider value={{ level, model: page?.model ?? track.model }}>
+    <LearnContext.Provider value={{ level, model: page?.model ?? track.model, papers: trackPapers }}>
       <div className={`explain learn layout-margin learn-level-${level}`}>
         <header className="explain-bar">
           <span className="explain-brand">

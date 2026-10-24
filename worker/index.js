@@ -36,7 +36,7 @@ import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
 import { aiForEveryone, aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi, relayedUsage } from '../server/aiRelay.js';
-import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
+import { fetchPicture, readPage, searchImages, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, latexMonth } from './latex.js';
@@ -1338,7 +1338,7 @@ export default {
       // key — TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the first set — and a page
       // read as text, for the model to cite (server/webSearch.js). Both for
       // whoever may use this Worker's paid accounts, and both on the tally.
-      if (path === '/web/search' || path === '/web/page') {
+      if (path === '/web/search' || path === '/web/page' || path === '/web/images' || path === '/web/picture') {
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
         if (await personOverLimit(env, who)) {
@@ -1349,6 +1349,17 @@ export default {
             const found = await searchWeb(url.searchParams.get('q'), webKeys);
             tally(env, ctx, who, { web: 1, ...(found.via === 'serply' ? { serply: 1 } : found.via === 'serpapi' ? { serpapi: 1 } : {}) });
             return json(found, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
+          }
+          if (path === '/web/picture') {
+            // A picture's bytes, for the page to show a model; no search is spent on it.
+            const { type, bytes } = await fetchPicture(url.searchParams.get('url'), { userAgent: UA });
+            return new Response(bytes, { headers: { ...headers, 'Content-Type': type, 'Cache-Control': 'private, max-age=86400' } });
+          }
+          if (path === '/web/images') {
+            // Pictures for a Learn page: Google Images through SerpApi, else Brave's, else Tavily's.
+            const found = await searchImages(url.searchParams.get('q'), webKeys);
+            tally(env, ctx, who, { web: 1, ...(found.via === 'serpapi' ? { serpapi: 1 } : {}) });
+            return json(found, 200, { ...headers, 'Cache-Control': 'private, max-age=3600' });
           }
           return json(await readPage(url.searchParams.get('url')), 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
         } catch (error) {

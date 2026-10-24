@@ -212,6 +212,124 @@ export async function searchWeb(query, keys = {}, { fetchImpl = (...args) => fet
   return { query: q, via: 'serpapi', results: fromSerpApi(json) };
 }
 
+// ----------------------------------------------------------------- images ----
+//
+// Pictures for the Learn pages (src/lib/pictures.ts): a search for images,
+// on the same keys — SerpApi's Google Images first, since it is Google
+// Images; then Brave's image search; then the pictures Tavily finds on the
+// pages it returns. Serply has no image search the proxy uses. Each hit is
+// the picture's address, the page it is on, a title and where it came from;
+// no licence is known for any of them, and the page says so.
+
+const IMAGES = 8;
+
+export function imageServices(keys = {}) {
+  return ['serpapi', 'brave', 'tavily'].filter((name) => str(keys[name]));
+}
+
+export function braveImagesUrl(query, count = IMAGES) {
+  return `${BRAVE_HOST}/res/v1/images/search?${new URLSearchParams({ q: query, count: String(count), safesearch: 'strict' })}`;
+}
+
+export function serpApiImagesUrl(query, key, count = IMAGES) {
+  return `${SERPAPI_HOST}/search.json?${new URLSearchParams({ engine: 'google_images', q: query, hl: 'en', safe: 'active', num: String(count), api_key: key })}`;
+}
+
+export function tavilyImagesBody(query, count = IMAGES) {
+  return { query, max_results: count, search_depth: 'basic', include_answer: false, include_raw_content: false, include_images: true, include_image_descriptions: true };
+}
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+const picture = (src, page, title, source, width, height, thumb) => {
+  const link = str(src);
+  if (!/^https?:\/\//i.test(link)) return null;
+  const pageUrl = /^https?:\/\//i.test(str(page)) ? str(page) : '';
+  const w = Number(width);
+  const h = Number(height);
+  return {
+    src: link,
+    ...(/^https?:\/\//i.test(str(thumb)) ? { thumb: str(thumb) } : {}),
+    page: pageUrl,
+    title: str(title),
+    source: str(source) || hostOf(pageUrl || link),
+    ...(Number.isFinite(w) && w > 0 ? { width: w } : {}),
+    ...(Number.isFinite(h) && h > 0 ? { height: h } : {}),
+  };
+};
+
+/** SerpApi's `images_results[]`: original, link (the page), title, source, thumbnail. */
+export function fromSerpApiImages(json) {
+  return list(json?.images_results)
+    .map((entry) => picture(entry?.original, entry?.link, entry?.title, entry?.source, entry?.original_width, entry?.original_height, entry?.thumbnail))
+    .filter(Boolean);
+}
+
+/** Brave's `results[]`: properties.url (the picture), url (the page), title, source, thumbnail.src. */
+export function fromBraveImages(json) {
+  return list(json?.results)
+    .map((entry) => picture(entry?.properties?.url || entry?.thumbnail?.src, entry?.url, entry?.title, entry?.source, entry?.properties?.width, entry?.properties?.height, entry?.thumbnail?.src))
+    .filter(Boolean);
+}
+
+/** Tavily's `images[]`: addresses, or {url, description} with descriptions asked for. No page is named. */
+export function fromTavilyImages(json) {
+  return list(json?.images)
+    .map((entry) => (typeof entry === 'string' ? picture(entry, '', '', '') : picture(entry?.url, '', entry?.description, '')))
+    .filter(Boolean);
+}
+
+export async function searchImages(query, keys = {}, { fetchImpl = (...args) => fetch(...args), signal } = {}) {
+  const q = checkQuery(query);
+  const [service] = imageServices(keys);
+  if (!service) throw new WebRefused(501, 'this proxy has no image search key: set SERPAPI_KEY, BRAVE_KEY or TAVILY_KEY');
+  const key = str(keys[service]);
+  if (service === 'serpapi') {
+    const response = await fetchImpl(serpApiImagesUrl(q, key), { signal: signalFor(signal), headers: { Accept: 'application/json' } });
+    const json = await readJson(response, 'SerpApi');
+    if (str(json?.error)) throw new WebRefused(502, `SerpApi: ${json.error}`);
+    return { query: q, via: 'serpapi', images: fromSerpApiImages(json) };
+  }
+  if (service === 'brave') {
+    const response = await fetchImpl(braveImagesUrl(q), { signal: signalFor(signal), headers: { Accept: 'application/json', 'X-Subscription-Token': key } });
+    return { query: q, via: 'brave', images: fromBraveImages(await readJson(response, 'Brave')) };
+  }
+  const response = await fetchImpl(TAVILY_URL, {
+    method: 'POST',
+    signal: signalFor(signal),
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify(tavilyImagesBody(q)),
+  });
+  return { query: q, via: 'tavily', images: fromTavilyImages(await readJson(response, 'Tavily')) };
+}
+
+/** How big a picture the proxy will pass on: a page's illustration, not a poster. */
+export const MAX_PICTURE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A picture from the public web, as its bytes, for the page to show a model
+ * (a browser cannot read most hosts' pictures into a canvas itself). The
+ * same address check as a page; only an image comes back, and only so big.
+ */
+export async function fetchPicture(value, { fetchImpl = (...args) => fetch(...args), signal, userAgent = 'reader-proxy/1.0' } = {}) {
+  const url = checkPageUrl(value);
+  const response = await fetchImpl(url, { signal: signalFor(signal), redirect: 'follow', headers: { Accept: 'image/*', 'User-Agent': userAgent } });
+  if (!response.ok) throw new WebRefused(502, `the picture's host answered ${response.status}`);
+  const type = str(response.headers.get('content-type')).split(';')[0].toLowerCase();
+  if (!type.startsWith('image/')) throw new WebRefused(415, 'that address is not a picture');
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length > MAX_PICTURE_BYTES) throw new WebRefused(413, 'that picture is too big to pass on');
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_PICTURE_BYTES) throw new WebRefused(413, 'that picture is too big to pass on');
+  return { type, bytes };
+}
+
 // ------------------------------------------------------------------ pages ----
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', copy: '©' };
