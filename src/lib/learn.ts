@@ -44,9 +44,11 @@ export interface LearnPrefs {
   code: boolean;
   /** A short check at the end of each page. */
   checks: boolean;
+  /** A picture made for the page (generated.ts) when none can be found; a track from before this existed has it on. */
+  generate?: boolean;
 }
 
-export const DEFAULT_PREFS: LearnPrefs = { pictures: true, plainFirst: true, code: true, checks: true };
+export const DEFAULT_PREFS: LearnPrefs = { pictures: true, plainFirst: true, code: true, checks: true, generate: true };
 
 export interface LearnNode {
   id: string;
@@ -841,6 +843,7 @@ function systemFor(track: LearnTrack) {
     track.prefs.plainFirst ? 'plain first, the formal account in formal blocks' : 'the formal account inline, with the intuition beside it',
     track.prefs.code ? 'code cells where they teach' : 'no code cells',
     track.prefs.checks ? 'a check at the end' : 'no check block',
+    track.prefs.generate !== false ? 'an illustration can be generated when no real picture is found, so an image block may ask for a scene no photograph exists of' : 'no generated pictures: ask only for pictures that exist',
   ]
     .filter(Boolean)
     .join('; ');

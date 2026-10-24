@@ -25,7 +25,7 @@ export const LEVELS: { id: LearnLevel; label: string; note: string }[] = [
 ];
 
 /** The level the page is read at, and the model that wrote it (which checks its pictures). */
-export const LearnContext = createContext<{ level: LearnLevel; model?: string; /** The track's own papers, looked in for figures when nothing else shows it. */ papers?: { arxivId: string; title?: string }[] } | null>(null);
+export const LearnContext = createContext<{ level: LearnLevel; model?: string; /** The track's own papers, looked in for figures when nothing else shows it. */ papers?: { arxivId: string; title?: string }[]; /** A picture made for the page when none is found. */ generate?: boolean } | null>(null);
 
 const html = (md: string) => DOMPurify.sanitize(markdown(md), { ADD_ATTR: ['target'] });
 
@@ -59,24 +59,25 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
   const learn = useContext(LearnContext);
   const model = learn?.model;
   const papers = learn?.papers;
+  const generate = learn?.generate;
   const [state, setState] = useState<{ resolved?: ResolvedPicture; error?: string; looking: boolean }>({ looking: true });
   const [fresh, setFresh] = useState(0);
   useEffect(() => {
     if (block.open || !(block.query || block.paper)) return;
     const controller = new AbortController();
     setState({ looking: true });
-    resolvePicture({ query: block.query || block.must, must: block.must || block.query, model, paper: block.paper ? { arxivId: block.paper, figure: block.figure } : undefined, papers, fresh: fresh > 0, signal: controller.signal })
+    resolvePicture({ query: block.query || block.must, must: block.must || block.query, model, paper: block.paper ? { arxivId: block.paper, figure: block.figure } : undefined, papers, generate, fresh: fresh > 0, signal: controller.signal })
       .then((resolved) => setState({ resolved, looking: false }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setState({ error: error instanceof Error ? error.message : String(error), looking: false });
       });
     return () => controller.abort();
-  }, [block.open, block.query, block.must, block.paper, block.figure, model, papers, fresh]);
+  }, [block.open, block.query, block.must, block.paper, block.figure, model, papers, generate, fresh]);
   const picture = state.resolved?.picture;
   const resolved = state.resolved;
   return (
-    <figure className={`explain-figure is-photo${picture ? '' : ' is-empty'}${picture?.kind === 'paper' ? ' is-paper' : ''}`}>
+    <figure className={`explain-figure is-photo${picture ? '' : ' is-empty'}${picture?.kind === 'paper' ? ' is-paper' : ''}${picture?.kind === 'generated' ? ' is-generated' : ''}`}>
       <div className="photo-head">
         <span>{picture ? sourceLabel(picture) : 'A picture from the web'}</span>
         {!block.open && !state.looking ? (
@@ -89,12 +90,12 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
         <div className="figure-art drawing">Asking for a picture…</div>
       ) : state.looking ? (
         <div className="figure-art drawing">
-          <span className="spinner" /> Looking for “{block.query || block.figure}”{block.paper ? ` in arXiv:${block.paper}, then` : ''} on Commons and the web{model ? ', and checking what turns up' : ''}…
+          <span className="spinner" /> Looking for “{block.query || block.figure}”{block.paper ? ` in arXiv:${block.paper}, then` : ''} on Commons and the web{generate !== false ? ', else making one' : ''}{model ? ', and checking what turns up' : ''}…
         </div>
       ) : picture ? (
         <a className={`figure-art photo-art${picture.kind === 'paper' ? ' paper-art' : ''}`} href={picture.page || picture.src} target="_blank" rel="noreferrer noopener" title={picture.kind === 'paper' ? 'Open the paper on arXiv' : picture.kind === 'commons' ? 'Open its page on Wikimedia Commons' : 'Open the page it was found on'}>
           <img src={picture.src} alt={block.caption || picture.title} loading="lazy" />
-          <span className="photo-query">{picture.kind === 'paper' ? `${picture.ref ?? 'figure'} of ${picture.source}` : `image: search “${block.query}”`}</span>
+          <span className="photo-query">{picture.kind === 'paper' ? `${picture.ref ?? 'figure'} of ${picture.source}` : picture.kind === 'generated' ? 'AI-generated illustration' : `image: search “${block.query}”`}</span>
         </a>
       ) : (
         <div className="figure-art drawing paper-missing">{state.error ? `Could not look for a picture — ${state.error}` : resolved?.note || `Nothing found shows “${block.must || block.query}” clearly enough to put here.`}</div>
@@ -117,6 +118,14 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
               ) : (
                 picture.licence
               )}
+            </>
+          ) : picture.kind === 'generated' ? (
+            <>
+              <b>Generated illustration</b>, not a photograph — made by{' '}
+              <a href={picture.page} target="_blank" rel="noreferrer noopener">
+                {picture.source}
+              </a>{' '}
+              from “{picture.title}”. A generator can get details wrong; take it as a sketch of what the page describes.
             </>
           ) : picture.kind === 'paper' ? (
             <>

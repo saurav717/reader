@@ -207,7 +207,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   const goAfter = after ? () => (after.kind === 'paper' ? onOpenPaper(after) : onOpen(after.id)) : undefined;
 
   return (
-    <LearnContext.Provider value={{ level, model: page?.model ?? track.model, papers: trackPapers }}>
+    <LearnContext.Provider value={{ level, model: page?.model ?? track.model, papers: trackPapers, generate: track.prefs.generate !== false }}>
       <div className={`explain learn layout-margin learn-level-${level}`}>
         <header className="explain-bar">
           <span className="explain-brand">
