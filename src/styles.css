@@ -10113,6 +10113,8 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .photo-verify.is-unchecked { color: var(--muted); }
 .photo-verify.is-unchecked i { background: var(--muted); }
 .explain-figure.is-photo.is-empty { border-style: dashed; }
+.explain-figure.is-generated .photo-query { background: color-mix(in srgb, var(--gold) 70%, #000); }
+.explain-figure.is-generated .photo-source b { color: color-mix(in srgb, var(--gold) 70%, var(--ink)); }
 
 /* The check at the end of a page. */
 .learn-check { max-width: 880px; padding: 8px 0 28px; border-top: 1px solid var(--border-soft); margin-top: 6px; }

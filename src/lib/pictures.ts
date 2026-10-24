@@ -11,7 +11,8 @@
 //    2. Wikimedia Commons (wikimedia.ts), which knows every picture's licence;
 //    3. the web, through the proxy's image search (server/webSearch.js:
 //       Google Images by SerpApi, else Brave, else Tavily);
-//    4. the figures of the track's own papers, the ones the map ends at.
+//    4. the figures of the track's own papers, the ones the map ends at;
+//    5. a picture made for the page (generated.ts), when the track allows it.
 //
 //  When the model that wrote the page can see, it is shown the first few
 //  candidates from a source and asked which one actually shows what the page
@@ -28,9 +29,10 @@ import { findFigure } from './paperFigures';
 import type { PaperFigure } from './paperFigures';
 import { searchCommons } from './wikimedia';
 import type { CommonsImage } from './wikimedia';
+import { generatedImageUrl, GENERATOR_NAME, GENERATOR_PAGE, illustrationPrompt, seedFor } from './generated';
 
 export interface Picture {
-  kind: 'commons' | 'web' | 'paper';
+  kind: 'commons' | 'web' | 'paper' | 'generated';
   /** The picture: an address, or a data: URL for a paper's figure. */
   src: string;
   /** Where it lives: its page on Commons, the page it was found on, the paper's abstract. */
@@ -73,6 +75,8 @@ export interface PictureAsk {
   paper?: { arxivId: string; figure?: string };
   /** The track's own papers, looked in last. */
   papers?: { arxivId: string; title?: string }[];
+  /** A picture made for the page when nothing is found: on unless the track says otherwise. */
+  generate?: boolean;
   fresh?: boolean;
   signal?: AbortSignal;
 }
@@ -206,7 +210,7 @@ async function jpegOf(candidate: Candidate, signal?: AbortSignal): Promise<strin
   } catch {
     // the host does not allow it: through the proxy, below
   }
-  if (!hasProxy() || candidate.picture.kind === 'commons') return null;
+  if (!hasProxy() || candidate.picture.kind === 'commons' || candidate.picture.kind === 'generated') return null;
   try {
     const relayed = await apiFetch(`/web/picture?url=${encodeURIComponent(src)}`, { signal });
     if (!relayed.ok) return null;
@@ -273,6 +277,25 @@ function sourcesFor(ask: PictureAsk): Source[] {
   sources.push({ name: 'the web', get: async () => (await searchWebImages(ask.query, ask.signal)).candidates });
   for (const paper of (ask.papers ?? []).filter((p) => p.arxivId && p.arxivId !== ask.paper?.arxivId).slice(0, 2)) {
     sources.push({ name: `arXiv:${paper.arxivId}`, get: () => paperCandidates(paper, undefined, asked, ask.signal) });
+  }
+  // Last of all, a picture made for the page: two seeds, so the checker has a choice.
+  if (ask.generate !== false) {
+    sources.push({
+      name: 'a generated illustration',
+      get: async () => {
+        const prompt = illustrationPrompt(ask.query, ask.must);
+        return [0, 1].map((salt) => ({
+          picture: {
+            kind: 'generated' as const,
+            src: generatedImageUrl(prompt, { seed: seedFor(prompt, salt) }),
+            page: GENERATOR_PAGE,
+            title: ask.must || ask.query,
+            source: GENERATOR_NAME,
+            description: prompt,
+          },
+        }));
+      },
+    });
   }
   return sources;
 }
@@ -354,5 +377,6 @@ export function resolvePicture(ask: PictureAsk): Promise<ResolvedPicture> {
 export function sourceLabel(picture: Picture): string {
   if (picture.kind === 'commons') return 'Found on the web · Wikimedia Commons';
   if (picture.kind === 'paper') return `From a paper · ${picture.source}`;
+  if (picture.kind === 'generated') return `Made for this page · ${picture.source}`;
   return `Found on the web · ${picture.via || 'image search'}`;
 }

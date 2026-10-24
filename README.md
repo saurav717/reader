@@ -4462,8 +4462,17 @@ then the rest by their captions); on **Wikimedia Commons**, straight from the
 browser, which knows every picture's author and licence; on **the web**,
 through the proxy's image search (Google Images by SerpApi when
 `SERPAPI_KEY` is set, else Brave's, else Tavily's, the same keys as Ask AI's
-Web button — `/web/images`); and in **the track's own papers**, the ones the
-map ends at. When the model that wrote the page can see, it is shown the
+Web button — `/web/images`); in **the track's own papers**, the ones the
+map ends at; and, when all of those come up empty and the track allows it
+(*Generate a picture if none is found*, on by default), one is **made for
+the page** by FLUX through [Pollinations.ai](https://pollinations.ai) —
+free, with no key and no account, rate-limited and with no promise of
+uptime — from what the page said the picture must show, in a style a
+generator does well and with no text in it (`src/lib/generated.ts`). A
+generated picture is captioned as exactly that, never as a photograph: a
+sketch of what the page describes, which can get details wrong. Diagrams
+are never generated this way; mechanism is what the drawn figures and the
+scenes are for. When the model that wrote the page can see, it is shown the
 first few candidates from each source and asked which one actually shows
 what was asked for, and a source it refuses whole is passed over for the
 next (`/web/picture` fetches a web picture's bytes for it where the host

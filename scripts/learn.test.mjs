@@ -15,6 +15,7 @@ const wikimedia = await load('src/lib/wikimedia.ts', { external: ['@anthropic-ai
 const pictures = await load('src/lib/pictures.ts', { external: ['@anthropic-ai/sdk', '*/figureReader'] });
 const learnDrive = await load('src/lib/learnDrive.ts', { external: ['@anthropic-ai/sdk'] });
 const lineMotion = await load('src/lib/lineMotion.ts');
+const generated = await load('src/lib/generated.ts');
 
 after(cleanup);
 
@@ -309,6 +310,7 @@ describe('pictures from Commons', () => {
     assert.equal(pictures.sourceLabel({ kind: 'commons', src: '', page: '', title: '', source: 'Wikimedia Commons' }), 'Found on the web · Wikimedia Commons');
     assert.equal(pictures.sourceLabel({ kind: 'paper', src: '', page: '', title: '', source: 'arXiv:2006.11239' }), 'From a paper · arXiv:2006.11239');
     assert.equal(pictures.sourceLabel({ kind: 'web', src: '', page: '', title: '', source: 'x', via: 'Google Images' }), 'Found on the web · Google Images');
+    assert.equal(pictures.sourceLabel({ kind: 'generated', src: '', page: '', title: '', source: 'FLUX via Pollinations.ai' }), 'Made for this page · FLUX via Pollinations.ai');
   });
   it('reads the checker’s verdict', () => {
     assert.deepEqual(pictures.readVerdict('2\nA photograph at four noise levels.'), { pick: 2, note: 'A photograph at four noise levels.' });
@@ -403,5 +405,25 @@ describe('the lines drawing themselves', () => {
     assert.ok(many[1] - many[0] <= lineMotion.STROKE_MS * 0.6 + 1);
     assert.ok(many[39] <= lineMotion.DRAW_MS - lineMotion.STROKE_MS + 1);
     assert.ok(many.every((d, i) => i === 0 || d >= many[i - 1]));
+  });
+});
+
+describe('a picture made for the page', () => {
+  it('asks for what must be shown, in a style a generator does well, with no text', () => {
+    const prompt = generated.illustrationPrompt('mitochondrion micrograph', 'a mitochondrion with its folded inner membrane');
+    assert.match(prompt, /^a mitochondrion with its folded inner membrane, mitochondrion micrograph\. /);
+    assert.match(prompt, /no text, no labels/);
+    assert.ok(generated.illustrationPrompt('x', 'x').startsWith('x. '), 'the same words once');
+  });
+  it('addresses Pollinations with the prompt, a size and a seed, the same seed for the same ask', () => {
+    const url = new URL(generated.generatedImageUrl('a red cube', { seed: 7 }));
+    assert.equal(url.origin, generated.POLLINATIONS_HOST);
+    assert.equal(decodeURIComponent(url.pathname), '/prompt/a red cube');
+    assert.equal(url.searchParams.get('seed'), '7');
+    assert.equal(url.searchParams.get('model'), 'flux');
+    assert.equal(url.searchParams.get('nologo'), 'true');
+    assert.equal(generated.seedFor('abc'), generated.seedFor('abc'));
+    assert.notEqual(generated.seedFor('abc'), generated.seedFor('abc', 1));
+    assert.ok(generated.seedFor('anything') < 1_000_000);
   });
 });

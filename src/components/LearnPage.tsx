@@ -38,6 +38,7 @@ const PREF_CHIPS: { key: keyof LearnPrefs; label: string; note: string }[] = [
   { key: 'plainFirst', label: 'Plain, then formal', note: 'Plain prose on the page; the exact statement folded under it' },
   { key: 'code', label: 'Code cells', note: 'Short runnable cells where running something teaches it' },
   { key: 'checks', label: 'Checks at the end of a page', note: 'Three quick questions that decide how the next page is written' },
+  { key: 'generate', label: 'Generate a picture if none is found', note: 'When no paper, Commons or web picture shows what a page asks for, one is made by FLUX through Pollinations.ai — free, no key — and captioned as generated' },
 ];
 
 const STATE_LABEL: Record<NodeState, string> = { confident: 'confident', read: 'read', next: 'up next', ready: 'ready', locked: 'needs a page before it' };
@@ -211,7 +212,7 @@ export default function LearnPage({ id, ask, onOpen, onOpenPaper }: Props) {
             <div className="find-options learn-prefs">
               <span className="find-label">Prefers</span>
               {PREF_CHIPS.map((chip) => (
-                <button key={chip.key} type="button" className={`chip${prefs[chip.key] ? ' is-on' : ''}`} aria-pressed={prefs[chip.key]} title={chip.note} onClick={() => setPrefs({ ...prefs, [chip.key]: !prefs[chip.key] })}>
+                <button key={chip.key} type="button" className={`chip${prefs[chip.key] ? ' is-on' : ''}`} aria-pressed={Boolean(prefs[chip.key])} title={chip.note} onClick={() => setPrefs({ ...prefs, [chip.key]: !prefs[chip.key] })}>
                   {chip.label}
                 </button>
               ))}
