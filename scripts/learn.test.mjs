@@ -345,3 +345,43 @@ describe('a track in Drive', () => {
     assert.equal(learnDrive.fromTrackJson('not json'), null);
   });
 });
+
+describe('searching what has been learned', () => {
+  const { stages, nodes } = learn.parseMap(MAP);
+  const base = { id: 't1', topic: 'Diffusion models', from: 'basic probability', to: 'read DDPM', prefs: learn.DEFAULT_PREFS, model: 'm', created: 0, updated: 5, opened: 5, stages, nodes, progress: { noise: 'read' }, glossary: [{ term: 'β_t', meaning: 'the noise schedule', nodeId: 'forward' }], pages: { reverse: { nodeId: 'reverse', content: PAGE, model: 'm', created: 0, updated: 0 } } };
+  const other = { ...base, id: 't2', topic: 'How the immune system remembers', from: '', to: '', nodes: [{ id: 'b', title: 'B cells', stage: 'A', needs: [], blurb: 'Antibodies.', kind: 'page' }], stages: ['A'], glossary: [], pages: {}, progress: {}, opened: 9, updated: 9 };
+  it('finds a topic, a page, a term and a passage, and says which', () => {
+    const [match] = learn.searchTracks([base, other], 'noise');
+    assert.equal(match.track.id, 't1');
+    assert.deepEqual(
+      match.hits.map((h) => h.kind),
+      ['page', 'term', 'text'],
+    );
+    assert.equal(match.hits[0].label, 'Gaussian noise');
+    assert.equal(match.hits[1].label, 'β_t');
+    assert.equal(match.hits[2].nodeId, 'reverse');
+    assert.equal(learn.searchTracks([base, other], 'noise').length, 1);
+    // A word in a page's prose comes back with the words round it.
+    const [inText] = learn.searchTracks([base, other], 'dissolve');
+    assert.equal(inText.hits[0].kind, 'text');
+    assert.match(inText.hits[0].snippet, /watched a photo dissolve/);
+  });
+  it('puts a track whose topic matches first, and wants every word somewhere', () => {
+    assert.equal(learn.searchTracks([base, other], 'immune')[0].track.id, 't2');
+    assert.equal(learn.searchTracks([base, other], 'immune noise').length, 0);
+    assert.equal(learn.searchTracks([base, other], 'ddpm probability')[0].hits[0].kind, 'topic');
+    assert.deepEqual(learn.searchTracks([base, other], '   '), []);
+  });
+  it('knows where a track stands', () => {
+    const now = 100 * 24 * 3600 * 1000;
+    assert.equal(learn.trackStatus(other, now), 'new');
+    assert.equal(learn.trackStatus({ ...base, opened: now - 1000 }, now), 'reading');
+    assert.equal(learn.trackStatus({ ...base, opened: now - 10 * 24 * 3600 * 1000 }, now), 'stalled');
+    assert.equal(learn.trackStatus({ ...base, progress: Object.fromEntries(nodes.map((n) => [n.id, 'read'])) }, now), 'finished');
+  });
+  it('cuts a snippet round the match, without the markdown', () => {
+    assert.equal(learn.snippetOf('## A\n\nThe **whole** idea is to run that film backwards.', 'film', 8), '…un that film backwar…');
+    assert.equal(learn.snippetOf('## A\n\nThe **whole** idea is to run that film backwards.', 'film'), 'A The whole idea is to run that film backwards.');
+    assert.equal(learn.snippetOf('nothing here', 'film'), '');
+  });
+});

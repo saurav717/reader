@@ -10,6 +10,8 @@ export type View =
   | { kind: 'paper'; id: string }
   /** The Playground: its home with no id, one playground with one. A page of its own, at /playground. */
   | { kind: 'playground'; id?: string }
+  /** Learn: every topic set out to learn, with no id; one track's map with one. A page of its own, at /learn. */
+  | { kind: 'learn'; id?: string }
   /** Every project side by side, at /projects. */
   | { kind: 'projects' }
   /** The signed-in account's Google Calendar, by day, week or month, at /calendar. */

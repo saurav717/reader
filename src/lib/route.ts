@@ -11,6 +11,8 @@
 //   /usage                 who used what (the owner's)
 //   /playground            the Playground's home
 //   /playground/?id=<id>   one playground
+//   /learn                 Learn: every topic set out to learn
+//   /learn/?id=<id>        one track's map
 //   /projects              every project, side by side
 //   /calendar              the signed-in account's calendar
 //   /project/?id=<id>      a project's overview; &view=workspace its workspace, &view=write its paper
@@ -58,6 +60,10 @@ export function pathFor(place: Place, base = basePath()): string {
               ? view.id
                 ? withId('playground', view.id)
                 : 'playground'
+              : view.kind === 'learn'
+                ? view.id
+                  ? withId('learn', view.id)
+                  : 'learn'
               : view.kind === 'project'
                 ? `${withId('project', view.id)}${view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' || view.mode === 'logbook' ? `&view=${view.mode}` : ''}${view.mode === 'logbook' && view.section ? `&section=${encodeURIComponent(view.section)}` : ''}`
                 : view.kind;
@@ -124,6 +130,7 @@ export function placeFor(address: string, base = basePath()): Place | null {
     return { view: mode ? { kind: 'project', id, mode, ...(section ? { section } : {}) } : { kind: 'project', id }, ...(at ? { at } : {}), ...(room && /^[0-9a-f]{32}$/.test(room) ? { join: { room, token: params.get('join'), ...(/^[0-9a-f]{12}$/.test(params.get('for') ?? '') ? { tag: params.get('for')! } : {}) } } : {}) };
   }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };
+  if (head === 'learn') return { view: id ? { kind: 'learn', id } : { kind: 'learn' } };
   return null;
 }
 
