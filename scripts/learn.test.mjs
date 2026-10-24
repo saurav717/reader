@@ -14,6 +14,7 @@ const explain = await load('src/lib/explain.ts', { external: ['@anthropic-ai/sdk
 const wikimedia = await load('src/lib/wikimedia.ts', { external: ['@anthropic-ai/sdk'] });
 const pictures = await load('src/lib/pictures.ts', { external: ['@anthropic-ai/sdk', '*/figureReader'] });
 const learnDrive = await load('src/lib/learnDrive.ts', { external: ['@anthropic-ai/sdk'] });
+const lineMotion = await load('src/lib/lineMotion.ts');
 
 after(cleanup);
 
@@ -41,6 +42,10 @@ describe('the instructions', () => {
     assert.match(learn.PAGE_SYSTEM, /```glossary/);
     assert.match(learn.PAGE_SYSTEM, /Never invent a citation/);
     assert.match(learn.PAGE_SYSTEM, /SCENES — a figure can be animated on request/);
+    // For this course the scenes are written without being asked, and the figures are drawn in the order a hand would.
+    assert.match(learn.PAGE_SYSTEM, /write a\s+```motion` block right after it/);
+    assert.match(learn.PAGE_SYSTEM, /"on request" is relaxed/);
+    assert.match(learn.PAGE_SYSTEM, /in the order a hand would draw it/);
   });
 });
 
@@ -383,5 +388,20 @@ describe('searching what has been learned', () => {
     assert.equal(learn.snippetOf('## A\n\nThe **whole** idea is to run that film backwards.', 'film', 8), '…un that film backwar…');
     assert.equal(learn.snippetOf('## A\n\nThe **whole** idea is to run that film backwards.', 'film'), 'A The whole idea is to run that film backwards.');
     assert.equal(learn.snippetOf('nothing here', 'film'), '');
+  });
+});
+
+describe('the lines drawing themselves', () => {
+  it('spreads the strokes over the figure’s time, a cascade when there are many', () => {
+    assert.deepEqual(lineMotion.stagger(0), []);
+    assert.deepEqual(lineMotion.stagger(1), [0]);
+    const few = lineMotion.stagger(3);
+    assert.equal(few[0], 0);
+    assert.ok(few[2] <= lineMotion.DRAW_MS - lineMotion.STROKE_MS);
+    const many = lineMotion.stagger(40);
+    assert.equal(many.length, 40);
+    assert.ok(many[1] - many[0] <= lineMotion.STROKE_MS * 0.6 + 1);
+    assert.ok(many[39] <= lineMotion.DRAW_MS - lineMotion.STROKE_MS + 1);
+    assert.ok(many.every((d, i) => i === 0 || d >= many[i - 1]));
   });
 });

@@ -10073,6 +10073,21 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 /* At the Plain level the code cells fold away; the switch in the bar brings them back. */
 .learn-level-plain .explain-cell { display: none; }
 
+/* Drawn figures draw themselves (src/lib/lineMotion.ts): each stroke traced in turn, the fills and text after, the arrowheads with the last stroke. */
+.learn .figure-art svg[data-ln] .ln-draw { stroke-dasharray: 1; stroke-dashoffset: 1; }
+.learn .figure-art svg[data-ln] .ln-appear, .learn .figure-art svg[data-ln] .ln-marker { opacity: 0; }
+.learn .figure-art svg.ln-play .ln-draw { animation: ln-draw 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards; animation-delay: var(--ln-delay, 0ms); }
+.learn .figure-art svg.ln-play .ln-appear { animation: ln-appear 0.5s ease forwards; animation-delay: var(--ln-delay, 0ms); }
+.learn .figure-art svg.ln-play .ln-marker { animation: ln-appear 0.3s ease forwards; animation-delay: var(--ln-last, 0ms); }
+.learn .figure-art:not(.paper-art):not(.photo-art) { cursor: pointer; }
+.learn .figure-art:not(.paper-art):not(.photo-art):not(.drawing)::after { content: '↻ Draw it again'; }
+@keyframes ln-draw { to { stroke-dashoffset: 0; } }
+@keyframes ln-appear { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .learn .figure-art svg[data-ln] .ln-draw { stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+  .learn .figure-art svg[data-ln] .ln-appear, .learn .figure-art svg[data-ln] .ln-marker { opacity: 1; animation: none; }
+}
+
 /* The formal account, folded under the plain prose. */
 .learn-formal { max-width: 660px; margin: 2px 0 18px; border-left: 3px solid var(--border); }
 .learn-formal.is-open { border-left-color: var(--accent); }
