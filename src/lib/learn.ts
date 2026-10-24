@@ -126,6 +126,8 @@ export interface LearnTrack {
   /** The reply the map was read from, kept so a map can be read again after the parser improves. */
   mapSrc?: string;
   error?: string;
+  /** Its folder in Drive, once written or read there. */
+  drive?: { folderId: string; link?: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,11 +183,17 @@ FORMAT — plain Markdown, with these rules the page depends on:
   above it must stand on its own.
 - Maths, inside and outside formal blocks, as LaTeX: inline between single dollars, $\\nabla \\cdot u = 0$; a displayed
   equation on lines of its own between double dollars. Never put maths in \`code\` spans, never as Unicode approximations.
-- Pictures from the world: where a real photograph, micrograph, painting, map or historical figure would teach more than a
-  drawing (what a thing actually looks like; who did it; the apparatus), ask for one with
-  \`\`\`image query="a search for Wikimedia Commons, 3-8 words" must="what the picture must show, in one clause" caption="One line of what to look at in it"\`
-  and inside the block one sentence of Markdown on why it is here. The page searches Wikimedia Commons for it and
-  captions it with its author and licence. At most two per page; none when a drawing does the job.
+- Pictures from the world: where a real photograph, micrograph, painting, map, screenshot or historical figure would teach
+  more than a drawing (what a thing actually looks like; who did it; the apparatus; what a model's output looks like), ask
+  for one with
+  \`\`\`image query="an image search, 3-8 words" must="what the picture must show, in one clause" caption="One line of what to look at in it"\`
+  and inside the block one sentence of Markdown on why it is here. The page searches Wikimedia Commons and the web for it,
+  shows you the candidates, and captions the one you pick with its source. Write the query as an image search would want it:
+  the name of a thing, a place, an apparatus, a well-known picture ("Hubble ultra deep field", "DDPM CelebA samples",
+  "ribosome cryo-EM structure"), not an abstract description. Where the right picture is a figure of a paper you are sure
+  of — the samples a model produced, the architecture as the authors drew it, the plot a result rests on — name it too:
+  paper="<arXiv id>" figure="Figure 1" on the same fence, and the page pulls that figure from the paper itself. At most two
+  pictures per page; none when a drawing does the job.
 - Code: \`\`\`python title="What this cell shows"\` — short (≤ 30 lines), self-contained, numpy only (torch when it matters),
   deterministic (seeded), and it must print something that proves the point. Follow each cell with \`\`\`output\` holding
   what it prints. Only where running it teaches something a figure cannot; many pages need none.
@@ -552,7 +560,8 @@ export function tracks(): LearnTrack[] {
 
 export const trackFor = (id: string) => cache.get(id);
 
-function put(track: LearnTrack, persist = true) {
+/** `persist`: nowhere (a stream's frame), here and in Drive, or here only (what came from Drive). */
+function put(track: LearnTrack, persist: boolean | 'local' = true) {
   cache.set(track.id, track);
   version++;
   notify();
@@ -564,7 +573,7 @@ function put(track: LearnTrack, persist = true) {
       pages[id] = page_;
     }
     void db.setKv(KEY(track.id), { ...kept, pages }).catch(() => undefined);
-    driveSave(track);
+    if (persist !== 'local') driveSave(track);
   }
 }
 
@@ -588,8 +597,46 @@ export function loadTracks(): Promise<void> {
     } finally {
       loading = null;
     }
+    await syncFromDrive();
   })();
   return loading;
+}
+
+let synced: LearnDriveAdapter | null = null;
+let syncing: Promise<void> | null = null;
+/**
+ * The tracks in Drive, read once per connection and merged: a track newer
+ * there than here is taken (a page written in another browser), one newer
+ * here goes up. Nothing is asked twice of the same connection.
+ */
+export function syncFromDrive(): Promise<void> {
+  const adapter = drive;
+  if (!adapter || synced === adapter) return syncing ?? Promise.resolve();
+  synced = adapter;
+  syncing = (async () => {
+    try {
+      const found = await adapter.load();
+      for (const remote of found) {
+        const now = cache.get(remote.id);
+        const busy = running?.trackId === remote.id || now?.mapping;
+        if (!now) put(remote, 'local');
+        else if (!busy && (remote.updated ?? 0) > (now.updated ?? 0)) put({ ...remote, opened: Math.max(remote.opened ?? 0, now.opened ?? 0) || undefined }, 'local');
+        else if (!busy && (now.updated ?? 0) > (remote.updated ?? 0)) put({ ...now, drive: now.drive ?? remote.drive });
+        else if (!now.drive) put({ ...now, drive: remote.drive }, 'local');
+        driveStates.set(remote.id, { state: 'saved', link: remote.drive?.link });
+      }
+      // Tracks made before Drive was connected go up now.
+      for (const track of cache.values()) if (!track.drive && track.nodes.length && !track.mapping) driveSave(track);
+      notify();
+    } catch (error) {
+      for (const track of cache.values()) driveStates.set(track.id, { state: 'error', message: error instanceof Error ? error.message : String(error) });
+      synced = null;
+      notify();
+    } finally {
+      syncing = null;
+    }
+  })();
+  return syncing;
 }
 
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -601,6 +648,10 @@ export function putTrack(track: LearnTrack) {
 
 export function deleteTrack(id: string) {
   if (running?.trackId === id) running.stream.abort();
+  const track = cache.get(id);
+  if (track && drive) void drive.remove(track).catch(() => undefined);
+  window.clearTimeout(driveTimers.get(id));
+  driveStates.delete(id);
   cache.delete(id);
   version++;
   notify();
@@ -623,17 +674,30 @@ export const isWorking = (trackId: string, nodeId?: string) => running?.trackId 
 // ---------------------------------------------------------------------------
 
 export interface LearnDriveAdapter {
-  save(track: LearnTrack): Promise<void>;
+  /** Every track kept in Drive. */
+  load(): Promise<LearnTrack[]>;
+  /** The track written: track.json, and each page whose content changed since `written` (updated by node) last saw it. */
+  save(track: LearnTrack, written: Record<string, number>): Promise<{ folderId: string; link?: string }>;
+  /** Its folder put in Drive's trash. */
+  remove(track: LearnTrack): Promise<void>;
 }
 
 let drive: LearnDriveAdapter | null = null;
 const driveTimers = new Map<string, number>();
-export type LearnDriveState = { state: 'saving' } | { state: 'saved' } | { state: 'error'; message: string };
+/** Which page content each track has had written to Drive, by node: updated stamps. */
+const driveWritten = new Map<string, Record<string, number>>();
+export type LearnDriveState = { state: 'saving' } | { state: 'saved'; link?: string } | { state: 'error'; message: string };
 const driveStates = new Map<string, LearnDriveState>();
 export const driveStateOf = (trackId: string) => driveStates.get(trackId);
 
+/** Set by the app when Drive is connected, and cleared when it is not; a new connection is read once. */
 export function setLearnDrive(adapter: LearnDriveAdapter | null) {
   drive = adapter;
+  if (!adapter) {
+    synced = null;
+    driveStates.clear();
+    notify();
+  }
 }
 
 function driveSave(track: LearnTrack) {
@@ -647,9 +711,15 @@ function driveSave(track: LearnTrack) {
       const adapter = drive;
       const now = cache.get(track.id);
       if (!adapter || !now) return;
+      const written = driveWritten.get(track.id) ?? {};
+      driveWritten.set(track.id, written);
       adapter
-        .save(now)
-        .then(() => driveStates.set(track.id, { state: 'saved' }))
+        .save(now, written)
+        .then((mark) => {
+          driveStates.set(track.id, { state: 'saved', link: mark.link });
+          const latest = cache.get(track.id);
+          if (latest && latest.drive?.folderId !== mark.folderId) put({ ...latest, drive: mark }, 'local');
+        })
         .catch((error: unknown) => driveStates.set(track.id, { state: 'error', message: error instanceof Error ? error.message : String(error) }))
         .finally(notify);
     }, 1500),

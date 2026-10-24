@@ -12,6 +12,8 @@ import { cleanup, load } from './bundle.mjs';
 const learn = await load('src/lib/learn.ts', { external: ['@anthropic-ai/sdk'] });
 const explain = await load('src/lib/explain.ts', { external: ['@anthropic-ai/sdk'] });
 const wikimedia = await load('src/lib/wikimedia.ts', { external: ['@anthropic-ai/sdk'] });
+const pictures = await load('src/lib/pictures.ts', { external: ['@anthropic-ai/sdk', '*/figureReader'] });
+const learnDrive = await load('src/lib/learnDrive.ts', { external: ['@anthropic-ai/sdk'] });
 
 after(cleanup);
 
@@ -290,10 +292,56 @@ describe('pictures from Commons', () => {
     assert.equal(images[1].width, 900);
     assert.deepEqual(wikimedia.fromCommons({}), []);
   });
+  it('reads a paper named on an image block, and the figure wanted', () => {
+    const [section] = explain.parseExplanation('## A\n```image query="DDPM samples" must="faces a model produced" paper="arXiv:2006.11239v2" figure="Figure 1"\nwhy\n```');
+    const image = section.blocks[0];
+    assert.equal(image.kind, 'image');
+    assert.equal(image.paper, '2006.11239');
+    assert.equal(image.figure, 'Figure 1');
+    assert.equal(explain.parseExplanation('## A\n```image query="x" must="y"\n```')[0].blocks[0].paper, undefined);
+  });
+  it('names where a picture came from', () => {
+    assert.equal(pictures.sourceLabel({ kind: 'commons', src: '', page: '', title: '', source: 'Wikimedia Commons' }), 'Found on the web · Wikimedia Commons');
+    assert.equal(pictures.sourceLabel({ kind: 'paper', src: '', page: '', title: '', source: 'arXiv:2006.11239' }), 'From a paper · arXiv:2006.11239');
+    assert.equal(pictures.sourceLabel({ kind: 'web', src: '', page: '', title: '', source: 'x', via: 'Google Images' }), 'Found on the web · Google Images');
+  });
   it('reads the checker’s verdict', () => {
-    assert.deepEqual(wikimedia.readVerdict('2\nA photograph at four noise levels.'), { pick: 2, note: 'A photograph at four noise levels.' });
-    assert.deepEqual(wikimedia.readVerdict('Picture 3 — shows the apparatus.'), { pick: 3, note: 'shows the apparatus.' });
-    assert.equal(wikimedia.readVerdict('0. None of them.').pick, 0);
-    assert.equal(wikimedia.readVerdict('none of these').pick, 0);
+    assert.deepEqual(pictures.readVerdict('2\nA photograph at four noise levels.'), { pick: 2, note: 'A photograph at four noise levels.' });
+    assert.deepEqual(pictures.readVerdict('Picture 3 — shows the apparatus.'), { pick: 3, note: 'shows the apparatus.' });
+    assert.equal(pictures.readVerdict('0. None of them.').pick, 0);
+    assert.equal(pictures.readVerdict('none of these').pick, 0);
+  });
+});
+
+describe('a track in Drive', () => {
+  const { stages, nodes } = learn.parseMap(MAP);
+  const track = {
+    id: 'k7x9', topic: 'Diffusion: models / basics?', from: '', to: '', prefs: learn.DEFAULT_PREFS, model: 'm', created: 1, updated: 2, stages, nodes,
+    pages: { noise: { nodeId: 'noise', content: '## A\n\nx', model: 'm', created: 1, updated: 2, streaming: true, thinking: 'hm', pending: { request: 'r', reply: '' } } },
+    progress: { noise: 'read' }, glossary: [], mapping: true, error: 'e', drive: { folderId: 'f' },
+  };
+  it('names the folder by the topic and the id, and reads the id back', () => {
+    const name = learnDrive.trackFolderName(track);
+    assert.equal(name, 'Diffusion models basics (k7x9)');
+    assert.equal(learnDrive.trackIdOf(name), 'k7x9');
+    assert.equal(learnDrive.trackIdOf('Something else'), null);
+    assert.equal(learnDrive.pageFileName(track, 'markov'), '02 Markov chains.md');
+  });
+  it('writes track.json without what is only this browser’s, and reads it back', () => {
+    const text = learnDrive.trackJson(track);
+    const raw = JSON.parse(text);
+    assert.equal(raw.generator, 'reader');
+    assert.equal(raw.mapping, undefined);
+    assert.equal(raw.error, undefined);
+    assert.equal(raw.drive, undefined);
+    assert.equal(raw.pages.noise.streaming, undefined);
+    assert.equal(raw.pages.noise.pending, undefined);
+    const back = learnDrive.fromTrackJson(text);
+    assert.equal(back.id, 'k7x9');
+    assert.equal(back.nodes.length, 5);
+    assert.equal(back.pages.noise.content, '## A\n\nx');
+    assert.deepEqual(back.progress, { noise: 'read' });
+    assert.equal(learnDrive.fromTrackJson('{"nope":1}'), null);
+    assert.equal(learnDrive.fromTrackJson('not json'), null);
   });
 });

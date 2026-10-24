@@ -11,8 +11,8 @@ import type { Block } from '../lib/explain';
 import { markdown } from '../lib/markdown';
 import { cleanFigure } from '../lib/sanitize';
 import { typesetFigureMath } from '../lib/figureMath';
-import { resolveImage } from '../lib/wikimedia';
-import type { ResolvedImage } from '../lib/wikimedia';
+import { resolvePicture, sourceLabel } from '../lib/pictures';
+import type { ResolvedPicture } from '../lib/pictures';
 import { markAnswer, shuffled, verdictOf } from '../lib/learn';
 import type { CheckAnswer, CheckQuestion, CheckResult } from '../lib/learn';
 
@@ -25,7 +25,7 @@ export const LEVELS: { id: LearnLevel; label: string; note: string }[] = [
 ];
 
 /** The level the page is read at, and the model that wrote it (which checks its pictures). */
-export const LearnContext = createContext<{ level: LearnLevel; model?: string } | null>(null);
+export const LearnContext = createContext<{ level: LearnLevel; model?: string; /** The track's own papers, looked in for figures when nothing else shows it. */ papers?: { arxivId: string; title?: string }[] } | null>(null);
 
 const html = (md: string) => DOMPurify.sanitize(markdown(md), { ADD_ATTR: ['target'] });
 
@@ -54,28 +54,33 @@ export function FormalBlock({ block }: { block: Extract<Block, { kind: 'formal' 
   );
 }
 
-/** A picture the page asked for, found on Commons, checked, and captioned with where it came from. */
+/** A picture the page asked for: found (a paper's figure, Commons, the web), checked, and captioned with where it came from. */
 export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }> }) {
   const learn = useContext(LearnContext);
   const model = learn?.model;
-  const [state, setState] = useState<{ resolved?: ResolvedImage; error?: string; looking: boolean }>({ looking: true });
+  const papers = learn?.papers;
+  const [state, setState] = useState<{ resolved?: ResolvedPicture; error?: string; looking: boolean }>({ looking: true });
   const [fresh, setFresh] = useState(0);
   useEffect(() => {
-    if (block.open || !block.query) return;
+    if (block.open || !(block.query || block.paper)) return;
     const controller = new AbortController();
     setState({ looking: true });
-    resolveImage(block.query, block.must, model, { fresh: fresh > 0, signal: controller.signal })
+    resolvePicture({ query: block.query || block.must, must: block.must || block.query, model, paper: block.paper ? { arxivId: block.paper, figure: block.figure } : undefined, papers, fresh: fresh > 0, signal: controller.signal })
       .then((resolved) => setState({ resolved, looking: false }))
-      .catch((error: unknown) => setState({ error: error instanceof Error ? error.message : String(error), looking: false }));
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setState({ error: error instanceof Error ? error.message : String(error), looking: false });
+      });
     return () => controller.abort();
-  }, [block.open, block.query, block.must, model, fresh]);
-  const image = state.resolved?.image;
+  }, [block.open, block.query, block.must, block.paper, block.figure, model, papers, fresh]);
+  const picture = state.resolved?.picture;
+  const resolved = state.resolved;
   return (
-    <figure className={`explain-figure is-photo${image ? '' : ' is-empty'}`}>
+    <figure className={`explain-figure is-photo${picture ? '' : ' is-empty'}${picture?.kind === 'paper' ? ' is-paper' : ''}`}>
       <div className="photo-head">
-        <span>{image ? 'Found on the web · Wikimedia Commons' : 'A picture from the web'}</span>
+        <span>{picture ? sourceLabel(picture) : 'A picture from the web'}</span>
         {!block.open && !state.looking ? (
-          <button type="button" className="btn sm ghost" onClick={() => setFresh((n) => n + 1)} title="Search Commons again and check the pictures afresh">
+          <button type="button" className="btn sm ghost" onClick={() => setFresh((n) => n + 1)} title="Search again — the paper named, Commons, the web, the track's papers — and check what is found afresh">
             Look again
           </button>
         ) : null}
@@ -84,40 +89,60 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
         <div className="figure-art drawing">Asking for a picture…</div>
       ) : state.looking ? (
         <div className="figure-art drawing">
-          <span className="spinner" /> Searching Commons for “{block.query}”{model ? ', then checking what it finds' : ''}…
+          <span className="spinner" /> Looking for “{block.query || block.figure}”{block.paper ? ` in arXiv:${block.paper}, then` : ''} on Commons and the web{model ? ', and checking what turns up' : ''}…
         </div>
-      ) : image ? (
-        <a className="figure-art photo-art" href={image.page || image.url} target="_blank" rel="noreferrer noopener" title="Open its page on Wikimedia Commons">
-          <img src={image.src} alt={block.caption || image.title} loading="lazy" />
-          <span className="photo-query">image: search “{block.query}”</span>
+      ) : picture ? (
+        <a className={`figure-art photo-art${picture.kind === 'paper' ? ' paper-art' : ''}`} href={picture.page || picture.src} target="_blank" rel="noreferrer noopener" title={picture.kind === 'paper' ? 'Open the paper on arXiv' : picture.kind === 'commons' ? 'Open its page on Wikimedia Commons' : 'Open the page it was found on'}>
+          <img src={picture.src} alt={block.caption || picture.title} loading="lazy" />
+          <span className="photo-query">{picture.kind === 'paper' ? `${picture.ref ?? 'figure'} of ${picture.source}` : `image: search “${block.query}”`}</span>
         </a>
       ) : (
-        <div className="figure-art drawing paper-missing">{state.error ? `Could not search Commons — ${state.error}` : state.resolved?.note || `Nothing on Commons shows “${block.must || block.query}” clearly enough to put here.`}</div>
+        <div className="figure-art drawing paper-missing">{state.error ? `Could not look for a picture — ${state.error}` : resolved?.note || `Nothing found shows “${block.must || block.query}” clearly enough to put here.`}</div>
       )}
       {block.caption ? <figcaption>{block.caption}</figcaption> : null}
       {block.md ? <div className="paper-figure-note" dangerouslySetInnerHTML={{ __html: html(block.md) }} /> : null}
-      {image ? (
+      {picture ? (
         <div className="photo-source">
-          “{image.title.replace(/\.[a-z0-9]+$/i, '')}”, by {image.author} ·{' '}
-          <a href={image.page || image.url} target="_blank" rel="noreferrer noopener">
-            Wikimedia Commons
-          </a>{' '}
-          ·{' '}
-          {image.licenceUrl ? (
-            <a href={image.licenceUrl} target="_blank" rel="noreferrer noopener">
-              {image.licence}
-            </a>
+          {picture.kind === 'commons' ? (
+            <>
+              “{picture.title}”, by {picture.author} ·{' '}
+              <a href={picture.page} target="_blank" rel="noreferrer noopener">
+                Wikimedia Commons
+              </a>{' '}
+              ·{' '}
+              {picture.licenceUrl ? (
+                <a href={picture.licenceUrl} target="_blank" rel="noreferrer noopener">
+                  {picture.licence}
+                </a>
+              ) : (
+                picture.licence
+              )}
+            </>
+          ) : picture.kind === 'paper' ? (
+            <>
+              {picture.ref ?? 'A figure'} of {picture.paper?.title ? <i>{picture.paper.title}</i> : 'the paper'} ·{' '}
+              <a href={picture.page} target="_blank" rel="noreferrer noopener">
+                {picture.source}
+              </a>{' '}
+              · pulled from the paper’s PDF{picture.description ? ` · “${picture.description.slice(0, 140)}${picture.description.length > 140 ? '…' : ''}”` : ''}
+            </>
           ) : (
-            image.licence
+            <>
+              {picture.title ? `“${picture.title}” · ` : ''}from{' '}
+              <a href={picture.page || picture.src} target="_blank" rel="noreferrer noopener">
+                {picture.source || 'the web'}
+              </a>{' '}
+              · found by {picture.via || 'image search'} · licence not known: see the page before reusing it
+            </>
           )}
         </div>
       ) : null}
-      {image && state.resolved ? (
-        <div className={`photo-verify is-${state.resolved.verdict}`}>
-          <i aria-hidden="true">{state.resolved.verdict === 'checked' ? '✓' : '?'}</i>
-          {state.resolved.verdict === 'checked'
-            ? `Checked by the model: ${state.resolved.note || 'it shows what the page asked for.'}${state.resolved.rejected ? ` ${state.resolved.rejected} other${state.resolved.rejected === 1 ? '' : 's'} passed over.` : ''}`
-            : 'Not checked: the first match for the search, as found. Look again with a model that can see to have it checked.'}
+      {picture && resolved ? (
+        <div className={`photo-verify is-${resolved.verdict}`}>
+          <i aria-hidden="true">{resolved.verdict === 'checked' ? '✓' : '?'}</i>
+          {resolved.verdict === 'checked'
+            ? `Checked by the model: ${resolved.note || 'it shows what the page asked for.'}${resolved.rejected ? ` ${resolved.rejected} other${resolved.rejected === 1 ? '' : 's'} passed over${resolved.tried.length > 1 ? ` (${resolved.tried.join(', ')})` : ''}.` : ''}`
+            : resolved.note || 'Not checked: the first match for the search, as found. Look again with a model that can see to have it checked.'}
         </div>
       ) : null}
     </figure>

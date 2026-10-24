@@ -32,7 +32,7 @@ import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
 import { aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi } from './aiRelay.js';
-import { readPage, searchWeb, webAvailable, WebRefused } from './webSearch.js';
+import { fetchPicture, readPage, searchImages, searchWeb, webAvailable, WebRefused } from './webSearch.js';
 import { handleColab, isColabPath } from './colab.js';
 import { socketSecret } from './colabSocket.js';
 import { Readable } from 'node:stream';
@@ -775,6 +775,26 @@ async function askAi(provider, req, res) {
 
 const webKeys = () => ({ tavily: (process.env.TAVILY_KEY || '').trim(), brave: (process.env.BRAVE_KEY || '').trim(), serply: serplyKey(), serpapi: serpKey() });
 
+async function webImages(url, res) {
+  try {
+    return send(res, 200, await searchImages(url.searchParams.get('q'), webKeys()), { 'Cache-Control': 'private, max-age=3600' });
+  } catch (error) {
+    if (error instanceof WebRefused) return send(res, error.status, { error: error.message, ...(error.status === 501 ? { setup: true } : {}) });
+    return send(res, 502, { error: said(error, 'could not search for pictures') });
+  }
+}
+
+async function webPicture(url, res) {
+  try {
+    const { type, bytes } = await fetchPicture(url.searchParams.get('url'), { userAgent: UA });
+    res.writeHead(200, { 'Content-Type': type, 'Content-Length': bytes.byteLength, 'Cache-Control': 'private, max-age=86400' });
+    return res.end(Buffer.from(bytes));
+  } catch (error) {
+    if (error instanceof WebRefused) return send(res, error.status, { error: error.message });
+    return send(res, 502, { error: said(error, 'could not fetch that picture') });
+  }
+}
+
 async function webSearch(url, res) {
   try {
     return send(res, 200, await searchWeb(url.searchParams.get('q'), webKeys()), { 'Cache-Control': 'private, max-age=300' });
@@ -815,7 +835,7 @@ function costOf(pathname) {
   if (pathname === '/pdf' || pathname === '/asset') return 'pdf';
   if (pathname.startsWith('/scholar/') && !pathname.startsWith('/scholar/captcha')) return 'scholar';
   if (pathname === '/contributions') return 'scholar';
-  if (pathname === '/web/search' || pathname === '/web/page') return 'web';
+  if (pathname === '/web/search' || pathname === '/web/page' || pathname === '/web/images' || pathname === '/web/picture') return 'web';
   if (pathname === '/browse/open') return 'browse';
   return null;
 }
@@ -906,6 +926,10 @@ export default async function apiRouter(req, res, next) {
         return await webSearch(url, res);
       case '/web/page':
         return await webPage(url, res);
+      case '/web/images':
+        return await webImages(url, res);
+      case '/web/picture':
+        return await webPicture(url, res);
       case '/workspace/status':
         return send(res, 200, await workspace.status(), { 'Cache-Control': 'no-store' });
       case '/workspace/scaffold':

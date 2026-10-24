@@ -10,6 +10,7 @@ import {
   countRead,
   DEFAULT_PREFS,
   deleteTrack,
+  driveStateOf,
   FROM_HINT,
   layoutMap,
   loadTracks,
@@ -18,6 +19,7 @@ import {
   openLearnPage,
   startTrack,
   subscribeLearn,
+  syncFromDrive,
   TO_HINT,
   touchTrack,
   tracks,
@@ -46,7 +48,7 @@ interface Props {
 export function LearnHome({ ask, onOpenPaper }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const all = useSyncExternalStore(subscribeLearn, tracks);
-  const { papers } = useStore();
+  const { papers, driveConnected } = useStore();
   const model = assistant.prefs.explainModel ?? assistant.prefs.model;
   const hasKey = Boolean(assistant.keys[modelSpec(model).provider]);
   const [topic, setTopic] = useState(ask?.topic ?? '');
@@ -59,6 +61,10 @@ export function LearnHome({ ask, onOpenPaper }: Props) {
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => void loadTracks(), []);
+  // Drive connected after Home opened is read too.
+  useEffect(() => {
+    if (driveConnected) void syncFromDrive();
+  }, [driveConnected]);
   useEffect(() => {
     if (ask?.topic) {
       setTopic(ask.topic);
@@ -173,6 +179,7 @@ export function LearnHome({ ask, onOpenPaper }: Props) {
 /** The map: stages as columns, each page a box coloured by where you are, the needs as curves between them. */
 function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNode) => void }) {
   const layout = useMemo(() => layoutMap(track), [track.stages, track.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const driveState = useSyncExternalStore(subscribeLearn, () => driveStateOf(track.id));
   const states = nodeStates(track);
   const counts = countRead(track);
   const byId = new Map(track.nodes.map((node) => [node.id, node]));
@@ -233,6 +240,28 @@ function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNo
               to <b>{track.to}</b>
             </>
           ) : null}
+        </p>
+      ) : null}
+      {driveState ? (
+        <p className={`learn-map-drive is-${driveState.state}`}>
+          <span className="drive-dot" aria-hidden="true" />
+          {driveState.state === 'saving' ? (
+            'Saving to your Drive…'
+          ) : driveState.state === 'error' ? (
+            <span title={driveState.message}>Not saved to Drive — {driveState.message}</span>
+          ) : (
+            <>
+              Kept in your Drive, under Learn
+              {driveState.link ?? track.drive?.link ? (
+                <>
+                  {' · '}
+                  <a href={driveState.link ?? track.drive?.link} target="_blank" rel="noreferrer noopener">
+                    Open the folder ↗
+                  </a>
+                </>
+              ) : null}
+            </>
+          )}
         </p>
       ) : null}
       {track.error ? (

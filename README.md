@@ -4430,18 +4430,31 @@ the page shows:
 - **With code** — everything, the code cells included, run in Colab as
   Explain's are.
 
-Pictures come from three places, and each says which. The model **draws**
+Pictures come from four places, and each says which. The model **draws**
 figures as it does for Explain, and can mark one to animate as a scene. Where
-a real photograph, micrograph, map or portrait would teach more than a
-drawing, it **asks for one** — never by an address it remembers, but by what
-the picture must show (`image query="…" must="…"`). The page searches
-**Wikimedia Commons** for it, straight from the browser, and — when the model
-that wrote the page can see — shows it the first few candidates and asks
-which one actually shows what was asked for; the one chosen is captioned
-with its title, author, licence and a link to its page on Commons, and a line
-under it says it was checked, or that it was taken unchecked. Nothing found
-clearly enough is said so, rather than a wrong picture captioned
-confidently. **Look again** searches afresh. Claims that rest on a source
+a real photograph, micrograph, map, portrait or a model's own output would
+teach more than a drawing, it **asks for one** — never by an address it
+remembers, but by what the picture must show (`image query="…" must="…"`),
+and, where the right picture is a figure of a paper it is sure of, which
+paper and which figure (`paper="2006.11239" figure="Figure 1"`). The page
+then looks, in order, until one is accepted: in **that paper**, fetched
+through the proxy and reflowed for its figures (the named figure first,
+then the rest by their captions); on **Wikimedia Commons**, straight from the
+browser, which knows every picture's author and licence; on **the web**,
+through the proxy's image search (Google Images by SerpApi when
+`SERPAPI_KEY` is set, else Brave's, else Tavily's, the same keys as Ask AI's
+Web button — `/web/images`); and in **the track's own papers**, the ones the
+map ends at. When the model that wrote the page can see, it is shown the
+first few candidates from each source and asked which one actually shows
+what was asked for, and a source it refuses whole is passed over for the
+next (`/web/picture` fetches a web picture's bytes for it where the host
+would not let the page). The one chosen is captioned with where it came
+from — title, author, licence and a link for a Commons picture; the figure,
+the paper and its arXiv page for a paper's; the page it was found on, which
+search found it, and a note that its licence is not known for a web
+picture — and a line under it says it was checked, or taken unchecked.
+Nothing found clearly enough is said so, rather than a wrong picture
+captioned confidently. **Look again** searches afresh. Claims that rest on a source
 are cited `[n]` in the prose and listed under **References**; the model is
 told to mark a source it is not sure of *(not verified)* and never to invent
 one. The bar at the top takes questions and adjustments — *simpler*, *draw
@@ -4457,12 +4470,22 @@ section on exactly that before its own idea starts. *I'm confident* skips
 the check, *Try again* resets it, and *Reread at the Formal level* opens
 every formal block and goes back to the top.
 
-A track is kept in this browser (IndexedDB) and comes back on Home. The
-map's reading — which page is next, what each box's state is, how the
+A track is kept in this browser (IndexedDB) and comes back on Home. With
+Drive connected it is kept in your Drive too, under
+`Papers_collection/Learn/<topic> (<id>)/`: `track.json`, the whole track
+(its map, its pages, where you are on it, the glossary), which another
+browser reads back — the newer copy wins, as with Explain's pages — and one
+Markdown file per page written, `01 Gaussian noise.md`, `02 Markov
+chains.md`, …, each page as the model wrote it behind a few lines of front
+matter, so the course is also a folder of documents you can open in Drive
+and read. The map's card says where it is kept, with a link to the folder;
+deleting a track puts its folder in Drive's trash. The map's reading — which page is next, what each box's state is, how the
 columns and curves are laid out — and the reading of a page's check and
 glossary, the marking, and what the next page is told are in
-`src/lib/learn.ts`, tested by `scripts/learn.test.mjs`; the Commons search
-and the checker's verdict are in `src/lib/wikimedia.ts`.
+`src/lib/learn.ts`, tested by `scripts/learn.test.mjs`; the search for a
+picture, source by source, and the checker's verdict are in
+`src/lib/pictures.ts` (the Commons search in `src/lib/wikimedia.ts`); the
+Drive folder in `src/lib/learnDrive.ts`.
 
 ## Playground
 
