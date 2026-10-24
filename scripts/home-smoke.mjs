@@ -120,7 +120,7 @@ async function seed(settings = {}) {
       localStorage.setItem('reader.view', JSON.stringify({ kind: 'all' }));
       localStorage.removeItem('reader.spots');
       // The first half is about Continue reading: Home opens on it, as it did.
-      localStorage.setItem('reader.home', JSON.stringify({ opensOn: 'continue', tabs: ['search', 'continue', 'today', 'projects', 'inbox', 'board', 'learn'], last: 'continue', clearPanels: true, v: 3 }));
+      localStorage.setItem('reader.home', JSON.stringify({ opensOn: 'continue', tabs: ['search', 'continue', 'today', 'projects', 'inbox', 'board'], last: 'continue', clearPanels: true, v: 2 }));
       const db = await new Promise((resolve, reject) => {
         const request = indexedDB.open('reader', 1);
         request.onsuccess = () => resolve(request.result);
@@ -266,7 +266,7 @@ await page.waitForTimeout(2800);
 await page.locator('.rail button.brand').click();
 await home(page).waitFor({ timeout: 10000 });
 const tabs = page.locator('.home-tabs .home-tab[aria-pressed]');
-check('seven views, as tabs', (await tabs.count()) === 7, (await tabs.allTextContents()).join(' | '));
+check('six views, as tabs', (await tabs.count()) === 6, (await tabs.allTextContents()).join(' | '));
 check('Continue reading is the default here', ((await tabs.nth(1).textContent()) || '').includes('default'));
 check('the Inbox counts what is new', ((await tabs.nth(4).textContent()) || '').includes('1'), (await tabs.nth(4).textContent()) || '');
 await page.keyboard.press('3');

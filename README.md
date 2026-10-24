@@ -79,9 +79,10 @@ Both run on Claude or on DeepSeek, whichever you pick — see
 [Choosing a model](#choosing-a-model-claude-deepseek-or-gemini).
 Press **P** for the [Playground](#playground), a page for code of your own:
 a notebook or a project, on your Colab, on this PC, or with the files on this
-PC and the GPU somewhere else. Home's **Learn** tab teaches a topic of your
-own — not a paper — as a map of pages written one at a time as you reach
-them, pictures first — see [Learn](#learn). Every page has [its own address](#addresses).
+PC and the GPU somewhere else. Press **L** for [Learn](#learn), a topic
+of your own — not a paper — mapped as pages written one at a time as you
+reach them, pictures first, and every topic you have learned so far,
+searchable. Every page has [its own address](#addresses).
 
 New here? A **guided tour** opens the first time a visit reaches Home: a ring
 round one part of the window at a time, the rest shaded, and a card beside it
@@ -4394,8 +4395,14 @@ answered in the browser — so a cell's run, the probe, the runtime menu and the
 
 ## Learn
 
-Not every question is a paper. On Home's **Learn** tab (<kbd>7</kbd>) you name
-a topic — *diffusion models*, *how the immune system remembers*, *spectral
+Not every question is a paper. **Learn**, on the rail (<kbd>L</kbd>, at
+`/learn`), is every topic you have set out to learn: a search box over all of
+it at the top — a topic, a page's title, a term a page taught, or a sentence
+in a page; each match says which track and which page it is in, and opens
+it — the tracks down the left as cards with how far each has got and
+whether it is in progress, stalled or finished (filters above them), and the
+chosen track's map beside them, at its own address. **+ New topic** opens the
+box: you name a topic — *diffusion models*, *how the immune system remembers*, *spectral
 graph theory* — and, in two lines beside it, where you start (*I know basic
 probability and PyTorch*) and where you want to get (*can read the DDPM
 paper*). **Map it**, and the model writes a **map** first, not a page: three
@@ -4408,9 +4415,8 @@ next. A dashed box is a **paper** to read when you get there — one the model
 is sure exists, opened in the reader from your library, or found in Discover
 — so a track can end at the primary source. **Remap** asks for the map again
 (the pages already written keep their place where their box survives), and
-**+** on the lookup box, or **Teach me** on a selection in a paper, starts a
-track from a phrase in what you are reading. The tracks in progress sit
-beside the map with how far each has got and what is next.
+**Teach me this** on the lookup box, or **Teach me** on a selection in a
+paper, opens Learn with the phrase as the topic.
 
 Nothing else is written until you open a box. Then that one page is written,
 in the layout [Explain](#explain) uses — the track's pages down the left,
@@ -4470,7 +4476,7 @@ section on exactly that before its own idea starts. *I'm confident* skips
 the check, *Try again* resets it, and *Reread at the Formal level* opens
 every formal block and goes back to the top.
 
-A track is kept in this browser (IndexedDB) and comes back on Home. With
+A track is kept in this browser (IndexedDB) and comes back on the Learn page. With
 Drive connected it is kept in your Drive too, under
 `Papers_collection/Learn/<topic> (<id>)/`: `track.json`, the whole track
 (its map, its pages, where you are on it, the glossary), which another

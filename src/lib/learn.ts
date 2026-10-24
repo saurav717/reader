@@ -1048,6 +1048,82 @@ export function nodeBefore(track: Pick<LearnTrack, 'nodes'>, nodeId: string): Le
 }
 
 // ---------------------------------------------------------------------------
+// Searching what has been learned: topics, pages, terms, and the pages' text
+// ---------------------------------------------------------------------------
+
+export interface SearchHit {
+  kind: 'topic' | 'page' | 'term' | 'text';
+  /** The page it points at, when it does. */
+  nodeId?: string;
+  label: string;
+  /** A few words around the match. */
+  snippet?: string;
+}
+
+export interface TrackMatch {
+  track: LearnTrack;
+  hits: SearchHit[];
+}
+
+const plain = (text: string) =>
+  text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[#*_`$\\]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** A few words either side of the first place `needle` occurs in `text`, or '' when it does not. */
+export function snippetOf(text: string, needle: string, span = 70): string {
+  const haystack = plain(text);
+  const at = haystack.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) return '';
+  const start = Math.max(0, at - span);
+  const end = Math.min(haystack.length, at + needle.length + span);
+  return `${start ? '…' : ''}${haystack.slice(start, end).trim()}${end < haystack.length ? '…' : ''}`;
+}
+
+/**
+ * The tracks that match a query, best first: by topic, by a page's title,
+ * by a term taught, and by the text of a page. Every word of the query must
+ * be found somewhere in the track; a hit says where.
+ */
+export function searchTracks(all: readonly LearnTrack[], query: string): TrackMatch[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const has = (text: string | undefined) => Boolean(text) && words.every((word) => text!.toLowerCase().includes(word));
+  const hasAny = (text: string | undefined) => Boolean(text) && words.some((word) => text!.toLowerCase().includes(word));
+  const first = (text: string) => words.find((word) => text.toLowerCase().includes(word)) ?? words[0];
+  const matches: TrackMatch[] = [];
+  for (const track of all) {
+    const hits: SearchHit[] = [];
+    const about = `${track.topic} ${track.from} ${track.to}`;
+    if (hasAny(about)) hits.push({ kind: 'topic', label: track.topic, snippet: [track.from, track.to].filter(Boolean).join(' → ') });
+    for (const node of track.nodes) if (hasAny(`${node.title} ${node.blurb}`)) hits.push({ kind: 'page', nodeId: node.id, label: node.title, snippet: node.blurb });
+    for (const entry of track.glossary) if (hasAny(`${entry.term} ${entry.meaning}`)) hits.push({ kind: 'term', nodeId: entry.nodeId, label: entry.term, snippet: entry.meaning });
+    for (const page of Object.values(track.pages)) {
+      if (!page.content || hits.some((hit) => hit.kind === 'page' && hit.nodeId === page.nodeId)) continue;
+      if (hasAny(page.content)) {
+        const node = track.nodes.find((n) => n.id === page.nodeId);
+        hits.push({ kind: 'text', nodeId: page.nodeId, label: node?.title ?? page.nodeId, snippet: snippetOf(page.content, first(page.content)) });
+      }
+    }
+    // Every word somewhere in the track, else it is not a match at all.
+    const everything = `${about} ${track.nodes.map((n) => `${n.title} ${n.blurb}`).join(' ')} ${track.glossary.map((e) => `${e.term} ${e.meaning}`).join(' ')} ${Object.values(track.pages).map((p) => p.content).join(' ')}`;
+    if (hits.length && has(everything)) matches.push({ track, hits: hits.slice(0, 8) });
+  }
+  const weight = (match: TrackMatch) => (match.hits.some((h) => h.kind === 'topic') ? 100 : 0) + match.hits.length;
+  return matches.sort((a, b) => weight(b) - weight(a) || (b.track.opened ?? b.track.updated) - (a.track.opened ?? a.track.updated));
+}
+
+/** Where a track stands, for a list: not started, in progress, stalled (not opened for a while), or finished. */
+export function trackStatus(track: LearnTrack, now = Date.now()): 'new' | 'reading' | 'stalled' | 'finished' {
+  const counts = countRead(track);
+  if (!counts.total || !counts.read) return 'new';
+  if (counts.read >= counts.total) return 'finished';
+  return now - (track.opened ?? track.updated) > 7 * 24 * 3600 * 1000 ? 'stalled' : 'reading';
+}
+
+// ---------------------------------------------------------------------------
 // Opening Learn from elsewhere: "Teach me this" on a selection, a track's page
 // ---------------------------------------------------------------------------
 

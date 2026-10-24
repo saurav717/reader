@@ -36,6 +36,7 @@ import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES, setNotesDrive } from './lib/notes';
 import Learn from './components/Learn';
+import LearnPage from './components/LearnPage';
 import { OPEN_LEARN, OPEN_LEARN_PAGE, setLearnDrive } from './lib/learn';
 import { learnDrive } from './lib/learnDrive';
 import type { LearnNode } from './lib/learn';
@@ -335,8 +336,10 @@ export default function App() {
   const onPlayground = view.kind === 'playground' && !onUsage;
   /** So is the Calendar: the signed-in account's meetings, by day, week or month. */
   const onCalendar = view.kind === 'calendar' && !onUsage;
+  /** And Learn: every topic set out to learn, and each track's map. */
+  const onLearn = view.kind === 'learn' && !onUsage;
   /** A page that takes the whole window, with no library or dock beside it. */
-  const onOwnPage = onPlayground || onCalendar;
+  const onOwnPage = onPlayground || onCalendar || onLearn;
   // What the playgrounds are doing, followed on every page: a run goes on when its page is left.
   // (Each of its views reads it itself: what runs re-renders them each second, not the whole app.)
   useEffect(() => {
@@ -358,11 +361,11 @@ export default function App() {
   /** The last page that was not the Playground or the Calendar: where the library's and the dock's buttons go back to from them. */
   const beforeOwnPage = useRef<View>({ kind: 'home' });
   useEffect(() => {
-    if (view.kind !== 'playground' && view.kind !== 'calendar') beforeOwnPage.current = view;
+    if (view.kind !== 'playground' && view.kind !== 'calendar' && view.kind !== 'learn') beforeOwnPage.current = view;
   }, [view]);
   /** Off the Playground or the Calendar, for a panel's button: the page that was open before it, with the panel to show. */
   const leaveOwnPage = () => {
-    if (view.kind === 'playground' || view.kind === 'calendar') setView(beforeOwnPage.current);
+    if (view.kind === 'playground' || view.kind === 'calendar' || view.kind === 'learn') setView(beforeOwnPage.current);
   };
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
   // The guided tour: round the app once, on the first visit past the opening
@@ -431,7 +434,7 @@ export default function App() {
       setExplainOpen(false);
       setLearnPage(null);
       setUsageOpen(false);
-      setView({ kind: 'home' });
+      setView({ kind: 'learn' });
       setLearnAsk({ topic: detail.topic ?? '', context: detail.context, at: Date.now() });
     };
     const onLearnPage = (event: Event) => {
@@ -688,7 +691,7 @@ export default function App() {
   // The tab's title names the page, so a history of them can be told apart.
   useEffect(() => {
     if (view.kind === 'playground' && view.id) return; // the playground names itself
-    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground', projects: 'Projects', calendar: 'Calendar' };
+    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground', projects: 'Projects', calendar: 'Calendar', learn: 'Learn' };
     const name = usageOpen
       ? 'Usage'
       : view.kind === 'paper'
@@ -840,6 +843,16 @@ export default function App() {
         if (view.kind === 'home' && returnRef.current) {
           event.preventDefault();
           openPaperRef.current(returnRef.current.id);
+          return;
+        }
+      }
+      // L, on its own and not while typing, opens Learn.
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'l' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette, .desk-scrim, .explain')) return;
+        if (view.kind !== 'learn') {
+          event.preventDefault();
+          setUsageOpen(false);
+          setView({ kind: 'learn' });
           return;
         }
       }
@@ -1094,7 +1107,7 @@ export default function App() {
           ? `${view.mode === 'workspace' ? 'In the workspace of' : 'Looking over'} the research project “${name ?? 'Project'}”${question ? `, which asks: ${question}` : ''}`
           : view.kind === 'projects'
             ? 'Looking over every research project side by side'
-            : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper', calendar: 'On the Calendar page — their meetings, by day, week or month' }[view.kind];
+            : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper', calendar: 'On the Calendar page — their meetings, by day, week or month', learn: 'On the Learn page — the topics they have set out to learn, each mapped as pages written one at a time' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where: usageOpen ? 'On the Usage page — who has signed in, and what they used of the site’s accounts' : where, library, page: pageNow(), project };
   }, [view, papers, collections, highlights, explainOpen, paperInWorkspace, usageOpen]);
@@ -1422,6 +1435,7 @@ export default function App() {
       { key: 'library', label: 'Library', title: 'The Library: your papers and collections', icon: <LibraryIcon size={19} />, active: onLibraryPage, aside: String(papers.length), onClick: goLibrary },
       { key: 'projects', label: 'Projects', title: 'Every project, side by side', icon: <GridIcon size={19} />, active: view.kind === 'projects' && !onUsage, onClick: () => (setUsageOpen(false), setView({ kind: 'projects' })) },
       { key: 'playground', label: 'Code', title: 'Playground — code of your own, on Colab, your PC or a GPU elsewhere (P)', icon: <CodeIcon size={19} />, active: onPlayground, badge: shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : undefined, onClick: () => (setUsageOpen(false), setView({ kind: 'playground' })) },
+      { key: 'learn', label: 'Learn', title: 'Learn — a topic of your own, mapped as pages written one at a time; everything you have set out to learn (L)', icon: <SparkleIcon size={19} />, active: onLearn, onClick: () => (setUsageOpen(false), setView({ kind: 'learn' })) },
       ...(usesGoogle ? [{ key: 'calendar', label: 'Calendar', title: 'Calendar — your meetings, by day, week or month', icon: <CalendarIcon size={19} />, active: onCalendar, onClick: () => (setUsageOpen(false), setView({ kind: 'calendar' })) }] : []),
       ...(isOwner ? [{ key: 'usage', label: 'Usage', title: 'Usage — who has signed in, and what they used on your accounts', icon: <ChartIcon size={19} />, active: onUsage, onClick: () => setUsageOpen(!usageOpen) }] : []),
     ],
@@ -1466,7 +1480,9 @@ export default function App() {
             ? 'Playground'
             : view.kind === 'calendar'
               ? 'Calendar'
-              : 'Library';
+              : view.kind === 'learn'
+                ? 'Learn'
+                : 'Library';
   return (
     <div
       ref={appRef}
@@ -1712,7 +1728,9 @@ export default function App() {
           onOrphans={onOrphans}
         />
       ) : view.kind === 'home' ? (
-        <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} learnAsk={learnAsk} />
+        <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
+      ) : view.kind === 'learn' ? (
+        <LearnPage id={view.id} ask={learnAsk ?? undefined} onOpen={(id) => setView(id ? { kind: 'learn', id } : { kind: 'learn' })} onOpenPaper={openPaper} />
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'calendar' ? (
@@ -1833,10 +1851,10 @@ export default function App() {
             }
           }}
           onMap={() => {
+            const trackId = learnPage.trackId;
             setLearnPage(null);
             setUsageOpen(false);
-            setView({ kind: 'home' });
-            setLearnAsk({ topic: '', at: Date.now() });
+            setView({ kind: 'learn', id: trackId });
           }}
           onClose={() => setLearnPage(null)}
         />
