@@ -3,6 +3,7 @@ import { useStore } from '../lib/store';
 import { candidateWords, lookupBackground, lookupWord, referenceLinks, type Background, type WordEntry } from '../lib/lookup';
 import { lookupLineage, type Lineage } from '../lib/sources';
 import { placeLookup, type LookupTarget } from '../lib/lookupPlace';
+import { askToLearn } from '../lib/learn';
 import { HIGHLIGHT_COLORS, type HighlightColor } from '../types';
 import { BookIcon, CloseIcon, ExternalIcon, NoteIcon, TrashIcon, TreeIcon } from './icons';
 
@@ -183,6 +184,17 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
         <p className="lookup-quote" title={phrase}>
           “{phrase}”
         </p>
+        <button
+          type="button"
+          className="btn sm ghost lookup-teach"
+          onClick={() => {
+            askToLearn(phrase, 'From the lookup box: a track that teaches it from the ground up.');
+            onClose();
+          }}
+          title="Learn this from the ground up: a map of pages on it, on Home's Learn tab"
+        >
+          Teach me this
+        </button>
         <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the lookup box">
           <CloseIcon size={15} />
         </button>

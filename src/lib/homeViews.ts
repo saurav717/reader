@@ -2,9 +2,9 @@
 // view Home starts on is a preference of the desk you read at, like the
 // library's layout.
 
-export type HomeTab = 'search' | 'continue' | 'today' | 'projects' | 'inbox' | 'board';
+export type HomeTab = 'search' | 'continue' | 'today' | 'projects' | 'inbox' | 'board' | 'learn';
 
-export const HOME_TABS: HomeTab[] = ['search', 'continue', 'today', 'projects', 'inbox', 'board'];
+export const HOME_TABS: HomeTab[] = ['search', 'continue', 'today', 'projects', 'inbox', 'board', 'learn'];
 
 export const TAB_LABEL: Record<HomeTab, string> = {
   search: 'Find papers',
@@ -13,6 +13,7 @@ export const TAB_LABEL: Record<HomeTab, string> = {
   projects: 'Projects',
   inbox: 'Inbox',
   board: 'Collections',
+  learn: 'Learn',
 };
 
 export const TAB_ABOUT: Record<HomeTab, string> = {
@@ -22,6 +23,7 @@ export const TAB_ABOUT: Record<HomeTab, string> = {
   projects: 'Each collection, its papers by how far you are',
   inbox: 'Papers added since your last visit, not started yet',
   board: 'Each collection as a column you add papers straight into',
+  learn: 'A topic mapped as pages, written one at a time as you reach them',
 };
 
 export interface HomePrefs {
@@ -35,14 +37,14 @@ export interface HomePrefs {
   clearPanels: boolean;
   /** The collection Find papers saves to, when one has been picked. */
   saveTo?: string;
-  /** Which shape of these this is: 2 brought Find papers and Collections. */
+  /** Which shape of these this is: 2 brought Find papers and Collections; 3 brought Learn. */
   v?: number;
 }
 
 const KEY = 'reader.home';
-const VERSION = 2;
+const VERSION = 3;
 /** Projects is a tab to switch on: Collections shows the same papers, and can be added to. */
-export const DEFAULT_HOME: HomePrefs = { opensOn: 'search', tabs: ['search', 'continue', 'today', 'inbox', 'board'], last: 'search', clearPanels: true, v: VERSION };
+export const DEFAULT_HOME: HomePrefs = { opensOn: 'search', tabs: ['search', 'continue', 'today', 'inbox', 'board', 'learn'], last: 'search', clearPanels: true, v: VERSION };
 
 export function readHomePrefs(): HomePrefs {
   try {
@@ -52,10 +54,12 @@ export function readHomePrefs(): HomePrefs {
     let opensOn = raw.opensOn === 'last' || HOME_TABS.includes(raw.opensOn as HomeTab) ? (raw.opensOn as HomePrefs['opensOn']) : DEFAULT_HOME.opensOn;
     // Choices made before Find papers and Collections existed: both join the
     // tabs, and Home, left on the old default, opens on Find papers now.
-    if ((raw.v ?? 1) < VERSION) {
+    if ((raw.v ?? 1) < 2) {
       tabs = HOME_TABS.filter((tab) => tab === 'search' || tab === 'board' || tabs.includes(tab));
       if (opensOn === 'continue') opensOn = 'search';
     }
+    // Choices made before Learn existed: it joins the tabs.
+    if ((raw.v ?? 1) < 3) tabs = HOME_TABS.filter((tab) => tab === 'learn' || tabs.includes(tab));
     if (opensOn !== 'last' && !tabs.includes(opensOn)) tabs = HOME_TABS.filter((tab) => tab === opensOn || tabs.includes(tab));
     if (!tabs.length) tabs = DEFAULT_HOME.tabs;
     const last = HOME_TABS.includes(raw.last as HomeTab) ? (raw.last as HomeTab) : tabs[0];

@@ -79,7 +79,9 @@ Both run on Claude or on DeepSeek, whichever you pick — see
 [Choosing a model](#choosing-a-model-claude-deepseek-or-gemini).
 Press **P** for the [Playground](#playground), a page for code of your own:
 a notebook or a project, on your Colab, on this PC, or with the files on this
-PC and the GPU somewhere else. Every page has [its own address](#addresses).
+PC and the GPU somewhere else. Home's **Learn** tab teaches a topic of your
+own — not a paper — as a map of pages written one at a time as you reach
+them, pictures first — see [Learn](#learn). Every page has [its own address](#addresses).
 
 New here? A **guided tour** opens the first time a visit reaches Home: a ring
 round one part of the window at a time, the rest shaded, and a card beside it
@@ -4389,6 +4391,78 @@ with `READER_WORKSPACE` set on the server, and photographs every state.
 runtime — a small Jupyter server in the script, and the proxy's Colab routes
 answered in the browser — so a cell's run, the probe, the runtime menu and the
 *Run it on Colab* panel are photographed live, without a Google account.
+
+## Learn
+
+Not every question is a paper. On Home's **Learn** tab (<kbd>7</kbd>) you name
+a topic — *diffusion models*, *how the immune system remembers*, *spectral
+graph theory* — and, in two lines beside it, where you start (*I know basic
+probability and PyTorch*) and where you want to get (*can read the DDPM
+paper*). **Map it**, and the model writes a **map** first, not a page: three
+to five stages from the ground up, each a column of boxes, each box a page
+you get through in ten minutes, with arrows for the pages it assumes you have
+read. The map is drawn on the tab. A box is filled once you have read it,
+ringed in gold once you are confident, outlined when every page it needs is
+read, and grey while one is not; the first open box is marked **▸** as up
+next. A dashed box is a **paper** to read when you get there — one the model
+is sure exists, opened in the reader from your library, or found in Discover
+— so a track can end at the primary source. **Remap** asks for the map again
+(the pages already written keep their place where their box survives), and
+**+** on the lookup box, or **Teach me** on a selection in a paper, starts a
+track from a phrase in what you are reading. The tracks in progress sit
+beside the map with how far each has got and what is next.
+
+Nothing else is written until you open a box. Then that one page is written,
+in the layout [Explain](#explain) uses — the track's pages down the left,
+the prose in the middle, its pictures beside it — and the page is told what
+the pages before it taught, the **glossary** they built (each page ends with
+the terms it introduced, and the outline shows the glossary so far), and what
+the last check found wanting, so the pages agree with each other and nothing
+is explained twice. The writing is visual by instruction: every idea led by a
+drawing, an analogy or an example, with a switch in the bar for how much of
+the page shows:
+
+- **Plain** — the pictures and the plain prose; the formal account and the
+  code folded away.
+- **Formal** — under each idea, a `formal` block opens: the definition or
+  the equation, typeset, with a *where* list naming every symbol. On the
+  Plain level each sits folded under its title, and a click opens one.
+- **With code** — everything, the code cells included, run in Colab as
+  Explain's are.
+
+Pictures come from three places, and each says which. The model **draws**
+figures as it does for Explain, and can mark one to animate as a scene. Where
+a real photograph, micrograph, map or portrait would teach more than a
+drawing, it **asks for one** — never by an address it remembers, but by what
+the picture must show (`image query="…" must="…"`). The page searches
+**Wikimedia Commons** for it, straight from the browser, and — when the model
+that wrote the page can see — shows it the first few candidates and asks
+which one actually shows what was asked for; the one chosen is captioned
+with its title, author, licence and a link to its page on Commons, and a line
+under it says it was checked, or that it was taken unchecked. Nothing found
+clearly enough is said so, rather than a wrong picture captioned
+confidently. **Look again** searches afresh. Claims that rest on a source
+are cited `[n]` in the prose and listed under **References**; the model is
+told to mark a source it is not sure of *(not verified)* and never to invent
+one. The bar at the top takes questions and adjustments — *simpler*, *draw
+this in 2-D*, *another example*, *animate the key figure* — answered as
+edits to the page's sections, with Undo, as Explain's bar does.
+
+Each page ends with **Check yourself**: three questions, one of each kind —
+pick the drawing that shows it, put the steps in order, finish the
+sentence — marked on the page. Not a test: a full score marks the page
+**confident** on the map; anything less leaves it **read**, and what was
+missed is given to the next page, which opens with a short **Bridge**
+section on exactly that before its own idea starts. *I'm confident* skips
+the check, *Try again* resets it, and *Reread at the Formal level* opens
+every formal block and goes back to the top.
+
+A track is kept in this browser (IndexedDB) and comes back on Home. The
+map's reading — which page is next, what each box's state is, how the
+columns and curves are laid out — and the reading of a page's check and
+glossary, the marking, and what the next page is told are in
+`src/lib/learn.ts`, tested by `scripts/learn.test.mjs`; the Commons search
+and the checker's verdict are in `src/lib/wikimedia.ts`.
 
 ## Playground
 

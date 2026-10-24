@@ -35,6 +35,9 @@ import { chipInRail } from './lib/compute';
 import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES, setNotesDrive } from './lib/notes';
+import Learn from './components/Learn';
+import { OPEN_LEARN, OPEN_LEARN_PAGE } from './lib/learn';
+import type { LearnNode } from './lib/learn';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import type { SettingsPlace } from './lib/openSettings';
@@ -76,6 +79,7 @@ const LAYOUT_KEY = 'reader.layout';
 const ASSISTANT_KEY = 'reader.assistant.open';
 const ZEN_KEY = 'reader.zen';
 const EXPLAIN_KEY = 'reader.explain.open';
+const LEARN_KEY = 'reader.learn.page';
 const NOTES_FLOAT_KEY = 'reader.notes.float';
 
 /**
@@ -408,6 +412,40 @@ export default function App() {
   const [notesWindow, setNotesWindow] = useState(false);
   // The open paper's notes full screen, on a board of their own.
   const [boardOpen, setBoardOpen] = useState(false);
+  // Learn: a page of a track, over everything, the way Explain is; and a topic handed to Home's Learn tab.
+  const [learnPage, setLearnPage] = useState<{ trackId: string; nodeId: string } | null>(() => {
+    try {
+      return JSON.parse(tabState.get(LEARN_KEY) || 'null') as { trackId: string; nodeId: string } | null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    tabState.set(LEARN_KEY, JSON.stringify(learnPage));
+  }, [learnPage]);
+  const [learnAsk, setLearnAsk] = useState<{ topic: string; context?: string; at: number } | null>(null);
+  useEffect(() => {
+    const onLearn = (event: Event) => {
+      const detail = (event as CustomEvent<{ topic?: string; context?: string }>).detail ?? {};
+      setExplainOpen(false);
+      setLearnPage(null);
+      setUsageOpen(false);
+      setView({ kind: 'home' });
+      setLearnAsk({ topic: detail.topic ?? '', context: detail.context, at: Date.now() });
+    };
+    const onLearnPage = (event: Event) => {
+      const detail = (event as CustomEvent<{ trackId: string; nodeId: string }>).detail;
+      if (!detail?.trackId || !detail.nodeId) return;
+      setExplainOpen(false);
+      setLearnPage({ trackId: detail.trackId, nodeId: detail.nodeId });
+    };
+    window.addEventListener(OPEN_LEARN, onLearn);
+    window.addEventListener(OPEN_LEARN_PAGE, onLearnPage);
+    return () => {
+      window.removeEventListener(OPEN_LEARN, onLearn);
+      window.removeEventListener(OPEN_LEARN_PAGE, onLearnPage);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The paper on screen in a project's workspace (Read, or Code beside the
   // paper): Explain opens over it there as it does over the paper's own page.
   const [workspacePaper, setWorkspacePaper] = useState<string | null>(null);
@@ -1671,7 +1709,7 @@ export default function App() {
           onOrphans={onOrphans}
         />
       ) : view.kind === 'home' ? (
-        <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
+        <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} learnAsk={learnAsk} />
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'calendar' ? (
@@ -1774,6 +1812,31 @@ export default function App() {
 
       {boardOpen && explained && !showWelcome ? (
         <NotesBoard key={explained.id} paperId={explained.id} title={explained.title} onClose={() => setBoardOpen(false)} />
+      ) : null}
+
+      {learnPage && !showWelcome ? (
+        <Learn
+          key={`${learnPage.trackId}:${learnPage.nodeId}`}
+          trackId={learnPage.trackId}
+          nodeId={learnPage.nodeId}
+          onOpen={(nodeId) => setLearnPage({ trackId: learnPage.trackId, nodeId })}
+          onOpenPaper={(node: LearnNode) => {
+            const have = papers.find((paper) => (node.paper?.arxivId && paper.arxivId === node.paper.arxivId) || paper.title.toLowerCase() === (node.paper?.title ?? node.title).toLowerCase());
+            setLearnPage(null);
+            if (have) openPaper(have.id);
+            else {
+              setView({ kind: 'home' });
+              window.dispatchEvent(new CustomEvent('reader:discover', { detail: { query: node.paper?.arxivId ?? node.paper?.title ?? node.title } }));
+            }
+          }}
+          onMap={() => {
+            setLearnPage(null);
+            setUsageOpen(false);
+            setView({ kind: 'home' });
+            setLearnAsk({ topic: '', at: Date.now() });
+          }}
+          onClose={() => setLearnPage(null)}
+        />
       ) : null}
 
       {explainOpen && explained && !showWelcome ? (

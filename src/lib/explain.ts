@@ -124,7 +124,14 @@ export type Block =
   // starter file, and the work in the paper as numbers the page turns into hours.
   | { kind: 'tree'; text: string; open: boolean }
   | { kind: 'file'; path: string; lang: string; code: string; open: boolean }
-  | { kind: 'compute'; text: string; open: boolean };
+  | { kind: 'compute'; text: string; open: boolean }
+  // The Learn pages' own blocks (learn.ts): the formal account of what the plain
+  // prose just said, a picture to be found on the web and captioned with its
+  // source, the questions at the end of a page, and the terms it taught.
+  | { kind: 'formal'; title: string; md: string; open: boolean }
+  | { kind: 'image'; query: string; must: string; caption: string; md: string; open: boolean }
+  | { kind: 'check'; src: string; open: boolean }
+  | { kind: 'glossary'; text: string; open: boolean };
 
 /** The language a starter file is coloured as, from its name. */
 export function langOf(path: string): string {
@@ -238,6 +245,18 @@ export function parseExplanation(src: string): Section[] {
       } else if (lang === 'compute') {
         flush();
         current.blocks.push({ kind: 'compute', text, open });
+      } else if (lang === 'formal') {
+        flush();
+        current.blocks.push({ kind: 'formal', title: info.title ?? '', md: text.trim(), open });
+      } else if (lang === 'image' || lang === 'photo') {
+        flush();
+        current.blocks.push({ kind: 'image', query: info.query ?? info.search ?? '', must: info.must ?? info.shows ?? '', caption: info.caption ?? '', md: text.trim(), open });
+      } else if (lang === 'check' || lang === 'quiz') {
+        flush();
+        current.blocks.push({ kind: 'check', src: text, open });
+      } else if (lang === 'glossary') {
+        flush();
+        current.blocks.push({ kind: 'glossary', text: text.trim(), open });
       } else {
         // Any other fence is ordinary Markdown code; hand it back to the prose.
         prose.push(line, ...body);
@@ -290,6 +309,10 @@ export function notebook(title: string, sections: Section[], writer = 'Claude'):
       else if (block.kind === 'motion') parts.push(`*Scene${block.title ? `: ${block.title}` : ''} — played on the explanation page${block.spec ? `. ${block.spec.steps.map((s) => s.caption).filter(Boolean).join(' ')}` : ''}*`);
       else if (block.kind === 'tree') parts.push(`\`\`\`\n${block.text}\n\`\`\``);
       else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
+      else if (block.kind === 'formal') parts.push(`> **${block.title || 'Formally'}.** ${block.md.replace(/\n/g, '\n> ')}`);
+      else if (block.kind === 'image') parts.push(`*Picture: ${block.caption || block.query}*`);
+      else if (block.kind === 'glossary') parts.push(`**Glossary**\n\n${block.text}`);
+      else if (block.kind === 'check') parts.push('*Check yourself — on the Learn page.*');
       else if (block.kind === 'file') {
         // A starter file becomes a cell that writes it, so running the notebook top to bottom lays the repository out.
         push();

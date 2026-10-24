@@ -1,0 +1,299 @@
+// Learn, without a browser or a key: how a map is read from the model's
+// reply and laid out, where the reader stands on it, how a page's check and
+// glossary are read and the check is marked, and what the next page is told.
+//
+//   node --test scripts/learn.test.mjs
+
+import { describe, it, after } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { cleanup, load } from './bundle.mjs';
+
+const learn = await load('src/lib/learn.ts', { external: ['@anthropic-ai/sdk'] });
+const explain = await load('src/lib/explain.ts', { external: ['@anthropic-ai/sdk'] });
+const wikimedia = await load('src/lib/wikimedia.ts', { external: ['@anthropic-ai/sdk'] });
+
+after(cleanup);
+
+const MAP = `Here is the map.
+\`\`\`json
+{
+  "stages": ["Ground", "The trick", "Beyond"],
+  "nodes": [
+    { "id": "noise", "title": "Gaussian noise", "stage": "Ground", "needs": [], "blurb": "What noise does.", "kind": "page" },
+    { "id": "markov", "title": "Markov chains", "stage": "Ground", "needs": [], "blurb": "One step at a time.", "kind": "page" },
+    { "id": "forward", "title": "Forward process", "stage": "The trick", "needs": ["noise", "Markov chains", "reverse"], "blurb": "Dissolving a picture.", "kind": "page" },
+    { "id": "reverse", "title": "Reverse process", "stage": "The trick", "needs": ["forward", "forward", "nowhere"], "blurb": "Running it backwards.", "kind": "page" },
+    { "id": "forward", "title": "Read DDPM", "stage": "Beyond", "needs": ["reverse"], "blurb": "The paper.", "kind": "paper", "paper": { "title": "Denoising Diffusion Probabilistic Models", "arxivId": "2006.11239" } }
+  ]
+}
+\`\`\``;
+
+describe('the instructions', () => {
+  it('ask for a map as JSON, and for pages with the blocks the page draws', () => {
+    assert.match(learn.MAP_SYSTEM, /ONE JSON object/);
+    assert.match(learn.MAP_SYSTEM, /never a cycle/);
+    assert.match(learn.PAGE_SYSTEM, /```formal title=/);
+    assert.match(learn.PAGE_SYSTEM, /```image query=/);
+    assert.match(learn.PAGE_SYSTEM, /```check/);
+    assert.match(learn.PAGE_SYSTEM, /```glossary/);
+    assert.match(learn.PAGE_SYSTEM, /Never invent a citation/);
+    assert.match(learn.PAGE_SYSTEM, /SCENES — a figure can be animated on request/);
+  });
+});
+
+describe('reading the map', () => {
+  const map = learn.parseMap(MAP);
+  it('keeps the stages and the nodes, in stage order', () => {
+    assert.deepEqual(map.stages, ['Ground', 'The trick', 'Beyond']);
+    assert.deepEqual(
+      map.nodes.map((n) => n.id),
+      ['noise', 'markov', 'forward', 'reverse', 'forward-2'],
+    );
+  });
+  it('points needs at nodes, by id or by title, and drops the ones that would cycle or go nowhere', () => {
+    const by = Object.fromEntries(map.nodes.map((n) => [n.id, n]));
+    assert.deepEqual(by.forward.needs, ['noise', 'markov']);
+    assert.deepEqual(by.reverse.needs, ['forward']);
+  });
+  it('keeps a paper node with its paper', () => {
+    const paper = map.nodes.at(-1);
+    assert.equal(paper.kind, 'paper');
+    assert.equal(paper.paper.arxivId, '2006.11239');
+  });
+  it('reads a reply with no fence, and refuses one with no nodes', () => {
+    assert.equal(learn.parseMap('{"stages":["A"],"nodes":[{"title":"One"}]}').nodes[0].id, 'one');
+    assert.equal(learn.parseMap('nothing here'), null);
+    assert.equal(learn.parseMap('{"nodes":[]}'), null);
+  });
+  it('puts a node with an unknown stage in a stage of its own, and one with none in the first', () => {
+    const odd = learn.parseMap('{"stages":["A"],"nodes":[{"title":"One","stage":"B"},{"title":"Two"}]}');
+    assert.deepEqual(odd.stages, ['A', 'B']);
+    assert.equal(odd.nodes.find((n) => n.id === 'two').stage, 'A');
+  });
+});
+
+describe('where the reader stands', () => {
+  const { stages, nodes } = learn.parseMap(MAP);
+  it('starts with the first page up next and the rest ready or locked', () => {
+    const states = learn.nodeStates({ nodes, progress: {} });
+    assert.equal(states.noise, 'next');
+    assert.equal(states.markov, 'ready');
+    assert.equal(states.forward, 'locked');
+    assert.equal(learn.nextNode({ nodes, progress: {} }).id, 'noise');
+  });
+  it('unlocks a page once everything it needs is read', () => {
+    const states = learn.nodeStates({ nodes, progress: { noise: 'read', markov: 'confident' } });
+    assert.equal(states.forward, 'next');
+    assert.equal(states.reverse, 'locked');
+    assert.deepEqual(learn.countRead({ nodes, progress: { noise: 'read', markov: 'confident' } }), { read: 2, confident: 1, total: 5 });
+  });
+  it('lays the map out as columns, every node a box, every need a curve', () => {
+    const layout = learn.layoutMap({ stages, nodes });
+    assert.equal(layout.columns.length, 3);
+    assert.equal(layout.boxes.length, 5);
+    assert.equal(layout.edges.length, 4);
+    const at = Object.fromEntries(layout.boxes.map((b) => [b.id, b]));
+    assert.ok(at.noise.x < at.forward.x && at.forward.x < at['forward-2'].x);
+    assert.ok(at.noise.y < at.markov.y);
+    assert.ok(layout.width > at['forward-2'].x + learn.BOX_W);
+    assert.match(layout.edges[0].d, /^M[\d.]+ [\d.]+ C /);
+  });
+  it('knows the page after and before one', () => {
+    assert.equal(learn.nodeAfter({ nodes }, 'noise').id, 'markov');
+    assert.equal(learn.nodeBefore({ nodes }, 'noise'), undefined);
+    assert.equal(learn.nodeAfter({ nodes }, 'forward-2'), undefined);
+  });
+});
+
+const PAGE = `## Why we walk backwards
+
+Last page we watched a photo dissolve. The idea is to run that film backwards [1].
+
+\`\`\`formal title="One step, exactly"
+$$p_\\theta(x_{t-1}|x_t) = \\mathcal{N}(x_{t-1}; \\mu_\\theta(x_t, t), \\sigma_t^2 I)$$
+where $\\mu_\\theta$ is the only thing learned.
+\`\`\`
+
+\`\`\`image query="gaussian noise added to photograph" must="a photograph at several noise levels" caption="What mostly-noise looks like."
+A real photograph, not a cartoon.
+\`\`\`
+
+## References
+
+[1] Ho, Jain, Abbeel. Denoising Diffusion Probabilistic Models. 2020.
+
+\`\`\`check
+{"questions":[
+ {"kind":"pick","q":"Which drawing shows what is learned?","options":[{"text":"One jump","svg":"<svg viewBox=\\"0 0 10 10\\"></svg>"},{"text":"One step back, repeated"},{"text":"Add noise"}],"answer":1,"why":"The network guesses the noise and steps back one frame."},
+ {"kind":"order","q":"One step of sampling.","steps":["Show x_t","Predict the noise","Subtract it","Add fresh noise"],"why":"The fresh noise goes in after the mean."},
+ {"kind":"fill","q":"The reverse steps are Gaussian because ___.","answer":"the forward steps were tiny","accept":["small steps"],"why":"Small forward steps have Gaussian reverses."}
+]}
+\`\`\`
+
+\`\`\`glossary
+reverse process — running the noising film backwards
+- **μ_θ** — the mean the network supplies
+\`\`\`
+`;
+
+describe('reading a page', () => {
+  const sections = explain.parseExplanation(PAGE);
+  it('finds the formal account and the picture request as blocks of their own', () => {
+    const kinds = sections[0].blocks.map((b) => b.kind);
+    assert.deepEqual(kinds, ['prose', 'formal', 'image']);
+    const formal = sections[0].blocks[1];
+    assert.equal(formal.title, 'One step, exactly');
+    assert.match(formal.md, /mu_\\theta/);
+    const image = sections[0].blocks[2];
+    assert.equal(image.query, 'gaussian noise added to photograph');
+    assert.equal(image.must, 'a photograph at several noise levels');
+    assert.equal(image.md, 'A real photograph, not a cartoon.');
+    assert.equal(image.open, false);
+  });
+  it('reads the check', () => {
+    const questions = learn.checkOf(sections);
+    assert.equal(questions.length, 3);
+    assert.deepEqual(
+      questions.map((q) => q.kind),
+      ['pick', 'order', 'fill'],
+    );
+    assert.equal(questions[0].options.length, 3);
+    assert.match(questions[0].options[0].svg, /^<svg/);
+    assert.equal(questions[0].answer, 1);
+    assert.equal(questions[1].steps.length, 4);
+    assert.deepEqual(questions[2].accept, ['small steps']);
+  });
+  it('reads the glossary, in either shape of line', () => {
+    const entries = learn.glossaryOf(sections, 'reverse');
+    assert.deepEqual(
+      entries.map((e) => [e.term, e.meaning, e.nodeId]),
+      [
+        ['reverse process', 'running the noising film backwards', 'reverse'],
+        ['μ_θ', 'the mean the network supplies', 'reverse'],
+      ],
+    );
+  });
+  it('leaves the check and glossary out of what is read', () => {
+    const shown = learn.pageSections(sections);
+    assert.ok(shown.every((s) => s.blocks.every((b) => b.kind !== 'check' && b.kind !== 'glossary')));
+    assert.deepEqual(
+      shown.map((s) => s.title),
+      ['Why we walk backwards', 'References'],
+    );
+  });
+  it('drops a check it cannot read, question by question', () => {
+    assert.deepEqual(learn.parseCheck('not json'), []);
+    const partial = learn.parseCheck('{"questions":[{"kind":"pick","q":"?","options":["a"],"answer":0},{"kind":"fill","q":"?","answer":"x"}]}');
+    assert.equal(partial.length, 1);
+    assert.equal(partial[0].kind, 'fill');
+  });
+});
+
+describe('marking the check', () => {
+  const questions = learn.checkOf(explain.parseExplanation(PAGE));
+  it('marks a pick', () => {
+    assert.equal(learn.markAnswer(questions[0], 1), 1);
+    assert.equal(learn.markAnswer(questions[0], 0), 0);
+  });
+  it('marks an order by its pairs, so one swap is half marks at most', () => {
+    assert.equal(learn.markAnswer(questions[1], [0, 1, 2, 3]), 1);
+    assert.equal(learn.markAnswer(questions[1], [0, 1, 3, 2]), 0.5);
+    assert.equal(learn.markAnswer(questions[1], [3, 2, 1, 0]), 0);
+    assert.equal(learn.markAnswer(questions[1], null), 0);
+  });
+  it('marks a sentence by its words', () => {
+    assert.equal(learn.markAnswer(questions[2], 'because the forward steps were tiny!'), 1);
+    assert.equal(learn.markAnswer(questions[2], 'Small steps'), 1);
+    assert.equal(learn.markAnswer(questions[2], 'the steps forward are tiny'), 0.5);
+    assert.equal(learn.markAnswer(questions[2], 'magic'), 0);
+  });
+  it('scores the whole check and keeps what was missed for the next page', () => {
+    const result = learn.markCheck(questions, [1, [0, 1, 3, 2], 'magic']);
+    assert.equal(result.score, 0.5);
+    assert.deepEqual(result.missed, ['The fresh noise goes in after the mean.', 'Small forward steps have Gaussian reverses.']);
+    assert.equal(learn.verdictOf(result).title, 'Mostly there.');
+    assert.equal(learn.verdictOf({ score: 1 }).confident, true);
+    assert.equal(learn.verdictOf({ score: 0.2 }).title, 'Not yet.');
+  });
+  it('shuffles the steps the same way every time, and never leaves them as they were', () => {
+    const a = learn.shuffled([0, 1, 2, 3], 'seed');
+    assert.deepEqual(a, learn.shuffled([0, 1, 2, 3], 'seed'));
+    assert.notDeepEqual(a, [0, 1, 2, 3]);
+    assert.deepEqual([...a].sort(), [0, 1, 2, 3]);
+  });
+});
+
+describe('what the next page is told', () => {
+  const { stages, nodes } = learn.parseMap(MAP);
+  const track = {
+    id: 't',
+    topic: 'Diffusion models',
+    from: 'basic probability',
+    to: 'read DDPM',
+    prefs: learn.DEFAULT_PREFS,
+    model: 'm',
+    created: 0,
+    updated: 0,
+    stages,
+    nodes,
+    progress: { noise: 'read', markov: 'read', forward: 'read' },
+    glossary: [{ term: 'β_t', meaning: 'the noise schedule', nodeId: 'forward' }],
+    pages: { forward: { nodeId: 'forward', content: 'x', model: 'm', created: 0, updated: 0, check: { at: 1, score: 0.5, missed: ['The fresh noise goes in after the mean.'], answers: [] } } },
+  };
+  it('names the pages read, the glossary, and bridges what the last check missed', () => {
+    const request = learn.pageRequest(track, 'reverse');
+    assert.match(request, /<pages_read>[\s\S]*Forward process/);
+    assert.match(request, /<glossary_so_far>[\s\S]*β_t — the noise schedule/);
+    assert.match(request, /<bridge>[\s\S]*“Forward process”[\s\S]*fresh noise goes in after the mean/);
+    assert.match(request, /Write the page “Reverse process” \(reverse\)/);
+  });
+  it('asks for the first page with no bridge and nothing read', () => {
+    const request = learn.pageRequest({ ...track, progress: {}, glossary: [], pages: {} }, 'noise');
+    assert.doesNotMatch(request, /<bridge>|<pages_read>|<glossary_so_far>/);
+  });
+  it('writes a page out as a file with its front matter', () => {
+    const file = learn.pageFile(track, track.pages.forward);
+    assert.match(file, /^---\ngenerator: "reader"\ntopic: "Diffusion models"\npage: "Forward process"/);
+    assert.match(file, /check: 0.5/);
+  });
+});
+
+describe('pictures from Commons', () => {
+  it('asks Commons for pictures only, with their licence', () => {
+    const url = new URL(wikimedia.commonsSearchUrl('mitochondrion micrograph'));
+    assert.equal(url.searchParams.get('origin'), '*');
+    assert.equal(url.searchParams.get('gsrnamespace'), '6');
+    assert.match(url.searchParams.get('gsrsearch'), /^filetype:bitmap\|drawing mitochondrion micrograph$/);
+    assert.match(url.searchParams.get('iiprop'), /extmetadata/);
+  });
+  it('reads the candidates in order, skipping what is not a picture or has no licence', () => {
+    const json = {
+      query: {
+        pages: {
+          2: { index: 2, title: 'File:B.png', imageinfo: [{ mime: 'image/png', url: 'u2', thumburl: 't2', descriptionurl: 'd2', thumbwidth: 900, thumbheight: 600, extmetadata: { Artist: { value: '<a href="x">Jane Doe</a>' }, LicenseShortName: { value: 'CC BY-SA 4.0' }, LicenseUrl: { value: 'l' } } }] },
+          1: { index: 1, title: 'File:A.jpg', imageinfo: [{ mime: 'image/jpeg', url: 'u1', thumburl: 't1', descriptionurl: 'd1', extmetadata: { LicenseShortName: { value: 'Public domain' }, ImageDescription: { value: 'A &amp; B' } } }] },
+          3: { index: 3, title: 'File:C.pdf', imageinfo: [{ mime: 'application/pdf', extmetadata: { LicenseShortName: { value: 'CC0' } } }] },
+          4: { index: 4, title: 'File:D.jpg', imageinfo: [{ mime: 'image/jpeg', extmetadata: {} }] },
+        },
+      },
+    };
+    const images = wikimedia.fromCommons(json);
+    assert.deepEqual(
+      images.map((i) => i.title),
+      ['A.jpg', 'B.png'],
+    );
+    assert.equal(images[0].author, 'unknown author');
+    assert.equal(images[0].description, 'A & B');
+    assert.equal(images[1].author, 'Jane Doe');
+    assert.equal(images[1].licence, 'CC BY-SA 4.0');
+    assert.equal(images[1].width, 900);
+    assert.deepEqual(wikimedia.fromCommons({}), []);
+  });
+  it('reads the checker’s verdict', () => {
+    assert.deepEqual(wikimedia.readVerdict('2\nA photograph at four noise levels.'), { pick: 2, note: 'A photograph at four noise levels.' });
+    assert.deepEqual(wikimedia.readVerdict('Picture 3 — shows the apparatus.'), { pick: 3, note: 'shows the apparatus.' });
+    assert.equal(wikimedia.readVerdict('0. None of them.').pick, 0);
+    assert.equal(wikimedia.readVerdict('none of these').pick, 0);
+  });
+});
