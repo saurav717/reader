@@ -4436,7 +4436,7 @@ the page shows:
 - **With code** — everything, the code cells included, run in Colab as
   Explain's are.
 
-Pictures come from four places, and each says which. The model **draws**
+Pictures are of three kinds, and each says which it is. The model **draws**
 figures as it does for Explain, and they move: as a figure scrolls into
 view it **draws itself**, each stroke traced from one end to the other in
 the order the model wrote them, the boxes and labels appearing after their
@@ -4450,7 +4450,21 @@ quantity changing with a knob, a procedure with steps — the model writes a
 Explain plays, a step per paragraph, kept in view while you read the
 section (see [Explain](#explain), *Scenes, on the stage*); any other figure
 that could move it marks with **▶ Animate this figure**, which asks for its
-scene. Where
+scene. Where an idea is carried by an analogy, a scene, a thing in the world
+or a moment in history — the shoebox of photographs, the crowd passing a
+message along, the apparatus on the bench — it asks for an **illustration
+to be made** (`illustration prompt="…" caption="…"`, one or two a page):
+the page generates it with FLUX through
+[Pollinations.ai](https://pollinations.ai), free, with no key and no
+account, in a few seconds, shows it to the model that wrote the page to
+check it is what was asked for (through the proxy, which fetches the bytes;
+without one it is shown unchecked), and captions it as a generated
+illustration, never as a photograph — a sketch of the idea, which can get
+details wrong. **Another** makes a different one from the same prompt. An
+illustration is never asked for a mechanism, a structure, a plot or a
+quantity: those are the drawn figures. Explain's paper pages can ask for
+one too, for the setting of the work or an analogy the paper uses, at most
+two a paper and never for the method or a result. Where
 a real photograph, micrograph, map, portrait or a model's own output would
 teach more than a drawing, it **asks for one** — never by an address it
 remembers, but by what the picture must show (`image query="…" must="…"`),

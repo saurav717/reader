@@ -81,6 +81,12 @@ FORMAT — plain Markdown, with these rules the page depends on:
   refer to it in the prose ("in Figure 3 of the paper, …"). Where you were shown the pictures, describe what is
   actually in them. Prefer the paper's figure to redrawing the same thing; draw your own figure only to show what
   the paper does not. Two to six of the paper's figures on a page is typical; none when no list is given.
+- An illustration, made for the page: where the SETTING of the work — the kind of data, the thing in the world the
+  method is about, an analogy the paper itself uses, the apparatus — would be clearer as a picture than as words, ask for
+  one to be generated: \`\`\`illustration prompt="what to draw, as a scene with concrete nouns, no text in it" caption="One line of what to look at"\`
+  with one sentence of Markdown inside on why it is here. At most two per paper, and NEVER for the method's structure, a
+  plot, a table or a result — those are the paper's figures and your drawn ones. The page makes the picture and captions
+  it as generated.
 - Name papers only when you are sure they exist.
 
 ${MOTION_FORMAT}
@@ -130,6 +136,8 @@ export type Block =
   // source, the questions at the end of a page, and the terms it taught.
   | { kind: 'formal'; title: string; md: string; open: boolean }
   | { kind: 'image'; query: string; must: string; caption: string; md: string; open: boolean; /** A paper's own figure, when the page names one: its arXiv id, and the figure as the paper names it. */ paper?: string; figure?: string }
+  // A picture made for the page (pictures.ts, generated.ts): the model's prompt for a generator, and its caption.
+  | { kind: 'illustration'; prompt: string; caption: string; md: string; open: boolean }
   | { kind: 'check'; src: string; open: boolean }
   | { kind: 'glossary'; text: string; open: boolean };
 
@@ -255,6 +263,9 @@ export function parseExplanation(src: string): Section[] {
         if (arxiv) image.paper = arxiv;
         if (info.figure) image.figure = info.figure;
         current.blocks.push(image);
+      } else if (lang === 'illustration' || lang === 'generate' || lang === 'picture') {
+        flush();
+        current.blocks.push({ kind: 'illustration', prompt: info.prompt ?? info.of ?? '', caption: info.caption ?? '', md: text.trim(), open });
       } else if (lang === 'check' || lang === 'quiz') {
         flush();
         current.blocks.push({ kind: 'check', src: text, open });
@@ -315,6 +326,7 @@ export function notebook(title: string, sections: Section[], writer = 'Claude'):
       else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
       else if (block.kind === 'formal') parts.push(`> **${block.title || 'Formally'}.** ${block.md.replace(/\n/g, '\n> ')}`);
       else if (block.kind === 'image') parts.push(`*Picture: ${block.caption || block.query}*`);
+      else if (block.kind === 'illustration') parts.push(`*Illustration (generated): ${block.caption || block.prompt}*`);
       else if (block.kind === 'glossary') parts.push(`**Glossary**\n\n${block.text}`);
       else if (block.kind === 'check') parts.push('*Check yourself — on the Learn page.*');
       else if (block.kind === 'file') {

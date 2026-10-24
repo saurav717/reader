@@ -77,6 +77,12 @@ export interface PictureAsk {
   papers?: { arxivId: string; title?: string }[];
   /** A picture made for the page when nothing is found: on unless the track says otherwise. */
   generate?: boolean;
+  /** An illustration block: nothing is searched, the picture is made from the ask alone. */
+  only?: 'generated';
+  /** Another go: other seeds for the generator. */
+  variant?: number;
+  /** The generator was full and has been asked once more already. */
+  retried?: boolean;
   fresh?: boolean;
   signal?: AbortSignal;
 }
@@ -261,7 +267,7 @@ Which picture is the best one for that? Answer with its number alone on the firs
 // The chain
 // ---------------------------------------------------------------------------
 
-const KEY = (ask: PictureAsk) => `learn:picture:${ask.query.trim().toLowerCase()}|${ask.must.trim().toLowerCase()}|${ask.paper?.arxivId ?? ''}`;
+const KEY = (ask: PictureAsk) => `learn:picture:${ask.only ?? 'any'}:${ask.query.trim().toLowerCase()}|${ask.must.trim().toLowerCase()}|${ask.paper?.arxivId ?? ''}|${ask.variant ?? 0}`;
 const inFlight = new Map<string, Promise<ResolvedPicture>>();
 
 type Source = { name: string; get: () => Promise<Candidate[]> };
@@ -269,6 +275,7 @@ type Source = { name: string; get: () => Promise<Candidate[]> };
 function sourcesFor(ask: PictureAsk): Source[] {
   const sources: Source[] = [];
   const asked = `${ask.must} ${ask.query}`;
+  if (ask.only === 'generated') return [{ name: 'a generated illustration', get: () => generatedCandidates(ask) }];
   if (ask.paper) {
     const named = ask.paper;
     sources.push({ name: `arXiv:${named.arxivId}`, get: () => paperCandidates({ arxivId: named.arxivId, title: ask.papers?.find((p) => p.arxivId === named.arxivId)?.title }, named.figure, asked, ask.signal) });
@@ -280,25 +287,72 @@ function sourcesFor(ask: PictureAsk): Source[] {
   }
   // Last of all, a picture made for the page: two seeds, so the checker has a choice.
   if (ask.generate !== false) {
-    sources.push({
-      name: 'a generated illustration',
-      get: async () => {
-        const prompt = illustrationPrompt(ask.query, ask.must);
-        return [0, 1].map((salt) => ({
-          picture: {
-            kind: 'generated' as const,
-            src: generatedImageUrl(prompt, { seed: seedFor(prompt, salt) }),
-            page: GENERATOR_PAGE,
-            title: ask.must || ask.query,
-            source: GENERATOR_NAME,
-            description: prompt,
-          },
-        }));
-      },
-    });
+    sources.push({ name: 'a generated illustration', get: () => generatedCandidates(ask) });
   }
   return sources;
 }
+
+/**
+ * The generator asked for its pictures, one seed after another. A picture
+ * counts only when the service answered 200 with an image: when it is full
+ * it answers 503 with a placeholder that says so, which is not a picture
+ * for the page. What it sent is kept as the bytes the checker is shown.
+ */
+async function generatedCandidates(ask: PictureAsk): Promise<Candidate[]> {
+  const prompt = ask.only === 'generated' ? illustrationPrompt(ask.query, '') : illustrationPrompt(ask.query, ask.must);
+  const out: Candidate[] = [];
+  let busy = '';
+  for (const salt of [0, 1]) {
+    const src = generatedImageUrl(prompt, { seed: seedFor(prompt, salt + 2 * (ask.variant ?? 0)) });
+    // The generator refuses a request with an Origin header, which is what a browser's fetch sends: without a proxy to
+    // fetch the bytes, the picture is shown by a plain image load and goes unchecked.
+    if (!hasProxy()) {
+      out.push({ picture: { kind: 'generated', src, page: GENERATOR_PAGE, title: ask.must || ask.query, source: GENERATOR_NAME, description: prompt } });
+      continue;
+    }
+    try {
+      const response = await apiFetch(`/web/picture?url=${encodeURIComponent(src)}`, { signal: ask.signal });
+      const unchecked: Candidate = { picture: { kind: 'generated', src, page: GENERATOR_PAGE, title: ask.must || ask.query, source: GENERATOR_NAME, description: prompt } };
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (response.status === 502 && /503|429/.test(body.error ?? '')) {
+          // Full for this seed: the next may still come, since the service answers request by request.
+          busy = 'the free generator is full right now';
+          continue;
+        }
+        // The proxy could not fetch it (an older proxy without the route, say): shown by a plain image load, unchecked.
+        out.push(unchecked);
+        continue;
+      }
+      if (!(response.headers.get('content-type') ?? '').startsWith('image/')) {
+        out.push(unchecked);
+        continue;
+      }
+      const blob = await response.blob();
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      if (!data) break;
+      out.push({ data, picture: { kind: 'generated', src, page: GENERATOR_PAGE, title: ask.must || ask.query, source: GENERATOR_NAME, description: prompt } });
+    } catch (error) {
+      if (ask.signal?.aborted) throw error;
+      break;
+    }
+  }
+  // "Reload in a few seconds", the service says when it is full: one more go, after a moment.
+  if (!out.length && busy && !ask.retried) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (ask.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    return generatedCandidates({ ...ask, retried: true });
+  }
+  if (!out.length && busy) throw new Error(busy);
+  return out;
+}
+
+const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
 /**
  * The picture for a page's request: each source searched in turn, its
@@ -309,7 +363,13 @@ function sourcesFor(ask: PictureAsk): Source[] {
 export function resolvePicture(ask: PictureAsk): Promise<ResolvedPicture> {
   const key = KEY(ask);
   const going = inFlight.get(key);
-  if (going && !ask.fresh) return going;
+  // The same ask already under way is shared — unless it is stopped by whoever started it, when this one asks again.
+  if (going && !ask.fresh) {
+    return going.catch((error: unknown) => {
+      if (isAbort(error) && !ask.signal?.aborted) return resolvePicture(ask);
+      throw error;
+    });
+  }
   const work = (async (): Promise<ResolvedPicture> => {
     if (!ask.fresh) {
       const kept = await db.getKv<ResolvedPicture>(key).catch(() => undefined);
@@ -327,7 +387,8 @@ export function resolvePicture(ask: PictureAsk): Promise<ResolvedPicture> {
         candidates = await source.get();
       } catch (error) {
         if (ask.signal?.aborted) throw error;
-        failed = failed || `${source.name}: ${error instanceof Error ? error.message : String(error)}`;
+        // The last failure is the one worth saying: the generator, usually, which can be asked again in a moment.
+        failed = `${source.name}: ${error instanceof Error ? error.message : String(error)}`;
         continue;
       }
       if (!candidates.length) continue;
@@ -372,6 +433,9 @@ export function resolvePicture(ask: PictureAsk): Promise<ResolvedPicture> {
   inFlight.set(key, work);
   return work;
 }
+
+/** The sources an ask would look in, in order, by name. */
+export const sourceNamesFor = (ask: PictureAsk) => sourcesFor(ask).map((source) => source.name);
 
 /** Where the picture came from, in a few words, for the head of its card. */
 export function sourceLabel(picture: Picture): string {

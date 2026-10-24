@@ -48,7 +48,7 @@ import { useEnsureProject } from '../lib/implementationProject';
 import { currentDbName, subscribeDb } from '../lib/db';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
-import { FormalBlock, ImageBlock } from './LearnBlocks';
+import { FormalBlock, IllustrationBlock, ImageBlock } from './LearnBlocks';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
@@ -520,6 +520,8 @@ function sectionText(section: Section): string {
                     ? `${block.title || 'Formally'}: ${block.md}`
                     : block.kind === 'image'
                       ? `[Picture${block.caption ? `: ${block.caption}` : ''}]`
+                      : block.kind === 'illustration'
+                        ? `[Illustration${block.caption ? `: ${block.caption}` : ''}]`
                       : block.kind === 'check' || block.kind === 'glossary'
                         ? ''
                         : `${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}: ${block.md}`,
@@ -602,6 +604,8 @@ export function SectionView({
       <FormalBlock key={key} block={block} />
     ) : block.kind === 'image' ? (
       <ImageBlock key={key} block={block} />
+    ) : block.kind === 'illustration' ? (
+      <IllustrationBlock key={key} block={block} />
     ) : block.kind === 'check' || block.kind === 'glossary' ? null : (
       <Caveat key={key} block={block} />
     );

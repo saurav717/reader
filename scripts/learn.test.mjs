@@ -47,6 +47,11 @@ describe('the instructions', () => {
     assert.match(learn.PAGE_SYSTEM, /write a\s+```motion` block right after it/);
     assert.match(learn.PAGE_SYSTEM, /"on request" is relaxed/);
     assert.match(learn.PAGE_SYSTEM, /in the order a hand would draw it/);
+    // Illustrations are made for the page, for ideas and scenes; never for a mechanism.
+    assert.match(learn.PAGE_SYSTEM, /```illustration prompt=/);
+    assert.match(learn.PAGE_SYSTEM, /never for a mechanism, a structure, a plot or a\s+quantity/);
+    assert.match(explain.EXPLAIN_SYSTEM, /```illustration prompt=/);
+    assert.match(explain.EXPLAIN_SYSTEM, /NEVER for the method's structure/);
   });
 });
 
@@ -305,6 +310,20 @@ describe('pictures from Commons', () => {
     assert.equal(image.paper, '2006.11239');
     assert.equal(image.figure, 'Figure 1');
     assert.equal(explain.parseExplanation('## A\n```image query="x" must="y"\n```')[0].blocks[0].paper, undefined);
+  });
+  it('reads an illustration block: the prompt, the caption, and why', () => {
+    const [section] = explain.parseExplanation('## A\n```illustration prompt="a shoebox of photographs on a kitchen table, morning light" caption="The box the model learns from."\nWhat the training set is, as a thing.\n```');
+    const block = section.blocks[0];
+    assert.equal(block.kind, 'illustration');
+    assert.equal(block.prompt, 'a shoebox of photographs on a kitchen table, morning light');
+    assert.equal(block.caption, 'The box the model learns from.');
+    assert.equal(block.md, 'What the training set is, as a thing.');
+    assert.equal(block.open, false);
+  });
+  it('looks in the sources in order, the generator last — or alone for an illustration', () => {
+    assert.deepEqual(pictures.sourceNamesFor({ query: 'q', must: 'm' }), ['Wikimedia Commons', 'the web', 'a generated illustration']);
+    assert.deepEqual(pictures.sourceNamesFor({ query: 'q', must: 'm', paper: { arxivId: '1' }, papers: [{ arxivId: '1' }, { arxivId: '2' }], generate: false }), ['arXiv:1', 'Wikimedia Commons', 'the web', 'arXiv:2']);
+    assert.deepEqual(pictures.sourceNamesFor({ query: 'q', must: 'm', only: 'generated' }), ['a generated illustration']);
   });
   it('names where a picture came from', () => {
     assert.equal(pictures.sourceLabel({ kind: 'commons', src: '', page: '', title: '', source: 'Wikimedia Commons' }), 'Found on the web · Wikimedia Commons');

@@ -205,6 +205,14 @@ FORMAT — plain Markdown, with these rules the page depends on:
   page plays it as the reader reads, and the figure stays as the still. One such scene per page is right, two at most, on
   the figures that matter most; mark any other figure that could move with animate="yes" in its fence and the reader can
   ask for its scene. A figure of something static — a definition, a table, a comparison at rest — gets neither.
+- Illustrations, made for the page: this reader is visual, and an idea lands when it is seen. Where a section's idea is
+  carried by an analogy, a scene, a thing in the world or a moment in history — the shoebox of photographs, the crowd
+  passing a message along, the apparatus on the bench, what the data is a picture of — ask for a picture to be made:
+  \`\`\`illustration prompt="what to draw: a scene in concrete nouns, the viewpoint, the light; no text, no labels, no diagram" caption="One line of what to look at, and what it stands for"\`
+  with one sentence of Markdown inside on what it stands for. The page generates it (free, in a few seconds) and captions
+  it as generated. One or two per page, on the ideas that need them; never for a mechanism, a structure, a plot or a
+  quantity — those are your drawn figures. An \`image\` block is for a REAL picture (a photograph, a paper's figure);
+  an \`illustration\` block is for one to be made. Choose by what the reader needs to see.
 - Drawn lines move: the page traces every figure's strokes as it comes into view, in the order they are written, then
   shows the fills and the text. So write each figure's SVG in the order a hand would draw it — the thing first, then what
   happens to it, then the arrows that join them, labels last — as separate <path>, <line> and <rect> elements rather than
@@ -843,7 +851,7 @@ function systemFor(track: LearnTrack) {
     track.prefs.plainFirst ? 'plain first, the formal account in formal blocks' : 'the formal account inline, with the intuition beside it',
     track.prefs.code ? 'code cells where they teach' : 'no code cells',
     track.prefs.checks ? 'a check at the end' : 'no check block',
-    track.prefs.generate !== false ? 'an illustration can be generated when no real picture is found, so an image block may ask for a scene no photograph exists of' : 'no generated pictures: ask only for pictures that exist',
+    track.prefs.generate !== false ? 'illustrations are generated for the page: use illustration blocks, and an image block may fall back to a generated picture' : 'no generated pictures: no illustration blocks, and ask only for pictures that exist',
   ]
     .filter(Boolean)
     .join('; ');

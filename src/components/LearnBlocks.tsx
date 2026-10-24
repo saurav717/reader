@@ -12,6 +12,7 @@ import { markdown } from '../lib/markdown';
 import { cleanFigure } from '../lib/sanitize';
 import { typesetFigureMath } from '../lib/figureMath';
 import { resolvePicture, sourceLabel } from '../lib/pictures';
+import { getState } from '../lib/assistant';
 import type { ResolvedPicture } from '../lib/pictures';
 import { markAnswer, shuffled, verdictOf } from '../lib/learn';
 import type { CheckAnswer, CheckQuestion, CheckResult } from '../lib/learn';
@@ -66,7 +67,7 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
     if (block.open || !(block.query || block.paper)) return;
     const controller = new AbortController();
     setState({ looking: true });
-    resolvePicture({ query: block.query || block.must, must: block.must || block.query, model, paper: block.paper ? { arxivId: block.paper, figure: block.figure } : undefined, papers, generate, fresh: fresh > 0, signal: controller.signal })
+    resolvePicture({ query: block.query || block.must, must: block.must || block.query, model, paper: block.paper ? { arxivId: block.paper, figure: block.figure } : undefined, papers, generate, fresh: fresh > 0, variant: fresh, signal: controller.signal })
       .then((resolved) => setState({ resolved, looking: false }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -98,7 +99,7 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
           <span className="photo-query">{picture.kind === 'paper' ? `${picture.ref ?? 'figure'} of ${picture.source}` : picture.kind === 'generated' ? 'AI-generated illustration' : `image: search “${block.query}”`}</span>
         </a>
       ) : (
-        <div className="figure-art drawing paper-missing">{state.error ? `Could not look for a picture — ${state.error}` : resolved?.note || `Nothing found shows “${block.must || block.query}” clearly enough to put here.`}</div>
+        <div className="figure-art drawing paper-missing">{state.error ? `No picture yet — ${state.error}. Look again in a moment.` : resolved?.note || `Nothing found shows “${block.must || block.query}” clearly enough to put here.`}</div>
       )}
       {block.caption ? <figcaption>{block.caption}</figcaption> : null}
       {block.md ? <div className="paper-figure-note" dangerouslySetInnerHTML={{ __html: html(block.md) }} /> : null}
@@ -152,6 +153,75 @@ export function ImageBlock({ block }: { block: Extract<Block, { kind: 'image' }>
           {resolved.verdict === 'checked'
             ? `Checked by the model: ${resolved.note || 'it shows what the page asked for.'}${resolved.rejected ? ` ${resolved.rejected} other${resolved.rejected === 1 ? '' : 's'} passed over${resolved.tried.length > 1 ? ` (${resolved.tried.join(', ')})` : ''}.` : ''}`
             : resolved.note || 'Not checked: the first match for the search, as found. Look again with a model that can see to have it checked.'}
+        </div>
+      ) : null}
+    </figure>
+  );
+}
+
+/** A picture made for the page from the model's own prompt: generated, checked when the model can see, captioned as generated. */
+export function IllustrationBlock({ block }: { block: Extract<Block, { kind: 'illustration' }> }) {
+  const learn = useContext(LearnContext);
+  // On a Learn page the page's writer checks it; on an Explain page, the model Explain writes with.
+  const model = learn?.model ?? getState().prefs.explainModel ?? getState().prefs.model;
+  const off = learn?.generate === false;
+  const [state, setState] = useState<{ resolved?: ResolvedPicture; error?: string; looking: boolean }>({ looking: true });
+  const [again, setAgain] = useState(0);
+  useEffect(() => {
+    if (block.open || !block.prompt || off) return;
+    const controller = new AbortController();
+    setState({ looking: true });
+    resolvePicture({ query: block.prompt, must: block.prompt, model, only: 'generated', fresh: again > 0, variant: again, signal: controller.signal })
+      .then((resolved) => setState({ resolved, looking: false }))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setState({ error: error instanceof Error ? error.message : String(error), looking: false });
+      });
+    return () => controller.abort();
+  }, [block.open, block.prompt, model, off, again]);
+  const resolved = state.resolved;
+  const picture = resolved?.picture;
+  return (
+    <figure className={`explain-figure is-photo is-generated${picture ? '' : ' is-empty'}`}>
+      <div className="photo-head">
+        <span>Made for this page{picture ? ` · ${picture.source}` : ''}</span>
+        {!block.open && !state.looking && !off ? (
+          <button type="button" className="btn sm ghost" onClick={() => setAgain((n) => n + 1)} title="Make another one from the same prompt">
+            Another
+          </button>
+        ) : null}
+      </div>
+      {block.open ? (
+        <div className="figure-art drawing">Asking for an illustration…</div>
+      ) : off ? (
+        <div className="figure-art drawing paper-missing">Generated pictures are off for this track.</div>
+      ) : state.looking ? (
+        <div className="figure-art drawing">
+          <span className="spinner" /> Making a picture of “{block.prompt.slice(0, 80)}{block.prompt.length > 80 ? '…' : ''}”{model ? ', then checking it' : ''}…
+        </div>
+      ) : picture ? (
+        <a className="figure-art photo-art" href={picture.page} target="_blank" rel="noreferrer noopener" title="About the generator">
+          <img src={picture.src} alt={block.caption || block.prompt} loading="lazy" />
+          <span className="photo-query">AI-generated illustration</span>
+        </a>
+      ) : (
+        <div className="figure-art drawing paper-missing">{state.error ? `No picture yet — ${state.error}. Try Another in a moment.` : resolved?.note || 'The generator made nothing that shows this clearly; try Another.'}</div>
+      )}
+      {block.caption ? <figcaption>{block.caption}</figcaption> : null}
+      {block.md ? <div className="paper-figure-note" dangerouslySetInnerHTML={{ __html: html(block.md) }} /> : null}
+      {picture ? (
+        <div className="photo-source">
+          <b>Generated illustration</b>, not a photograph — made by{' '}
+          <a href={picture.page} target="_blank" rel="noreferrer noopener">
+            {picture.source}
+          </a>{' '}
+          from “{block.prompt}”. A generator can get details wrong; take it as a sketch of the idea.
+        </div>
+      ) : null}
+      {picture && resolved ? (
+        <div className={`photo-verify is-${resolved.verdict}`}>
+          <i aria-hidden="true">{resolved.verdict === 'checked' ? '✓' : '?'}</i>
+          {resolved.verdict === 'checked' ? `Checked by the model: ${resolved.note || 'it shows what was asked for.'}` : 'Not checked: shown as the generator made it. With a proxy configured, the model checks it first.'}
         </div>
       ) : null}
     </figure>
