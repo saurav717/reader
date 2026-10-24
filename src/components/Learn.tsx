@@ -4,10 +4,11 @@
 // switch for how much of it is shown (plain, formal, with code), the bar for
 // questions and adjustments, and the check at the end.
 
+import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getState, modelSpec, PROVIDERS, setAskModel, subscribe } from '../lib/assistant';
 import ModelChip from './ModelChip';
-import { parseExplanation } from '../lib/explain';
+import { parseExplanation, sceneRequest } from '../lib/explain';
 import type { Block } from '../lib/explain';
 import {
   checkOf,
@@ -33,6 +34,7 @@ import {
 } from '../lib/learn';
 import type { CheckAnswer, LearnNode } from '../lib/learn';
 import { typesetMath } from '../lib/typesetMath';
+import { playDrawing, watchDrawings } from '../lib/lineMotion';
 import { KeepContext } from './Keep';
 import { lastThought, SectionView } from './Explain';
 import { CheckView, LearnContext, LEVELS } from './LearnBlocks';
@@ -134,6 +136,18 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   useEffect(() => {
     void typesetMath(scrollRef.current);
   });
+  // The drawn figures draw themselves, stroke by stroke, as they come into view — the ones still arriving too.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    return watchDrawings(root);
+  }, [nodeId]);
+  // A click on a drawn figure draws it again.
+  const onDocClick = (event: React.MouseEvent) => {
+    const art = event.target instanceof Element ? event.target.closest<HTMLElement>('.figure-art:not(.paper-art):not(.photo-art)') : null;
+    const svg = art?.querySelector('svg');
+    if (svg && !window.getSelection()?.toString()) playDrawing(svg);
+  };
   // A new page starts at the top.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -353,7 +367,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
           </aside>
 
           <KeepContext.Provider value={null}>
-            <article className="explain-doc">
+            <article className="explain-doc" onClick={onDocClick}>
               <header className="explain-title">
                 <div className="explain-kicker">
                   <SparkleIcon size={16} /> {track.topic} · {node.stage}
@@ -381,7 +395,16 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
               ) : (
                 <>
                   {sections.map((section, i) => (
-                    <SectionView key={section.id} section={section} number={i + (sections[0]?.title ? 1 : 0)} cells={cells} stage={level === 'plain' ? 'inline' : 'margin'} writer={writer} asker={asker} />
+                    <SectionView
+                      key={section.id}
+                      section={section}
+                      number={i + (sections[0]?.title ? 1 : 0)}
+                      cells={cells}
+                      stage={level === 'plain' ? 'inline' : 'margin'}
+                      writer={writer}
+                      asker={asker}
+                      onAnimate={canAsk && !busy && section.title ? (title, caption) => void revisePage(trackId, nodeId, sceneRequest(title, caption), askModel) : undefined}
+                    />
                   ))}
                   {streaming ? (
                     <p className="explain-writing">

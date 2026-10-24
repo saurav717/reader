@@ -4437,7 +4437,20 @@ the page shows:
   Explain's are.
 
 Pictures come from four places, and each says which. The model **draws**
-figures as it does for Explain, and can mark one to animate as a scene. Where
+figures as it does for Explain, and they move: as a figure scrolls into
+view it **draws itself**, each stroke traced from one end to the other in
+the order the model wrote them, the boxes and labels appearing after their
+outlines and the arrowheads last — the model is told to write each figure
+in the order a hand would draw it, the thing first, then what happens to
+it, then the arrows, so the trace reads as the explanation (click a figure
+and it draws itself again; off under *prefers reduced motion*). And where
+a figure shows something happening in stages — a pass through a model, a
+quantity changing with a knob, a procedure with steps — the model writes a
+**scene** for it without being asked, one or two a page: the same scenes
+Explain plays, a step per paragraph, kept in view while you read the
+section (see [Explain](#explain), *Scenes, on the stage*); any other figure
+that could move it marks with **▶ Animate this figure**, which asks for its
+scene. Where
 a real photograph, micrograph, map, portrait or a model's own output would
 teach more than a drawing, it **asks for one** — never by an address it
 remembers, but by what the picture must show (`image query="…" must="…"`),

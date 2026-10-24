@@ -197,8 +197,16 @@ FORMAT — plain Markdown, with these rules the page depends on:
 - Code: \`\`\`python title="What this cell shows"\` — short (≤ 30 lines), self-contained, numpy only (torch when it matters),
   deterministic (seeded), and it must print something that proves the point. Follow each cell with \`\`\`output\` holding
   what it prints. Only where running it teaches something a figure cannot; many pages need none.
-- Scenes: where a figure shows something that happens in stages, mark it with animate="yes" in its fence (at most two per
-  page). Do NOT write a motion block unless asked.
+- Scenes: this reader learns by watching things happen. Where a figure shows something that happens in stages — a pass
+  through a model, a quantity changing with a knob, a procedure with steps, a signal transformed stage by stage — write a
+  \`\`\`motion\` block right after it, as described under SCENES below, with one step per paragraph of the section: the
+  page plays it as the reader reads, and the figure stays as the still. One such scene per page is right, two at most, on
+  the figures that matter most; mark any other figure that could move with animate="yes" in its fence and the reader can
+  ask for its scene. A figure of something static — a definition, a table, a comparison at rest — gets neither.
+- Drawn lines move: the page traces every figure's strokes as it comes into view, in the order they are written, then
+  shows the fills and the text. So write each figure's SVG in the order a hand would draw it — the thing first, then what
+  happens to it, then the arrows that join them, labels last — as separate <path>, <line> and <rect> elements rather than
+  one path for everything, with arrows as lines with a marker-end. The trace reads as the explanation, for free.
 - References: cite claims that rest on a source with [1], [2] … in the prose and end with "## References" listing them,
   one per line as "[n] Authors. Title. Year." Only sources you are sure exist; mark one you are not sure of "(not verified)".
   Never invent a citation. A paper from the map's "paper" nodes, when relevant, is the first thing to cite.
@@ -215,7 +223,10 @@ FORMAT — plain Markdown, with these rules the page depends on:
 - Last of all, a \`\`\`glossary\` block: the terms this page taught, one per line as "term — meaning in a few words".
   Only terms introduced on THIS page, never ones from the glossary given below.
 
-${MOTION_FORMAT}`;
+${MOTION_FORMAT}
+
+For this course the SCENES rule "on request" is relaxed as said above: write the one or two scenes a page needs without
+being asked.`;
 
 /** The reader's own words about where they start and where they want to get, as the two lines Home asks for. */
 export const FROM_HINT = 'e.g. I know basic probability and PyTorch';
