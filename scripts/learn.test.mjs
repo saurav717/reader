@@ -47,6 +47,9 @@ describe('the instructions', () => {
     assert.match(learn.PAGE_SYSTEM, /write a\s+```motion` block right after it/);
     assert.match(learn.PAGE_SYSTEM, /"on request" is relaxed/);
     assert.match(learn.PAGE_SYSTEM, /in the order a hand would draw it/);
+    // And, where the page's idea is a process, the scene the Studio walks.
+    assert.match(learn.PAGE_SYSTEM, /STUDIO — a page whose central idea is a PROCESS/);
+    assert.match(learn.PAGE_SYSTEM, /most pages have none/);
   });
 });
 
