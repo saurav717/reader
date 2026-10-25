@@ -32,12 +32,14 @@
     "qrcode-generator": "^1.4.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "three": "^0.186.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.4.0",
     "@types/react": "^18.3.27",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.186.0",
     "@types/vscode": "^1.85.0",
     "@vitejs/plugin-react": "^4.7.0",
     "esbuild": "^0.21.5",

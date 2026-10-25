@@ -27,6 +27,7 @@ import type { SDK } from './assistant';
 import { currentDbName, db } from './db';
 import { MOTION_FORMAT } from './motion';
 import { STUDIO_FORMAT } from './studio';
+import { SPACE_FORMAT } from './studioSpace';
 import { applyEdits, parseExplanation, sectionTitles } from './explain';
 import type { Section } from './explain';
 
@@ -233,6 +234,8 @@ For this course the SCENES rule "on request" is relaxed as said above: write the
 being asked.
 
 ${STUDIO_FORMAT}
+
+${SPACE_FORMAT}
 
 A page gets a studio block only when its idea IS a process of that kind; most pages have none. Where it has one, it
 is the page's one such block, and the check may ask about what the walk shows.`;

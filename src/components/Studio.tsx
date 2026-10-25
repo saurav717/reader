@@ -13,13 +13,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { frameAt, frameAtSlot, readoutsAt, stepAt, stepStarts, walkAt } from '../lib/studio';
-import type { StudioSpec } from '../lib/studio';
+import type { StudioShow, StudioSpec } from '../lib/studio';
+import { StudioSpaceView } from './StudioSpace';
 import { FrameCanvas, toneOf } from './StudioFrame';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, SparkleIcon } from './icons';
 
-export type StudioView = 'row' | 'wall' | 'strip';
+export type StudioView = 'space' | 'row' | 'wall' | 'strip';
 const VIEWS: { id: StudioView; label: string; note: string }[] = [
+  { id: 'space', label: 'Space', note: 'The room: the things the scene placed in 3-D, moving as the walk goes' },
   { id: 'row', label: 'Row', note: 'The slots across the screen, the state carried left to right' },
   { id: 'wall', label: 'Wall', note: 'The slots receding into the screen along one wall, the state carried toward you' },
   { id: 'strip', label: 'Strip', note: 'Every slot side by side, flat' },
@@ -28,7 +30,7 @@ const VIEW_KEY = 'reader.studio.view';
 const readView = (): StudioView => {
   try {
     const stored = localStorage.getItem(VIEW_KEY);
-    if (stored === 'row' || stored === 'wall' || stored === 'strip') return stored;
+    if (stored === 'space' || stored === 'row' || stored === 'wall' || stored === 'strip') return stored;
   } catch {
     // private mode
   }
@@ -70,7 +72,7 @@ const DEFAULT_CAMERA = { zoom: 1, x: 0, y: 0, orbit: 0 };
 type Camera = typeof DEFAULT_CAMERA;
 const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 
-function Stage({ spec, p, view, seed, onSlot }: { spec: StudioSpec; p: number; view: StudioView; seed: number; /** A click on a slot: go there. */ onSlot: (slot: number) => void }) {
+function Stage({ spec, p, view, seed, onSlot }: { spec: StudioSpec & { show: StudioShow }; p: number; view: 'row' | 'wall' | 'strip'; seed: number; /** A click on a slot: go there. */ onSlot: (slot: number) => void }) {
   const n = spec.slots.length;
   const walk = walkAt(p, n);
   const tone = toneOf(spec);
@@ -248,7 +250,13 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
   const n = spec.slots.length;
   const [p, setP] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [view, setView] = useState<StudioView>(() => (reducedMotion() ? 'strip' : readView()));
+  // The views this scene offers: the room when it has a space, the walk's layouts when it has a show.
+  const views = useMemo(() => VIEWS.filter((item) => (item.id === 'space' ? Boolean(spec.space) : Boolean(spec.show))), [spec]);
+  const [view, setView] = useState<StudioView>(() => {
+    const wanted = reducedMotion() ? 'strip' : readView();
+    if (views.some((item) => item.id === wanted)) return wanted;
+    return spec.space ? 'space' : reducedMotion() ? 'strip' : 'row';
+  });
   const [seed, setSeed] = useState(1);
   const step = stepAt(spec, p);
   const starts = useMemo(() => stepStarts(spec), [spec]);
@@ -327,7 +335,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
           {title || spec.state}
         </span>
         <div className="segmented" role="group" aria-label="How the slots are laid out">
-          {VIEWS.map((item) => (
+          {views.map((item) => (
             <button key={item.id} type="button" aria-pressed={view === item.id} onClick={() => setView(item.id)} title={item.note}>
               {item.label}
             </button>
@@ -362,7 +370,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
           <p className="studio-state">
             {n} · one {spec.unit} each
           </p>
-          {spec.show.kind === 'noise' ? (
+          {spec.show?.kind === 'noise' || spec.space?.things.some((thing) => thing.kind === 'panel' && thing.show.kind === 'noise') ? (
             <button type="button" className="btn sm ghost" onClick={() => setSeed((s) => s + 1)} title="Draw the noise again from a different seed">
               Reroll the noise
             </button>
@@ -375,7 +383,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
             </span>
             {current?.equation ? <Equation tex={current.equation} /> : null}
           </div>
-          <Stage spec={spec} p={p} view={view} seed={seed} onSlot={toSlot} />
+          {view === 'space' && spec.space ? <StudioSpaceView spec={spec} p={p} seed={seed} /> : spec.show ? <Stage spec={{ ...spec, show: spec.show }} p={p} view={view === 'space' ? 'row' : view} seed={seed} onSlot={toSlot} /> : null}
           <div className="studio-story">
             {spec.steps.map((item, i) => (
               <button
@@ -397,7 +405,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
           </div>
           <div className="studio-hint">
             <kbd>space</kbd> play · <kbd>[</kbd>
-            <kbd>]</kbd> a {spec.unit} back or on · scroll to zoom · {view !== 'strip' ? 'drag to orbit · shift-drag to pan' : 'drag to pan'} · <kbd>0</kbd> reset
+            <kbd>]</kbd> a {spec.unit} back or on · scroll to zoom · {view === 'space' ? 'drag to orbit · right-drag or shift-drag to pan' : view !== 'strip' ? 'drag to orbit · shift-drag to pan' : 'drag to pan'} · <kbd>0</kbd> reset
           </div>
         </div>
         <aside className="studio-inspector">

@@ -174,3 +174,110 @@ describe('in a page', () => {
     assert.match(studio.STUDIO_FORMAT, /"kind":"density"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The wider pictures, and the room
+// ---------------------------------------------------------------------------
+
+const space = await load('src/lib/studioSpace.ts');
+
+describe('the wider pictures', () => {
+  it('reads a point on a curve and leaves its trail', () => {
+    const spec = studio.parseStudio('{"slots":["k=0","k=1","k=2","k=3"],"show":{"kind":"curve","values":[1,0.6,0.3,0.1,0.3,0.6],"at":[0.05,0.3,0.45,0.5]}}');
+    assert.equal(spec.show.kind, 'curve');
+    const mid = studio.frameAt(spec, 0.5);
+    assert.equal(mid.kind, 'curve');
+    assert.ok(Math.abs(mid.at - 0.375) < 1e-9, 'half way from slot 1 to slot 2');
+    assert.deepEqual(mid.trail, [0.05, 0.3]);
+    assert.deepEqual(studio.frameAt(spec, 1).trail, [0.05, 0.3, 0.45, 0.5]);
+  });
+  it('reads a point on a map, a set of points with groups, a row of tokens, and a graph', () => {
+    const map = studio.parseStudio('{"slots":["a","b","c"],"show":{"kind":"map","base":[[1,0.5],[0.5,0]],"at":[[0,1],[0.5,0.5],[1,0]]}}');
+    assert.deepEqual(studio.frameAt(map, 0.5).at, [0.5, 0.5]);
+    assert.deepEqual(studio.frameAt(map, 0.25).trail, [[0, 1]]);
+    const points = studio.parseStudio('{"slots":["a","b"],"show":{"kind":"points","sets":[[[0,0],[1,1]],[[1,0],[0,1]]],"groups":[0,1]}}');
+    assert.deepEqual(studio.frameAt(points, 0.5).points, [
+      [0.5, 0],
+      [0.5, 1],
+    ]);
+    assert.deepEqual(studio.frameAt(points, 0.5).groups, [0, 1]);
+    const tokens = studio.parseStudio('{"slots":["a","b","c"],"show":{"kind":"tokens","rows":[["The"],["The","cat"],["The","cat","sat"]],"mark":[0,1,2]}}');
+    assert.deepEqual(studio.frameAt(tokens, 0.5).tokens, ['The', 'cat']);
+    assert.equal(studio.frameAt(tokens, 0.5).mark, 1);
+    assert.deepEqual(studio.frameAt(tokens, 0.2).tokens, ['The'], 'tokens switch at the midpoint, they do not tween');
+    const graph = studio.parseStudio('{"slots":["a","b"],"show":{"kind":"graph","nodes":[[0,0],[1,1],[0,1]],"edges":[[0,1],[1,2],[2,2],[0,9]],"values":[[0,0,0],[1,1,1]],"active":[0,2]}}');
+    assert.deepEqual(graph.show.edges, [
+      [0, 1],
+      [1, 2],
+    ], 'a self edge and one off the end are dropped');
+    assert.deepEqual(studio.frameAt(graph, 0.5).values, [0.5, 0.5, 0.5]);
+    assert.equal(studio.frameAt(graph, 0.2).active, 0);
+    assert.equal(studio.frameAt(graph, 0.8).active, 2);
+  });
+  it('mends the star the model writes with a backslash', () => {
+    const spec = studio.parseStudio('{"slots":["a","b"],"show":{"kind":"bars","values":[[1]]},"steps":[{"title":"one","equation":"\\\\theta_k \\\\to \\\\theta^{\\\\*}"}]}');
+    assert.equal(spec.steps[0].equation, '\\theta_k \\to \\theta^{*}');
+  });
+  it('tells the model to match the picture to the state, and never to draw a moving point as a bell', () => {
+    assert.match(studio.STUDIO_FORMAT, /"kind":"curve"/);
+    assert.match(studio.STUDIO_FORMAT, /"kind":"graph"/);
+    assert.match(studio.STUDIO_FORMAT, /never for a point that moves/);
+  });
+});
+
+const ROOM = `{"state":"the parameters θ","unit":"step","slots":["k=0","k=1","k=2","k=3"],
+ "space":{"axes":{"x":"θ₁","y":"loss","z":"θ₂"},"camera":{"yaw":35,"pitch":28},
+  "things":[{"id":"loss","kind":"surface","heights":[[0.9,0.6,0.9],[0.6,0.1,0.6],[0.9,0.6,0.9]],"label":"L(θ)"},
+            {"id":"theta","kind":"point","at":[[0.1,0.9,0.1],[0.3,0.5,0.3],[0.45,0.2,0.45],[0.5,0.1,0.5]],"tone":"mark","label":["θ₀","θ₁","θ₂","θ*"]},
+            {"id":"trail","kind":"path","points":[[0.1,0.9,0.1],[0.3,0.5,0.3],[0.45,0.2,0.45],[0.5,0.1,0.5]],"follow":true},
+            {"id":"grad","kind":"arrow","from":[0.1,0.9,0.1],"to":[[0.3,0.5,0.3],[0.45,0.2,0.45],[0.5,0.1,0.5],[0.5,0.1,0.5]],"label":"−η∇L"},
+            {"id":"pic","kind":"panel","show":{"kind":"bars","values":[[1,0.2],[0.2,1]]},"at":[0.9,0.5,0.1],"face":"x"},
+            {"id":"layer","kind":"box","at":[0.8,0,0.8],"size":[0.1,0.4,0.1],"value":[0,0.5,1,1]},
+            {"id":"note","kind":"text","text":["start","","","done"],"at":[0.5,0.95,0.5]},
+            {"id":"bad","kind":"hologram"},
+            {"id":"net","kind":"graph","nodes":[[0,0,0],[1,1,1]],"edges":[[0,1]],"values":[[0,1],[1,0]],"active":[0,1,1,1]}]},
+ "steps":[{"title":"Start somewhere"},{"title":"Step against the gradient","equation":"\\\\theta_{k+1} = \\\\theta_k - \\\\eta\\\\nabla L","at":0.1},{"title":"Settle","at":0.9}],
+ "readouts":[{"label":"L","values":[0.9,0.5,0.2,0.1]}]}`;
+
+describe('the room', () => {
+  const spec = studio.parseStudio(ROOM);
+  it('is a scene without a show, with its things, axes and camera', () => {
+    assert.equal(spec.show, undefined);
+    assert.equal(spec.space.things.length, 8, 'the unknown kind is dropped');
+    assert.deepEqual(spec.space.axes, { x: 'θ₁', y: 'loss', z: 'θ₂' });
+    assert.deepEqual(spec.space.camera, { yaw: 35, pitch: 28 });
+    assert.equal(spec.space.things.find((t) => t.id === 'pic').show.kind, 'bars', 'a panel holds any of the walk pictures');
+    assert.match(studio.studioText('Descent', spec), /in a 3-D space with 8 things/);
+    assert.equal(space.spaceText(spec.space), '1 surface, 1 point, 1 path, 1 arrow, 1 panel, 1 box, 1 text, 1 graph');
+  });
+  it('places every thing at a moment of the walk, tweening what is keyed and keeping what is not', () => {
+    const half = Object.fromEntries(space.thingsAt(spec.space, spec.slots, 0.5).map((t) => [t.id, t]));
+    assert.deepEqual(half.loss.size, [1, 1, 1]);
+    assert.deepEqual(half.theta.at, [0.375, 0.35, 0.375], 'half way between slots 1 and 2');
+    assert.equal(half.theta.label, 'θ₂', 'labels switch at the midpoint');
+    assert.deepEqual(half.trail.points, [[0.1, 0.9, 0.1], [0.3, 0.5, 0.3], [0.375, 0.35, 0.375]], 'the path so far, part way to the next point');
+    assert.deepEqual(half.grad.from, [0.1, 0.9, 0.1], 'an end given once stays');
+    half.grad.to.forEach((v, i) => assert.ok(Math.abs(v - [0.475, 0.15, 0.475][i]) < 1e-9, 'the arrow points one slot ahead of the point'));
+    assert.equal(half.pic.frame.kind, 'bars');
+    assert.equal(half.pic.face, 'x');
+    assert.ok(Math.abs(half.layer.value - 0.75) < 1e-9);
+    assert.equal(half.note.text, '', 'an empty entry is nothing to show');
+    assert.deepEqual(half.net.values, [0.5, 0.5]);
+    assert.equal(half.net.active, 1);
+    const end = Object.fromEntries(space.thingsAt(spec.space, spec.slots, 1).map((t) => [t.id, t]));
+    assert.equal(end.theta.label, 'θ*');
+    assert.equal(end.trail.points.length, 4);
+    assert.equal(end.note.text, 'done');
+  });
+  it('knows which things move', () => {
+    assert.deepEqual(
+      space.movingThings(spec.space).map((t) => t.id),
+      ['theta', 'trail', 'grad', 'layer', 'net'],
+    );
+  });
+  it('is asked for, and told apart from the walk, in the instructions', () => {
+    assert.match(space.SPACE_FORMAT, /"space" instead of "show"/);
+    assert.match(space.SPACE_FORMAT, /"kind":"surface"/);
+    assert.match(space.SPACE_FORMAT, /never both/);
+  });
+});
