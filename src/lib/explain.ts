@@ -27,6 +27,8 @@ import type { Screen, SDK } from './assistant';
 import { currentDbName, db } from './db';
 import { MOTION_FORMAT, parseMotion } from './motion';
 import type { MotionSpec } from './motion';
+import { parseStudio, studioText } from './studio';
+import type { StudioSpec } from './studio';
 import { figureList, gatherPaperFigures } from './paperFigures';
 import type { PaperFigure } from './paperFigures';
 
@@ -116,6 +118,8 @@ export type Block =
   // A scene: the figure above it with steps, as motion.ts reads it. `spec` is
   // null while the block is still streaming, or when it is not a scene at all.
   | { kind: 'motion'; title: string; figure: string; src: string; spec: MotionSpec | null; open: boolean }
+  // A Studio scene: the page's process walked step by step, full screen, as studio.ts reads it. `spec` is null while streaming or when it is not one.
+  | { kind: 'studio'; title: string; src: string; spec: StudioSpec | null; open: boolean }
   | { kind: 'code'; lang: string; title: string; code: string; output?: string; open: boolean }
   | { kind: 'caveat'; verdict: Verdict; title: string; md: string }
   // One of the paper's own figures, named as the paper names it; the picture is the one paperFigures.ts kept.
@@ -213,6 +217,9 @@ export function parseExplanation(src: string): Section[] {
       } else if (lang === 'motion' || lang === 'scene') {
         flush();
         current.blocks.push({ kind: 'motion', title: info.title ?? '', figure: info.figure ?? '', src: text, spec: open ? null : parseMotion(text), open });
+      } else if (lang === 'studio') {
+        flush();
+        current.blocks.push({ kind: 'studio', title: info.title ?? '', src: text, spec: open ? null : parseStudio(text), open });
       } else if (/^paper[-_]?(figure|table|fig)$/.test(lang)) {
         flush();
         current.blocks.push({ kind: 'paperFigure', ref: info.ref ?? info.figure ?? info.name ?? '', caption: info.caption ?? '', md: text.trim(), open });
@@ -311,6 +318,7 @@ export function notebook(title: string, sections: Section[], writer = 'Claude'):
       else if (block.kind === 'figure') parts.push(`*Figure: ${block.caption || 'see the explanation page'}*`);
       else if (block.kind === 'paperFigure') parts.push(`*${block.ref} of the paper${block.caption ? ` — ${block.caption}` : ''}*${block.md ? `\n\n${block.md}` : ''}`);
       else if (block.kind === 'motion') parts.push(`*Scene${block.title ? `: ${block.title}` : ''} — played on the explanation page${block.spec ? `. ${block.spec.steps.map((s) => s.caption).filter(Boolean).join(' ')}` : ''}*`);
+      else if (block.kind === 'studio') parts.push(`*${studioText(block.title, block.spec).slice(1, -1)} — opened full screen on the page*`);
       else if (block.kind === 'tree') parts.push(`\`\`\`\n${block.text}\n\`\`\``);
       else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
       else if (block.kind === 'formal') parts.push(`> **${block.title || 'Formally'}.** ${block.md.replace(/\n/g, '\n> ')}`);
@@ -505,6 +513,9 @@ export function sceneRequest(section: string, caption?: string): string {
 
 /** The section's scene, when it has one. */
 export const motionOf = (section: Section) => section.blocks.find((b): b is Extract<Block, { kind: 'motion' }> => b.kind === 'motion');
+
+/** The page's Studio scene, when it has one that is written and reads as one. */
+export const studioOf = (sections: Section[]) => sections.flatMap((section) => section.blocks).find((b): b is Extract<Block, { kind: 'studio' }> => b.kind === 'studio' && !b.open && Boolean(b.spec));
 
 // ---------------------------------------------------------------------------
 // The store: one explanation per paper, streamed once and kept

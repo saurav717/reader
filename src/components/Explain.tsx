@@ -48,6 +48,8 @@ import { useEnsureProject } from '../lib/implementationProject';
 import { currentDbName, subscribeDb } from '../lib/db';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
+import { StudioCard } from './StudioHost';
+import { studioText } from '../lib/studio';
 import { FormalBlock, ImageBlock } from './LearnBlocks';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
@@ -508,6 +510,8 @@ function sectionText(section: Section): string {
             ? `[${block.ref} of the paper${block.caption ? `: ${block.caption}` : ''}]${block.md ? ` ${block.md}` : ''}`
           : block.kind === 'motion'
             ? motionText(block.title, block.spec)
+          : block.kind === 'studio'
+            ? studioText(block.title, block.spec)
           : block.kind === 'code'
             ? `\`\`\`\n${block.code}\n\`\`\`${block.output !== undefined ? `\n\nExpected output:\n\`\`\`\n${block.output}\n\`\`\`` : ''}`
             : block.kind === 'tree'
@@ -566,7 +570,7 @@ export function SectionView({
   const ref = useRef<HTMLElement>(null);
   const rows: { prose: Block[]; side: Block[]; wide?: boolean }[] = [];
   // A tree, a starter file or the budget is a table's width: it goes in the reading column, not the margin.
-  const wide = (block: Block) => block.kind === 'prose' || block.kind === 'tree' || block.kind === 'file' || block.kind === 'compute' || block.kind === 'formal';
+  const wide = (block: Block) => block.kind === 'prose' || block.kind === 'tree' || block.kind === 'file' || block.kind === 'compute' || block.kind === 'formal' || block.kind === 'studio';
   const motion = stage === 'off' ? undefined : motionOf(section);
   // The scene on the stage beside the whole section, not in a row of its own; with the stage off, not at all.
   const staged = stage === 'margin' && motion;
@@ -590,6 +594,8 @@ export function SectionView({
       <PaperFigureView key={key} block={block} />
     ) : block.kind === 'motion' ? (
       <MotionView key={key} block={block} compact={stage === 'inline'} writer={asker ?? writer} />
+    ) : block.kind === 'studio' ? (
+      <StudioCard key={key} block={block} title={section.title} writer={asker ?? writer} />
     ) : block.kind === 'code' ? (
       <CodeCell key={key} block={block} index={cells.get(block) ?? 0} asker={asker} writer={writer} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
     ) : block.kind === 'tree' ? (

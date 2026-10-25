@@ -8,7 +8,9 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getState, modelSpec, PROVIDERS, setAskModel, subscribe } from '../lib/assistant';
 import ModelChip from './ModelChip';
-import { parseExplanation, sceneRequest } from '../lib/explain';
+import { parseExplanation, sceneRequest, studioOf } from '../lib/explain';
+import { studioRequest } from '../lib/studio';
+import Studio from './StudioHost';
 import type { Block } from '../lib/explain';
 import {
   checkOf,
@@ -77,6 +79,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   const [ask, setAsk] = useState('');
   const [askFocused, setAskFocused] = useState(false);
   const [active, setActive] = useState('');
+  const [studioOpen, setStudioOpen] = useState(false);
 
   const writerModel = page?.model ?? track?.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
   const writer = modelSpec(writerModel).label;
@@ -121,6 +124,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   const allSections = useMemo(() => parseExplanation(shown), [shown]);
   const sections = useMemo(() => pageSections(allSections), [allSections]);
   const questions = useMemo(() => checkOf(allSections), [allSections]);
+  const studio = useMemo(() => studioOf(allSections), [allSections]);
   const cells = useMemo(() => {
     const numbers = new Map<Block, number>();
     let n = 0;
@@ -232,6 +236,11 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
               {page?.content ? 'Rewrite' : 'Write it'}
             </button>
           ) : null}
+          {studio ? (
+            <button type="button" className="btn sm" onClick={() => setStudioOpen(true)} title="Open this page's process in the Studio: the slots in 3-D, the state carried from the first to the last, the equation of each step above">
+              Studio ⤢
+            </button>
+          ) : null}
           <button type="button" className="btn sm ghost" onClick={onMap} title="Back to the map of this track, on Home">
             Map
           </button>
@@ -292,6 +301,11 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
                       {suggestion}
                     </button>
                   ))}
+                  {!studio ? (
+                    <button type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(studioRequest(node.title))} title="A Studio scene: the page's process, walked step by step full screen">
+                      Build a Studio scene of this page's process
+                    </button>
+                  ) : null}
                 </div>
               ) : lastRevision ? (
                 <div className="ask-status is-done">
@@ -470,6 +484,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
             </article>
           </KeepContext.Provider>
         </div>
+        {studioOpen && studio?.spec ? <Studio spec={studio.spec} title={studio.title || node.title} kicker={track.topic} onClose={() => setStudioOpen(false)} /> : null}
       </div>
     </LearnContext.Provider>
   );

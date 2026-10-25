@@ -11,6 +11,7 @@
 //
 //    ```formal title="…"                  what the plain prose just said, made exact
 //    ```image query="…" must="…" caption="…"   a picture to be found on the web (wikimedia.ts)
+//    ```studio title="…"                  the page's process, walked step by step full screen (studio.ts)
 //    ```check                             the questions at the end of the page, as JSON
 //    ```glossary                          the terms this page taught, one per line
 //
@@ -25,6 +26,7 @@ import { explainError, modelSpec, PROVIDERS, sdk, streamModel, tag } from './ass
 import type { SDK } from './assistant';
 import { currentDbName, db } from './db';
 import { MOTION_FORMAT } from './motion';
+import { STUDIO_FORMAT } from './studio';
 import { applyEdits, parseExplanation, sectionTitles } from './explain';
 import type { Section } from './explain';
 
@@ -228,7 +230,12 @@ FORMAT — plain Markdown, with these rules the page depends on:
 ${MOTION_FORMAT}
 
 For this course the SCENES rule "on request" is relaxed as said above: write the one or two scenes a page needs without
-being asked.`;
+being asked.
+
+${STUDIO_FORMAT}
+
+A page gets a studio block only when its idea IS a process of that kind; most pages have none. Where it has one, it
+is the page's one such block, and the check may ask about what the walk shows.`;
 
 /** The reader's own words about where they start and where they want to get, as the two lines Home asks for. */
 export const FROM_HINT = 'e.g. I know basic probability and PyTorch';
