@@ -10206,8 +10206,16 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .studio-eq-math .chat-math-block { margin: 0; white-space: nowrap; }
 .studio-eq-math .katex-display { margin: 4px 0 0; }
 
-.studio-scene { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 45% 42%; overflow: hidden; cursor: grab; touch-action: none; }
+.studio-scene { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 45% 42%; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 .studio-scene:active { cursor: grabbing; }
+.studio-scene.is-strip { perspective: none; }
+/* The camera's frame: zoomed and panned around the centre of the stage, the 3-D world (or the strip) inside it. */
+.studio-view { position: absolute; inset: 0; transform-origin: 50% 50%; transform-style: preserve-3d; }
+.studio-camera { position: absolute; left: 16px; bottom: 136px; z-index: 6; display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--shadow-sm); }
+.studio-camera button { width: 26px; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 15px/1 var(--sans); cursor: pointer; }
+.studio-camera button:hover { background: var(--panel); }
+.studio-camera button.is-quiet { color: var(--muted); }
+.studio-camera-zoom { min-width: 40px; text-align: center; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 .studio-world { position: absolute; left: 50%; top: 66%; transform-style: preserve-3d; }
 .studio-scene.is-wall { perspective: 1500px; perspective-origin: 34% 36%; }
 .studio-scene.is-wall .studio-world { top: 74%; }
@@ -10235,7 +10243,7 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .studio-tag { position: absolute; left: 50%; top: -34px; transform: translateX(-50%); white-space: nowrap; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--accent-on); font-family: var(--mono); font-size: 11px; }
 .studio-trail i { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
 
-.studio-strip { position: absolute; left: 24px; right: 24px; top: 50%; transform: translateY(-50%); display: flex; gap: 12px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+.studio-strip { position: absolute; left: 24px; right: 24px; top: 50%; transform: translateY(-50%); cursor: grab; display: flex; gap: 12px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
 .studio-strip-slot { position: relative; width: 110px; height: 110px; margin-bottom: 26px; flex: none; }
 .studio-strip-slot.is-passed .studio-frame { opacity: 0.35; }
 .studio-strip-slot.is-held { transform: translateY(-14px) scale(1.18); z-index: 2; }

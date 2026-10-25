@@ -110,7 +110,7 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const from = event.target instanceof Element ? event.target : document.activeElement;
-      if (event.key === 'Escape' && !from?.closest('input, textarea, .assistant-win') && !document.querySelector('.scrim, .figure-closeup')) onClose();
+      if (event.key === 'Escape' && !from?.closest('input, textarea, .assistant-win') && !document.querySelector('.scrim, .figure-closeup, .studio')) onClose();
       if (event.key === '/' && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) {
         event.preventDefault();
         askRef.current?.focus();

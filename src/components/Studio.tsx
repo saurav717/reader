@@ -63,41 +63,110 @@ function Equation({ tex }: { tex: string }) {
 // The stage: the slots, the carried state, the floor
 // ---------------------------------------------------------------------------
 
+/** How far the camera can go: the scene scaled by this much at most, and at least. */
+const ZOOM_MAX = 3;
+const ZOOM_MIN = 0.4;
+const DEFAULT_CAMERA = { zoom: 1, x: 0, y: 0, orbit: 0 };
+type Camera = typeof DEFAULT_CAMERA;
+const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+
 function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: StudioView; seed: number }) {
   const n = spec.slots.length;
   const walk = walkAt(p, n);
   const tone = toneOf(spec);
   const carried = useMemo(() => frameAt(spec, p, seed), [spec, p, seed]);
   const slotFrames = useMemo(() => spec.slots.map((_, i) => frameAtSlot(spec, i, seed)), [spec, seed]);
-  // Drag to orbit the row or the wall; the strip is flat.
-  const [orbit, setOrbit] = useState(0);
-  const drag = useRef<{ x: number; orbit: number } | null>(null);
-  useEffect(() => setOrbit(0), [view]);
+  // The camera: how close, where it looks, and (for the row and the wall) how far round. Drag orbits, shift-drag or the
+  // middle button pans, the wheel zooms about the pointer, a trackpad's sideways scroll pans, +, − and 0 do the same from
+  // the keyboard, and a double click puts it back. The strip is flat: there, a drag pans.
+  const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA);
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number; camera: Camera; pan: boolean } | null>(null);
+  useEffect(() => setCamera(DEFAULT_CAMERA), [view]);
   const onPointerDown = (event: React.PointerEvent) => {
-    if (view === 'strip' || event.button !== 0) return;
-    drag.current = { x: event.clientX, orbit };
+    if (event.button !== 0 && event.button !== 1) return;
+    if ((event.target as HTMLElement).closest('button')) return;
+    drag.current = { x: event.clientX, y: event.clientY, camera, pan: view === 'strip' || event.button === 1 || event.shiftKey };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   };
   const onPointerMove = (event: React.PointerEvent) => {
-    if (!drag.current) return;
-    setOrbit(Math.max(-40, Math.min(40, drag.current.orbit + (event.clientX - drag.current.x) * 0.15)));
+    const d = drag.current;
+    if (!d) return;
+    const dx = event.clientX - d.x;
+    const dy = event.clientY - d.y;
+    if (d.pan) setCamera({ ...d.camera, x: d.camera.x + dx, y: d.camera.y + dy });
+    else setCamera({ ...d.camera, orbit: Math.max(-40, Math.min(40, d.camera.orbit + dx * 0.15)) });
   };
   const onPointerUp = () => {
     drag.current = null;
   };
+  // The wheel is listened to by hand: React's wheel handler is passive, and the page must not scroll under the stage.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = scene.getBoundingClientRect();
+      setCamera((c) => {
+        // A sideways scroll (a trackpad, or shift with a wheel) pans; the rest zooms about the pointer, so what is under it stays put.
+        if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) return { ...c, x: c.x - (event.deltaX || event.deltaY) };
+        const zoom = clampZoom(c.zoom * Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0015)));
+        const px = event.clientX - rect.left - rect.width / 2 - c.x;
+        const py = event.clientY - rect.top - rect.height / 2 - c.y;
+        const k = zoom / c.zoom;
+        return { ...c, zoom, x: c.x + px - px * k, y: c.y + py - py * k };
+      });
+    };
+    scene.addEventListener('wheel', onWheel, { passive: false });
+    return () => scene.removeEventListener('wheel', onWheel);
+  }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) return;
+      if (event.key === '+' || event.key === '=') setCamera((c) => ({ ...c, zoom: clampZoom(c.zoom * 1.2) }));
+      else if (event.key === '-' || event.key === '_') setCamera((c) => ({ ...c, zoom: clampZoom(c.zoom / 1.2) }));
+      else if (event.key === '0') setCamera(DEFAULT_CAMERA);
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const moved = camera.zoom !== 1 || camera.x !== 0 || camera.y !== 0 || camera.orbit !== 0;
+  const viewTransform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`;
+  const controls = (
+    <div className="studio-camera" role="group" aria-label="Camera">
+      <button type="button" onClick={() => setCamera((c) => ({ ...c, zoom: clampZoom(c.zoom * 1.2) }))} title="Zoom in (+, or scroll)" aria-label="Zoom in">
+        +
+      </button>
+      <span className="studio-camera-zoom">{Math.round(camera.zoom * 100)}%</span>
+      <button type="button" onClick={() => setCamera((c) => ({ ...c, zoom: clampZoom(c.zoom / 1.2) }))} title="Zoom out (−, or scroll)" aria-label="Zoom out">
+        −
+      </button>
+      <button type="button" className={moved ? '' : 'is-quiet'} onClick={() => setCamera(DEFAULT_CAMERA)} title="Back to the first view (0, or double-click)" aria-label="Reset the view">
+        ⟲
+      </button>
+    </div>
+  );
+  const handlers = { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onDoubleClick: () => setCamera(DEFAULT_CAMERA) };
 
   if (view === 'strip') {
     return (
-      <div className="studio-strip" role="list" aria-label={`${spec.state}, one ${spec.unit} at a time`}>
-        {spec.slots.map((label, i) => {
-          const held = i === walk.slot && walk.phase !== 'setdown';
-          return (
-            <div key={i} role="listitem" className={`studio-strip-slot${i < walk.position - 0.35 ? ' is-passed' : ''}${held ? ' is-held' : ''}`}>
-              <FrameCanvas frame={held ? carried : slotFrames[i]} tone={tone} label={`${spec.state} at ${label}`} />
-              <span className="studio-slot-label">{label}</span>
-            </div>
-          );
-        })}
+      <div ref={sceneRef} className="studio-scene is-strip" {...handlers}>
+        <div className="studio-view" style={{ transform: viewTransform }}>
+          <div className="studio-strip" role="list" aria-label={`${spec.state}, one ${spec.unit} at a time`}>
+            {spec.slots.map((label, i) => {
+              const held = i === walk.slot && walk.phase !== 'setdown';
+              return (
+                <div key={i} role="listitem" className={`studio-strip-slot${i < walk.position - 0.35 ? ' is-passed' : ''}${held ? ' is-held' : ''}`}>
+                  <FrameCanvas frame={held ? carried : slotFrames[i]} tone={tone} label={`${spec.state} at ${label}`} />
+                  <span className="studio-slot-label">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {controls}
       </div>
     );
   }
@@ -115,7 +184,7 @@ function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: Stu
     view === 'wall'
       ? `translate3d(${cx + 110}px, ${-lift}px, ${cz}px) rotateY(${90 - (turned ? 40 : 0)}deg) scale(1.1)`
       : `translate3d(${cx}px, ${-lift}px, ${cz + 60}px) rotateY(${turned ? 26 : 0}deg) scale(1.25)`;
-  const world = view === 'wall' ? `translate(-50%, 0) translateX(-340px) rotateY(${-46 + orbit}deg) translateZ(-20px)` : `translate(-50%, 0) rotateY(${-20 + orbit}deg) translateX(-40px)`;
+  const world = view === 'wall' ? `translate(-50%, 0) translateX(-340px) rotateY(${-46 + camera.orbit}deg) translateZ(-20px)` : `translate(-50%, 0) rotateY(${-20 + camera.orbit}deg) translateX(-40px)`;
   const trail: JSX.Element[] = [];
   const dots = Math.floor(p * 48);
   for (let q = 0; q < dots; q++) {
@@ -129,31 +198,34 @@ function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: Stu
     trail.push(<i key={q} style={{ transform: view === 'wall' ? `translate3d(${x + 107}px, ${-l - 3}px, ${z - 3}px)` : `translate3d(${x - 3}px, ${-l - 3}px, ${z + 60}px)` }} />);
   }
   return (
-    <div className={`studio-scene is-${view}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
-      <div className="studio-world" style={{ transform: world }}>
-        <div className="studio-floor" />
-        <div className="studio-slots">
-          {spec.slots.map((label, i) => {
-            const [x, z] = place(i);
-            const passed = i < walk.position - 0.35 && i > 0;
-            const empty = (i === 0 && p < 1 - LIFT_SPAN_EPS) || (i === n - 1 && p < 1 - LIFT_SPAN_EPS);
-            return (
-              <div key={i} className={`studio-slot${passed ? ' is-passed' : ''}${empty ? ' is-empty' : ''}`} style={{ transform: `translate3d(${x}px, 0, ${z}px)${view === 'wall' ? ' rotateY(90deg)' : ''}` }}>
-                <FrameCanvas frame={slotFrames[i]} tone={tone} label={`${spec.state} at ${label}`} />
-                {empty ? <div className="studio-ghost" /> : null}
-                <div className="studio-stand" />
-                <div className="studio-slot-label">{label}</div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="studio-trail">{trail}</div>
-        <div className="studio-carry" style={{ transform: carry }}>
-          <FrameCanvas frame={carried} tone={tone} label={`${spec.state}, in hand`} />
-          <div className="studio-shadow" style={{ top: `${120 + lift}px`, opacity: 0.2 + 0.6 * (1 - walk.lift) }} />
-          <div className="studio-tag">{walk.phase === 'pickup' ? `picking up · ${spec.slots[0]}` : walk.phase === 'setdown' ? `setting down · ${spec.slots[n - 1]}` : `in hand · ${spec.unit} ${walk.slot + 1} of ${n}`}</div>
+    <div ref={sceneRef} className={`studio-scene is-${view}`} {...handlers}>
+      <div className="studio-view" style={{ transform: viewTransform }}>
+        <div className="studio-world" style={{ transform: world }}>
+          <div className="studio-floor" />
+          <div className="studio-slots">
+            {spec.slots.map((label, i) => {
+              const [x, z] = place(i);
+              const passed = i < walk.position - 0.35 && i > 0;
+              const empty = (i === 0 && p < 1 - LIFT_SPAN_EPS) || (i === n - 1 && p < 1 - LIFT_SPAN_EPS);
+              return (
+                <div key={i} className={`studio-slot${passed ? ' is-passed' : ''}${empty ? ' is-empty' : ''}`} style={{ transform: `translate3d(${x}px, 0, ${z}px)${view === 'wall' ? ' rotateY(90deg)' : ''}` }}>
+                  <FrameCanvas frame={slotFrames[i]} tone={tone} label={`${spec.state} at ${label}`} />
+                  {empty ? <div className="studio-ghost" /> : null}
+                  <div className="studio-stand" />
+                  <div className="studio-slot-label">{label}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="studio-trail">{trail}</div>
+          <div className="studio-carry" style={{ transform: carry }}>
+            <FrameCanvas frame={carried} tone={tone} label={`${spec.state}, in hand`} />
+            <div className="studio-shadow" style={{ top: `${120 + lift}px`, opacity: 0.2 + 0.6 * (1 - walk.lift) }} />
+            <div className="studio-tag">{walk.phase === 'pickup' ? `picking up · ${spec.slots[0]}` : walk.phase === 'setdown' ? `setting down · ${spec.slots[n - 1]}` : `in hand · ${spec.unit} ${walk.slot + 1} of ${n}`}</div>
+          </div>
         </div>
       </div>
+      {controls}
     </div>
   );
 }
@@ -308,7 +380,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
           </div>
           <div className="studio-hint">
             <kbd>space</kbd> play · <kbd>[</kbd>
-            <kbd>]</kbd> a {spec.unit} back or on{view !== 'strip' ? ' · drag to orbit' : ''}
+            <kbd>]</kbd> a {spec.unit} back or on · scroll to zoom · {view !== 'strip' ? 'drag to orbit · shift-drag to pan' : 'drag to pan'} · <kbd>0</kbd> reset
           </div>
         </div>
         <aside className="studio-inspector">
