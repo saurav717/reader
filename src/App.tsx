@@ -417,9 +417,9 @@ export default function App() {
   // The open paper's notes full screen, on a board of their own.
   const [boardOpen, setBoardOpen] = useState(false);
   // Learn: a page of a track, over everything, the way Explain is; and a topic handed to Home's Learn tab.
-  const [learnPage, setLearnPage] = useState<{ trackId: string; nodeId: string } | null>(() => {
+  const [learnPage, setLearnPage] = useState<{ trackId: string; nodeId: string; /** Opened for its Studio: the page opens it as soon as it has one. */ studio?: boolean } | null>(() => {
     try {
-      return JSON.parse(tabState.get(LEARN_KEY) || 'null') as { trackId: string; nodeId: string } | null;
+      return JSON.parse(tabState.get(LEARN_KEY) || 'null') as { trackId: string; nodeId: string; studio?: boolean } | null;
     } catch {
       return null;
     }
@@ -438,10 +438,10 @@ export default function App() {
       setLearnAsk({ topic: detail.topic ?? '', context: detail.context, at: Date.now() });
     };
     const onLearnPage = (event: Event) => {
-      const detail = (event as CustomEvent<{ trackId: string; nodeId: string }>).detail;
+      const detail = (event as CustomEvent<{ trackId: string; nodeId: string; studio?: boolean }>).detail;
       if (!detail?.trackId || !detail.nodeId) return;
       setExplainOpen(false);
-      setLearnPage({ trackId: detail.trackId, nodeId: detail.nodeId });
+      setLearnPage({ trackId: detail.trackId, nodeId: detail.nodeId, ...(detail.studio ? { studio: true } : {}) });
     };
     window.addEventListener(OPEN_LEARN, onLearn);
     window.addEventListener(OPEN_LEARN_PAGE, onLearnPage);
@@ -1840,6 +1840,7 @@ export default function App() {
           key={`${learnPage.trackId}:${learnPage.nodeId}`}
           trackId={learnPage.trackId}
           nodeId={learnPage.nodeId}
+          openStudio={learnPage.studio}
           onOpen={(nodeId) => setLearnPage({ trackId: learnPage.trackId, nodeId })}
           onOpenPaper={(node: LearnNode) => {
             const have = papers.find((paper) => (node.paper?.arxivId && paper.arxivId === node.paper.arxivId) || paper.title.toLowerCase() === (node.paper?.title ?? node.title).toLowerCase());

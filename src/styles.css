@@ -10027,6 +10027,16 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .learn-map-svg .map-node.is-next rect { fill: var(--accent-soft); stroke: var(--accent); }
 .learn-map-svg .map-node.is-next text { fill: var(--accent-ink); font-weight: 600; }
 .learn-map-svg .map-node.is-paper rect { stroke-dasharray: 4 3; }
+/* The Studio badge on a box's corner: filled when the page holds a scene, hollow when the map promised one. */
+.learn-map-svg .map-studio { cursor: pointer; outline: 0; }
+.learn-map-svg .map-studio circle { fill: var(--accent); stroke: var(--paper); stroke-width: 2; transition: transform 0.15s; transform-box: fill-box; transform-origin: center; }
+.learn-map-svg .map-studio text { font: 600 10px var(--sans); fill: var(--accent-on); pointer-events: none; }
+.learn-map-svg .map-studio.is-planned circle { fill: var(--surface); stroke: var(--accent); stroke-dasharray: 2 2; }
+.learn-map-svg .map-studio.is-planned text { fill: var(--accent); }
+.learn-map-svg .map-studio:hover circle, .learn-map-svg .map-studio:focus-visible circle { transform: scale(1.25); }
+.learn-map-svg .map-node.is-read .map-studio.is-written circle, .learn-map-svg .map-node.is-confident .map-studio.is-written circle { fill: var(--accent-on); stroke: var(--accent); }
+.learn-map-svg .map-node.is-read .map-studio.is-written text, .learn-map-svg .map-node.is-confident .map-studio.is-written text { fill: var(--accent); }
+.learn-pill.is-studio { background: var(--accent-soft); color: var(--accent-ink); }
 .learn-map-svg .map-node.is-paper:not(.is-read):not(.is-confident) rect { fill: var(--surface); stroke: var(--gold); }
 .learn-map-svg .map-node.is-paper:not(.is-read):not(.is-confident) text { fill: color-mix(in srgb, var(--gold) 70%, var(--ink)); }
 .learn-map-empty { display: flex; align-items: center; gap: 8px; padding: 36px 0; color: var(--muted); font-size: 13px; }
@@ -10037,6 +10047,7 @@ figure[class^='explainer-'] figcaption code { font-size: 11px; }
 .learn-legend i.is-confident { background: var(--accent); border: 2px solid var(--gold); }
 .learn-legend i.is-next { background: var(--accent-soft); border-color: var(--accent); }
 .learn-legend i.is-ready { background: var(--surface); border: 1.5px solid var(--accent); }
+.learn-legend i.is-studio { background: var(--accent); border-color: var(--accent); }
 .learn-legend-note { margin-left: auto; }
 
 /* The tracks beside it. */

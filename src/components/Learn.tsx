@@ -64,9 +64,11 @@ interface Props {
   onOpenPaper: (node: LearnNode) => void;
   onMap: () => void;
   onClose: () => void;
+  /** Opened from the map's Studio badge: the Studio opens as soon as the page has a scene. */
+  openStudio?: boolean;
 }
 
-export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onClose }: Props) {
+export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onClose, openStudio }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const track = useSyncExternalStore(subscribeLearn, () => trackFor(trackId));
   const { papers } = useStore();
@@ -125,6 +127,14 @@ export default function Learn({ trackId, nodeId, onOpen, onOpenPaper, onMap, onC
   const sections = useMemo(() => pageSections(allSections), [allSections]);
   const questions = useMemo(() => checkOf(allSections), [allSections]);
   const studio = useMemo(() => studioOf(allSections), [allSections]);
+  // Asked for the Studio from the map: it opens once, as soon as the page holds a scene (right away, or when the writing reaches it).
+  const studioAsked = useRef(Boolean(openStudio));
+  useEffect(() => {
+    if (studioAsked.current && studio && !streaming) {
+      studioAsked.current = false;
+      setStudioOpen(true);
+    }
+  });
   const cells = useMemo(() => {
     const numbers = new Map<Block, number>();
     let n = 0;
