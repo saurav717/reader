@@ -96,22 +96,41 @@ export interface StudioSpec {
 }
 
 /** What the prompt says about Studio scenes: the block, its JSON, and when a page gets one. Part of Learn's page instructions. */
-export const STUDIO_FORMAT = `STUDIO — a page whose central idea is a PROCESS (one thing changed by the same rule, step after step: an image denoised a step at a
-time, a token carried up through the layers, a belief corrected by each measurement, a state advanced by an integrator, a
-population after each generation) gets ONE \`\`\`studio title="…"\` block, right after the figure that shows the process, holding ONE
-JSON object. The page opens it full screen: the slots stand in a row in 3-D, the state is lifted off the first slot, carried past
-each of the others and set down at the last, with the equation of the current step above and the numbers beside. For example:
-{"state":"the image x_t","unit":"step",
- "slots":["t=1000","t=800","t=600","t=400","t=200","t=0"],
+export const STUDIO_FORMAT = `STUDIO — a page whose central idea is something that HAPPENS (a process, an algorithm, a dynamic, a construction) gets ONE
+\`\`\`studio title="…"\` block, right after the figure that shows it, holding ONE JSON object. The page opens it full screen, in 3-D,
+with the equation of the current step above, numbers beside, and a scrubber that walks it. FIRST decide what the paper's own
+best figure of the idea would be, and write that; the Studio has two arrangements and the choice matters more than anything else:
+- a SPACE ("space": …) — an empty 3-D room you furnish with whatever the idea is made of: a loss surface with a point rolling
+  down it, a network's layers as blocks with a feature map standing at each, a trajectory through a state space, particles in a
+  field, a tree being grown, a geometric construction. Use it whenever the idea lives in a space, has several parts that move
+  differently, or is about WHERE things are. Most ideas are this. The room's things are described under SPACE below.
+- a WALK ("show": …) — ONE thing carried along a row of slots, its picture changing at each: an image denoised step by step,
+  a token carried up through the layers, a belief corrected by each measurement, a sentence growing a token at a time. Use it
+  only when the idea really is one thing changed by the same rule over and over and nothing else needs to be in view.
+Never write both. Do not copy the arrangement of another page: a diffusion page is a walk, a gradient-descent page is a space
+with a surface, an attention page is a space with the tokens as points and the weights as arrows, a Kalman page is a walk of a
+density or a space with the belief as an ellipse on the state plane. Three short examples of walks follow; the space has its own
+example under SPACE.
+A diffusion walk:
+{"state":"the image x_t","unit":"step","slots":["t=1000","t=800","t=600","t=400","t=200","t=0"],
  "show":{"kind":"noise","base":[[0.9,0.9,0.8,0.9],[0.9,0.7,0.6,0.9],[0.3,0.3,0.3,0.4],[0.2,0.3,0.2,0.2]],"level":[1,0.9,0.7,0.45,0.2,0]},
- "steps":[{"title":"Pick up the noise","equation":"x_T \\\\sim \\\\mathcal{N}(0, I)","note":"No picture in it yet, only the shape."},
-          {"title":"Carry it one step","equation":"x_{t-1} = \\\\tfrac{1}{\\\\sqrt{\\\\alpha_t}}\\\\big(x_t - \\\\tfrac{1-\\\\alpha_t}{\\\\sqrt{1-\\\\bar\\\\alpha_t}}\\\\,\\\\epsilon_\\\\theta(x_t,t)\\\\big) + \\\\sigma_t z","note":"One network call, one subtraction, a little fresh noise.","at":0.1},
-          {"title":"Set it down as x_0","equation":"x_0 = (x_1 - \\\\sqrt{1-\\\\bar\\\\alpha_1}\\\\,\\\\epsilon_\\\\theta(x_1,1))/\\\\sqrt{\\\\bar\\\\alpha_1}","note":"No noise is added on the last step.","at":0.92}],
+ "steps":[{"title":"Start from pure noise","equation":"x_T \\\\sim \\\\mathcal{N}(0, I)","note":"No picture in it yet, only the shape."},
+          {"title":"Subtract the predicted noise","equation":"x_{t-1} = \\\\tfrac{1}{\\\\sqrt{\\\\alpha_t}}\\\\big(x_t - \\\\tfrac{1-\\\\alpha_t}{\\\\sqrt{1-\\\\bar\\\\alpha_t}}\\\\,\\\\epsilon_\\\\theta(x_t,t)\\\\big) + \\\\sigma_t z","note":"One network call, one subtraction, a little fresh noise.","at":0.1},
+          {"title":"Arrive at x_0","equation":"x_0 = (x_1 - \\\\sqrt{1-\\\\bar\\\\alpha_1}\\\\,\\\\epsilon_\\\\theta(x_1,1))/\\\\sqrt{\\\\bar\\\\alpha_1}","note":"No noise is added on the last step.","at":0.92}],
  "readouts":[{"label":"t","values":[1000,800,600,400,200,0]},{"label":"ᾱ_t","values":[0.002,0.05,0.26,0.62,0.9,1],"decimals":3}],
- "tries":["Walk two seeds side by side: same slots, different pictures."],
- "ask":"Why does the sky settle before the hills?"}
-"state" is what is carried, in a few words; "unit" is what one slot is called; "slots" are 5 to 12 short labels, first to last.
-"show" is how the state is drawn, and the kind MUST match what the state is — draw it the way the paper's own figure would:
+ "tries":["Walk two seeds side by side: same slots, different pictures."],"ask":"Why does the sky settle before the hills?"}
+A sentence decoded a token at a time:
+{"state":"the sentence so far","unit":"token","slots":["1","2","3","4","5"],
+ "show":{"kind":"tokens","rows":[["The"],["The","cat"],["The","cat","sat"],["The","cat","sat","on"],["The","cat","sat","on","the"]],"mark":[0,1,2,3,4]},
+ "steps":[{"title":"Feed what is there","equation":"p(x_{t+1} \\\\mid x_{\\\\le t})"},{"title":"Sample the next token","equation":"x_{t+1} \\\\sim \\\\text{softmax}(z_t / T)","at":0.2}],
+ "readouts":[{"label":"p(chosen)","values":[0.4,0.62,0.31,0.8,0.9],"decimals":2}]}
+A belief narrowing as measurements arrive:
+{"state":"the belief about x","unit":"tick","slots":["t=0","t=1","t=2","t=3","t=4"],
+ "show":{"kind":"density","mean":[0.5,0.42,0.47,0.5,0.52],"spread":[0.3,0.2,0.14,0.11,0.09],"mark":[0.5,0.35,0.55,0.55,0.5]},
+ "steps":[{"title":"Start wide","equation":"\\\\hat x_0 \\\\sim \\\\mathcal{N}(\\\\mu_0, P_0)"},{"title":"Predict, then correct","equation":"\\\\hat x_{t|t} = \\\\hat x_{t|t-1} + K_t (z_t - H\\\\hat x_{t|t-1})","at":0.15}],
+ "readouts":[{"label":"K_t","values":[0.9,0.7,0.55,0.45,0.4],"decimals":2}]}
+For a walk: "state" is what is carried, in a few words; "unit" is what one slot is called; "slots" are 5 to 12 short labels, first to
+last; "show" is how the state is drawn, and the kind MUST match what the state is:
 - a picture of values → {"kind":"grid","frames":[grid,…]}: one small grid of 0–1 values per slot (4×4 to 12×12: a heat map, an
   attention row per head, a feature map, a cellular automaton's cells).
 - a picture gaining or losing noise → {"kind":"noise","base":grid,"level":[…]}: ONE grid and how much of it is noise at each slot
@@ -134,7 +153,8 @@ each of the others and set down at the last, with the equation of the current st
   belief or a distribution ONLY — never for a point that moves, a picture, or a loss.
 - a few quantities side by side (a loss and its terms, a softmax, energy by mode, a budget) → {"kind":"bars","values":[[…],…],
   "labels":[…]}: a row of numbers per slot.
-Fewer frames than slots is fine: the page spreads them. "steps" are 3 to 5 lesson steps in the order of the walk, each with its
+Fewer frames than slots is fine: the page spreads them. "steps" are 3 to 5 lesson steps in the order of the walk, named for what
+happens in the idea (not "pick up" and "set down"), each with its
 equation as LaTeX (no dollars; write a star as ^* or ^{\\star}, never \\*) and "at", where in the walk it begins (0–1). "readouts"
 are 2 to 6 numbers to read at each slot, one value per slot. The grids are small and the numbers are plausible, not exact: the scene teaches the shape of the process, not its measurement.`;
 
