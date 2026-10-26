@@ -65,6 +65,8 @@ export interface LearnNode {
   /** A page to write, or a paper to read when you get there (opened in the reader, explained by Explain). */
   kind: 'page' | 'paper';
   paper?: { title: string; arxivId?: string; authors?: string };
+  /** The map's word that this page's idea is a process or a scene, so it will get a Studio: one phrase of what the Studio will show. */
+  studio?: string;
 }
 
 export type GlossaryEntry = { term: string; meaning: string; nodeId: string };
@@ -147,6 +149,7 @@ Reply with ONE JSON object in a \`\`\`json fence and nothing else:
   "stages": ["Ground", "The trick", "The model", "Sampling and beyond"],
   "nodes": [
     { "id": "gaussian-noise", "title": "Gaussian noise", "stage": "Ground", "needs": [], "blurb": "What one step of noise does to a picture, and why Gaussians add up.", "kind": "page" },
+    { "id": "forward-process", "title": "The forward process", "stage": "The trick", "needs": ["gaussian-noise"], "blurb": "Dissolving a picture, a step at a time.", "kind": "page", "studio": "a picture dissolving into noise, carried step by step down the chain" },
     { "id": "read-ddpm", "title": "Read DDPM (2020)", "stage": "Sampling and beyond", "needs": ["reverse-process"], "blurb": "The paper itself, now that every piece of it has been met.", "kind": "paper", "paper": { "title": "Denoising Diffusion Probabilistic Models", "arxivId": "2006.11239", "authors": "Ho, Jain, Abbeel" } }
   ]
 }
@@ -159,6 +162,11 @@ Rules:
 - A "paper" node is a paper to read once the pages before it are read — only a paper you are sure exists, with its arXiv id
   when you are sure of it. At most two, and only where reading the primary source is the natural end of a stage.
 - ids are short lowercase slugs, unique. Titles are short (two to five words). Blurbs are one sentence.
+- A page whose idea IS a process or a scene — one thing changed by the same rule step after step (an image denoised, a token
+  carried up through layers, a belief corrected by each measurement), or a scene in space (a point descending a loss surface,
+  activations flowing through a network, a trajectory) — gets "studio": one phrase of what its Studio will show, so the map
+  can say where the Studios are. Two to five pages of a map, the ones where watching it happen teaches most; a page that is a
+  definition, a comparison or a history gets none.
 - No prose outside the JSON.`;
 
 export const PAGE_SYSTEM = `You are writing ONE page of a course that teaches a topic to one reader, from where they started to where they want to
@@ -303,6 +311,7 @@ export function parseMap(text: string): { stages: string[]; nodes: LearnNode[] }
       needs: Array.isArray(item.needs) ? item.needs.map(str).filter(Boolean) : [],
       blurb: str(item.blurb),
       kind,
+      ...(kind === 'page' && str(item.studio) ? { studio: str(item.studio) } : {}),
       ...(kind === 'paper' && paper ? { paper: { title: str(paper.title) || title, ...(str(paper.arxivId) ? { arxivId: str(paper.arxivId) } : {}), ...(str(paper.authors) ? { authors: str(paper.authors) } : {}) } } : {}),
     });
   }
@@ -348,6 +357,26 @@ export function nodeStates(track: Pick<LearnTrack, 'nodes' | 'progress'>): Recor
 export function nextNode(track: Pick<LearnTrack, 'nodes' | 'progress'>): LearnNode | undefined {
   const states = nodeStates(track);
   return track.nodes.find((node) => states[node.id] === 'next') ?? track.nodes.find((node) => states[node.id] === 'ready');
+}
+
+/** A page with a Studio scene written into it: a closed ```studio fence in its content. Cheaper than parsing the page, for the map. */
+const hasStudioFence = (content: string | undefined) => Boolean(content && /^\s*```studio\b[^\n]*\n[\s\S]*?\n\s*```\s*$/m.test(content));
+
+export type SceneState = 'written' | 'planned';
+
+/**
+ * Which pages have a Studio scene, for the map and the list: `written` when the
+ * page holds one, `planned` when the map said the page would get one and it is
+ * not written yet (or was written without one, which the page's bar can mend).
+ */
+export function sceneNodes(track: Pick<LearnTrack, 'nodes' | 'pages'>): Map<string, SceneState> {
+  const scenes = new Map<string, SceneState>();
+  for (const node of track.nodes) {
+    if (node.kind !== 'page') continue;
+    if (hasStudioFence(track.pages[node.id]?.content)) scenes.set(node.id, 'written');
+    else if (node.studio) scenes.set(node.id, 'planned');
+  }
+  return scenes;
 }
 
 export function countRead(track: Pick<LearnTrack, 'nodes' | 'progress'>): { read: number; confident: number; total: number } {
@@ -1160,8 +1189,8 @@ export function askToLearn(topic: string, context?: string) {
   window.dispatchEvent(new CustomEvent(OPEN_LEARN, { detail: { topic, context } }));
 }
 
-export function openLearnPage(trackId: string, nodeId: string) {
-  window.dispatchEvent(new CustomEvent(OPEN_LEARN_PAGE, { detail: { trackId, nodeId } }));
+export function openLearnPage(trackId: string, nodeId: string, /** Open the page's Studio as soon as it has one. */ studio = false) {
+  window.dispatchEvent(new CustomEvent(OPEN_LEARN_PAGE, { detail: { trackId, nodeId, studio } }));
 }
 
 /** A page as a Markdown file, for Drive and for export: front matter, then the page as written. */

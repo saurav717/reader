@@ -430,3 +430,33 @@ describe('a picture made for the page', () => {
     assert.ok(generated.seedFor('anything') < 1_000_000);
   });
 });
+
+describe('where the Studios are', () => {
+  it('reads the map\'s word on which pages get a Studio, on pages only', () => {
+    const map = learn.parseMap('{"stages":["A"],"nodes":[{"title":"One","studio":"a point descending a loss surface"},{"title":"Two"},{"title":"Three","kind":"paper","studio":"nothing"}]}');
+    assert.equal(map.nodes[0].studio, 'a point descending a loss surface');
+    assert.equal(map.nodes[1].studio, undefined);
+    assert.equal(map.nodes[2].studio, undefined, 'a paper has no Studio');
+    assert.match(learn.MAP_SYSTEM, /"studio": one phrase of what its Studio will show/);
+  });
+  it('tells a written scene from a planned one, for the map', () => {
+    const track = {
+      nodes: [
+        { id: 'a', kind: 'page', studio: 'planned' },
+        { id: 'b', kind: 'page', studio: 'planned too' },
+        { id: 'c', kind: 'page' },
+        { id: 'd', kind: 'page' },
+      ],
+      pages: {
+        b: { content: '## One\n\nProse.\n\n```studio title="x"\n{"slots":["a","b"],"show":{"kind":"bars","values":[[1]]}}\n```\n' },
+        c: { content: '## One\n\n```studio title="x"\n{"slots":["a","b"]' },
+        d: { content: '## One\n\n```studio title="x"\n{"slots":["a","b"],"show":{"kind":"bars","values":[[1]]}}\n```\n' },
+      },
+    };
+    const scenes = learn.sceneNodes(track);
+    assert.equal(scenes.get('a'), 'planned');
+    assert.equal(scenes.get('b'), 'written', 'written wins over planned');
+    assert.equal(scenes.get('c'), undefined, 'a fence still open is not written');
+    assert.equal(scenes.get('d'), 'written', 'written even when the map did not plan it');
+  });
+});

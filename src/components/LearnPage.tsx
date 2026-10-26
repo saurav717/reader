@@ -18,6 +18,7 @@ import {
   nextNode,
   nodeStates,
   openLearnPage,
+  sceneNodes,
   searchTracks,
   startTrack,
   subscribeLearn,
@@ -140,6 +141,11 @@ export default function LearnPage({ id, ask, onOpen, onOpenPaper }: Props) {
       return;
     }
     openLearnPage(t.id, node.id);
+  };
+  /** The map's Studio badge: the page opens with its Studio, or is written first and then opens it. */
+  const openStudio = (t: LearnTrack, node: LearnNode) => {
+    touchTrack(t.id);
+    openLearnPage(t.id, node.id, true);
   };
   const openHit = (t: LearnTrack, hit: SearchHit) => {
     const node = hit.nodeId ? t.nodes.find((n) => n.id === hit.nodeId) : undefined;
@@ -275,7 +281,7 @@ export default function LearnPage({ id, ask, onOpen, onOpenPaper }: Props) {
             </aside>
             <div className="learn-main">
               {track ? (
-                <TrackMap track={track} onOpen={(node) => openNode(track, node)} />
+                <TrackMap track={track} onOpen={(node) => openNode(track, node)} onOpenStudio={(node) => openStudio(track, node)} />
               ) : (
                 <section className="home-card home-view-empty-card">
                   <h2>No such track</h2>
@@ -299,8 +305,11 @@ export default function LearnPage({ id, ask, onOpen, onOpenPaper }: Props) {
 }
 
 /** The map: stages as columns, each page a box coloured by where you are, the needs as curves between them. */
-function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNode) => void }) {
+function TrackMap({ track, onOpen, onOpenStudio }: { track: LearnTrack; onOpen: (node: LearnNode) => void; /** The Studio badge on a page: open the page with its Studio. */ onOpenStudio: (node: LearnNode) => void }) {
   const layout = useMemo(() => layoutMap(track), [track.stages, track.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scenes = useMemo(() => sceneNodes(track), [track.nodes, track.pages]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sceneCount = { written: 0, planned: 0 };
+  for (const state of scenes.values()) sceneCount[state]++;
   const driveState = useSyncExternalStore(subscribeLearn, () => driveStateOf(track.id));
   const states = nodeStates(track);
   const counts = countRead(track);
@@ -316,6 +325,11 @@ function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNo
               {counts.read} of {counts.total} read
             </span>
             {counts.confident ? <span className="pill learn-pill is-gold">{counts.confident} confident</span> : null}
+            {sceneCount.written + sceneCount.planned ? (
+              <span className="pill learn-pill is-studio" title={sceneCount.planned ? `${sceneCount.written} written, ${sceneCount.planned} to come when their pages are written` : 'Pages with a Studio scene: a 3-D view of the idea, opened from the ⤢ on the box'}>
+                ⤢ {sceneCount.written + sceneCount.planned} Studio{sceneCount.written + sceneCount.planned === 1 ? '' : 's'}
+              </span>
+            ) : null}
           </>
         ) : null}
         <span className="learn-map-meta">
@@ -408,10 +422,12 @@ function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNo
             {layout.boxes.map((box) => {
               const node = byId.get(box.id)!;
               const state = states[box.id];
+              const scene = scenes.get(box.id);
               return (
                 <g key={box.id} className={`map-node is-${state}${node.kind === 'paper' ? ' is-paper' : ''}`} role="listitem" tabIndex={0} onClick={() => onOpen(node)} onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), onOpen(node))}>
                   <title>
                     {node.title} — {STATE_LABEL[state]}. {node.blurb}
+                    {scene ? ` Studio${scene === 'planned' ? ' (when the page is written)' : ''}: ${node.studio ?? 'a 3-D view of the idea'}.` : ''}
                   </title>
                   <rect x={box.x} y={box.y} width={box.w} height={box.h} rx={9} />
                   <text x={box.x + box.w / 2} y={box.y + BOX_H / 2 + 4.5} textAnchor="middle">
@@ -419,6 +435,31 @@ function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNo
                     {node.title.length > 20 ? `${node.title.slice(0, 19)}…` : node.title}
                     {state === 'next' ? ' ▸' : ''}
                   </text>
+                  {scene ? (
+                    // The Studio badge, on the box's corner: a written scene opens straight into it; a planned one writes the page first.
+                    <g
+                      className={`map-studio is-${scene}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${scene === 'written' ? 'Open the Studio' : 'Write the page and open its Studio'}: ${node.studio ?? node.title}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenStudio(node);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onOpenStudio(node);
+                      }}
+                    >
+                      <title>{`${scene === 'written' ? 'Studio' : 'Studio, when the page is written'}: ${node.studio ?? 'a 3-D view of the idea'}`}</title>
+                      <circle cx={box.x + box.w - 2} cy={box.y + 2} r={9} />
+                      <text x={box.x + box.w - 2} y={box.y + 5.5} textAnchor="middle">
+                        ⤢
+                      </text>
+                    </g>
+                  ) : null}
                 </g>
               );
             })}
@@ -439,7 +480,12 @@ function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNo
             <span>
               <i className="is-locked" /> needs a page before it
             </span>
-            <span className="learn-legend-note">Click a box to open its page — it is written then. A dashed box is a paper, opened in the reader.</span>
+            {sceneCount.written + sceneCount.planned ? (
+              <span title="A page whose idea is a process or a scene gets a Studio: a 3-D view of it, walked step by step. The ⤢ on a box opens it; a hollow ⤢ is one to come when the page is written.">
+                <i className="is-studio" /> has a Studio
+              </span>
+            ) : null}
+            <span className="learn-legend-note">Click a box to open its page — it is written then. A dashed box is a paper, opened in the reader.{sceneCount.written + sceneCount.planned ? ' The ⤢ on a box opens its Studio.' : ''}</span>
           </div>
         </>
       ) : track.mapping ? (
@@ -453,6 +499,7 @@ function TrackMap({ track, onOpen }: { track: LearnTrack; onOpen: (node: LearnNo
 
 function TrackCard({ track, current, onPick, onOpen }: { track: LearnTrack; current: boolean; onPick: () => void; onOpen: (node: LearnNode) => void }) {
   const counts = countRead(track);
+  const scenes = sceneNodes(track).size;
   const next = nextNode(track);
   const pct = counts.total ? Math.round((counts.read / counts.total) * 100) : 0;
   const when = track.opened ?? track.updated;
@@ -461,7 +508,7 @@ function TrackCard({ track, current, onPick, onOpen }: { track: LearnTrack; curr
       <button type="button" className="learn-track-pick" onClick={onPick}>
         <span className="t">{track.topic}</span>
         <span className="m">
-          {track.mapping ? 'mapping…' : `${counts.total} pages · ${counts.read} read`}
+          {track.mapping ? 'mapping…' : `${counts.total} pages · ${counts.read} read${scenes ? ` · ${scenes} Studio${scenes === 1 ? '' : 's'}` : ''}`}
           {when ? ` · ${relativeDay(new Date(when).toISOString(), new Date())}` : ''}
           {!track.mapping ? <em className={`learn-status is-${trackStatus(track)}`}>{STATUS_LABEL[trackStatus(track)]}</em> : null}
         </span>
