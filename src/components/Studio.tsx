@@ -253,9 +253,10 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
   // The views this scene offers: the room when it has a space, the walk's layouts when it has a show.
   const views = useMemo(() => VIEWS.filter((item) => (item.id === 'space' ? Boolean(spec.space) : Boolean(spec.show))), [spec]);
   const [view, setView] = useState<StudioView>(() => {
+    // A scene with a room opens in it: the room is what the scene was written for. The remembered layout is for walks.
+    if (spec.space) return 'space';
     const wanted = reducedMotion() ? 'strip' : readView();
-    if (views.some((item) => item.id === wanted)) return wanted;
-    return spec.space ? 'space' : reducedMotion() ? 'strip' : 'row';
+    return views.some((item) => item.id === wanted) ? wanted : reducedMotion() ? 'strip' : 'row';
   });
   const [seed, setSeed] = useState(1);
   const step = stepAt(spec, p);
