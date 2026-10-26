@@ -20,8 +20,14 @@
 //  drawing is src/components/Studio.tsx.
 // ===========================================================================
 
-export type ShowKind = 'grid' | 'noise' | 'density' | 'bars';
-export const SHOW_KINDS: ShowKind[] = ['grid', 'noise', 'density', 'bars'];
+import { parseSpace } from './studioSpace';
+import type { StudioSpace } from './studioSpace';
+
+export type ShowKind = 'grid' | 'noise' | 'density' | 'bars' | 'curve' | 'map' | 'points' | 'tokens' | 'graph';
+export const SHOW_KINDS: ShowKind[] = ['grid', 'noise', 'density', 'bars', 'curve', 'map', 'points', 'tokens', 'graph'];
+
+/** A point in the unit square: x to the right, y up. */
+export type XY = [number, number];
 
 /** A grid of values in 0–1, rows top to bottom. */
 export type Grid = number[][];
@@ -39,7 +45,17 @@ export type StudioShow =
   // A belief over one number: its mean and spread at each slot, both in 0–1, with an optional mark (a measurement, a target) at each.
   | { kind: 'density'; mean: number[]; spread: number[]; mark?: number[] }
   // A row of quantities at each slot: a loss and its terms, a softmax, the energy by mode.
-  | { kind: 'bars'; values: number[][]; labels?: string[] };
+  | { kind: 'bars'; values: number[][]; labels?: string[] }
+  // A point on a landscape: the curve's heights over 0–1 (8 to 32 numbers, 0 low, 1 high) and where the state stands at each slot (x in 0–1). Gradient descent, annealing, a root finder.
+  | { kind: 'curve'; values: number[]; at: number[]; labels?: string[] }
+  // A point on a 2-D landscape: ONE grid of heights (0 low, 1 high) and where the state is at each slot (x, y in 0–1). The path so far is drawn. An optimiser on a loss surface, an agent on a grid, a trajectory.
+  | { kind: 'map'; base: Grid; at: XY[] }
+  // A set of points, one set per slot (the same count in each): where each is, and its group (0, 1, 2…) when they have one. k-means, particles, a swarm, embeddings moving.
+  | { kind: 'points'; sets: XY[][]; groups?: number[] }
+  // A row of tokens per slot, one marked: a sentence growing a token at a time, a string being parsed, a tape being read.
+  | { kind: 'tokens'; rows: string[][]; mark?: number[] }
+  // A graph: node positions, edges by index, a value per node per slot (0–1, drawn as the node's shade), and the node that is active at each slot. Message passing, PageRank, a shortest path, a spreading process.
+  | { kind: 'graph'; nodes: XY[]; edges: [number, number][]; values: number[][]; active?: number[] };
 
 export interface StudioStep {
   /** A short imperative: "Pick up the noise", "Carry it one slot". */
@@ -63,11 +79,14 @@ export interface StudioReadout {
 export interface StudioSpec {
   /** What is carried: "the image x_t", "one token's vector", "the belief about x". */
   state: string;
+  /** The room, when the scene is one (studioSpace.ts): things placed in 3-D, keyed by the slots. A scene has a show, a space, or both. */
+  space?: StudioSpace;
   /** What one slot is: "step", "layer", "tick". */
   unit: string;
   /** The slots, first to last: a short label each ("t=1000", "layer 3", "t=0"). */
   slots: string[];
-  show: StudioShow;
+  /** The walk: the state standing on each slot. Absent when the scene is a space alone. */
+  show?: StudioShow;
   steps: StudioStep[];
   readouts: StudioReadout[];
   /** Things to try, for the inspector. */
@@ -92,14 +111,32 @@ each of the others and set down at the last, with the equation of the current st
  "tries":["Walk two seeds side by side: same slots, different pictures."],
  "ask":"Why does the sky settle before the hills?"}
 "state" is what is carried, in a few words; "unit" is what one slot is called; "slots" are 5 to 12 short labels, first to last.
-"show" is how the state is drawn: {"kind":"grid","frames":[grid,…]} one small grid of 0–1 values per slot (4×4 to 12×12: a heat
-map, an attention row per head); {"kind":"noise","base":grid,"level":[…]} ONE grid and how much of it is noise at each slot
-(1 at the start of a diffusion walk, 0 at the end; the reverse for the forward process); {"kind":"density","mean":[…],"spread":[…],
-"mark":[…]} a bell over one number per slot, all in 0–1 (a Kalman belief, a posterior narrowing); {"kind":"bars","values":[[…],…],
-"labels":[…]} a row of quantities per slot (a loss and its terms, a softmax). Fewer frames than slots is fine: the page spreads
-them. "steps" are 3 to 5 lesson steps in the order of the walk, each with its equation as LaTeX (no dollars) and "at", where in
-the walk it begins (0–1). "readouts" are 2 to 6 numbers to read at each slot, one value per slot. The grids are small and the
-numbers are plausible, not exact: the scene teaches the shape of the process, not its measurement.`;
+"show" is how the state is drawn, and the kind MUST match what the state is — draw it the way the paper's own figure would:
+- a picture of values → {"kind":"grid","frames":[grid,…]}: one small grid of 0–1 values per slot (4×4 to 12×12: a heat map, an
+  attention row per head, a feature map, a cellular automaton's cells).
+- a picture gaining or losing noise → {"kind":"noise","base":grid,"level":[…]}: ONE grid and how much of it is noise at each slot
+  (1 at the start of a diffusion walk, 0 at the end; the reverse for the forward process).
+- a point walking on a landscape (gradient descent, annealing, Newton's method, a root finder, a learning rate schedule) →
+  {"kind":"curve","values":[…],"at":[…]}: the landscape's heights over 0–1 (8 to 32 numbers, 0 low, 1 high) and where the
+  state stands at each slot (x in 0–1). The page draws the curve, the point, and the dots it left behind.
+- a point walking on a 2-D landscape (an optimiser on a loss surface, an agent on a grid, a trajectory, a random walk) →
+  {"kind":"map","base":grid,"at":[[x,y],…]}: ONE grid of heights and the position at each slot, both in 0–1. The path is drawn.
+- many points moving (k-means and its centroids, particles, a swarm, embeddings pulled together, a population) →
+  {"kind":"points","sets":[[[x,y],…],…],"groups":[…]}: one set of positions per slot, the same count in each, and each point's
+  group number when they have one (drawn in a colour each).
+- a sequence being built or read (a sentence growing a token at a time, autoregressive decoding, a parser, a tape, a proof
+  step by step) → {"kind":"tokens","rows":[[…],…],"mark":[…]}: the tokens at each slot and which one to mark.
+- a graph whose nodes change (message passing, PageRank, a shortest path, belief propagation, a rumour spreading, a GNN) →
+  {"kind":"graph","nodes":[[x,y],…],"edges":[[i,j],…],"values":[[…],…],"active":[…]}: node positions in 0–1, edges by index,
+  a value per node per slot (0–1, the node's shade) and the active node at each slot.
+- a distribution over one number (a Kalman belief, a posterior narrowing, a bandit's estimate) → {"kind":"density","mean":[…],
+  "spread":[…],"mark":[…]}: a bell per slot, all in 0–1, with an optional mark (a measurement, a target). A density is for a
+  belief or a distribution ONLY — never for a point that moves, a picture, or a loss.
+- a few quantities side by side (a loss and its terms, a softmax, energy by mode, a budget) → {"kind":"bars","values":[[…],…],
+  "labels":[…]}: a row of numbers per slot.
+Fewer frames than slots is fine: the page spreads them. "steps" are 3 to 5 lesson steps in the order of the walk, each with its
+equation as LaTeX (no dollars; write a star as ^* or ^{\\star}, never \\*) and "at", where in the walk it begins (0–1). "readouts"
+are 2 to 6 numbers to read at each slot, one value per slot. The grids are small and the numbers are plausible, not exact: the scene teaches the shape of the process, not its measurement.`;
 
 // ---------------------------------------------------------------------------
 // Reading the block
@@ -110,6 +147,7 @@ const clamp01 = (v: number) => clamp(v, 0, 1);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 const nums = (v: unknown): number[] => (Array.isArray(v) ? v.filter(isNum) : []);
+const xys = (v: unknown): XY[] => (Array.isArray(v) ? v : []).map((pt) => (Array.isArray(pt) && pt.length >= 2 && isNum(pt[0]) && isNum(pt[1]) ? ([clamp01(pt[0]), clamp01(pt[1])] as XY) : null)).filter((pt): pt is XY => Boolean(pt));
 const grid = (v: unknown): Grid | null => {
   if (!Array.isArray(v) || !v.length) return null;
   const rows = v.filter((row): row is number[] => Array.isArray(row) && row.length > 0 && row.every(isNum)).map((row) => row.map(clamp01));
@@ -146,6 +184,41 @@ const readShow = (raw: unknown, slots: number): StudioShow | null => {
     const labels = Array.isArray(s.labels) ? s.labels.map(str).filter(Boolean) : [];
     return { kind, values, ...(labels.length ? { labels } : {}) };
   }
+  if (kind === 'curve') {
+    const values = nums(s.values).map(clamp01);
+    const at = nums(s.at).map(clamp01);
+    if (values.length < 2 || !at.length) return null;
+    const labels = Array.isArray(s.labels) ? s.labels.map(str).filter(Boolean) : [];
+    return { kind, values, at, ...(labels.length ? { labels } : {}) };
+  }
+  if (kind === 'map') {
+    const base = grid(s.base);
+    const at = xys(s.at);
+    if (!base || !at.length) return null;
+    return { kind, base, at };
+  }
+  if (kind === 'points') {
+    const sets = (Array.isArray(s.sets) ? s.sets : []).map(xys).filter((set) => set.length);
+    if (!sets.length) return null;
+    const groups = nums(s.groups).map((g) => Math.max(0, Math.round(g)));
+    return { kind, sets, ...(groups.length ? { groups } : {}) };
+  }
+  if (kind === 'tokens') {
+    const rows = (Array.isArray(s.rows) ? s.rows : []).map((row) => (Array.isArray(row) ? row.map((t) => (isNum(t) ? String(t) : str(t))).filter(Boolean) : [])).filter((row) => row.length);
+    if (!rows.length) return null;
+    const mark = nums(s.mark).map((m) => Math.max(-1, Math.round(m)));
+    return { kind, rows, ...(mark.length ? { mark } : {}) };
+  }
+  if (kind === 'graph') {
+    const nodes = xys(s.nodes);
+    if (nodes.length < 2) return null;
+    const edges = (Array.isArray(s.edges) ? s.edges : [])
+      .map((e) => (Array.isArray(e) && e.length === 2 && e.every(isNum) ? ([Math.round(e[0]), Math.round(e[1])] as [number, number]) : null))
+      .filter((e): e is [number, number] => Boolean(e) && e![0] >= 0 && e![1] >= 0 && e![0] < nodes.length && e![1] < nodes.length && e![0] !== e![1]);
+    const values = (Array.isArray(s.values) ? s.values : []).map((row) => nums(row).map(clamp01)).filter((row) => row.length);
+    const active = nums(s.active).map((a) => Math.round(a));
+    return { kind, nodes, edges, values: values.length ? values : [nodes.map(() => 0.5)], ...(active.length ? { active } : {}) };
+  }
   return null;
 };
 
@@ -173,7 +246,8 @@ export function parseStudio(text: string): StudioSpec | null {
   const slots = (Array.isArray(o.slots) ? o.slots : []).map((v) => (isNum(v) ? String(v) : str(v))).filter(Boolean);
   if (slots.length < 2) return null;
   const show = readShow(o.show, slots.length);
-  if (!show) return null;
+  const space = parseSpace(o.space, (raw) => readShow(raw, slots.length));
+  if (!show && !space) return null;
   const steps: StudioStep[] = (Array.isArray(o.steps) ? o.steps : [])
     .map((item): StudioStep | null => {
       if (!item || typeof item !== 'object') return null;
@@ -181,7 +255,8 @@ export function parseStudio(text: string): StudioSpec | null {
       const title = str(s.title);
       if (!title) return null;
       const step: StudioStep = { title };
-      if (str(s.equation)) step.equation = str(s.equation);
+      // A `\*` is what the model writes for a star it meant to keep: LaTeX has no such command.
+      if (str(s.equation)) step.equation = str(s.equation).replace(/\\\*/g, '*');
       if (str(s.note)) step.note = str(s.note);
       if (isNum(s.at)) step.at = clamp01(s.at);
       return step;
@@ -212,7 +287,8 @@ export function parseStudio(text: string): StudioSpec | null {
     state: str(o.state) || 'the state',
     unit: str(o.unit) || 'step',
     slots,
-    show,
+    ...(show ? { show } : {}),
+    ...(space ? { space } : {}),
     steps: steps.slice(0, 8),
     readouts,
     tries,
@@ -283,7 +359,16 @@ export function stepStarts(spec: Pick<StudioSpec, 'steps'>): number[] {
 // ---------------------------------------------------------------------------
 
 /** What the state looks like at one moment, ready to draw. */
-export type Frame = { kind: 'grid'; grid: Grid } | { kind: 'density'; mean: number; spread: number; mark?: number } | { kind: 'bars'; values: number[]; labels?: string[] };
+export type Frame =
+  | { kind: 'grid'; grid: Grid }
+  | { kind: 'density'; mean: number; spread: number; mark?: number }
+  | { kind: 'bars'; values: number[]; labels?: string[] }
+  // The point on the curve now, and where it has been at the slots so far.
+  | { kind: 'curve'; values: number[]; at: number; trail: number[]; labels?: string[] }
+  | { kind: 'map'; grid: Grid; at: XY; trail: XY[] }
+  | { kind: 'points'; points: XY[]; groups?: number[] }
+  | { kind: 'tokens'; tokens: string[]; mark?: number }
+  | { kind: 'graph'; nodes: XY[]; edges: [number, number][]; values: number[]; active?: number };
 
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 
@@ -332,7 +417,7 @@ export function noised(base: Grid, level: number, seed = 1): Grid {
 }
 
 /** The frame at a fraction `p` of the walk: the slot's picture, tweened toward the next. */
-export function frameAt(spec: Pick<StudioSpec, 'show' | 'slots'>, p: number, seed = 1): Frame {
+export function frameAt(spec: { show: StudioShow; slots: string[] }, p: number, seed = 1): Frame {
   const { position } = walkAt(p, spec.slots.length);
   const show = spec.show;
   const n = spec.slots.length;
@@ -354,13 +439,58 @@ export function frameAt(spec: Pick<StudioSpec, 'show' | 'slots'>, p: number, see
     }
     return frame;
   }
+  if (show.kind === 'bars') {
+    const { a, b, u } = around(show.values, position, n);
+    const width = Math.max(a.length, b.length);
+    return { kind: 'bars', values: Array.from({ length: width }, (_, i) => lerp(a[i] ?? 0, b[i] ?? 0, u)), ...(show.labels ? { labels: show.labels } : {}) };
+  }
+  // Where the state has stood at each slot passed so far: the dots left behind on the landscape.
+  const passed = Math.floor(position + 1e-9);
+  if (show.kind === 'curve') {
+    const { a, b, u } = around(show.at, position, n);
+    const trail = Array.from({ length: Math.min(passed + 1, n) }, (_, i) => around(show.at, i, n).a);
+    return { kind: 'curve', values: show.values, at: lerp(a, b, u), trail, ...(show.labels ? { labels: show.labels } : {}) };
+  }
+  if (show.kind === 'map') {
+    const { a, b, u } = around(show.at, position, n);
+    const trail = Array.from({ length: Math.min(passed + 1, n) }, (_, i) => around(show.at, i, n).a);
+    return { kind: 'map', grid: show.base, at: [lerp(a[0], b[0], u), lerp(a[1], b[1], u)], trail };
+  }
+  if (show.kind === 'points') {
+    const { a, b, u } = around(show.sets, position, n);
+    const count = Math.max(a.length, b.length);
+    const points: XY[] = Array.from({ length: count }, (_, i) => {
+      const from = a[i] ?? b[i];
+      const to = b[i] ?? a[i];
+      return [lerp(from[0], to[0], u), lerp(from[1], to[1], u)];
+    });
+    return { kind: 'points', points, ...(show.groups ? { groups: show.groups } : {}) };
+  }
+  if (show.kind === 'tokens') {
+    // Tokens do not tween: the row switches at the midpoint, and the mark with it.
+    const { a, b, u } = around(show.rows, position, n);
+    const tokens = u < 0.5 ? a : b;
+    const frame: Frame = { kind: 'tokens', tokens };
+    if (show.mark?.length) {
+      const mark = around(show.mark, position, n);
+      const m = u < 0.5 ? mark.a : mark.b;
+      if (m >= 0 && m < tokens.length) frame.mark = m;
+    }
+    return frame;
+  }
   const { a, b, u } = around(show.values, position, n);
-  const width = Math.max(a.length, b.length);
-  return { kind: 'bars', values: Array.from({ length: width }, (_, i) => lerp(a[i] ?? 0, b[i] ?? 0, u)), ...(show.labels ? { labels: show.labels } : {}) };
+  const values = show.nodes.map((_, i) => lerp(a[i] ?? 0.5, b[i] ?? a[i] ?? 0.5, u));
+  const frame: Frame = { kind: 'graph', nodes: show.nodes, edges: show.edges, values };
+  if (show.active?.length) {
+    const active = around(show.active, position, n);
+    const node = u < 0.5 ? active.a : active.b;
+    if (node >= 0 && node < show.nodes.length) frame.active = node;
+  }
+  return frame;
 }
 
 /** The frame exactly at a slot: what stands on its stand. */
-export const frameAtSlot = (spec: Pick<StudioSpec, 'show' | 'slots'>, slot: number, seed = 1) => frameAt(spec, spec.slots.length < 2 ? 0 : clamp(slot, 0, spec.slots.length - 1) / (spec.slots.length - 1), seed);
+export const frameAtSlot = (spec: { show: StudioShow; slots: string[] }, slot: number, seed = 1) => frameAt(spec, spec.slots.length < 2 ? 0 : clamp(slot, 0, spec.slots.length - 1) / (spec.slots.length - 1), seed);
 
 /** The readouts at a fraction `p` of the walk, as text: numbers tweened between slots, strings taken from the nearer slot. */
 export function readoutsAt(spec: Pick<StudioSpec, 'readouts' | 'slots'>, p: number): { label: string; value: string }[] {
@@ -381,9 +511,10 @@ export function readoutsAt(spec: Pick<StudioSpec, 'readouts' | 'slots'>, p: numb
 export const bell = (frame: Extract<Frame, { kind: 'density' }>, x: number) => Math.exp(-((x - frame.mean) ** 2) / (2 * frame.spread * frame.spread));
 
 /** The share of the slots this scene draws at a slot: what a short per-slot list contributes there (for the strip's labels). */
-export const slotFrameIndex = (spec: Pick<StudioSpec, 'show' | 'slots'>, slot: number) => {
+export const slotFrameIndex = (spec: { show: StudioShow; slots: string[] }, slot: number) => {
   const show = spec.show;
-  const length = show.kind === 'grid' ? show.frames.length : show.kind === 'noise' ? show.level.length : show.kind === 'density' ? show.mean.length : show.values.length;
+  const length =
+    show.kind === 'grid' ? show.frames.length : show.kind === 'noise' ? show.level.length : show.kind === 'density' ? show.mean.length : show.kind === 'curve' || show.kind === 'map' ? show.at.length : show.kind === 'points' ? show.sets.length : show.kind === 'tokens' ? show.rows.length : show.values.length;
   return spreadIndex(length, slot, spec.slots.length);
 };
 
@@ -399,5 +530,6 @@ export function studioRequest(title?: string): string {
 /** A Studio scene as a line of text, for the notebook and for what the bar is told the page holds. */
 export function studioText(title: string, spec: StudioSpec | null): string {
   if (!spec) return `[Studio scene${title ? `: ${title}` : ''}]`;
-  return `[Studio scene${title ? `: ${title}` : ''} — ${spec.state}, one ${spec.unit} at a time from ${spec.slots[0]} to ${spec.slots[spec.slots.length - 1]}: ${spec.steps.map((s) => s.title).join(' → ')}]`;
+  const where = spec.space && !spec.show ? `in a 3-D space with ${spec.space.things.length} things` : `one ${spec.unit} at a time from ${spec.slots[0]} to ${spec.slots[spec.slots.length - 1]}`;
+  return `[Studio scene${title ? `: ${title}` : ''} — ${spec.state}, ${where}: ${spec.steps.map((s) => s.title).join(' → ')}]`;
 }

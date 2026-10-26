@@ -13,13 +13,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { frameAt, frameAtSlot, readoutsAt, stepAt, stepStarts, walkAt } from '../lib/studio';
-import type { StudioSpec } from '../lib/studio';
+import type { StudioShow, StudioSpec } from '../lib/studio';
+import { StudioSpaceView } from './StudioSpace';
 import { FrameCanvas, toneOf } from './StudioFrame';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, SparkleIcon } from './icons';
 
-export type StudioView = 'row' | 'wall' | 'strip';
+export type StudioView = 'space' | 'row' | 'wall' | 'strip';
 const VIEWS: { id: StudioView; label: string; note: string }[] = [
+  { id: 'space', label: 'Space', note: 'The room: the things the scene placed in 3-D, moving as the walk goes' },
   { id: 'row', label: 'Row', note: 'The slots across the screen, the state carried left to right' },
   { id: 'wall', label: 'Wall', note: 'The slots receding into the screen along one wall, the state carried toward you' },
   { id: 'strip', label: 'Strip', note: 'Every slot side by side, flat' },
@@ -28,7 +30,7 @@ const VIEW_KEY = 'reader.studio.view';
 const readView = (): StudioView => {
   try {
     const stored = localStorage.getItem(VIEW_KEY);
-    if (stored === 'row' || stored === 'wall' || stored === 'strip') return stored;
+    if (stored === 'space' || stored === 'row' || stored === 'wall' || stored === 'strip') return stored;
   } catch {
     // private mode
   }
@@ -70,7 +72,7 @@ const DEFAULT_CAMERA = { zoom: 1, x: 0, y: 0, orbit: 0 };
 type Camera = typeof DEFAULT_CAMERA;
 const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 
-function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: StudioView; seed: number }) {
+function Stage({ spec, p, view, seed, onSlot }: { spec: StudioSpec & { show: StudioShow }; p: number; view: 'row' | 'wall' | 'strip'; seed: number; /** A click on a slot: go there. */ onSlot: (slot: number) => void }) {
   const n = spec.slots.length;
   const walk = walkAt(p, n);
   const tone = toneOf(spec);
@@ -81,12 +83,14 @@ function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: Stu
   // the keyboard, and a double click puts it back. The strip is flat: there, a drag pans.
   const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA);
   const sceneRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; camera: Camera; pan: boolean } | null>(null);
+  const drag = useRef<{ x: number; y: number; camera: Camera; pan: boolean; moved: boolean; /** The slot under the press, if any: picked on release when the press did not travel. */ slot?: number } | null>(null);
   useEffect(() => setCamera(DEFAULT_CAMERA), [view]);
   const onPointerDown = (event: React.PointerEvent) => {
     if (event.button !== 0 && event.button !== 1) return;
     if ((event.target as HTMLElement).closest('button')) return;
-    drag.current = { x: event.clientX, y: event.clientY, camera, pan: view === 'strip' || event.button === 1 || event.shiftKey };
+    // Which slot is under the press is read now: once the pointer is captured, the release is retargeted to the stage.
+    const under = (event.target as HTMLElement).closest<HTMLElement>('[data-slot]');
+    drag.current = { x: event.clientX, y: event.clientY, camera, pan: view === 'strip' || event.button === 1 || event.shiftKey, moved: false, ...(under ? { slot: Number(under.dataset.slot) } : {}) };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   };
   const onPointerMove = (event: React.PointerEvent) => {
@@ -94,11 +98,17 @@ function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: Stu
     if (!d) return;
     const dx = event.clientX - d.x;
     const dy = event.clientY - d.y;
+    // A click is a press that does not travel; past a few pixels it is a drag, and no slot is picked on release.
+    if (Math.hypot(dx, dy) > 4) d.moved = true;
+    if (!d.moved) return;
     if (d.pan) setCamera({ ...d.camera, x: d.camera.x + dx, y: d.camera.y + dy });
     else setCamera({ ...d.camera, orbit: Math.max(-40, Math.min(40, d.camera.orbit + dx * 0.15)) });
   };
   const onPointerUp = () => {
+    const d = drag.current;
     drag.current = null;
+    // A click on a slot goes there: the walk jumps to that slot and the state in hand becomes what stands on it.
+    if (d && !d.moved && d.slot !== undefined) onSlot(d.slot);
   };
   // The wheel is listened to by hand: React's wheel handler is passive, and the page must not scroll under the stage.
   useEffect(() => {
@@ -158,7 +168,7 @@ function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: Stu
             {spec.slots.map((label, i) => {
               const held = i === walk.slot && walk.phase !== 'setdown';
               return (
-                <div key={i} role="listitem" className={`studio-strip-slot${i < walk.position - 0.35 ? ' is-passed' : ''}${held ? ' is-held' : ''}`}>
+                <div key={i} role="listitem" data-slot={i} className={`studio-strip-slot${i < walk.position - 0.35 ? ' is-passed' : ''}${held ? ' is-held' : ''}`} title={`Go to ${label}`}>
                   <FrameCanvas frame={held ? carried : slotFrames[i]} tone={tone} label={`${spec.state} at ${label}`} />
                   <span className="studio-slot-label">{label}</span>
                 </div>
@@ -208,7 +218,7 @@ function Stage({ spec, p, view, seed }: { spec: StudioSpec; p: number; view: Stu
               const passed = i < walk.position - 0.35 && i > 0;
               const empty = (i === 0 && p < 1 - LIFT_SPAN_EPS) || (i === n - 1 && p < 1 - LIFT_SPAN_EPS);
               return (
-                <div key={i} className={`studio-slot${passed ? ' is-passed' : ''}${empty ? ' is-empty' : ''}`} style={{ transform: `translate3d(${x}px, 0, ${z}px)${view === 'wall' ? ' rotateY(90deg)' : ''}` }}>
+                <div key={i} data-slot={i} className={`studio-slot${passed ? ' is-passed' : ''}${empty ? ' is-empty' : ''}`} style={{ transform: `translate3d(${x}px, 0, ${z}px)${view === 'wall' ? ' rotateY(90deg)' : ''}` }} title={`Go to ${label}`}>
                   <FrameCanvas frame={slotFrames[i]} tone={tone} label={`${spec.state} at ${label}`} />
                   {empty ? <div className="studio-ghost" /> : null}
                   <div className="studio-stand" />
@@ -240,7 +250,13 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
   const n = spec.slots.length;
   const [p, setP] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [view, setView] = useState<StudioView>(() => (reducedMotion() ? 'strip' : readView()));
+  // The views this scene offers: the room when it has a space, the walk's layouts when it has a show.
+  const views = useMemo(() => VIEWS.filter((item) => (item.id === 'space' ? Boolean(spec.space) : Boolean(spec.show))), [spec]);
+  const [view, setView] = useState<StudioView>(() => {
+    const wanted = reducedMotion() ? 'strip' : readView();
+    if (views.some((item) => item.id === wanted)) return wanted;
+    return spec.space ? 'space' : reducedMotion() ? 'strip' : 'row';
+  });
   const [seed, setSeed] = useState(1);
   const step = stepAt(spec, p);
   const starts = useMemo(() => stepStarts(spec), [spec]);
@@ -319,7 +335,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
           {title || spec.state}
         </span>
         <div className="segmented" role="group" aria-label="How the slots are laid out">
-          {VIEWS.map((item) => (
+          {views.map((item) => (
             <button key={item.id} type="button" aria-pressed={view === item.id} onClick={() => setView(item.id)} title={item.note}>
               {item.label}
             </button>
@@ -354,7 +370,7 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
           <p className="studio-state">
             {n} · one {spec.unit} each
           </p>
-          {spec.show.kind === 'noise' ? (
+          {spec.show?.kind === 'noise' || spec.space?.things.some((thing) => thing.kind === 'panel' && thing.show.kind === 'noise') ? (
             <button type="button" className="btn sm ghost" onClick={() => setSeed((s) => s + 1)} title="Draw the noise again from a different seed">
               Reroll the noise
             </button>
@@ -367,20 +383,29 @@ export function Studio({ spec, title, kicker, onClose }: { spec: StudioSpec; tit
             </span>
             {current?.equation ? <Equation tex={current.equation} /> : null}
           </div>
-          <Stage spec={spec} p={p} view={view} seed={seed} />
+          {view === 'space' && spec.space ? <StudioSpaceView spec={spec} p={p} seed={seed} /> : spec.show ? <Stage spec={{ ...spec, show: spec.show }} p={p} view={view === 'space' ? 'row' : view} seed={seed} onSlot={toSlot} /> : null}
           <div className="studio-story">
             {spec.steps.map((item, i) => (
-              <div key={i} className={`studio-story-step${i === step ? ' is-on' : ''}`}>
+              <button
+                key={i}
+                type="button"
+                className={`studio-story-step${i === step ? ' is-on' : ''}`}
+                title={`Go to step ${i + 1}`}
+                onClick={() => {
+                  setPlaying(false);
+                  setP(starts[i]);
+                }}
+              >
                 <b>
                   {i + 1} · {item.title}
                 </b>
                 {item.note ? <span>{item.note}</span> : null}
-              </div>
+              </button>
             ))}
           </div>
           <div className="studio-hint">
             <kbd>space</kbd> play · <kbd>[</kbd>
-            <kbd>]</kbd> a {spec.unit} back or on · scroll to zoom · {view !== 'strip' ? 'drag to orbit · shift-drag to pan' : 'drag to pan'} · <kbd>0</kbd> reset
+            <kbd>]</kbd> a {spec.unit} back or on · scroll to zoom · {view === 'space' ? 'drag to orbit · right-drag or shift-drag to pan' : view !== 'strip' ? 'drag to orbit · shift-drag to pan' : 'drag to pan'} · <kbd>0</kbd> reset
           </div>
         </div>
         <aside className="studio-inspector">
