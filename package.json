@@ -42,7 +42,7 @@
     "@types/three": "^0.186.0",
     "@types/vscode": "^1.85.0",
     "@vitejs/plugin-react": "^4.7.0",
-    "esbuild": "^0.21.5",
+    "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.20",
