@@ -373,6 +373,19 @@ describe('where everyone is', () => {
     assert.equal(priya.lastPlace.path, 'main.tex');
   });
 
+  it('forgets a last-seen time after 30 days, as the privacy policy says', async () => {
+    const { e, room, owner, object, sockets, close } = await setUp();
+    await close(sockets.priya);
+    const key = 'seen:priya@x.org';
+    const kept = await object.state.storage.get(key);
+    assert.ok(kept.at > 0);
+    await object.state.storage.put(key, { ...kept, at: Date.now() - 31 * 24 * 60 * 60 * 1000 });
+    const state = await (await call(e, `/rooms/${room}`, { pass: owner })).json();
+    const priya = state.members.find((m) => m.email === 'priya@x.org');
+    assert.equal(priya.lastSeen ?? null, null);
+    assert.equal(await object.state.storage.get(key), undefined);
+  });
+
   it('closes a removed member’s sockets and tells the rest', async () => {
     const { e, room, owner, object, sockets } = await setUp();
     await call(e, `/rooms/${room}/remove`, { pass: owner, body: { email: 'priya@x.org' } });

@@ -1276,7 +1276,7 @@ export default function Settings({ onClose, at }: { onClose: () => void; at?: Se
 
       <Card
         title="Keys"
-        note="Claude, DeepSeek and Gemini run on the site’s own keys by default — held by your paper proxy (ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY), which never reach this page. To spend your own account instead, press “Use my own key” on Claude or DeepSeek: your key is kept in this browser only and sent straight to api.anthropic.com or api.deepseek.com. Forget it to go back to the site’s."
+        note={`${providerOff('deepseek') ? 'Claude and Gemini run' : 'Claude, DeepSeek and Gemini run'} on the site’s own keys by default — held by your paper proxy (${providerOff('deepseek') ? 'ANTHROPIC_KEY, GEMINI_KEY' : 'ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY'}), which never reach this page. To spend your own account instead, press “Use my own key” on ${providerOff('deepseek') ? 'Claude: your key is kept in this browser only and sent straight to api.anthropic.com' : 'Claude or DeepSeek: your key is kept in this browser only and sent straight to api.anthropic.com or api.deepseek.com'}. Forget it to go back to the site’s.`}
       >
         {PROVIDER_IDS.filter((provider) => !providerOff(provider)).map((provider) => (
           <KeyRow key={provider} provider={provider} />
