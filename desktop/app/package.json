@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@recallai/desktop-sdk": "2.0.39",
-    "electron-updater": "6.8.10"
+    "electron-updater": "6.8.11"
   },
   "devDependencies": {
     "electron": "44.9.3",
