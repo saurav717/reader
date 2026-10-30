@@ -28,6 +28,9 @@ export const CITE_AI_ORDER = [
 
 export type CiteAiProvider = (typeof CITE_AI_ORDER)[number]['provider'];
 
+/** The providers actually asked here: the order above, less any the site has turned off (DeepSeek, unless its owner has it on). */
+export const citeAiOrder = (off: (provider: CiteAiProvider) => boolean) => CITE_AI_ORDER.filter(({ provider }) => !off(provider));
+
 const DEEPSEEK_BALANCE = 'https://api.deepseek.com/user/balance';
 
 export const CITE_AI_SYSTEM = `You find the citation of a research paper: one BibTeX entry, correct and complete, as a
@@ -129,7 +132,7 @@ export async function askAiForCitation(paper: Paper, { onTrying }: { onTrying?: 
   const assistant = await import('./assistant');
   const state = assistant.getState();
   const tried: string[] = [];
-  for (const { provider, model, name } of CITE_AI_ORDER) {
+  for (const { provider, model, name } of citeAiOrder(assistant.providerOff)) {
     if (!state.keys[provider]) {
       tried.push(`${name}: no key`);
       continue;

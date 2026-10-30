@@ -630,7 +630,14 @@ export function refreshKeys(): void {
 const ownKeys = () => Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
 /** Whether each provider can answer from here: a key of this browser's own, or the site's, on a proxy ready to ask with it. */
 const usableKeys = (own: Record<Provider, boolean>, site: Record<Provider, SiteReadiness>) =>
-  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, site[provider] !== 'off' && (own[provider] || site[provider] === 'ready')])) as Record<Provider, boolean>;
+  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, !offFor(provider, site[provider]) && (own[provider] || site[provider] === 'ready')])) as Record<Provider, boolean>;
+/**
+ * Whether a provider is off for the whole site, whatever keys there are. DeepSeek fails closed: it is off unless
+ * the proxy's /health has said in so many words that the owner's switch is on (api.ts, ProxyHealth.deepseek) —
+ * so while the answer is still coming, and on a build with no proxy at all, nothing goes to it, not even on a
+ * key of this browser's own. The other providers are off only when the site says so.
+ */
+const offFor = (provider: Provider, readiness: SiteReadiness) => (provider === 'deepseek' ? readiness === 'off' || readiness === 'checking' || readiness === 'no-proxy' : readiness === 'off');
 /** Whether an answer from this provider goes through the proxy, on the site's key, rather than straight there on this browser's own. */
 export const onSiteKey = (provider: Provider) => !keyFor(provider);
 
@@ -669,8 +676,8 @@ export async function checkSite() {
   );
 }
 
-/** Whether a provider is turned off for the whole site, whatever keys there are: DeepSeek, by the owner's switch. */
-export const providerOff = (provider: Provider) => state.site[provider] === 'off';
+/** Whether a provider is turned off for the whole site, whatever keys there are: DeepSeek, by the owner's switch (and until the proxy has confirmed it is on). */
+export const providerOff = (provider: Provider) => offFor(provider, state.site[provider]);
 
 /** The models a picker offers: every one, less those of a provider the site has turned off. */
 export const offeredModels = (): readonly ModelSpec[] => MODELS.filter((m) => !providerOff(m.provider));
@@ -714,7 +721,7 @@ function setSite(site: Record<Provider, SiteReadiness>) {
   const keys = usableKeys(state.own, site);
   // A model of a provider the site has turned off is not a choice any more: the chat, Explain and the ask
   // bars go back to the default, so nothing is sent to it from a preference kept before the switch.
-  const offered = (id: string | undefined) => (id && site[modelSpec(id).provider] !== 'off' ? id : undefined);
+  const offered = (id: string | undefined) => (id && !offFor(modelSpec(id).provider, site[modelSpec(id).provider]) ? id : undefined);
   const { explainModel, askModel, ...rest } = state.prefs;
   const prefs: Prefs = { ...rest, model: offered(state.prefs.model) ?? DEFAULT_MODEL, ...(offered(explainModel) ? { explainModel } : {}), ...(offered(askModel) ? { askModel } : {}) };
   const changed = prefs.model !== state.prefs.model || prefs.explainModel !== explainModel || prefs.askModel !== askModel;

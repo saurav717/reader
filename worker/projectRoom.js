@@ -29,6 +29,8 @@ export const PALETTE = ['#8a3a6e', '#b27414', '#2d64a0', '#1f8a70', '#a0462d', '
 
 /** How long without a word before a member's place is dropped by a page that reads it. */
 export const AWAY_MS = 60_000;
+/** How long a member's last-seen time is kept after they were last here. */
+const SEEN_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
 
 const ROLES = new Set(['owner', 'editor', 'viewer']);
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
@@ -115,9 +117,16 @@ export class ProjectRoom {
     const rows = await this.state.storage.list({ prefix: 'invite:' });
     return [...rows.values()];
   }
+  /** When each member was last here, and where: kept 30 days (the privacy policy's retention table), the older rows deleted as they are read past. */
   async seen() {
     const rows = await this.state.storage.list({ prefix: 'seen:' });
-    return Object.fromEntries([...rows.entries()].map(([key, value]) => [key.slice('seen:'.length), value]));
+    const cutoff = Date.now() - SEEN_KEPT_MS;
+    const kept = [];
+    for (const [key, value] of rows.entries()) {
+      if (value && value.at >= cutoff) kept.push([key.slice('seen:'.length), value]);
+      else await this.state.storage.delete(key);
+    }
+    return Object.fromEntries(kept);
   }
 
   /** What a member's page is handed: the room, its members with where each is, and — for the owner — the invitations and the link. */

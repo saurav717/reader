@@ -10,6 +10,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { CITE_FORMATS, citationAs, citationState, keyOf, type CiteFormat } from '../lib/citeRecord';
+import { citeAiOrder } from '../lib/citeAi';
+import { providerOff } from '../lib/assistant';
 import { CITATION_DEFAULTS, type Paper, type PaperRef } from '../types';
 import { ChevronDownIcon } from './icons';
 
@@ -113,9 +115,9 @@ export default function CiteMenu({ paper, compact = false, label = 'Cite', align
           {onLookup && inLibrary ? (
             <>
               <hr />
-              <button type="button" role="menuitem" disabled={asking} onClick={() => void askAi()} title="DeepSeek first, then Claude, then Gemini — whichever has a key and credit left. Claude and DeepSeek search the web; the entry is kept as this paper's and used from now on.">
+              <button type="button" role="menuitem" disabled={asking} onClick={() => void askAi()} title={`${citeAiOrder(providerOff).map(({ name }) => name).join(', then ')} — whichever has a key and credit left. The entry is kept as this paper's and used from now on.`}>
                 <span>{asking ? 'Asking AI…' : state.source === 'ai' ? 'Ask AI again' : 'Ask AI to find it'}</span>
-                <small className="cite-menu-note">searches the web · DeepSeek, Claude, Gemini</small>
+                <small className="cite-menu-note">searches the web · {citeAiOrder(providerOff).map(({ name }) => name).join(', ')}</small>
               </button>
               {aiError ? <div className="cite-menu-error">{aiError}</div> : null}
             </>
